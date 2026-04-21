@@ -1,0 +1,45 @@
+version: '2'
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - revive
+    - gosec
+    - misspell
+    - unconvert
+    - unparam
+    - nakedret
+    - gocritic
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    
+    govet:
+      enable-all: true
+    
+    revive:
+      confidence: 0.8
+    
+    gosec:
+      severity: medium
+      confidence: medium
+    
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+
+issues:
+  max-same-issues: 0
+
+run:
+  timeout: 5m
+  go: '1.25'
