@@ -17,9 +17,9 @@ func newJumphostCmd() *cobra.Command {
 	options := jumphost.Options{}
 
 	cmd := &cobra.Command{
-		Use:   "jumphost [eks|rds] [name] [local-port]",
-		Short: "Connect to EKS or RDS through SSM jumphost",
-		Long: "Simple utility to connect to a remote resource (EKS, RDS) through SSM Session Manager. " +
+		Use:   "jumphost [eks|rds|elasticache] [name] [local-port]",
+		Short: "Connect to EKS, RDS, or ElastiCache through SSM jumphost",
+		Long: "Simple utility to connect to a remote resource (EKS, RDS, ElastiCache) through SSM Session Manager. " +
 			"When values are omitted in an interactive shell, the command prompts for them.",
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -95,10 +95,10 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {
 	file, ok := in.(*os.File)
 	if !ok || !term.IsTerminal(int(file.Fd())) {
-		return "", fmt.Errorf("resource type is required (expected eks or rds)")
+		return "", fmt.Errorf("resource type is required (expected eks, rds or elasticache)")
 	}
 
-	_, _ = fmt.Fprint(out, "Please specify resource type (eks|rds): ")
+	_, _ = fmt.Fprint(out, "Please specify resource type (eks|rds|elasticache): ")
 	var value string
 	_, err := fmt.Fscanln(in, &value)
 	if err != nil {
@@ -106,8 +106,8 @@ func promptResourceType(in io.Reader, out io.Writer) (string, error) {
 	}
 
 	value = strings.ToLower(strings.TrimSpace(value))
-	if value != "eks" && value != "rds" {
-		return "", fmt.Errorf("invalid resource type %q (expected eks or rds)", value)
+	if value != "eks" && value != "rds" && value != "elasticache" {
+		return "", fmt.Errorf("invalid resource type %q (expected eks, rds or elasticache)", value)
 	}
 
 	return value, nil

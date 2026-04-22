@@ -4,14 +4,17 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/example/acme-cli/internal/jumphost"
 )
 
 type ssmOutputMsg struct {
@@ -30,6 +33,8 @@ type ssmModel struct {
 	ctx         context.Context
 	awsArgs     []string
 	commandArgs []string
+	details     jumphost.SessionDetails
+	out         io.Writer
 	events      chan tea.Msg
 	viewport    viewport.Model
 	lines       []string
@@ -41,17 +46,20 @@ type ssmModel struct {
 	finished    bool
 	finishErr   error
 	runningCmd  *exec.Cmd
+	startedAt   time.Time
+	endedAt     time.Time
 	styles      Styles
 }
 
-func RunSSMSessionTUI(ctx context.Context, awsArgs []string, commandArgs []string, _ io.Reader, out io.Writer, errOut io.Writer) error {
-	_ = out
+func RunSSMSessionTUI(ctx context.Context, awsArgs []string, commandArgs []string, details jumphost.SessionDetails, _ io.Reader, out io.Writer, errOut io.Writer) error {
 	_ = errOut
 
 	model := ssmModel{
 		ctx:         ctx,
 		awsArgs:     append([]string{}, awsArgs...),
 		commandArgs: append([]string{}, commandArgs...),
+		details:     details,
+		out:         out,
 		events:      make(chan tea.Msg, 256),
 		styles:      NewStyles(),
 	}
@@ -69,15 +77,21 @@ func RunSSMSessionTUI(ctx context.Context, awsArgs []string, commandArgs []strin
 
 	if result.finishErr != nil {
 		if result.stopping {
+			result.printSessionSummary()
 			return nil
 		}
 		return result.finishErr
+	}
+
+	if result.finished || result.stopping {
+		result.printSessionSummary()
 	}
 
 	return nil
 }
 
 func (m ssmModel) Init() tea.Cmd {
+	m.startedAt = time.Now()
 	m.viewport = viewport.New(0, 0)
 	m.viewport.SetContent("Starting session...")
 	m.launchCommand()
@@ -103,6 +117,7 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitSSMEvent(m.events)
 	case ssmFinishedMsg:
 		m.finished = true
+		m.endedAt = time.Now()
 		m.finishErr = msg.err
 		if msg.err != nil {
 			m.lines = append(m.lines, "", "Session ended with error: "+msg.err.Error())
@@ -188,6 +203,9 @@ func (m ssmModel) View() string {
 			no = m.styles.Subtitle.Render("[ No ]")
 		}
 		content += "\n\n" + m.styles.Title.Render("Do you want to quit?") + "\n" + yes + "  " + no
+		if strings.TrimSpace(m.details.RestartCommand) != "" {
+			content += "\n" + m.styles.Muted.Render("New session: "+m.details.RestartCommand)
+		}
 	}
 
 	if m.stopping && !m.finished {
@@ -276,4 +294,34 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (m ssmModel) printSessionSummary() {
+	if m.out == nil {
+		return
+	}
+
+	start := m.startedAt
+	if start.IsZero() {
+		start = time.Now()
+	}
+	end := m.endedAt
+	if end.IsZero() {
+		end = time.Now()
+	}
+	duration := end.Sub(start).Round(time.Second)
+	if duration < 0 {
+		duration = 0
+	}
+
+	server := strings.TrimSpace(m.details.ConnectedServer)
+	if server == "" {
+		server = "n/a"
+	}
+
+	_, _ = fmt.Fprintf(m.out, "\nSession summary:\n- duration: %s\n- server connected: %s\n", duration, server)
+
+	if strings.TrimSpace(m.details.RestartCommand) != "" {
+		_, _ = fmt.Fprintf(m.out, "- new session command: %s\n", m.details.RestartCommand)
+	}
 }

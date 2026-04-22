@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	resourceEKS       = "eks"
-	resourceRDS       = "rds"
-	defaultRegion     = "eu-west-3"
-	defaultAwsProfile = "default"
+	resourceEKS         = "eks"
+	resourceRDS         = "rds"
+	resourceElastiCache = "elasticache"
+	defaultRegion       = "eu-west-3"
+	defaultAwsProfile   = "default"
 )
 
 type Options struct {
@@ -49,7 +50,12 @@ type RunnerOptions struct {
 	SessionExecutor SessionExecutor
 }
 
-type SessionExecutor func(ctx context.Context, awsArgs []string, commandArgs []string, in io.Reader, out io.Writer, errOut io.Writer) error
+type SessionDetails struct {
+	ConnectedServer string
+	RestartCommand  string
+}
+
+type SessionExecutor func(ctx context.Context, awsArgs []string, commandArgs []string, details SessionDetails, in io.Reader, out io.Writer, errOut io.Writer) error
 
 type Runner struct {
 	in              io.Reader
@@ -87,8 +93,8 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
-	if resourceType != resourceEKS && resourceType != resourceRDS {
-		return fmt.Errorf("unsupported resource type %q (supported: eks, rds)", options.ResourceType)
+	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
+		return fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
 	cfg, err := r.resolveAWSConfig(ctx, options)
@@ -104,15 +110,32 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 	var sessionDisplayName string
 	var sessionInfo []string
 	var ssmParameters map[string][]string
+	resolvedTargetName := strings.TrimSpace(options.Name)
 
 	switch resourceType {
 	case resourceRDS:
-		sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareRDS(ctx, cfg, options)
+		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareRDS(ctx, cfg, options)
 	case resourceEKS:
-		sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareEKS(ctx, cfg, options)
+		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareEKS(ctx, cfg, options)
+	case resourceElastiCache:
+		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareElastiCache(ctx, cfg, options)
 	}
 	if err != nil {
 		return err
+	}
+
+	localPort := firstValue(ssmParameters, "localPortNumber")
+	remotePort := firstValue(ssmParameters, "portNumber")
+	host := strings.TrimSpace(firstValue(ssmParameters, "host"))
+	connectedServer := host
+	if connectedServer != "" && strings.TrimSpace(remotePort) != "" {
+		connectedServer = fmt.Sprintf("%s:%s", connectedServer, strings.TrimSpace(remotePort))
+	}
+
+	restartCommand := buildRestartCommand(resourceType, resolvedTargetName, localPort, cfg)
+	sessionDetails := SessionDetails{
+		ConnectedServer: connectedServer,
+		RestartCommand:  restartCommand,
 	}
 
 	parameters, err := json.Marshal(ssmParameters)
@@ -135,7 +158,7 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 	}
 
 	if r.sessionExecutor != nil {
-		return r.sessionExecutor(ctx, cfg.Args, ssmCommandArgs, r.in, r.out, r.err)
+		return r.sessionExecutor(ctx, cfg.Args, ssmCommandArgs, sessionDetails, r.in, r.out, r.err)
 	}
 
 	return r.runAWSStreaming(ctx, cfg.Args, ssmCommandArgs...)
@@ -236,8 +259,8 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
-	if resourceType != resourceEKS && resourceType != resourceRDS {
-		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds)", options.ResourceType)
+	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
+		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
 	cfg, err := r.resolveAWSConfig(ctx, options)
@@ -316,9 +339,35 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 			return resources[i].Name < resources[j].Name
 		})
 		return resources, nil
+	case resourceElastiCache:
+		resources, err := r.listElastiCacheResources(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return resources, nil
 	default:
 		return nil, fmt.Errorf("unsupported resource type %q", options.ResourceType)
 	}
+}
+
+func formatElastiCacheResourceDescription(host string, port int, status string) string {
+	parts := make([]string, 0, 3)
+
+	host = strings.TrimSpace(host)
+	if host != "" {
+		if port > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", host, port))
+		} else {
+			parts = append(parts, host)
+		}
+	}
+
+	status = strings.TrimSpace(status)
+	if status != "" {
+		parts = append(parts, status)
+	}
+
+	return strings.Join(parts, " | ")
 }
 
 func formatRDSResourceDescription(engine string, engineVersion string, host string, port int, sizeGiB int, status string) string {
@@ -361,6 +410,70 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 	switch resourceType {
 	case resourceEKS:
 		return 9444, nil
+	case resourceElastiCache:
+		name := strings.TrimSpace(options.Name)
+		if name == "" {
+			return 0, errors.New("ElastiCache cluster name is required")
+		}
+
+		cfg, err := r.resolveAWSConfig(ctx, options)
+		if err != nil {
+			return 0, err
+		}
+
+		// Try replication group first.
+		rawPort, err := r.runAWSCapture(ctx, cfg.Args,
+			"elasticache", "describe-replication-groups",
+			"--replication-group-id", name,
+			"--query", "ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Port",
+			"--output", "text",
+		)
+		if err == nil {
+			rawPort = strings.TrimSpace(rawPort)
+			if rawPort != "" && !strings.EqualFold(rawPort, "none") {
+				port := 0
+				if _, scanErr := fmt.Sscanf(rawPort, "%d", &port); scanErr == nil && port > 0 {
+					return port, nil
+				}
+			}
+		}
+
+		// Try standalone cache cluster.
+		rawPort, err = r.runAWSCapture(ctx, cfg.Args,
+			"elasticache", "describe-cache-clusters",
+			"--cache-cluster-id", name,
+			"--show-cache-node-info",
+			"--query", "CacheClusters[0].CacheNodes[0].Endpoint.Port",
+			"--output", "text",
+		)
+		if err == nil {
+			rawPort = strings.TrimSpace(rawPort)
+			if rawPort != "" && !strings.EqualFold(rawPort, "none") {
+				port := 0
+				if _, scanErr := fmt.Sscanf(rawPort, "%d", &port); scanErr == nil && port > 0 {
+					return port, nil
+				}
+			}
+		}
+
+		// Try serverless cache.
+		rawPort, err = r.runAWSCapture(ctx, cfg.Args,
+			"elasticache", "describe-serverless-caches",
+			"--serverless-cache-name", name,
+			"--query", "ServerlessCaches[0].Endpoint.Port",
+			"--output", "text",
+		)
+		if err == nil {
+			rawPort = strings.TrimSpace(rawPort)
+			if rawPort != "" && !strings.EqualFold(rawPort, "none") {
+				port := 0
+				if _, scanErr := fmt.Sscanf(rawPort, "%d", &port); scanErr == nil && port > 0 {
+					return port, nil
+				}
+			}
+		}
+
+		return 6379, nil
 	case resourceRDS:
 		name := strings.TrimSpace(options.Name)
 		if name == "" {
@@ -396,7 +509,7 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 
 		return instance.Endpoint.Port, nil
 	default:
-		return 0, fmt.Errorf("unsupported resource type %q (supported: eks, rds)", options.ResourceType)
+		return 0, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 }
 
@@ -487,7 +600,7 @@ func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, erro
 	return jumphostID, nil
 }
 
-func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options) (string, []string, map[string][]string, error) {
+func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -496,7 +609,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			"--output", "json",
 		)
 		if err != nil {
-			return "", nil, nil, err
+			return "", "", nil, nil, err
 		}
 
 		var instances []struct {
@@ -505,10 +618,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			Port    int    `json:"port"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return "", nil, nil, fmt.Errorf("failed to parse RDS instances: %w", err)
+			return "", "", nil, nil, fmt.Errorf("failed to parse RDS instances: %w", err)
 		}
 		if len(instances) == 0 {
-			return "", nil, nil, errors.New("no RDS instance found")
+			return "", "", nil, nil, errors.New("no RDS instance found")
 		}
 		if len(instances) == 1 {
 			name = instances[0].Name
@@ -520,10 +633,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			sort.Strings(names)
 			selectedName, err := r.selectName("RDS instances", names, "Please specify the RDS instance name to connect to")
 			if err != nil {
-				return "", nil, nil, err
+				return "", "", nil, nil, err
 			}
 			if selectedName == "" {
-				return "", nil, nil, errors.New("RDS instance name is required")
+				return "", "", nil, nil, errors.New("RDS instance name is required")
 			}
 			name = selectedName
 		}
@@ -536,7 +649,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		"--output", "json",
 	)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 
 	var instance struct {
@@ -548,10 +661,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		} `json:"Endpoint"`
 	}
 	if err := json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-		return "", nil, nil, fmt.Errorf("failed to parse RDS instance details: %w", err)
+		return "", "", nil, nil, fmt.Errorf("failed to parse RDS instance details: %w", err)
 	}
 	if instance.Endpoint.Address == "" || instance.Endpoint.Port == 0 {
-		return "", nil, nil, errors.New("RDS instance endpoint is missing")
+		return "", "", nil, nil, errors.New("RDS instance endpoint is missing")
 	}
 
 	localPort := options.LocalPortNumber
@@ -586,10 +699,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return displayName, sessionInfo, params, nil
+	return instance.DBInstanceIdentifier, displayName, sessionInfo, params, nil
 }
 
-func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options) (string, []string, map[string][]string, error) {
+func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -598,17 +711,17 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 			"--output", "json",
 		)
 		if err != nil {
-			return "", nil, nil, err
+			return "", "", nil, nil, err
 		}
 
 		var clusters []struct {
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return "", nil, nil, fmt.Errorf("failed to parse EKS clusters: %w", err)
+			return "", "", nil, nil, fmt.Errorf("failed to parse EKS clusters: %w", err)
 		}
 		if len(clusters) == 0 {
-			return "", nil, nil, errors.New("no EKS cluster found")
+			return "", "", nil, nil, errors.New("no EKS cluster found")
 		}
 		if len(clusters) == 1 {
 			name = clusters[0].Name
@@ -620,10 +733,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 			sort.Strings(names)
 			selectedName, err := r.selectName("EKS clusters", names, "Please specify the EKS cluster name to connect to")
 			if err != nil {
-				return "", nil, nil, err
+				return "", "", nil, nil, err
 			}
 			if selectedName == "" {
-				return "", nil, nil, errors.New("EKS cluster name is required")
+				return "", "", nil, nil, errors.New("EKS cluster name is required")
 			}
 			name = selectedName
 		}
@@ -636,7 +749,7 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"--output", "json",
 	)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 
 	var cluster struct {
@@ -644,10 +757,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		Endpoint string `json:"endpoint"`
 	}
 	if err := json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
-		return "", nil, nil, fmt.Errorf("failed to parse EKS cluster details: %w", err)
+		return "", "", nil, nil, fmt.Errorf("failed to parse EKS cluster details: %w", err)
 	}
 	if cluster.Endpoint == "" {
-		return "", nil, nil, errors.New("EKS cluster endpoint is missing")
+		return "", "", nil, nil, errors.New("EKS cluster endpoint is missing")
 	}
 
 	localPort := options.LocalPortNumber
@@ -662,7 +775,307 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return displayName, nil, params, nil
+	return cluster.Name, displayName, nil, params, nil
+}
+
+func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, error) {
+	name := strings.TrimSpace(options.Name)
+	if name == "" {
+		resources, err := r.listElastiCacheResources(ctx, cfg)
+		if err != nil {
+			return "", "", nil, nil, err
+		}
+		if len(resources) == 0 {
+			return "", "", nil, nil, errors.New("no ElastiCache cluster found")
+		}
+		if len(resources) == 1 {
+			name = resources[0].Name
+		} else {
+			names := make([]string, 0, len(resources))
+			for _, r := range resources {
+				names = append(names, r.Name)
+			}
+			selectedName, err := r.selectName("ElastiCache clusters", names, "Please specify the cluster name to connect to")
+			if err != nil {
+				return "", "", nil, nil, err
+			}
+			if selectedName == "" {
+				return "", "", nil, nil, errors.New("ElastiCache cluster name is required")
+			}
+			name = selectedName
+		}
+	}
+
+	// Try replication group first.
+	rawGroup, err := r.runAWSCapture(ctx, cfg.Args,
+		"elasticache", "describe-replication-groups",
+		"--replication-group-id", name,
+		"--query", "ReplicationGroups[0]",
+		"--output", "json",
+	)
+	if err == nil && strings.TrimSpace(rawGroup) != "" && !strings.EqualFold(strings.TrimSpace(rawGroup), "null") {
+		var group struct {
+			ReplicationGroupId string `json:"ReplicationGroupId"`
+			Status             string `json:"Status"`
+			NodeGroups         []struct {
+				PrimaryEndpoint struct {
+					Address string `json:"Address"`
+					Port    int    `json:"Port"`
+				} `json:"PrimaryEndpoint"`
+			} `json:"NodeGroups"`
+		}
+		if jsonErr := json.Unmarshal([]byte(rawGroup), &group); jsonErr == nil &&
+			len(group.NodeGroups) > 0 && group.NodeGroups[0].PrimaryEndpoint.Address != "" {
+			endpoint := group.NodeGroups[0].PrimaryEndpoint
+			localPort := options.LocalPortNumber
+			if localPort <= 0 {
+				localPort = endpoint.Port
+			}
+			if localPort <= 0 {
+				localPort = 6379
+			}
+			displayName := fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d",
+				group.ReplicationGroupId, endpoint.Address, endpoint.Port, localPort)
+			sessionInfo := []string{
+				fmt.Sprintf("host:port  = localhost:%d", localPort),
+				fmt.Sprintf("remote     = %s:%d", endpoint.Address, endpoint.Port),
+			}
+			params := map[string][]string{
+				"host":            {endpoint.Address},
+				"portNumber":      {fmt.Sprintf("%d", endpoint.Port)},
+				"localPortNumber": {fmt.Sprintf("%d", localPort)},
+			}
+			return group.ReplicationGroupId, displayName, sessionInfo, params, nil
+		}
+	}
+
+	// Fall back to standalone cache cluster.
+	rawCluster, err := r.runAWSCapture(ctx, cfg.Args,
+		"elasticache", "describe-cache-clusters",
+		"--cache-cluster-id", name,
+		"--show-cache-node-info",
+		"--query", "CacheClusters[0]",
+		"--output", "json",
+	)
+	if err == nil {
+		var cluster struct {
+			CacheClusterId     string `json:"CacheClusterId"`
+			Engine             string `json:"Engine"`
+			EngineVersion      string `json:"EngineVersion"`
+			CacheClusterStatus string `json:"CacheClusterStatus"`
+			CacheNodes         []struct {
+				Endpoint struct {
+					Address string `json:"Address"`
+					Port    int    `json:"Port"`
+				} `json:"Endpoint"`
+			} `json:"CacheNodes"`
+		}
+		if json.Unmarshal([]byte(rawCluster), &cluster) == nil &&
+			len(cluster.CacheNodes) > 0 && cluster.CacheNodes[0].Endpoint.Address != "" {
+			endpoint := cluster.CacheNodes[0].Endpoint
+			localPort := options.LocalPortNumber
+			if localPort <= 0 {
+				localPort = endpoint.Port
+			}
+			if localPort <= 0 {
+				localPort = 6379
+			}
+			displayName := fmt.Sprintf("ElastiCache %s (%s %s) %s:%d -> localhost:%d",
+				cluster.CacheClusterId, cluster.Engine, cluster.EngineVersion,
+				endpoint.Address, endpoint.Port, localPort)
+			sessionInfo := []string{
+				fmt.Sprintf("host:port  = localhost:%d", localPort),
+				fmt.Sprintf("remote     = %s:%d", endpoint.Address, endpoint.Port),
+			}
+			params := map[string][]string{
+				"host":            {endpoint.Address},
+				"portNumber":      {fmt.Sprintf("%d", endpoint.Port)},
+				"localPortNumber": {fmt.Sprintf("%d", localPort)},
+			}
+			return cluster.CacheClusterId, displayName, sessionInfo, params, nil
+		}
+	}
+
+	// Fall back to serverless cache.
+	rawServerless, err := r.runAWSCapture(ctx, cfg.Args,
+		"elasticache", "describe-serverless-caches",
+		"--serverless-cache-name", name,
+		"--query", "ServerlessCaches[0]",
+		"--output", "json",
+	)
+	if err != nil {
+		return "", "", nil, nil, fmt.Errorf("ElastiCache cluster %q not found: %w", name, err)
+	}
+
+	var sc struct {
+		ServerlessCacheName string `json:"ServerlessCacheName"`
+		Engine              string `json:"Engine"`
+		EngineVersion       string `json:"MajorEngineVersion"`
+		Status              string `json:"Status"`
+		Endpoint            struct {
+			Address string `json:"Address"`
+			Port    int    `json:"Port"`
+		} `json:"Endpoint"`
+	}
+	if err := json.Unmarshal([]byte(rawServerless), &sc); err != nil {
+		return "", "", nil, nil, fmt.Errorf("failed to parse serverless cache details: %w", err)
+	}
+	if sc.Endpoint.Address == "" {
+		return "", "", nil, nil, fmt.Errorf("serverless cache %q endpoint is missing", name)
+	}
+
+	localPort := options.LocalPortNumber
+	if localPort <= 0 {
+		localPort = sc.Endpoint.Port
+	}
+	if localPort <= 0 {
+		localPort = 6379
+	}
+
+	displayName := fmt.Sprintf("ElastiCache serverless %s (%s %s) %s:%d -> localhost:%d",
+		sc.ServerlessCacheName, sc.Engine, sc.EngineVersion,
+		sc.Endpoint.Address, sc.Endpoint.Port, localPort)
+	sessionInfo := []string{
+		fmt.Sprintf("host:port  = localhost:%d", localPort),
+		fmt.Sprintf("remote     = %s:%d", sc.Endpoint.Address, sc.Endpoint.Port),
+	}
+	params := map[string][]string{
+		"host":            {sc.Endpoint.Address},
+		"portNumber":      {fmt.Sprintf("%d", sc.Endpoint.Port)},
+		"localPortNumber": {fmt.Sprintf("%d", localPort)},
+	}
+
+	return sc.ServerlessCacheName, displayName, sessionInfo, params, nil
+}
+
+func firstValue(values map[string][]string, key string) string {
+	if values == nil {
+		return ""
+	}
+
+	list, ok := values[key]
+	if !ok || len(list) == 0 {
+		return ""
+	}
+
+	return strings.TrimSpace(list[0])
+}
+
+func buildRestartCommand(resourceType string, targetName string, localPort string, cfg awsConfig) string {
+	parts := []string{"acme", "jumphost", resourceType}
+
+	targetName = strings.TrimSpace(targetName)
+	if targetName != "" {
+		parts = append(parts, targetName)
+	}
+
+	localPort = strings.TrimSpace(localPort)
+	if localPort != "" {
+		parts = append(parts, localPort)
+	}
+
+	if cfg.Profile != "" {
+		parts = append(parts, "--profile", cfg.Profile)
+	}
+	if cfg.Region != "" {
+		parts = append(parts, "--region", cfg.Region)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([]ResourceSummary, error) {
+	var resources []ResourceSummary
+
+	// Replication groups (Redis/Valkey with replication).
+	rgOutput, err := r.runAWSCapture(ctx, cfg.Args,
+		"elasticache", "describe-replication-groups",
+		"--query", "ReplicationGroups[*].{name:ReplicationGroupId,status:Status,host:NodeGroups[0].PrimaryEndpoint.Address,port:NodeGroups[0].PrimaryEndpoint.Port}",
+		"--output", "json",
+	)
+	if err == nil {
+		var groups []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Host   string `json:"host"`
+			Port   int    `json:"port"`
+		}
+		if json.Unmarshal([]byte(rgOutput), &groups) == nil {
+			for _, g := range groups {
+				name := strings.TrimSpace(g.Name)
+				if name == "" {
+					continue
+				}
+				resources = append(resources, ResourceSummary{
+					Name:        name,
+					Description: formatElastiCacheResourceDescription(g.Host, g.Port, g.Status),
+				})
+			}
+		}
+	}
+
+	// Standalone cache clusters (no replication group — includes single-node Valkey/Redis).
+	clOutput, err := r.runAWSCapture(ctx, cfg.Args,
+		"elasticache", "describe-cache-clusters",
+		"--show-cache-node-info",
+		"--query", "CacheClusters[?!ReplicationGroupId].{name:CacheClusterId,status:CacheClusterStatus,engine:Engine,host:CacheNodes[0].Endpoint.Address,port:CacheNodes[0].Endpoint.Port}",
+		"--output", "json",
+	)
+	if err == nil {
+		var clusters []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Engine string `json:"engine"`
+			Host   string `json:"host"`
+			Port   int    `json:"port"`
+		}
+		if json.Unmarshal([]byte(clOutput), &clusters) == nil {
+			for _, c := range clusters {
+				name := strings.TrimSpace(c.Name)
+				if name == "" {
+					continue
+				}
+				resources = append(resources, ResourceSummary{
+					Name:        name,
+					Description: formatElastiCacheResourceDescription(c.Host, c.Port, c.Status),
+				})
+			}
+		}
+	}
+
+	// Serverless caches (Valkey/Redis serverless — different API entirely).
+	scOutput, err := r.runAWSCapture(ctx, cfg.Args,
+		"elasticache", "describe-serverless-caches",
+		"--query", "ServerlessCaches[*].{name:ServerlessCacheName,status:Status,engine:Engine,host:Endpoint.Address,port:Endpoint.Port}",
+		"--output", "json",
+	)
+	if err == nil {
+		var serverless []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Engine string `json:"engine"`
+			Host   string `json:"host"`
+			Port   int    `json:"port"`
+		}
+		if json.Unmarshal([]byte(scOutput), &serverless) == nil {
+			for _, s := range serverless {
+				name := strings.TrimSpace(s.Name)
+				if name == "" {
+					continue
+				}
+				resources = append(resources, ResourceSummary{
+					Name:        name,
+					Description: formatElastiCacheResourceDescription(s.Host, s.Port, s.Status),
+				})
+			}
+		}
+	}
+
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].Name < resources[j].Name
+	})
+
+	return resources, nil
 }
 
 func (r *Runner) selectName(title string, names []string, prompt string) (string, error) {

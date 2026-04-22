@@ -111,6 +111,7 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 	resourceItems := []list.Item{
 		jumphostListItem{name: "rds", desc: "Relational Database Service"},
 		jumphostListItem{name: "eks", desc: "Elastic Kubernetes Service"},
+		jumphostListItem{name: "elasticache", desc: "ElastiCache (Redis / Valkey)"},
 	}
 
 	profileList := list.New(nil, list.NewDefaultDelegate(), 0, 0)
