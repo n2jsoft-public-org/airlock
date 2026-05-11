@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 
 	"golang.org/x/term"
@@ -1131,12 +1132,32 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	args := append([]string{}, commandArgs...)
 	args = append(args, awsArgs...)
 
-	cmd := exec.CommandContext(ctx, "aws", args...)
+	// Use exec.Command (not CommandContext) and set Setpgid so that aws and its
+	// child process session-manager-plugin share a process group. This lets us
+	// kill both when the context is cancelled.
+	cmd := exec.Command("aws", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdin = r.in
 	cmd.Stdout = r.out
 	cmd.Stderr = r.err
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("aws %s failed to start: %w", strings.Join(commandArgs, " "), err)
+	}
+
+	// Kill the entire process group when the context is cancelled.
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		case <-done:
+		}
+	}()
+
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
 		return fmt.Errorf("aws %s failed: %w", strings.Join(commandArgs, " "), err)
 	}
 

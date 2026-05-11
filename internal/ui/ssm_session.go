@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -176,9 +176,9 @@ func (m ssmModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmQuit = false
 		m.stopping = true
 		if m.runningCmd != nil && m.runningCmd.Process != nil {
-			_ = m.runningCmd.Process.Signal(os.Interrupt)
+			_ = syscall.Kill(-m.runningCmd.Process.Pid, syscall.SIGTERM)
 		}
-		return m, tea.Quit
+		return m, waitSSMEvent(m.events)
 	default:
 		return m, nil
 	}
@@ -220,7 +220,11 @@ func (m *ssmModel) launchCommand() {
 		args := append([]string{}, m.commandArgs...)
 		args = append(args, m.awsArgs...)
 
-		cmd := exec.CommandContext(m.ctx, "aws", args...)
+		// Use exec.Command (not CommandContext) so we can manage the process group
+		// ourselves. Setting Setpgid ensures aws and its child session-manager-plugin
+		// are in the same process group and can be killed together.
+		cmd := exec.Command("aws", args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		stdoutPipe, err := cmd.StdoutPipe()
 		if err != nil {
 			m.events <- ssmFinishedMsg{err: err}
@@ -242,11 +246,23 @@ func (m *ssmModel) launchCommand() {
 
 		m.events <- ssmStartedMsg{cmd: cmd}
 
+		// Watch for context cancellation and kill the entire process group so
+		// session-manager-plugin (child of aws) is also terminated.
+		ctxDone := make(chan struct{})
+		go func() {
+			select {
+			case <-m.ctx.Done():
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+			case <-ctxDone:
+			}
+		}()
+
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go readPipeLines(stdoutPipe, &wg, m.events)
 		go readPipeLines(stderrPipe, &wg, m.events)
 		wg.Wait()
+		close(ctxDone)
 
 		err = cmd.Wait()
 		if err != nil {
