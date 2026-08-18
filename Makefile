@@ -4,17 +4,24 @@ BINARY := acme
 BINDIR := bin
 ENTRYPOINT := ./cmd/cli
 
-.PHONY: help tidy fmt vet lint test build run clean
+GOBIN := $(shell go env GOBIN)
+ifeq ($(strip $(GOBIN)),)
+GOBIN := $(shell go env GOPATH)/bin
+endif
+
+.PHONY: help tidy fmt vet lint test build run install uninstall clean
 
 help:
 	@echo "Targets:"
 	@echo "  make tidy   - Run go mod tidy"
 	@echo "  make fmt    - Format Go code"
 	@echo "  make vet    - Run go vet"
-	echo "  make lint   - Run golangci-lint"
+	@echo "  make lint   - Run golangci-lint"
 	@echo "  make test   - Run tests"
 	@echo "  make build  - Build $(BINARY) binary"
 	@echo "  make run    - Run the CLI"
+	@echo "  make install   - Install $(BINARY) to $(GOBIN)"
+	@echo "  make uninstall - Remove $(BINARY) from $(GOBIN)"
 	@echo "  make clean  - Remove build artifacts"
 
 tidy:
@@ -38,6 +45,15 @@ build:
 
 run:
 	go run $(ENTRYPOINT)
+
+install:
+	mkdir -p $(GOBIN)
+	go build -o $(GOBIN)/$(BINARY) $(ENTRYPOINT)
+	@echo "Installed $(BINARY) to $(GOBIN)/$(BINARY)"
+
+uninstall:
+	rm -f $(GOBIN)/$(BINARY)
+	@echo "Removed $(GOBIN)/$(BINARY)"
 
 clean:
 	rm -rf $(BINDIR)

@@ -24,6 +24,8 @@ Install these CLIs before running commands:
 
 - Run app: make run
 - Build binary: make build
+- Install to your Go bin (GOBIN, or GOPATH/bin): make install
+- Uninstall: make uninstall
 - Format: make fmt
 - Vet: make vet
 - Lint: make lint
