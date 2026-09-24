@@ -53,10 +53,17 @@ Notes:
 
 ### jumphost
 
-Guided EKS or RDS SSM port-forwarding flow.
+Guided EKS, RDS or ElastiCache SSM port-forwarding flow.
 
 Examples:
 
 - acme jumphost
 - acme jumphost rds my-db 5432
 - acme jumphost eks my-cluster 15432
+
+Parallel sessions:
+
+- While a session runs, press `n` to open another connection (any profile, any resource); running sessions stay active.
+- `tab` / `←` `→` / `1`-`9` switch between sessions, `x` stops the selected one (or closes it once ended), `ctrl+c` stops all and quits.
+- Local ports never collide: the suggested port skips ports used by other sessions or other local processes (e.g. a second `5432` RDS gets `5433`). An explicitly requested busy port is rejected.
+- Connecting twice to the same target (same type, name, profile and region) is refused.

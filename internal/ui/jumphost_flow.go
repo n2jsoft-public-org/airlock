@@ -17,6 +17,7 @@ type JumphostDiscovery interface {
 	ListAWSProfileSummaries(ctx context.Context) ([]jumphost.AWSProfileSummary, error)
 	ListResourceSummaries(ctx context.Context, options jumphost.Options) ([]jumphost.ResourceSummary, error)
 	ResolveDefaultLocalPort(ctx context.Context, options jumphost.Options) (int, error)
+	CheckLocalPort(port int) error
 }
 
 type jumphostStep int
@@ -38,6 +39,8 @@ type jumphostWizardModel struct {
 	loading    bool
 	loadingUI  loadingState
 	canceled   bool
+	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
+	embedded bool
 
 	options      jumphost.Options
 	profileList  list.Model
@@ -73,6 +76,12 @@ type jumphostProfilesLoadedMsg struct {
 type jumphostDefaultPortLoadedMsg struct {
 	port int
 	err  error
+}
+
+// jumphostWizardDoneMsg is emitted by an embedded wizard once the user confirmed or canceled.
+type jumphostWizardDoneMsg struct {
+	options  jumphost.Options
+	canceled bool
 }
 
 func RunJumphostWizard(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) (jumphost.Options, bool, error) {
@@ -183,7 +192,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			m.canceled = true
-			return m, tea.Quit
+			return m, m.finish()
 		}
 	case jumphostProfilesLoadedMsg:
 		m.loading = false
@@ -367,15 +376,29 @@ func (m jumphostWizardModel) updatePortStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+			if err := m.runner.CheckLocalPort(port); err != nil {
+				m.errorMsg = err.Error()
+				return m, nil
+			}
+
 			m.options.LocalPortNumber = port
 			m.portInput.Blur()
-			return m, tea.Quit
+			return m, m.finish()
 		}
 	}
 
 	var cmd tea.Cmd
 	m.portInput, cmd = m.portInput.Update(msg)
 	return m, cmd
+}
+
+// finish ends the wizard: standalone wizards quit the program, embedded ones notify their host.
+func (m jumphostWizardModel) finish() tea.Cmd {
+	if !m.embedded {
+		return tea.Quit
+	}
+	done := jumphostWizardDoneMsg{options: m.options, canceled: m.canceled}
+	return func() tea.Msg { return done }
 }
 
 func (m jumphostWizardModel) loadTargetsCmd() tea.Cmd {
@@ -412,12 +435,12 @@ func (m jumphostWizardModel) View() string {
 				m.styles.Subtitle.Render(fmt.Sprintf("Current profile: %s", m.options.AwsProfile)) + "\n" +
 				errorLine +
 				m.profileList.View() + "\n\n" +
-				m.styles.Muted.Render("Enter: select   q: quit"),
+				m.styles.Muted.Render("Enter: select   "+m.quitHelp()),
 		)
 	case jumphostStepType:
-		help := "Enter: select   esc: back   q: quit"
+		help := "Enter: select   esc: back   " + m.quitHelp()
 		if !m.askProfile {
-			help = "Enter: select   q: quit"
+			help = "Enter: select   " + m.quitHelp()
 		}
 
 		return m.styles.Container.Render(
@@ -433,19 +456,27 @@ func (m jumphostWizardModel) View() string {
 				m.styles.Subtitle.Render(fmt.Sprintf("Type: %s", strings.ToUpper(m.options.ResourceType))) + "\n" +
 				errorLine +
 				m.targetList.View() + "\n\n" +
-				m.styles.Muted.Render("Enter: select   esc: back   q: quit"),
+				m.styles.Muted.Render("Enter: select   esc: back   "+m.quitHelp()),
 		)
 	case jumphostStepPort:
 		return m.styles.Container.Render(
 			header + "\n" +
 				m.styles.Subtitle.Render(fmt.Sprintf("Target: %s", m.options.Name)) + "\n" +
 				errorLine +
-				m.portInput.View() + "\n\n" +
-				m.styles.Muted.Render("Enter: continue   esc: back   q: quit"),
+				m.portInput.View() + "\n" +
+				m.styles.Muted.Render("Ports already in use are skipped in the suggestion.") + "\n\n" +
+				m.styles.Muted.Render("Enter: continue   esc: back   "+m.quitHelp()),
 		)
 	default:
 		return m.styles.Container.Render(header)
 	}
+}
+
+func (m jumphostWizardModel) quitHelp() string {
+	if m.embedded {
+		return "q: cancel"
+	}
+	return "q: quit"
 }
 
 func (m jumphostWizardModel) loadProfilesCmd() tea.Cmd {

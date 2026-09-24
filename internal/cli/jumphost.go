@@ -40,12 +40,20 @@ func runJumphost(cmd *cobra.Command, args []string) error {
 }
 
 func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options) error {
-	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && isInteractiveInput(cmd.InOrStdin()) {
-		discoveryRunner := jumphost.NewRunner(jumphost.RunnerOptions{
-			In:  cmd.InOrStdin(),
-			Out: io.Discard,
-			Err: cmd.ErrOrStderr(),
-		})
+	// Runners share the registry so parallel sessions never reuse a local port or target.
+	registry := jumphost.NewSessionRegistry()
+	interactive := isInteractiveInput(cmd.InOrStdin())
+
+	// The TUI runner stays silent: its progress would corrupt the full-screen display.
+	tuiRunner := jumphost.NewRunner(jumphost.RunnerOptions{
+		In:       cmd.InOrStdin(),
+		Out:      io.Discard,
+		Err:      io.Discard,
+		Registry: registry,
+	})
+
+	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
+		discoveryRunner := tuiRunner
 
 		selectedOptions, canceled, err := ui.RunJumphostWizard(cmd.Context(), discoveryRunner, options)
 		if err != nil {
@@ -84,13 +92,22 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	}
 
 	runner := jumphost.NewRunner(jumphost.RunnerOptions{
-		In:              cmd.InOrStdin(),
-		Out:             cmd.OutOrStdout(),
-		Err:             cmd.ErrOrStderr(),
-		SessionExecutor: ui.RunSSMSessionTUI,
+		In:       cmd.InOrStdin(),
+		Out:      cmd.OutOrStdout(),
+		Err:      cmd.ErrOrStderr(),
+		Registry: registry,
 	})
 
-	return runner.Run(cmd.Context(), options)
+	if !interactive {
+		return runner.Run(cmd.Context(), options)
+	}
+
+	session, err := runner.Prepare(cmd.Context(), options)
+	if err != nil {
+		return err
+	}
+
+	return ui.RunJumphostSessions(cmd.Context(), tuiRunner, session, options, cmd.OutOrStdout())
 }
 
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {

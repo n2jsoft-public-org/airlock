@@ -29,6 +29,8 @@ const (
 	resourceElastiCache = "elasticache"
 	defaultRegion       = "eu-west-3"
 	defaultAwsProfile   = "default"
+	defaultEKSLocalPort = 9444
+	defaultRedisPort    = 6379
 )
 
 type Options struct {
@@ -52,10 +54,11 @@ type AWSProfileSummary struct {
 }
 
 type RunnerOptions struct {
-	In              io.Reader
-	Out             io.Writer
-	Err             io.Writer
-	SessionExecutor SessionExecutor
+	In  io.Reader
+	Out io.Writer
+	Err io.Writer
+	// Registry tracks ports and targets of parallel sessions; share it between runners of one process.
+	Registry *SessionRegistry
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
 }
@@ -66,14 +69,43 @@ type SessionDetails struct {
 	IDEDataSource   string
 }
 
-type SessionExecutor func(ctx context.Context, awsArgs []string, commandArgs []string, details SessionDetails, in io.Reader, out io.Writer, errOut io.Writer) error
+// Session is a prepared port-forwarding session: its local port and target are reserved
+// in the registry until Release is called.
+type Session struct {
+	release    func() string
+	releaseMsg string
+	Label      string
+	// ResourceType (eks, rds, elasticache), Target, Profile and Region describe the connection for display.
+	ResourceType string
+	Target       string
+	Profile      string
+	Region       string
+	Details      SessionDetails
+	AwsArgs      []string
+	CommandArgs  []string
+	// Intro describes the connection (display name, connection hints, IDE data source).
+	Intro       []string
+	LocalPort   int
+	releaseOnce sync.Once
+}
+
+// Release frees the session's port and target and removes its IDE data source.
+// It returns a message describing the IDE cleanup (empty when nothing was done). Safe to call repeatedly.
+func (s *Session) Release() string {
+	s.releaseOnce.Do(func() {
+		if s.release != nil {
+			s.releaseMsg = s.release()
+		}
+	})
+	return s.releaseMsg
+}
 
 type Runner struct {
-	in              io.Reader
-	out             io.Writer
-	err             io.Writer
-	sessionExecutor SessionExecutor
-	projectDir      string
+	in         io.Reader
+	out        io.Writer
+	err        io.Writer
+	registry   *SessionRegistry
+	projectDir string
 }
 
 // ideTarget carries what is needed to register the forwarded connection in the IDE.
@@ -104,35 +136,67 @@ func NewRunner(opts RunnerOptions) *Runner {
 	if err == nil {
 		err = os.Stderr
 	}
+	registry := opts.Registry
+	if registry == nil {
+		registry = NewSessionRegistry()
+	}
 
-	return &Runner{in: in, out: out, err: err, sessionExecutor: opts.SessionExecutor, projectDir: opts.ProjectDir}
+	return &Runner{in: in, out: out, err: err, registry: registry, projectDir: opts.ProjectDir}
 }
 
+// Run prepares a single session and streams it in the current terminal until it ends.
 func (r *Runner) Run(ctx context.Context, options Options) error {
+	session, err := r.Prepare(ctx, options)
+	if err != nil {
+		return err
+	}
+	release := func() {
+		if msg := session.Release(); msg != "" {
+			fprintf(r.out, "%s\n", msg)
+		}
+	}
+	stopHangupWatch := RunOnHangup(release)
+	defer func() {
+		stopHangupWatch()
+		release()
+	}()
+
+	fprintf(r.out, "Starting SSM session...\n")
+	for _, line := range session.Intro {
+		fprintf(r.out, "> %s\n", line)
+	}
+	fprintf(r.out, "Ctrl+C to cancel.\n")
+
+	return r.runAWSStreaming(ctx, session.AwsArgs, session.CommandArgs...)
+}
+
+// Prepare resolves the target, reserves a free local port and registers the IDE data source.
+// The caller starts the returned session (aws CommandArgs + AwsArgs) and must Release it once finished.
+func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error) {
 	if _, err := exec.LookPath("aws"); err != nil {
-		return errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
-		return fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
+		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
 	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	jumphostID, err := r.getJumphostID(ctx, cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var sessionDisplayName string
 	var sessionInfo []string
 	var ssmParameters map[string][]string
 	var target ideTarget
-	resolvedTargetName := strings.TrimSpace(options.Name)
+	var resolvedTargetName string
 
 	switch resourceType {
 	case resourceRDS:
@@ -143,8 +207,17 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareElastiCache(ctx, cfg, options)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	// The prepare step reserved the port under this label; release it if anything below fails.
+	label := sessionLabel(resourceType, resolvedTargetName, cfg)
+	ready := false
+	defer func() {
+		if !ready {
+			r.registry.release(label)
+		}
+	}()
 
 	localPort := firstValue(ssmParameters, "localPortNumber")
 	remotePort := firstValue(ssmParameters, "portNumber")
@@ -154,50 +227,51 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 		connectedServer = fmt.Sprintf("%s:%s", connectedServer, strings.TrimSpace(remotePort))
 	}
 
-	restartCommand := buildRestartCommand(resourceType, resolvedTargetName, localPort, cfg)
-	sessionDetails := SessionDetails{
-		ConnectedServer: connectedServer,
-		RestartCommand:  restartCommand,
-	}
-	if !options.SkipIDEDataSource {
-		var removeDataSource func()
-		sessionDetails.IDEDataSource, removeDataSource = r.registerIDEDataSource(resourceType, resolvedTargetName, localPort, target, cfg)
-		if removeDataSource != nil {
-			stopHangupWatch := runOnHangup(removeDataSource)
-			defer func() {
-				stopHangupWatch()
-				removeDataSource()
-			}()
-		}
-	}
-
 	parameters, err := json.Marshal(ssmParameters)
 	if err != nil {
-		return fmt.Errorf("failed to serialize SSM parameters: %w", err)
+		return nil, fmt.Errorf("failed to serialize SSM parameters: %w", err)
 	}
 
-	fprintf(r.out, "Starting SSM session...\n")
-	fprintf(r.out, "> %s\n", sessionDisplayName)
-	for _, line := range sessionInfo {
-		fprintf(r.out, "> %s\n", line)
+	session := &Session{
+		Label:        label,
+		ResourceType: resourceType,
+		Target:       resolvedTargetName,
+		Profile:      cfg.Profile,
+		Region:       cfg.Region,
+		Details: SessionDetails{
+			ConnectedServer: connectedServer,
+			RestartCommand:  buildRestartCommand(resourceType, resolvedTargetName, localPort, cfg),
+		},
+		AwsArgs: append([]string{}, cfg.Args...),
+		CommandArgs: []string{
+			"ssm", "start-session",
+			"--target", jumphostID,
+			"--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
+			"--parameters", string(parameters),
+		},
+		Intro: append([]string{sessionDisplayName}, sessionInfo...),
 	}
-	if sessionDetails.IDEDataSource != "" {
-		fprintf(r.out, "> %s\n", sessionDetails.IDEDataSource)
+	if session.LocalPort, err = strconv.Atoi(localPort); err != nil {
+		return nil, fmt.Errorf("invalid local port %q: %w", localPort, err)
 	}
-	fprintf(r.out, "Ctrl+C to cancel.\n")
 
-	ssmCommandArgs := []string{
-		"ssm", "start-session",
-		"--target", jumphostID,
-		"--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
-		"--parameters", string(parameters),
+	var removeDataSource func() string
+	if !options.SkipIDEDataSource {
+		session.Details.IDEDataSource, removeDataSource = r.registerIDEDataSource(resourceType, resolvedTargetName, localPort, target, cfg)
+		if session.Details.IDEDataSource != "" {
+			session.Intro = append(session.Intro, session.Details.IDEDataSource)
+		}
+	}
+	session.release = func() string {
+		r.registry.release(label)
+		if removeDataSource == nil {
+			return ""
+		}
+		return removeDataSource()
 	}
 
-	if r.sessionExecutor != nil {
-		return r.sessionExecutor(ctx, cfg.Args, ssmCommandArgs, sessionDetails, r.in, r.out, r.err)
-	}
-
-	return r.runAWSStreaming(ctx, cfg.Args, ssmCommandArgs...)
+	ready = true
+	return session, nil
 }
 
 // ListAWSProfiles returns available AWS CLI profiles.
@@ -440,12 +514,26 @@ func formatRDSResourceDescription(engine string, engineVersion string, host stri
 	return strings.Join(parts, " | ")
 }
 
-// ResolveDefaultLocalPort computes the recommended local port for a selected target.
+// ResolveDefaultLocalPort computes the recommended local port for a selected target:
+// the remote port when it is free locally, otherwise the next free port above it.
 func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (int, error) {
+	port, err := r.resolvePreferredLocalPort(ctx, options)
+	if err != nil {
+		return 0, err
+	}
+	return r.registry.SuggestPort(port)
+}
+
+// CheckLocalPort returns an error explaining why port cannot be used for a new session.
+func (r *Runner) CheckLocalPort(port int) error {
+	return r.registry.CheckPort(port)
+}
+
+func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options Options) (int, error) {
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	switch resourceType {
 	case resourceEKS:
-		return 9444, nil
+		return defaultEKSLocalPort, nil
 	case resourceElastiCache:
 		name := strings.TrimSpace(options.Name)
 		if name == "" {
@@ -509,7 +597,7 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 			}
 		}
 
-		return 6379, nil
+		return defaultRedisPort, nil
 	case resourceRDS:
 		name := strings.TrimSpace(options.Name)
 		if name == "" {
@@ -697,16 +785,16 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			Port    int    `json:"Port"`
 		} `json:"Endpoint"`
 	}
-	if err := json.Unmarshal([]byte(rawInstance), &instance); err != nil {
+	if err = json.Unmarshal([]byte(rawInstance), &instance); err != nil {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse RDS instance details: %w", err)
 	}
 	if instance.Endpoint.Address == "" || instance.Endpoint.Port == 0 {
 		return "", "", nil, nil, ideTarget{}, errors.New("RDS instance endpoint is missing")
 	}
 
-	localPort := options.LocalPortNumber
-	if localPort <= 0 {
-		localPort = instance.Endpoint.Port
+	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
+	if err != nil {
+		return "", "", nil, nil, ideTarget{}, err
 	}
 
 	displayName := fmt.Sprintf(
@@ -798,16 +886,16 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		Name     string `json:"name"`
 		Endpoint string `json:"endpoint"`
 	}
-	if err := json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
+	if err = json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse EKS cluster details: %w", err)
 	}
 	if cluster.Endpoint == "" {
 		return "", "", nil, nil, ideTarget{}, errors.New("EKS cluster endpoint is missing")
 	}
 
-	localPort := options.LocalPortNumber
-	if localPort <= 0 {
-		localPort = 9444
+	localPort, err := r.reservePort(sessionLabel(resourceEKS, cluster.Name, cfg), options.LocalPortNumber, defaultEKSLocalPort)
+	if err != nil {
+		return "", "", nil, nil, ideTarget{}, err
 	}
 
 	displayName := fmt.Sprintf("EKS %s (%s) -> localhost:%d", cluster.Name, cluster.Endpoint, localPort)
@@ -870,12 +958,9 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		if jsonErr := json.Unmarshal([]byte(rawGroup), &group); jsonErr == nil &&
 			len(group.NodeGroups) > 0 && group.NodeGroups[0].PrimaryEndpoint.Address != "" {
 			endpoint := group.NodeGroups[0].PrimaryEndpoint
-			localPort := options.LocalPortNumber
-			if localPort <= 0 {
-				localPort = endpoint.Port
-			}
-			if localPort <= 0 {
-				localPort = 6379
+			localPort, reserveErr := r.reservePort(sessionLabel(resourceElastiCache, group.ReplicationGroupId, cfg), options.LocalPortNumber, endpoint.Port, defaultRedisPort)
+			if reserveErr != nil {
+				return "", "", nil, nil, ideTarget{}, reserveErr
 			}
 			displayName := fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d",
 				group.ReplicationGroupId, endpoint.Address, endpoint.Port, localPort)
@@ -916,12 +1001,9 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		if json.Unmarshal([]byte(rawCluster), &cluster) == nil &&
 			len(cluster.CacheNodes) > 0 && cluster.CacheNodes[0].Endpoint.Address != "" {
 			endpoint := cluster.CacheNodes[0].Endpoint
-			localPort := options.LocalPortNumber
-			if localPort <= 0 {
-				localPort = endpoint.Port
-			}
-			if localPort <= 0 {
-				localPort = 6379
+			localPort, reserveErr := r.reservePort(sessionLabel(resourceElastiCache, cluster.CacheClusterId, cfg), options.LocalPortNumber, endpoint.Port, defaultRedisPort)
+			if reserveErr != nil {
+				return "", "", nil, nil, ideTarget{}, reserveErr
 			}
 			displayName := fmt.Sprintf("ElastiCache %s (%s %s) %s:%d -> localhost:%d",
 				cluster.CacheClusterId, cluster.Engine, cluster.EngineVersion,
@@ -960,19 +1042,16 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 			Port    int    `json:"Port"`
 		} `json:"Endpoint"`
 	}
-	if err := json.Unmarshal([]byte(rawServerless), &sc); err != nil {
+	if err = json.Unmarshal([]byte(rawServerless), &sc); err != nil {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse serverless cache details: %w", err)
 	}
 	if sc.Endpoint.Address == "" {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("serverless cache %q endpoint is missing", name)
 	}
 
-	localPort := options.LocalPortNumber
-	if localPort <= 0 {
-		localPort = sc.Endpoint.Port
-	}
-	if localPort <= 0 {
-		localPort = 6379
+	localPort, err := r.reservePort(sessionLabel(resourceElastiCache, sc.ServerlessCacheName, cfg), options.LocalPortNumber, sc.Endpoint.Port, defaultRedisPort)
+	if err != nil {
+		return "", "", nil, nil, ideTarget{}, err
 	}
 
 	displayName := fmt.Sprintf("ElastiCache serverless %s (%s %s) %s:%d -> localhost:%d",
@@ -992,9 +1071,10 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 }
 
 // registerIDEDataSource adds the forwarded connection to the IntelliJ project in the working directory.
-// It returns a display message and a function removing the entry again (nil when nothing was registered).
+// It returns a display message and a function removing the entry again and describing the outcome
+// (nil when nothing was registered).
 // Failures are reported as a warning and never abort the session.
-func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort string, target ideTarget, cfg awsConfig) (message string, remove func()) {
+func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort string, target ideTarget, cfg awsConfig) (message string, remove func() string) {
 	if strings.TrimSpace(target.Engine) == "" {
 		return "", nil
 	}
@@ -1035,19 +1115,18 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		return "", nil
 	}
 
-	var once sync.Once
-	remove = func() {
-		once.Do(func() {
-			unregistered, err := ideadatasource.Unregister(projectDir, key)
-			switch {
-			case err != nil:
-				fprintf(r.err, "Warning: failed to remove IntelliJ data source %q: %v\n", result.Name, err)
-			case unregistered.Removed:
-				fprintf(r.out, "- IntelliJ data source %q removed from %s\n", result.Name, relativePaths(projectDir, result.Paths))
-			case unregistered.ActiveSessions > 0:
-				fprintf(r.out, "- IntelliJ data source %q kept: still used by %d other session(s)\n", result.Name, unregistered.ActiveSessions)
-			}
-		})
+	remove = func() string {
+		unregistered, err := ideadatasource.Unregister(projectDir, key)
+		switch {
+		case err != nil:
+			return fmt.Sprintf("Warning: failed to remove IntelliJ data source %q: %v", result.Name, err)
+		case unregistered.Removed:
+			return fmt.Sprintf("IntelliJ data source %q removed from %s", result.Name, relativePaths(projectDir, result.Paths))
+		case unregistered.ActiveSessions > 0:
+			return fmt.Sprintf("IntelliJ data source %q kept: still used by %d other session(s)", result.Name, unregistered.ActiveSessions)
+		default:
+			return ""
+		}
 	}
 
 	return fmt.Sprintf("IntelliJ data source %q -> localhost:%d (%s)", result.Name, port, relativePaths(projectDir, result.Paths)), remove
@@ -1084,10 +1163,10 @@ func relativePaths(base string, paths []string) string {
 	return strings.Join(relative, ", ")
 }
 
-// runOnHangup runs fn when the terminal is closed (SIGHUP), then lets the signal terminate the process.
+// RunOnHangup runs fn when the terminal is closed (SIGHUP), then lets the signal terminate the process.
 // SIGINT and SIGTERM are already turned into a graceful exit by the session TUI.
 // The returned function stops watching.
-func runOnHangup(fn func()) (stop func()) {
+func RunOnHangup(fn func()) (stop func()) {
 	signals := make(chan os.Signal, 1)
 	done := make(chan struct{})
 	signal.Notify(signals, syscall.SIGHUP)
@@ -1119,6 +1198,31 @@ func elastiCacheEngine(engine string) string {
 		return "redis"
 	}
 	return engine
+}
+
+// sessionLabel identifies a target across profiles and regions, e.g. "RDS my-db (prod/eu-west-3)".
+func sessionLabel(resourceType, targetName string, cfg awsConfig) string {
+	return fmt.Sprintf("%s %s (%s/%s)", strings.ToUpper(resourceType), targetName, cfg.Profile, cfg.Region)
+}
+
+// reservePort reserves the requested local port, or the first free one from the first positive default.
+func (r *Runner) reservePort(label string, requested int, defaults ...int) (int, error) {
+	preferred := 0
+	for _, port := range defaults {
+		if port > 0 {
+			preferred = port
+			break
+		}
+	}
+
+	port, err := r.registry.reserve(label, requested, preferred)
+	if err != nil {
+		return 0, err
+	}
+	if requested <= 0 && port != preferred {
+		fprintf(r.out, "Local port %d is busy, using %d instead\n", preferred, port)
+	}
+	return port, nil
 }
 
 func firstValue(values map[string][]string, key string) string {
