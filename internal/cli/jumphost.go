@@ -30,6 +30,7 @@ func newJumphostCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&options.AwsProfile, "profile", "p", "", "AWS profile to use (defaults to AWS_PROFILE or default)")
 	cmd.Flags().StringVar(&options.AwsProfile, "aws-profile", "", "Alias of --profile")
 	cmd.Flags().StringVar(&options.AwsRegion, "region", "", "AWS region to use (defaults to AWS_REGION, configured region, or eu-west-3)")
+	cmd.Flags().BoolVar(&options.SkipIDEDataSource, "no-ide-datasource", false, "Do not register the connection in ./.idea/dataSources.xml")
 
 	return cmd
 }

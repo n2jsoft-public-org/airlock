@@ -10,11 +10,16 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/example/acme-cli/internal/ideadatasource"
 	"golang.org/x/term"
 )
 
@@ -32,6 +37,8 @@ type Options struct {
 	LocalPortNumber int
 	AwsProfile      string
 	AwsRegion       string
+	// SkipIDEDataSource disables registering the connection in ./.idea/dataSources.xml.
+	SkipIDEDataSource bool
 }
 
 type ResourceSummary struct {
@@ -49,11 +56,14 @@ type RunnerOptions struct {
 	Out             io.Writer
 	Err             io.Writer
 	SessionExecutor SessionExecutor
+	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
+	ProjectDir string
 }
 
 type SessionDetails struct {
 	ConnectedServer string
 	RestartCommand  string
+	IDEDataSource   string
 }
 
 type SessionExecutor func(ctx context.Context, awsArgs []string, commandArgs []string, details SessionDetails, in io.Reader, out io.Writer, errOut io.Writer) error
@@ -63,6 +73,16 @@ type Runner struct {
 	out             io.Writer
 	err             io.Writer
 	sessionExecutor SessionExecutor
+	projectDir      string
+}
+
+// ideTarget carries what is needed to register the forwarded connection in the IDE.
+type ideTarget struct {
+	Engine   string
+	Database string
+	// RDSHost and RDSPort are the real endpoint, used by IntelliJ to sign AWS IAM auth tokens.
+	RDSHost string
+	RDSPort int
 }
 
 type awsConfig struct {
@@ -85,7 +105,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 		err = os.Stderr
 	}
 
-	return &Runner{in: in, out: out, err: err, sessionExecutor: opts.SessionExecutor}
+	return &Runner{in: in, out: out, err: err, sessionExecutor: opts.SessionExecutor, projectDir: opts.ProjectDir}
 }
 
 func (r *Runner) Run(ctx context.Context, options Options) error {
@@ -111,15 +131,16 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 	var sessionDisplayName string
 	var sessionInfo []string
 	var ssmParameters map[string][]string
+	var target ideTarget
 	resolvedTargetName := strings.TrimSpace(options.Name)
 
 	switch resourceType {
 	case resourceRDS:
-		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareRDS(ctx, cfg, options)
+		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareRDS(ctx, cfg, options)
 	case resourceEKS:
-		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareEKS(ctx, cfg, options)
+		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareEKS(ctx, cfg, options)
 	case resourceElastiCache:
-		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, err = r.prepareElastiCache(ctx, cfg, options)
+		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareElastiCache(ctx, cfg, options)
 	}
 	if err != nil {
 		return err
@@ -138,6 +159,17 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 		ConnectedServer: connectedServer,
 		RestartCommand:  restartCommand,
 	}
+	if !options.SkipIDEDataSource {
+		var removeDataSource func()
+		sessionDetails.IDEDataSource, removeDataSource = r.registerIDEDataSource(resourceType, resolvedTargetName, localPort, target, cfg)
+		if removeDataSource != nil {
+			stopHangupWatch := runOnHangup(removeDataSource)
+			defer func() {
+				stopHangupWatch()
+				removeDataSource()
+			}()
+		}
+	}
 
 	parameters, err := json.Marshal(ssmParameters)
 	if err != nil {
@@ -148,6 +180,9 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 	fprintf(r.out, "> %s\n", sessionDisplayName)
 	for _, line := range sessionInfo {
 		fprintf(r.out, "> %s\n", line)
+	}
+	if sessionDetails.IDEDataSource != "" {
+		fprintf(r.out, "> %s\n", sessionDetails.IDEDataSource)
 	}
 	fprintf(r.out, "Ctrl+C to cancel.\n")
 
@@ -601,7 +636,7 @@ func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, erro
 	return jumphostID, nil
 }
 
-func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, error) {
+func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -610,7 +645,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			"--output", "json",
 		)
 		if err != nil {
-			return "", "", nil, nil, err
+			return "", "", nil, nil, ideTarget{}, err
 		}
 
 		var instances []struct {
@@ -619,10 +654,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			Port    int    `json:"port"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return "", "", nil, nil, fmt.Errorf("failed to parse RDS instances: %w", err)
+			return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse RDS instances: %w", err)
 		}
 		if len(instances) == 0 {
-			return "", "", nil, nil, errors.New("no RDS instance found")
+			return "", "", nil, nil, ideTarget{}, errors.New("no RDS instance found")
 		}
 		if len(instances) == 1 {
 			name = instances[0].Name
@@ -634,10 +669,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			sort.Strings(names)
 			selectedName, err := r.selectName("RDS instances", names, "Please specify the RDS instance name to connect to")
 			if err != nil {
-				return "", "", nil, nil, err
+				return "", "", nil, nil, ideTarget{}, err
 			}
 			if selectedName == "" {
-				return "", "", nil, nil, errors.New("RDS instance name is required")
+				return "", "", nil, nil, ideTarget{}, errors.New("RDS instance name is required")
 			}
 			name = selectedName
 		}
@@ -650,22 +685,23 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		"--output", "json",
 	)
 	if err != nil {
-		return "", "", nil, nil, err
+		return "", "", nil, nil, ideTarget{}, err
 	}
 
 	var instance struct {
 		Engine               string `json:"Engine"`
 		DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
+		DBName               string `json:"DBName"`
 		Endpoint             struct {
 			Address string `json:"Address"`
 			Port    int    `json:"Port"`
 		} `json:"Endpoint"`
 	}
 	if err := json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-		return "", "", nil, nil, fmt.Errorf("failed to parse RDS instance details: %w", err)
+		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse RDS instance details: %w", err)
 	}
 	if instance.Endpoint.Address == "" || instance.Endpoint.Port == 0 {
-		return "", "", nil, nil, errors.New("RDS instance endpoint is missing")
+		return "", "", nil, nil, ideTarget{}, errors.New("RDS instance endpoint is missing")
 	}
 
 	localPort := options.LocalPortNumber
@@ -700,10 +736,15 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return instance.DBInstanceIdentifier, displayName, sessionInfo, params, nil
+	return instance.DBInstanceIdentifier, displayName, sessionInfo, params, ideTarget{
+		Engine:   instance.Engine,
+		Database: instance.DBName,
+		RDSHost:  instance.Endpoint.Address,
+		RDSPort:  instance.Endpoint.Port,
+	}, nil
 }
 
-func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, error) {
+func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -712,17 +753,17 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 			"--output", "json",
 		)
 		if err != nil {
-			return "", "", nil, nil, err
+			return "", "", nil, nil, ideTarget{}, err
 		}
 
 		var clusters []struct {
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return "", "", nil, nil, fmt.Errorf("failed to parse EKS clusters: %w", err)
+			return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse EKS clusters: %w", err)
 		}
 		if len(clusters) == 0 {
-			return "", "", nil, nil, errors.New("no EKS cluster found")
+			return "", "", nil, nil, ideTarget{}, errors.New("no EKS cluster found")
 		}
 		if len(clusters) == 1 {
 			name = clusters[0].Name
@@ -734,10 +775,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 			sort.Strings(names)
 			selectedName, err := r.selectName("EKS clusters", names, "Please specify the EKS cluster name to connect to")
 			if err != nil {
-				return "", "", nil, nil, err
+				return "", "", nil, nil, ideTarget{}, err
 			}
 			if selectedName == "" {
-				return "", "", nil, nil, errors.New("EKS cluster name is required")
+				return "", "", nil, nil, ideTarget{}, errors.New("EKS cluster name is required")
 			}
 			name = selectedName
 		}
@@ -750,7 +791,7 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"--output", "json",
 	)
 	if err != nil {
-		return "", "", nil, nil, err
+		return "", "", nil, nil, ideTarget{}, err
 	}
 
 	var cluster struct {
@@ -758,10 +799,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		Endpoint string `json:"endpoint"`
 	}
 	if err := json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
-		return "", "", nil, nil, fmt.Errorf("failed to parse EKS cluster details: %w", err)
+		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse EKS cluster details: %w", err)
 	}
 	if cluster.Endpoint == "" {
-		return "", "", nil, nil, errors.New("EKS cluster endpoint is missing")
+		return "", "", nil, nil, ideTarget{}, errors.New("EKS cluster endpoint is missing")
 	}
 
 	localPort := options.LocalPortNumber
@@ -776,18 +817,18 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return cluster.Name, displayName, nil, params, nil
+	return cluster.Name, displayName, nil, params, ideTarget{}, nil
 }
 
-func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, error) {
+func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		resources, err := r.listElastiCacheResources(ctx, cfg)
 		if err != nil {
-			return "", "", nil, nil, err
+			return "", "", nil, nil, ideTarget{}, err
 		}
 		if len(resources) == 0 {
-			return "", "", nil, nil, errors.New("no ElastiCache cluster found")
+			return "", "", nil, nil, ideTarget{}, errors.New("no ElastiCache cluster found")
 		}
 		if len(resources) == 1 {
 			name = resources[0].Name
@@ -798,10 +839,10 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 			}
 			selectedName, err := r.selectName("ElastiCache clusters", names, "Please specify the cluster name to connect to")
 			if err != nil {
-				return "", "", nil, nil, err
+				return "", "", nil, nil, ideTarget{}, err
 			}
 			if selectedName == "" {
-				return "", "", nil, nil, errors.New("ElastiCache cluster name is required")
+				return "", "", nil, nil, ideTarget{}, errors.New("ElastiCache cluster name is required")
 			}
 			name = selectedName
 		}
@@ -817,6 +858,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 	if err == nil && strings.TrimSpace(rawGroup) != "" && !strings.EqualFold(strings.TrimSpace(rawGroup), "null") {
 		var group struct {
 			ReplicationGroupId string `json:"ReplicationGroupId"`
+			Engine             string `json:"Engine"`
 			Status             string `json:"Status"`
 			NodeGroups         []struct {
 				PrimaryEndpoint struct {
@@ -846,7 +888,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 				"portNumber":      {fmt.Sprintf("%d", endpoint.Port)},
 				"localPortNumber": {fmt.Sprintf("%d", localPort)},
 			}
-			return group.ReplicationGroupId, displayName, sessionInfo, params, nil
+			return group.ReplicationGroupId, displayName, sessionInfo, params, ideTarget{Engine: elastiCacheEngine(group.Engine)}, nil
 		}
 	}
 
@@ -893,7 +935,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 				"portNumber":      {fmt.Sprintf("%d", endpoint.Port)},
 				"localPortNumber": {fmt.Sprintf("%d", localPort)},
 			}
-			return cluster.CacheClusterId, displayName, sessionInfo, params, nil
+			return cluster.CacheClusterId, displayName, sessionInfo, params, ideTarget{Engine: elastiCacheEngine(cluster.Engine)}, nil
 		}
 	}
 
@@ -905,7 +947,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		"--output", "json",
 	)
 	if err != nil {
-		return "", "", nil, nil, fmt.Errorf("ElastiCache cluster %q not found: %w", name, err)
+		return "", "", nil, nil, ideTarget{}, fmt.Errorf("ElastiCache cluster %q not found: %w", name, err)
 	}
 
 	var sc struct {
@@ -919,10 +961,10 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		} `json:"Endpoint"`
 	}
 	if err := json.Unmarshal([]byte(rawServerless), &sc); err != nil {
-		return "", "", nil, nil, fmt.Errorf("failed to parse serverless cache details: %w", err)
+		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse serverless cache details: %w", err)
 	}
 	if sc.Endpoint.Address == "" {
-		return "", "", nil, nil, fmt.Errorf("serverless cache %q endpoint is missing", name)
+		return "", "", nil, nil, ideTarget{}, fmt.Errorf("serverless cache %q endpoint is missing", name)
 	}
 
 	localPort := options.LocalPortNumber
@@ -946,7 +988,137 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return sc.ServerlessCacheName, displayName, sessionInfo, params, nil
+	return sc.ServerlessCacheName, displayName, sessionInfo, params, ideTarget{Engine: elastiCacheEngine(sc.Engine)}, nil
+}
+
+// registerIDEDataSource adds the forwarded connection to the IntelliJ project in the working directory.
+// It returns a display message and a function removing the entry again (nil when nothing was registered).
+// Failures are reported as a warning and never abort the session.
+func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort string, target ideTarget, cfg awsConfig) (message string, remove func()) {
+	if strings.TrimSpace(target.Engine) == "" {
+		return "", nil
+	}
+
+	port, err := strconv.Atoi(strings.TrimSpace(localPort))
+	if err != nil || port <= 0 {
+		return "", nil
+	}
+
+	projectDir := r.projectDir
+	if projectDir == "" {
+		projectDir, err = os.Getwd()
+		if err != nil {
+			return "", nil
+		}
+	}
+
+	key := strings.Join([]string{resourceType, cfg.Profile, cfg.Region, targetName}, "|")
+	dataSource := &ideadatasource.DataSource{
+		Key:        key,
+		Name:       fmt.Sprintf("acme %s %s", cfg.Profile, targetName),
+		Engine:     target.Engine,
+		Host:       "localhost",
+		Port:       port,
+		Database:   target.Database,
+		Properties: awsIAMProperties(target, cfg),
+	}
+	if target.RDSHost != "" {
+		dataSource.AuthProvider = awsIAMAuthProvider
+		dataSource.User = rdsIAMUser
+	}
+	result, err := ideadatasource.Register(projectDir, dataSource)
+	if err != nil {
+		fprintf(r.err, "Warning: failed to register IntelliJ data source: %v\n", err)
+		return "", nil
+	}
+	if !result.Registered {
+		return "", nil
+	}
+
+	var once sync.Once
+	remove = func() {
+		once.Do(func() {
+			unregistered, err := ideadatasource.Unregister(projectDir, key)
+			switch {
+			case err != nil:
+				fprintf(r.err, "Warning: failed to remove IntelliJ data source %q: %v\n", result.Name, err)
+			case unregistered.Removed:
+				fprintf(r.out, "- IntelliJ data source %q removed from %s\n", result.Name, relativePaths(projectDir, result.Paths))
+			case unregistered.ActiveSessions > 0:
+				fprintf(r.out, "- IntelliJ data source %q kept: still used by %d other session(s)\n", result.Name, unregistered.ActiveSessions)
+			}
+		})
+	}
+
+	return fmt.Sprintf("IntelliJ data source %q -> localhost:%d (%s)", result.Name, port, relativePaths(projectDir, result.Paths)), remove
+}
+
+const (
+	// awsIAMAuthProvider is the IntelliJ authentication method "AWS IAM".
+	awsIAMAuthProvider = "aws.rds.iam"
+	// rdsIAMUser is the database user allowed to sign in with AWS IAM.
+	rdsIAMUser = "acme_ro"
+)
+
+// awsIAMProperties prefills the AWS Toolkit settings used by IntelliJ's "AWS IAM" authentication.
+func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
+	if target.RDSHost == "" {
+		return nil
+	}
+	return map[string]string{
+		"AWS.RdsSigningHost": target.RDSHost,
+		"AWS.RdsSigningPort": strconv.Itoa(target.RDSPort),
+		"AWS.RegionId":       cfg.Region,
+		"AWS.CredentialId":   "profile:" + cfg.Profile,
+	}
+}
+
+func relativePaths(base string, paths []string) string {
+	relative := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if rel, err := filepath.Rel(base, path); err == nil {
+			path = rel
+		}
+		relative = append(relative, path)
+	}
+	return strings.Join(relative, ", ")
+}
+
+// runOnHangup runs fn when the terminal is closed (SIGHUP), then lets the signal terminate the process.
+// SIGINT and SIGTERM are already turned into a graceful exit by the session TUI.
+// The returned function stops watching.
+func runOnHangup(fn func()) (stop func()) {
+	signals := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(signals, syscall.SIGHUP)
+
+	go func() {
+		select {
+		case <-signals:
+			fn()
+			signal.Reset(syscall.SIGHUP)
+			if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+				os.Exit(1)
+			}
+		case <-done:
+		}
+	}()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			signal.Stop(signals)
+			close(done)
+		})
+	}
+}
+
+// elastiCacheEngine defaults to redis when AWS does not report the engine.
+func elastiCacheEngine(engine string) string {
+	if strings.TrimSpace(engine) == "" {
+		return "redis"
+	}
+	return engine
 }
 
 func firstValue(values map[string][]string, key string) string {

@@ -104,7 +104,11 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = maxInt(1, msg.Width-4)
-		m.viewport.Height = maxInt(3, msg.Height-8)
+		headerLines := 8
+		if strings.TrimSpace(m.details.IDEDataSource) != "" {
+			headerLines++
+		}
+		m.viewport.Height = maxInt(3, msg.Height-headerLines)
 		m.refreshViewport()
 		return m, nil
 	case ssmOutputMsg:
@@ -193,7 +197,11 @@ func (m ssmModel) View() string {
 		body = "Waiting for output..."
 	}
 
-	content := title + "\n" + subtitle + "\n\n" + body
+	content := title + "\n" + subtitle
+	if strings.TrimSpace(m.details.IDEDataSource) != "" {
+		content += "\n" + m.styles.Muted.Render(m.details.IDEDataSource)
+	}
+	content += "\n\n" + body
 	if m.confirmQuit {
 		yes := "[ Yes ]"
 		no := "[ No ]"
@@ -336,6 +344,10 @@ func (m ssmModel) printSessionSummary() {
 	}
 
 	_, _ = fmt.Fprintf(m.out, "\nSession summary:\n- duration: %s\n- server connected: %s\n", duration, server)
+
+	if strings.TrimSpace(m.details.IDEDataSource) != "" {
+		_, _ = fmt.Fprintf(m.out, "- %s\n", m.details.IDEDataSource)
+	}
 
 	if strings.TrimSpace(m.details.RestartCommand) != "" {
 		_, _ = fmt.Fprintf(m.out, "- new session command: %s\n", m.details.RestartCommand)
