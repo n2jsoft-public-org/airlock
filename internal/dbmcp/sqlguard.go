@@ -99,7 +99,7 @@ func stripLiterals(engine Engine, query string) (string, error) {
 				closing = ']'
 			}
 			var end int
-			if c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || !(unicode.IsLetter(runes[i-2]) || unicode.IsDigit(runes[i-2]) || runes[i-2] == '_')) {
+			if c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || (!unicode.IsLetter(runes[i-2]) && !unicode.IsDigit(runes[i-2]) && runes[i-2] != '_')) {
 				end = escapeStringEnd(runes, i+1)
 			} else {
 				end = closingIndex(runes, i+1, closing)
