@@ -24,6 +24,8 @@ func TestCheckReadOnlyAccepts(t *testing.T) {
 		{"keyword in dollar quote", EnginePostgres, "SELECT $tag$ DROP; $tag$ AS x"},
 		{"identifier containing keyword", EnginePostgres, "SELECT updated_at, created_by FROM t"},
 		{"positional parameter is not a dollar quote", EnginePostgres, "SELECT $1"},
+		{"escape string with escaped quote", EnginePostgres, "SELECT E'it\\'s; DROP' AS x"},
+		{"identifier ending in e before a string is not an escape string", EnginePostgres, "SELECT 1 FROM t WHERE name = 'a\\' OR code = 'b'"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,6 +58,8 @@ func TestCheckReadOnlyRejects(t *testing.T) {
 		{"bracket is not a quote on postgres", EnginePostgres, "SELECT ARRAY[1]; DROP TABLE t", "single statement"},
 		{"unterminated literal", EnginePostgres, "SELECT 'oops", "unterminated"},
 		{"unterminated comment", EngineSQLServer, "SELECT 1 /* oops", "unterminated"},
+		{"escape string hides a second statement", EnginePostgres, "SELECT E'x\\'y' FROM t; DROP TABLE users; --'", "single statement"},
+		{"lowercase escape string", EnginePostgres, "SELECT e'\\'' ; DELETE FROM t", "single statement"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

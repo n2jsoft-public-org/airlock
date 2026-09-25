@@ -98,7 +98,12 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			if c == '[' {
 				closing = ']'
 			}
-			end := closingIndex(runes, i+1, closing)
+			var end int
+			if c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || !(unicode.IsLetter(runes[i-2]) || unicode.IsDigit(runes[i-2]) || runes[i-2] == '_')) {
+				end = escapeStringEnd(runes, i+1)
+			} else {
+				end = closingIndex(runes, i+1, closing)
+			}
 			if end < 0 {
 				return "", errors.New("unterminated quoted text")
 			}
@@ -132,6 +137,26 @@ func closingIndex(runes []rune, from int, closing rune) int {
 			continue
 		}
 		if i+1 < len(runes) && runes[i+1] == closing {
+			i++
+			continue
+		}
+		return i
+	}
+	return -1
+}
+
+// escapeStringEnd finds the closing quote in a PostgreSQL E'...' escape string starting at from.
+// In escape strings, \' is an escaped quote and ” is also an escaped quote.
+func escapeStringEnd(runes []rune, from int) int {
+	for i := from; i < len(runes); i++ {
+		if runes[i] == '\\' && i+1 < len(runes) {
+			i++
+			continue
+		}
+		if runes[i] != '\'' {
+			continue
+		}
+		if i+1 < len(runes) && runes[i+1] == '\'' {
 			i++
 			continue
 		}
