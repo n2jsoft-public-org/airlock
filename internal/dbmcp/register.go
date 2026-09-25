@@ -51,6 +51,24 @@ var lockRoot = func() (string, error) {
 	return filepath.Join(cacheDir, "acme", "mcp-config"), nil
 }
 
+// userHomeDir returns the user's home directory; overridden in tests.
+var userHomeDir = os.UserHomeDir
+
+// isHomeDir reports whether projectDir is the user's home directory. Writing .mcp.json or
+// .vscode/mcp.json there would usually go unnoticed (those directories tend to exist already
+// for unrelated reasons) and is not read by any client, which only looks at the project directory.
+func isHomeDir(projectDir string) bool {
+	home, err := userHomeDir()
+	if err != nil {
+		return false
+	}
+	absProject, err := filepath.Abs(projectDir)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(absProject) == filepath.Clean(home)
+}
+
 type serverEntry struct {
 	Headers map[string]string `json:"headers"`
 	Type    string            `json:"type"`
@@ -60,6 +78,9 @@ type serverEntry struct {
 // RegisterClients adds entry to the MCP configuration of every AI client the project uses,
 // and returns the files it wrote.
 func RegisterClients(projectDir string, entry ClientEntry) ([]string, error) {
+	if isHomeDir(projectDir) {
+		return nil, nil
+	}
 	value, err := json.Marshal(serverEntry{
 		Type:    "http",
 		URL:     entry.URL,
@@ -156,17 +177,17 @@ func updateConfig(path, key string, change func(servers *orderedObject) bool) er
 	if !change(&servers) {
 		return nil
 	}
-	encodedServers, err := json.Marshal(servers)
+	encodedServers, err := marshalNoEscape(servers)
 	if err != nil {
 		return err
 	}
 	root.set(key, encodedServers)
 
-	output, err := json.MarshalIndent(root, "", indent)
+	output, err := marshalIndentNoEscape(root, indent)
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, append(output, '\n'))
+	return writeFileAtomic(path, output)
 }
 
 // defaultIndent is used for new files and files without indented lines.
@@ -187,7 +208,9 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	mode := os.FileMode(0o644)
+	// A new file gets restrictive permissions (it may end up holding a bearer token); an existing
+	// file keeps whatever mode it already had.
+	mode := os.FileMode(0o600)
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}

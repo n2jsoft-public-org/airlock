@@ -203,6 +203,59 @@ func TestRegisterClientsKeepsIndentation(t *testing.T) {
 	}
 }
 
+func TestRegisterClientsSkipsTheHomeDirectory(t *testing.T) {
+	useIsolatedLocks(t)
+	dir := t.TempDir()
+	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+	_ = os.Mkdir(filepath.Join(dir, ".vscode"), 0o750)
+	previous := userHomeDir
+	userHomeDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { userHomeDir = previous })
+
+	written, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a"))
+	if err != nil || len(written) != 0 {
+		t.Fatalf("written = %v, err = %v", written, err)
+	}
+	if exists(filepath.Join(dir, ".mcp.json")) || exists(filepath.Join(dir, ".vscode", "mcp.json")) {
+		t.Fatal("must not write into the user's home directory")
+	}
+}
+
+func TestRegisterClientsNewFileGetsRestrictivePermissions(t *testing.T) {
+	useIsolatedLocks(t)
+	dir := t.TempDir()
+	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+
+	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dir, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("new file mode = %v, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestRegisterClientsKeepsHTMLCharactersByteForByte(t *testing.T) {
+	useIsolatedLocks(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".mcp.json")
+	original := `{"mcpServers": {"other": {"command": "a && b <x>"}}}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
+		t.Fatal(err)
+	}
+	content := readFile(t, path)
+	if !strings.Contains(content, `"a && b <x>"`) {
+		t.Fatalf("HTML characters were escaped:\n%s", content)
+	}
+}
+
 func TestRegisterClientsReplacesStaleEntryOfSameTarget(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()

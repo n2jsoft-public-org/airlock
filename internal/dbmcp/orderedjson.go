@@ -53,7 +53,7 @@ func (o orderedObject) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		key, err := json.Marshal(m.Key)
+		key, err := marshalNoEscape(m.Key)
 		if err != nil {
 			return nil, err
 		}
@@ -62,6 +62,32 @@ func (o orderedObject) MarshalJSON() ([]byte, error) {
 		buf.Write(m.Value)
 	}
 	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+// marshalNoEscape encodes v as compact JSON without HTML-escaping &, < and >. json.Marshal's
+// default escaping would otherwise run over bytes already holding valid JSON (e.g. another
+// client's existing config entries) and mangle any of those characters found inside them.
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+// marshalIndentNoEscape encodes v as indented JSON without HTML-escaping. The result already
+// ends with a trailing newline (json.Encoder always appends one).
+func marshalIndentNoEscape(v any, indent string) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", indent)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 
