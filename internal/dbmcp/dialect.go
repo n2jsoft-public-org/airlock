@@ -67,7 +67,7 @@ var sqlServerDialect = dialect{
 	// go-mssqldb has no read-only transactions: rely on rollback and grants.
 	readOnlyTx:   false,
 	txSetup:      []string{"SET LOCK_TIMEOUT 5000"},
-	databasesSQL: "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name",
+	databasesSQL: "SELECT name FROM sys.databases WHERE database_id > 4 AND name <> 'rdsadmin' ORDER BY name",
 	tablesSQL: `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES
 WHERE (@p1 = '' OR TABLE_SCHEMA = @p1) ORDER BY TABLE_SCHEMA, TABLE_NAME`,
 	columnsSQL: `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS

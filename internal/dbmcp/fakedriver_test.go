@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -20,15 +21,32 @@ type fakeDB struct {
 }
 
 type fakeAnswer struct {
-	err     error
-	columns []string
-	rows    [][]driver.Value
+	err error
+	// columnTypes optionally names each column's DatabaseTypeName (e.g. "UNIQUEIDENTIFIER"),
+	// exposed through driver.RowsColumnTypeDatabaseTypeName.
+	columnTypes []string
+	columns     []string
+	rows        [][]driver.Value
+	// drainOnClose makes fakeRows.Close mimic a driver (like pgx) that reads every remaining
+	// row on Close, unless the query context was already cancelled (a broken connection).
+	drainOnClose bool
 }
 
 func newFakeDB() *fakeDB { return &fakeDB{answers: map[string]fakeAnswer{}} }
 
 func (f *fakeDB) answer(prefix string, columns []string, rows ...[]driver.Value) {
 	f.answers[prefix] = fakeAnswer{columns: columns, rows: rows}
+}
+
+// answerTyped is like answer but also declares each column's DatabaseTypeName.
+func (f *fakeDB) answerTyped(prefix string, columns, columnTypes []string, rows ...[]driver.Value) {
+	f.answers[prefix] = fakeAnswer{columns: columns, columnTypes: columnTypes, rows: rows}
+}
+
+// answerDraining is like answer but its fakeRows.Close drains every remaining row unless the
+// query context was already cancelled, mimicking pgx's behavior on a truncated result.
+func (f *fakeDB) answerDraining(prefix string, columns []string, rows ...[]driver.Value) {
+	f.answers[prefix] = fakeAnswer{columns: columns, rows: rows, drainOnClose: true}
 }
 
 func (f *fakeDB) record(entry string) {
@@ -88,7 +106,7 @@ func (c fakeConn) ExecContext(_ context.Context, query string, _ []driver.NamedV
 	return driver.RowsAffected(3), nil
 }
 
-func (c fakeConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+func (c fakeConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	entry := query
 	for _, arg := range args {
 		entry += " | " + arg.Value.(string)
@@ -101,7 +119,10 @@ func (c fakeConn) QueryContext(_ context.Context, query string, args []driver.Na
 	if answer.err != nil {
 		return nil, answer.err
 	}
-	return &fakeRows{columns: answer.columns, rows: answer.rows}, nil
+	return &fakeRows{
+		columns: answer.columns, columnTypes: answer.columnTypes, rows: answer.rows,
+		drainOnClose: answer.drainOnClose, ctx: ctx, db: c.db,
+	}, nil
 }
 
 func (f *fakeDB) lookup(query string) (fakeAnswer, bool) {
@@ -119,13 +140,45 @@ func (t fakeTx) Commit() error   { t.db.record("COMMIT"); return nil }
 func (t fakeTx) Rollback() error { t.db.record("ROLLBACK"); return nil }
 
 type fakeRows struct {
-	columns []string
-	rows    [][]driver.Value
-	next    int
+	ctx          context.Context
+	db           *fakeDB
+	columns      []string
+	columnTypes  []string
+	rows         [][]driver.Value
+	next         int
+	drainOnClose bool
 }
 
 func (r *fakeRows) Columns() []string { return r.columns }
-func (*fakeRows) Close() error        { return nil }
+
+// ColumnTypeDatabaseTypeName implements driver.RowsColumnTypeDatabaseTypeName.
+func (r *fakeRows) ColumnTypeDatabaseTypeName(index int) string {
+	if index < len(r.columnTypes) {
+		return r.columnTypes[index]
+	}
+	return ""
+}
+
+func (r *fakeRows) Close() error {
+	if !r.drainOnClose {
+		return nil
+	}
+	if r.ctx != nil && r.ctx.Err() != nil {
+		if r.db != nil {
+			r.db.record("rows.Close: context already cancelled, connection left broken")
+		}
+		return nil
+	}
+	drained := 0
+	for r.next < len(r.rows) {
+		r.next++
+		drained++
+	}
+	if r.db != nil {
+		r.db.record(fmt.Sprintf("rows.Close: drained %d remaining row(s)", drained))
+	}
+	return nil
+}
 
 func (r *fakeRows) Next(dest []driver.Value) error {
 	if r.next >= len(r.rows) {

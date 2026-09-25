@@ -144,8 +144,18 @@ func (q *sqlQuerier) read(ctx context.Context, database string, maxRows int, que
 	if err != nil {
 		return Result{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	return collectRows(rows, maxRows)
+	result, collectErr := collectRows(rows, maxRows)
+	if result.Truncated {
+		// Cancel before Close: some drivers (pgx) otherwise drain every remaining row on Close,
+		// streaming the rest of a capped result through the tunnel until the statement times out.
+		// The connection is left broken and discarded by the pool; the truncated result still stands.
+		cancel()
+	}
+	_ = rows.Close()
+	if collectErr != nil {
+		return Result{}, collectErr
+	}
+	return result, nil
 }
 
 func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
@@ -153,6 +163,7 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	isGUID := guidColumns(rows, len(columns))
 	result := Result{Columns: columns, Rows: [][]any{}}
 	for rows.Next() {
 		if len(result.Rows) == maxRows {
@@ -168,6 +179,12 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 			return Result{}, err
 		}
 		for i, value := range values {
+			if isGUID[i] {
+				if raw, ok := value.([]byte); ok && len(raw) == 16 {
+					values[i] = truncateText(mssqlGUID(raw))
+					continue
+				}
+			}
 			values[i] = jsonValue(value)
 		}
 		result.Rows = append(result.Rows, values)
@@ -177,6 +194,23 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 	}
 	result.RowCount = len(result.Rows)
 	return result, nil
+}
+
+// guidColumns reports, per column (indexed as in rows.Columns()), whether the database declares
+// it as SQL Server's UNIQUEIDENTIFIER type. Drivers that don't report column types (or an error)
+// yield an all-false result.
+func guidColumns(rows *sql.Rows, n int) []bool {
+	isGUID := make([]bool, n)
+	types, err := rows.ColumnTypes()
+	if err != nil {
+		return isGUID
+	}
+	for i, t := range types {
+		if i < n {
+			isGUID[i] = strings.EqualFold(t.DatabaseTypeName(), "UNIQUEIDENTIFIER")
+		}
+	}
+	return isGUID
 }
 
 // connectionError explains the usual cause of a refused connection: the tunnel is not up yet.

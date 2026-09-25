@@ -76,6 +76,94 @@ func TestQueryCapsRows(t *testing.T) {
 	}
 }
 
+func TestQueryCancelsContextBeforeClosingTruncatedRows(t *testing.T) {
+	q, db, _ := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
+	db.answerDraining("SELECT n", []string{"n"},
+		[]driver.Value{int64(1)}, []driver.Value{int64(2)}, []driver.Value{int64(3)}, []driver.Value{int64(4)})
+
+	result, err := q.Query(context.Background(), "", "SELECT n FROM big_table", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 2 || !result.Truncated {
+		t.Fatalf("row_count = %d truncated = %v, want 2 and true", result.RowCount, result.Truncated)
+	}
+	found := false
+	for _, s := range db.statements() {
+		if strings.Contains(s, "context already cancelled") {
+			found = true
+		}
+		if strings.Contains(s, "drained ") {
+			t.Fatalf("the remaining rows of a truncated result must not be drained: %q", s)
+		}
+	}
+	if !found {
+		t.Fatalf("expected the query context to be cancelled before rows.Close, statements: %v", db.statements())
+	}
+}
+
+func TestQueryUntruncatedResultDrainsNormally(t *testing.T) {
+	q, db, _ := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
+	db.answerDraining("SELECT n", []string{"n"}, []driver.Value{int64(1)}, []driver.Value{int64(2)})
+
+	result, err := q.Query(context.Background(), "", "SELECT n FROM t", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 2 || result.Truncated {
+		t.Fatalf("row_count = %d truncated = %v, want 2 and false", result.RowCount, result.Truncated)
+	}
+	found := false
+	for _, s := range db.statements() {
+		if strings.Contains(s, "context already cancelled") {
+			t.Fatalf("context must not be cancelled before Close on a non-truncated result: %q", s)
+		}
+		if strings.Contains(s, "drained 0 remaining") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected rows.Close to drain normally (nothing left), statements: %v", db.statements())
+	}
+}
+
+func TestQueryRendersSQLServerUniqueIdentifier(t *testing.T) {
+	q, db, _ := newTestQuerier(&sqlServerDialect, staticCreds{fallback: "Archive"})
+	wireBytes := []byte{0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xf0, 0xde, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
+	db.answerTyped("SELECT id", []string{"id"}, []string{"UNIQUEIDENTIFIER"}, []driver.Value{wireBytes})
+
+	result, err := q.Query(context.Background(), "", "SELECT id FROM t", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "12345678-9ABC-DEF0-1122-334455667788"
+	if got := result.Rows[0][0]; got != want {
+		t.Fatalf("uniqueidentifier = %v, want %v", got, want)
+	}
+}
+
+func TestQueryLeavesNonGUIDBinaryColumnsUnchanged(t *testing.T) {
+	q, db, _ := newTestQuerier(&sqlServerDialect, staticCreds{fallback: "Archive"})
+	// Invalid UTF-8 (0xff is never a valid lead byte), so jsonValue's fallback hex rendering applies.
+	raw := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	db.answerTyped("SELECT hash", []string{"hash"}, []string{"BINARY"}, []driver.Value{raw})
+
+	result, err := q.Query(context.Background(), "", "SELECT hash FROM t", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "0x" + strings.Repeat("ff", 16)
+	if got := result.Rows[0][0]; got != want {
+		t.Fatalf("binary column = %v, want %v (the hex rendering, not the uniqueidentifier form)", got, want)
+	}
+}
+
+func TestSQLServerDatabasesSQLExcludesRDSAdmin(t *testing.T) {
+	if !strings.Contains(sqlServerDialect.databasesSQL, "name <> 'rdsadmin'") {
+		t.Fatalf("databasesSQL = %q, want it to exclude rdsadmin", sqlServerDialect.databasesSQL)
+	}
+}
+
 func TestQueryRejectedByGuardNeverReachesDatabase(t *testing.T) {
 	q, db, opened := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
 

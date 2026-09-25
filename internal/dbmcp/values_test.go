@@ -31,6 +31,15 @@ func TestJSONValue(t *testing.T) {
 	}
 }
 
+func TestMSSQLGUIDRendersStandardForm(t *testing.T) {
+	wireBytes := []byte{0x78, 0x56, 0x34, 0x12, 0xbc, 0x9a, 0xf0, 0xde, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
+	got := mssqlGUID(wireBytes)
+	want := "12345678-9ABC-DEF0-1122-334455667788"
+	if got != want {
+		t.Fatalf("mssqlGUID(%x) = %q, want %q", wireBytes, got, want)
+	}
+}
+
 func TestTruncateTextKeepsRunesWhole(t *testing.T) {
 	text := strings.Repeat("é", maxTextBytes) // 2 bytes per rune
 	got := truncateText(text)

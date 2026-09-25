@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 // maxTextBytes caps a single text value returned to the AI assistant.
@@ -27,6 +29,18 @@ func jsonValue(v any) any {
 	default:
 		return truncateText(fmt.Sprint(x))
 	}
+}
+
+// mssqlGUID renders a SQL Server uniqueidentifier's 16 raw wire-order bytes (as returned by
+// go-mssqldb for a UNIQUEIDENTIFIER column) in the standard 8-4-4-4-12 form.
+func mssqlGUID(raw []byte) string {
+	var id mssql.UniqueIdentifier
+	if err := id.Scan(raw); err != nil {
+		// Only a wrong-length slice reaches here; the caller already checked len(raw) == 16,
+		// so fall back to the same hex rendering used for other binary columns.
+		return "0x" + hex.EncodeToString(raw)
+	}
+	return id.String()
 }
 
 // truncateText cuts text longer than maxTextBytes on a rune boundary and says how much was dropped.
