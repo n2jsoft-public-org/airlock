@@ -228,3 +228,24 @@ func TestPluginOutputMarksSessionReady(t *testing.T) {
 		t.Fatalf("ready = %v connections = %d, want ready with 1 connection", m.sessions[0].ready, m.sessions[0].connections)
 	}
 }
+
+func TestDetailsShowMCPServer(t *testing.T) {
+	m := newTestSSMModel(t, "db")
+	m.sessions[0].session.Details.MCP = "MCP acme-dev-db -> http://127.0.0.1:50000/mcp/acme-dev-db-abc123 (.mcp.json)"
+
+	if view := m.View(); !strings.Contains(view, "MCP acme-dev-db") {
+		t.Fatalf("details do not show the MCP server:\n%s", view)
+	}
+}
+
+func TestWizardKeepsMCPOptions(t *testing.T) {
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{SkipMCP: true, MCPAllowWrites: true})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"})
+	m.sessions[0].state = ssmSessionRunning
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	m, _ = update(t, m, key("n"))
+	if !m.wizard.options.SkipMCP || !m.wizard.options.MCPAllowWrites {
+		t.Fatalf("wizard options = %+v, want MCP flags kept", m.wizard.options)
+	}
+}

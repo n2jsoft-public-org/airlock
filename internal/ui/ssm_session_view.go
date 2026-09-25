@@ -236,6 +236,9 @@ func (m ssmModel) renderDetails(width int) string {
 	if ide := strings.TrimSpace(s.session.Details.IDEDataSource); ide != "" {
 		rows = append(rows, m.field("IDE", ide, inner))
 	}
+	if mcp := strings.TrimSpace(s.session.Details.MCP); mcp != "" {
+		rows = append(rows, m.field("MCP", mcp, inner))
+	}
 	if s.err != nil && !s.stopRequested {
 		rows = append(rows, m.field("Error", m.styles.Danger.Render(s.err.Error()), inner))
 	}

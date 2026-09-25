@@ -67,3 +67,12 @@ Parallel sessions:
 - `tab` / `←` `→` / `1`-`9` switch between sessions, `x` stops the selected one (or closes it once ended), `ctrl+c` stops all and quits.
 - Local ports never collide: the suggested port skips ports used by other sessions or other local processes (e.g. a second `5432` RDS gets `5433`). An explicitly requested busy port is rejected.
 - Connecting twice to the same target (same type, name, profile and region) is refused.
+
+Database MCP server (AI access):
+
+- For RDS PostgreSQL and SQL Server sessions, acme serves an MCP server on `127.0.0.1` for as long as the session runs, so AI assistants can explore and query the database through the tunnel.
+- It is registered as `acme-<profile>-<instance>` in `.mcp.json` (Claude Code; written when `.mcp.json` or `.claude/` exists) and `.vscode/mcp.json` (VS Code; written when `.vscode/` exists), and removed when the session stops. Without those files, the dashboard shows the URL and bearer token to configure a client by hand.
+- Tools: `list_databases`, `list_tables`, `describe_table`, `query` (single read-only `SELECT`/`WITH`, max 1000 rows, 30 s timeout).
+- Credentials: PostgreSQL uses an IAM token for `acme_ro`; SQL Server uses the `ro-access` secrets of the instance (one per database). Nothing is written to disk.
+- `--mcp-allow-writes` switches to the RDS master user secret and adds a destructive `execute` tool (administrators only). `--no-mcp` disables the server.
+- Claude Code reads `.mcp.json` at startup and asks to approve new project servers: after opening a session in a running Claude Code, use `/mcp` to reconnect.

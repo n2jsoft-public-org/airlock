@@ -392,7 +392,11 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
-	base := jumphost.Options{SkipIDEDataSource: m.baseOptions.SkipIDEDataSource}
+	base := jumphost.Options{
+		SkipIDEDataSource: m.baseOptions.SkipIDEDataSource,
+		SkipMCP:           m.baseOptions.SkipMCP,
+		MCPAllowWrites:    m.baseOptions.MCPAllowWrites,
+	}
 	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
 	m.wizard.embedded = true
 	m.mode = ssmModeWizard

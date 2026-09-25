@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/example/acme-cli/internal/dbmcp"
 	"github.com/example/acme-cli/internal/jumphost"
 	"github.com/example/acme-cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -31,6 +32,8 @@ func newJumphostCmd() *cobra.Command {
 	cmd.Flags().StringVar(&options.AwsProfile, "aws-profile", "", "Alias of --profile")
 	cmd.Flags().StringVar(&options.AwsRegion, "region", "", "AWS region to use (defaults to AWS_REGION, configured region, or eu-west-3)")
 	cmd.Flags().BoolVar(&options.SkipIDEDataSource, "no-ide-datasource", false, "Do not register the connection in ./.idea/dataSources.xml")
+	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, "Do not serve an MCP server giving AI assistants access to the database")
+	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data, using the RDS master user secret")
 
 	return cmd
 }
@@ -40,8 +43,10 @@ func runJumphost(cmd *cobra.Command, args []string) error {
 }
 
 func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options) error {
-	// Runners share the registry so parallel sessions never reuse a local port or target.
+	// Runners share the registry so parallel sessions never reuse a local port or target,
+	// and the MCP host so all database sessions are served on one localhost listener.
 	registry := jumphost.NewSessionRegistry()
+	mcpHost := dbmcp.NewHost()
 	interactive := isInteractiveInput(cmd.InOrStdin())
 
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
@@ -50,6 +55,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		Out:      io.Discard,
 		Err:      io.Discard,
 		Registry: registry,
+		MCPHost:  mcpHost,
 	})
 
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
@@ -96,6 +102,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		Out:      cmd.OutOrStdout(),
 		Err:      cmd.ErrOrStderr(),
 		Registry: registry,
+		MCPHost:  mcpHost,
 	})
 
 	if !interactive {
