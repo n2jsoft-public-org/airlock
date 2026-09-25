@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -60,14 +59,14 @@ func (h *Host) Mount(slug string, server *mcp.Server) (Endpoint, error) {
 	if _, exists := h.routes[slug]; exists {
 		return Endpoint{}, fmt.Errorf("MCP route %q is already mounted", slug)
 	}
+	token, err := randomHex(32)
+	if err != nil {
+		return Endpoint{}, err
+	}
 	if h.server == nil {
 		if err := h.startLocked(); err != nil {
 			return Endpoint{}, err
 		}
-	}
-	token, err := randomHex(32)
-	if err != nil {
-		return Endpoint{}, err
 	}
 
 	handler := mcp.NewStreamableHTTPHandler(
@@ -89,9 +88,6 @@ func (h *Host) Unmount(slug string) error {
 	}
 	err := h.server.Close()
 	h.server, h.baseURL = nil, ""
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
 	return err
 }
 
