@@ -1,6 +1,7 @@
 package dbmcp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,7 @@ func testSessionConfig(t *testing.T, engine string) *SessionConfig {
 		ProjectDir: t.TempDir(),
 		Profile:    "dev", Region: "eu-west-3", Target: "Archive_DB",
 		AWSEngine: engine, RDSHost: "archive.rds.amazonaws.com", RDSPort: 5432,
-		IAMUser: "acme_ro", LocalPort: 15432,
+		IAMUser: "acme_ro", IAMAuth: true, LocalPort: 15432,
 	}
 }
 
@@ -93,6 +94,22 @@ func TestCredentialProviderSelection(t *testing.T) {
 	provider, ok := credentialProvider(cfg, EngineSQLServer).(*masterSecretProvider)
 	if !ok || provider.defaultDatabase != "master" {
 		t.Fatalf("writes must use the master secret on master, got %#v", provider)
+	}
+}
+
+func TestCredentialProviderPostgresWithoutIAMAuthIsDisabled(t *testing.T) {
+	cfg := testSessionConfig(t, "postgres")
+	cfg.IAMAuth = false
+
+	provider := credentialProvider(cfg, EnginePostgres)
+	if _, ok := provider.(*iamDisabledProvider); !ok {
+		t.Fatalf("expected an iamDisabledProvider, got %#v", provider)
+	}
+	if _, err := provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "IAM authentication is disabled") {
+		t.Fatalf("Credentials error = %v, want an IAM-disabled explanation", err)
+	}
+	if _, err := provider.Databases(context.Background()); err == nil || !strings.Contains(err.Error(), "IAM authentication is disabled") {
+		t.Fatalf("Databases error = %v, want an IAM-disabled explanation", err)
 	}
 }
 

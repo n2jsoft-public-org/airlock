@@ -283,10 +283,11 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	}
 	var mcpServer *dbmcp.Handle
 	if resourceType == resourceRDS && !options.SkipMCP {
-		mcpServer = r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
-		if mcpServer != nil {
-			session.Details.MCP = mcpServer.Display
-			session.Intro = append(session.Intro, mcpServer.Display)
+		var mcpDisplay string
+		mcpServer, mcpDisplay = r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		if mcpDisplay != "" {
+			session.Details.MCP = mcpDisplay
+			session.Intro = append(session.Intro, mcpDisplay)
 		}
 	}
 	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource)
@@ -875,7 +876,7 @@ func rdsIAMSessionInfo(localPort int, rdsHost string, rdsPort int, cfg awsConfig
 // rdsSecretsSessionInfo explains where the credentials of an instance without IAM authentication (SQL Server) live.
 func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUsername, awsArgsHint string) []string {
 	info := []string{
-		"IAM authentication is not enabled for this instance (SQL Server does not support it): use Secrets Manager.",
+		"IAM authentication is not enabled for this instance: use Secrets Manager.",
 		fmt.Sprintf("  host:port            = localhost:%d", localPort),
 		"  user / password      = read them from a secret below (the JSON holds both)",
 		"",
@@ -1232,18 +1233,23 @@ func sessionRelease(releasePort func(), mcpServer *dbmcp.Handle, removeDataSourc
 	}
 }
 
-// startMCP serves the MCP server of a database session; failures are reported as warnings.
-func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) *dbmcp.Handle {
+// dbmcpStart starts a session's MCP server; a package variable so tests can force a failure.
+var dbmcpStart = dbmcp.Start
+
+// startMCP serves the MCP server of a database session and returns the display line describing
+// it (empty when the engine is unsupported, so the session shows no MCP line at all). A failure
+// to start is reported through the returned display rather than r.err, which is discarded in TUI
+// mode.
+func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
 	projectDir := r.projectDir
 	if projectDir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			fprintf(r.err, "Warning: MCP server not started: %v\n", err)
-			return nil
+			return nil, fmt.Sprintf("MCP not started: %v", err)
 		}
 		projectDir = wd
 	}
-	handle, err := dbmcp.Start(r.mcpHost, &dbmcp.SessionConfig{
+	handle, err := dbmcpStart(r.mcpHost, &dbmcp.SessionConfig{
 		AWS: func(ctx context.Context, args ...string) (string, error) {
 			return r.runAWSCapture(ctx, cfg.Args, args...)
 		},
@@ -1258,14 +1264,17 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		InstanceARN:     target.InstanceARN,
 		MasterSecretARN: target.MasterSecretARN,
 		IAMUser:         rdsIAMUser,
+		IAMAuth:         target.IAMAuth,
 		LocalPort:       localPort,
 		AllowWrites:     allowWrites,
 	})
 	if err != nil {
-		fprintf(r.err, "Warning: failed to start the MCP server: %v\n", err)
-		return nil
+		return nil, fmt.Sprintf("MCP not started: %v", err)
 	}
-	return handle
+	if handle == nil {
+		return nil, ""
+	}
+	return handle, handle.Display
 }
 
 func relativePaths(base string, paths []string) string {

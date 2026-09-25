@@ -21,9 +21,12 @@ type SessionConfig struct {
 	InstanceARN     string
 	MasterSecretARN string
 	// IAMUser is the read-only user signing in with RDS IAM tokens (PostgreSQL).
-	IAMUser     string
-	RDSPort     int
-	LocalPort   int
+	IAMUser   string
+	RDSPort   int
+	LocalPort int
+	// IAMAuth reports whether the RDS instance has AWS IAM database authentication enabled.
+	// Read-only PostgreSQL access needs it (there is no other read-only credential for PostgreSQL).
+	IAMAuth     bool
 	AllowWrites bool
 }
 
@@ -111,6 +114,8 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 		return newMasterSecretProvider(cfg.AWS, cfg.Target, cfg.MasterSecretARN, defaultDatabase)
 	case engine == EngineSQLServer:
 		return newSupportSecretsProvider(cfg.AWS, cfg.Target, cfg.InstanceARN)
+	case !cfg.IAMAuth:
+		return newIAMDisabledProvider(cfg.Target)
 	default:
 		return newIAMTokenProvider(cfg.AWS, cfg.RDSHost, cfg.RDSPort, cfg.IAMUser, defaultDatabase)
 	}

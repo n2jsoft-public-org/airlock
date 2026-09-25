@@ -74,6 +74,29 @@ func (p *iamTokenProvider) Credentials(ctx context.Context, database string) (Cr
 
 func (*iamTokenProvider) Databases(context.Context) ([]string, error) { return nil, nil }
 
+// iamDisabledProvider explains that read-only PostgreSQL MCP access needs AWS IAM database
+// authentication, which this instance does not have enabled (there is no other read-only
+// PostgreSQL credential).
+type iamDisabledProvider struct {
+	instance string
+}
+
+func newIAMDisabledProvider(instance string) *iamDisabledProvider {
+	return &iamDisabledProvider{instance: instance}
+}
+
+func (p *iamDisabledProvider) err() error {
+	return fmt.Errorf(
+		"IAM authentication is disabled on %s: read-only MCP access needs it (enable IAM auth, or use --mcp-allow-writes with the master user secret)",
+		p.instance)
+}
+
+func (p *iamDisabledProvider) Credentials(context.Context, string) (Credentials, error) {
+	return Credentials{}, p.err()
+}
+
+func (p *iamDisabledProvider) Databases(context.Context) ([]string, error) { return nil, p.err() }
+
 // secretPayload is the JSON stored in RDS credential secrets.
 type secretPayload struct {
 	Username string `json:"username"`
