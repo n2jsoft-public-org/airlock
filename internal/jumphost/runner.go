@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/example/acme-cli/internal/dbmcp"
 	"github.com/example/acme-cli/internal/ideadatasource"
 	"golang.org/x/term"
 )
@@ -41,6 +42,10 @@ type Options struct {
 	AwsRegion       string
 	// SkipIDEDataSource disables registering the connection in ./.idea/dataSources.xml.
 	SkipIDEDataSource bool
+	// SkipMCP disables the MCP server giving AI assistants access to tunneled databases.
+	SkipMCP bool
+	// MCPAllowWrites makes the MCP server use the master user secret and expose the execute tool.
+	MCPAllowWrites bool
 }
 
 type ResourceSummary struct {
@@ -59,6 +64,8 @@ type RunnerOptions struct {
 	Err io.Writer
 	// Registry tracks ports and targets of parallel sessions; share it between runners of one process.
 	Registry *SessionRegistry
+	// MCPHost serves the MCP servers of database sessions; share it between runners of one process.
+	MCPHost *dbmcp.Host
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
 }
@@ -67,6 +74,8 @@ type SessionDetails struct {
 	ConnectedServer string
 	RestartCommand  string
 	IDEDataSource   string
+	// MCP describes the session's MCP server (empty when none runs).
+	MCP string
 }
 
 // Session is a prepared port-forwarding session: its local port and target are reserved
@@ -105,6 +114,7 @@ type Runner struct {
 	out        io.Writer
 	err        io.Writer
 	registry   *SessionRegistry
+	mcpHost    *dbmcp.Host
 	projectDir string
 }
 
@@ -112,9 +122,14 @@ type Runner struct {
 type ideTarget struct {
 	Engine   string
 	Database string
-	// RDSHost and RDSPort are the real endpoint, used by IntelliJ to sign AWS IAM auth tokens.
+	// RDSHost and RDSPort are the real endpoint, used to sign AWS IAM auth tokens.
 	RDSHost string
-	RDSPort int
+	// InstanceARN and MasterSecretARN locate the Secrets Manager credentials of the instance.
+	InstanceARN     string
+	MasterSecretARN string
+	RDSPort         int
+	// IAMAuth reports whether the instance accepts AWS IAM authentication (not SQL Server).
+	IAMAuth bool
 }
 
 type awsConfig struct {
@@ -140,8 +155,12 @@ func NewRunner(opts RunnerOptions) *Runner {
 	if registry == nil {
 		registry = NewSessionRegistry()
 	}
+	mcpHost := opts.MCPHost
+	if mcpHost == nil {
+		mcpHost = dbmcp.NewHost()
+	}
 
-	return &Runner{in: in, out: out, err: err, registry: registry, projectDir: opts.ProjectDir}
+	return &Runner{in: in, out: out, err: err, registry: registry, mcpHost: mcpHost, projectDir: opts.ProjectDir}
 }
 
 // Run prepares a single session and streams it in the current terminal until it ends.
@@ -262,13 +281,15 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			session.Intro = append(session.Intro, session.Details.IDEDataSource)
 		}
 	}
-	session.release = func() string {
-		r.registry.release(label)
-		if removeDataSource == nil {
-			return ""
+	var mcpServer *dbmcp.Handle
+	if resourceType == resourceRDS && !options.SkipMCP {
+		mcpServer = r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		if mcpServer != nil {
+			session.Details.MCP = mcpServer.Display
+			session.Intro = append(session.Intro, mcpServer.Display)
 		}
-		return removeDataSource()
 	}
+	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource)
 
 	ready = true
 	return session, nil
@@ -779,11 +800,17 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	var instance struct {
 		Engine               string `json:"Engine"`
 		DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
+		DBInstanceArn        string `json:"DBInstanceArn"`
 		DBName               string `json:"DBName"`
-		Endpoint             struct {
+		MasterUsername       string `json:"MasterUsername"`
+		MasterUserSecret     struct {
+			SecretArn string `json:"SecretArn"`
+		} `json:"MasterUserSecret"`
+		Endpoint struct {
 			Address string `json:"Address"`
 			Port    int    `json:"Port"`
 		} `json:"Endpoint"`
+		IAMDatabaseAuthenticationEnabled bool `json:"IAMDatabaseAuthenticationEnabled"`
 	}
 	if err = json.Unmarshal([]byte(rawInstance), &instance); err != nil {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse RDS instance details: %w", err)
@@ -806,16 +833,11 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	)
 
 	awsArgsHint := strings.Join(cfg.Args, " ")
-	sessionInfo := []string{
-		"For tools which support AWS IAM authentication, use:",
-		fmt.Sprintf("  host:port            = localhost:%d", localPort),
-		"  user                 = acme_ro",
-		fmt.Sprintf("  region               = %s", cfg.Region),
-		fmt.Sprintf("  credential/profile   = %s", cfg.Profile),
-		fmt.Sprintf("  rds host:port        = %s:%d", instance.Endpoint.Address, instance.Endpoint.Port),
-		"",
-		"Otherwise, generate a temporary token (valid for 15 minutes) with:",
-		fmt.Sprintf("  aws rds generate-db-auth-token --hostname %s --port %d --username acme_ro %s", instance.Endpoint.Address, instance.Endpoint.Port, awsArgsHint),
+	var sessionInfo []string
+	if instance.IAMDatabaseAuthenticationEnabled {
+		sessionInfo = rdsIAMSessionInfo(localPort, instance.Endpoint.Address, instance.Endpoint.Port, cfg, awsArgsHint)
+	} else {
+		sessionInfo = rdsSecretsSessionInfo(localPort, instance.DBInstanceArn, instance.MasterUserSecret.SecretArn, instance.MasterUsername, awsArgsHint)
 	}
 
 	params := map[string][]string{
@@ -825,11 +847,51 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	}
 
 	return instance.DBInstanceIdentifier, displayName, sessionInfo, params, ideTarget{
-		Engine:   instance.Engine,
-		Database: instance.DBName,
-		RDSHost:  instance.Endpoint.Address,
-		RDSPort:  instance.Endpoint.Port,
+		Engine:          instance.Engine,
+		Database:        instance.DBName,
+		RDSHost:         instance.Endpoint.Address,
+		RDSPort:         instance.Endpoint.Port,
+		InstanceARN:     instance.DBInstanceArn,
+		MasterSecretARN: instance.MasterUserSecret.SecretArn,
+		IAMAuth:         instance.IAMDatabaseAuthenticationEnabled,
 	}, nil
+}
+
+// rdsIAMSessionInfo explains how to sign in with AWS IAM authentication.
+func rdsIAMSessionInfo(localPort int, rdsHost string, rdsPort int, cfg awsConfig, awsArgsHint string) []string {
+	return []string{
+		"For tools which support AWS IAM authentication, use:",
+		fmt.Sprintf("  host:port            = localhost:%d", localPort),
+		"  user                 = " + rdsIAMUser,
+		fmt.Sprintf("  region               = %s", cfg.Region),
+		fmt.Sprintf("  credential/profile   = %s", cfg.Profile),
+		fmt.Sprintf("  rds host:port        = %s:%d", rdsHost, rdsPort),
+		"",
+		"Otherwise, generate a temporary token (valid for 15 minutes) with:",
+		fmt.Sprintf("  aws rds generate-db-auth-token --hostname %s --port %d --username %s %s", rdsHost, rdsPort, rdsIAMUser, awsArgsHint),
+	}
+}
+
+// rdsSecretsSessionInfo explains where the credentials of an instance without IAM authentication (SQL Server) live.
+func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUsername, awsArgsHint string) []string {
+	info := []string{
+		"IAM authentication is not enabled for this instance (SQL Server does not support it): use Secrets Manager.",
+		fmt.Sprintf("  host:port            = localhost:%d", localPort),
+		"  user / password      = read them from a secret below (the JSON holds both)",
+		"",
+		"Read-only credentials, one secret per database:",
+		fmt.Sprintf("  aws secretsmanager list-secrets --filters Key=tag-key,Values=DBInstanceArn Key=tag-value,Values=%s --query %q --output text %s",
+			instanceARN, dbmcp.SupportSecretsQuery(instanceARN), awsArgsHint),
+		"  aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text " + awsArgsHint,
+	}
+	if masterSecretARN == "" {
+		return append(info, "", "No master user secret found for this instance.")
+	}
+	return append(info,
+		"",
+		fmt.Sprintf("Master credentials (%s), administrators only - avoid unless strictly necessary:", masterUsername),
+		fmt.Sprintf("  aws secretsmanager get-secret-value --secret-id %q --query SecretString --output text %s", masterSecretARN, awsArgsHint),
+	)
 }
 
 func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
@@ -1102,7 +1164,7 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		Database:   target.Database,
 		Properties: awsIAMProperties(target, cfg),
 	}
-	if target.RDSHost != "" {
+	if target.IAMAuth {
 		dataSource.AuthProvider = awsIAMAuthProvider
 		dataSource.User = rdsIAMUser
 	}
@@ -1141,7 +1203,7 @@ const (
 
 // awsIAMProperties prefills the AWS Toolkit settings used by IntelliJ's "AWS IAM" authentication.
 func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
-	if target.RDSHost == "" {
+	if !target.IAMAuth {
 		return nil
 	}
 	return map[string]string{
@@ -1150,6 +1212,60 @@ func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
 		"AWS.RegionId":       cfg.Region,
 		"AWS.CredentialId":   "profile:" + cfg.Profile,
 	}
+}
+
+// sessionRelease frees the port and target, then stops the MCP server and removes the IDE data source.
+// It returns the cleanup messages joined with "; ".
+func sessionRelease(releasePort func(), mcpServer *dbmcp.Handle, removeDataSource func() string) func() string {
+	return func() string {
+		releasePort()
+		var messages []string
+		if mcpServer != nil {
+			messages = append(messages, mcpServer.Close())
+		}
+		if removeDataSource != nil {
+			if msg := removeDataSource(); msg != "" {
+				messages = append(messages, msg)
+			}
+		}
+		return strings.Join(messages, "; ")
+	}
+}
+
+// startMCP serves the MCP server of a database session; failures are reported as warnings.
+func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) *dbmcp.Handle {
+	projectDir := r.projectDir
+	if projectDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			fprintf(r.err, "Warning: MCP server not started: %v\n", err)
+			return nil
+		}
+		projectDir = wd
+	}
+	handle, err := dbmcp.Start(r.mcpHost, &dbmcp.SessionConfig{
+		AWS: func(ctx context.Context, args ...string) (string, error) {
+			return r.runAWSCapture(ctx, cfg.Args, args...)
+		},
+		ProjectDir:      projectDir,
+		Profile:         cfg.Profile,
+		Region:          cfg.Region,
+		Target:          targetName,
+		AWSEngine:       target.Engine,
+		RDSHost:         target.RDSHost,
+		RDSPort:         target.RDSPort,
+		DBName:          target.Database,
+		InstanceARN:     target.InstanceARN,
+		MasterSecretARN: target.MasterSecretARN,
+		IAMUser:         rdsIAMUser,
+		LocalPort:       localPort,
+		AllowWrites:     allowWrites,
+	})
+	if err != nil {
+		fprintf(r.err, "Warning: failed to start the MCP server: %v\n", err)
+		return nil
+	}
+	return handle
 }
 
 func relativePaths(base string, paths []string) string {
