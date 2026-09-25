@@ -17,6 +17,12 @@ var forbiddenKeywords = map[string]bool{
 	"LOCK": true, "VACUUM": true, "ANALYZE": true, "REINDEX": true, "CLUSTER": true,
 	"BACKUP": true, "RESTORE": true, "SHUTDOWN": true, "KILL": true, "DBCC": true,
 	"OPENROWSET": true, "OPENQUERY": true, "OPENDATASOURCE": true, "BULK": true,
+	// T-SQL runs several statements in one batch without ";", so transaction control and other
+	// statement keywords must be forbidden explicitly rather than relying on statement splitting.
+	"COMMIT": true, "ROLLBACK": true, "SAVE": true, "BEGIN": true, "TRAN": true, "TRANSACTION": true,
+	"DISABLE": true, "ENABLE": true, "WRITETEXT": true, "UPDATETEXT": true, "READTEXT": true,
+	"RECEIVE": true, "SEND": true, "RECONFIGURE": true, "CHECKPOINT": true, "SETUSER": true,
+	"REVERT": true, "WAITFOR": true,
 }
 
 // CheckReadOnly rejects anything but a single SELECT/WITH statement (plus EXPLAIN on PostgreSQL).
@@ -99,7 +105,7 @@ func stripLiterals(engine Engine, query string) (string, error) {
 				closing = ']'
 			}
 			var end int
-			if c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || (!unicode.IsLetter(runes[i-2]) && !unicode.IsDigit(runes[i-2]) && runes[i-2] != '_')) {
+			if c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || !isIdentContinuation(runes[i-2])) {
 				end = escapeStringEnd(runes, i+1)
 			} else {
 				end = closingIndex(runes, i+1, closing)
@@ -110,6 +116,13 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			i = end + 1
 			out.WriteRune(' ')
 		case c == '$' && engine == EnginePostgres:
+			// "$" is legal inside a PostgreSQL identifier (e.g. price$usd), so it only opens a
+			// dollar-quoted string when it is not itself continuing an identifier or a previous quote.
+			if i > 0 && isIdentContinuation(runes[i-1]) {
+				out.WriteRune(c)
+				i++
+				continue
+			}
 			tag, ok := dollarTag(runes, i)
 			if !ok {
 				out.WriteRune(c)
@@ -163,6 +176,12 @@ func escapeStringEnd(runes []rune, from int) int {
 		return i
 	}
 	return -1
+}
+
+// isIdentContinuation reports whether r may appear after the first character of a PostgreSQL
+// identifier: a letter, digit, underscore or dollar sign.
+func isIdentContinuation(r rune) bool {
+	return r == '_' || r == '$' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // dollarTag returns the PostgreSQL dollar-quote tag ($$ or $name$) starting at i.

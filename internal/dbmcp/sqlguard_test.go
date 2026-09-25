@@ -25,7 +25,8 @@ func TestCheckReadOnlyAccepts(t *testing.T) {
 		{"identifier containing keyword", EnginePostgres, "SELECT updated_at, created_by FROM t"},
 		{"positional parameter is not a dollar quote", EnginePostgres, "SELECT $1"},
 		{"escape string with escaped quote", EnginePostgres, "SELECT E'it\\'s; DROP' AS x"},
-		{"identifier ending in e before a string is not an escape string", EnginePostgres, "SELECT 1 FROM t WHERE name = 'a\\' OR code = 'b'"},
+		{"standard string ending in a backslash", EnginePostgres, "SELECT 1 FROM t WHERE name = 'a\\' OR code = 'b'"},
+		{"dollar sign inside an identifier is not a dollar quote", EnginePostgres, "SELECT price$usd FROM t"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,6 +61,9 @@ func TestCheckReadOnlyRejects(t *testing.T) {
 		{"unterminated comment", EngineSQLServer, "SELECT 1 /* oops", "unterminated"},
 		{"escape string hides a second statement", EnginePostgres, "SELECT E'x\\'y' FROM t; DROP TABLE users; --'", "single statement"},
 		{"lowercase escape string", EnginePostgres, "SELECT e'\\'' ; DELETE FROM t", "single statement"},
+		{"dollar signs after identifiers are not a dollar quote hiding a second statement", EnginePostgres, "SELECT a$b$ FROM t; DELETE FROM t; SELECT c$b$ FROM t", "single statement"},
+		{"sql server batch commits and disables a trigger without a semicolon", EngineSQLServer, "SELECT 1 COMMIT DISABLE TRIGGER ALL ON dbo.t", "COMMIT"},
+		{"sql server batch begins a transaction without a semicolon", EngineSQLServer, "SELECT 1 BEGIN TRAN", "BEGIN"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
