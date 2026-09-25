@@ -23,7 +23,7 @@ func TestStartMCPForPostgres(t *testing.T) {
 		t.Fatal("expected an MCP server for postgres")
 	}
 	defer handle.Close()
-	if !strings.HasPrefix(handle.Display, "MCP acme-dev-archive -> http://127.0.0.1:") {
+	if !strings.HasPrefix(handle.Display, "read-only · acme-dev-archive -> http://127.0.0.1:") {
 		t.Fatalf("display = %q", handle.Display)
 	}
 	if display != handle.Display {
@@ -52,7 +52,7 @@ func TestStartMCPReportsFailureThroughTheDisplayNotStderr(t *testing.T) {
 	if handle != nil {
 		t.Fatalf("expected no handle on failure, got %v", handle)
 	}
-	if display != "MCP not started: route already mounted" {
+	if display != "not started: route already mounted" {
 		t.Fatalf("display = %q", display)
 	}
 }

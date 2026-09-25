@@ -231,9 +231,9 @@ func TestPluginOutputMarksSessionReady(t *testing.T) {
 
 func TestDetailsShowMCPServer(t *testing.T) {
 	m := newTestSSMModel(t, "db")
-	m.sessions[0].session.Details.MCP = "MCP acme-dev-db -> http://127.0.0.1:50000/mcp/acme-dev-db-abc123 (.mcp.json)"
+	m.sessions[0].session.Details.MCP = "read-only · acme-dev-db -> http://127.0.0.1:50000/mcp/acme-dev-db-abc123 (.mcp.json)"
 
-	if view := m.View(); !strings.Contains(view, "MCP acme-dev-db") {
+	if view := m.View(); !strings.Contains(view, "read-only · acme-dev-db") {
 		t.Fatalf("details do not show the MCP server:\n%s", view)
 	}
 }

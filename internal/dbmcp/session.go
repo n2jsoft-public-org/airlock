@@ -34,7 +34,7 @@ type SessionConfig struct {
 type Handle struct {
 	release    func() string
 	releaseMsg string
-	// Display describes the server for the session intro and dashboard.
+	// Display describes the server (access mode, name, URL, config files) for the dashboard MCP row.
 	Display     string
 	releaseOnce sync.Once
 }
@@ -78,10 +78,11 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	if len(written) > 0 {
 		where = relativeTo(cfg.ProjectDir, written)
 	}
-	display := fmt.Sprintf("MCP %s -> %s (%s)", name, endpoint.URL, where)
+	access := "read-only"
 	if cfg.AllowWrites {
-		display = "WRITES ENABLED · " + display
+		access = "WRITES ENABLED"
 	}
+	display := fmt.Sprintf("%s · %s -> %s (%s)", access, name, endpoint.URL, where)
 	if registerErr != nil {
 		display += fmt.Sprintf(" [warning: %v]", registerErr)
 	}
@@ -122,8 +123,13 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 }
 
 // serverName is the stable client-facing name of a session's server, e.g. acme-dev-archive-db.
+// The acme- prefix is not repeated when the profile already carries it (e.g. profile acme-prod-eu).
 func serverName(profile, target string) string {
-	return "acme-" + slugify(profile) + "-" + slugify(target)
+	prefix := slugify(profile)
+	if prefix != "acme" && !strings.HasPrefix(prefix, "acme-") {
+		prefix = "acme-" + prefix
+	}
+	return prefix + "-" + slugify(target)
 }
 
 func slugify(value string) string {

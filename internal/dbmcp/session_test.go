@@ -36,7 +36,7 @@ func TestStartRegistersAndCloseCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(handle.Display, "MCP acme-dev-archive-db -> http://127.0.0.1:") || !strings.HasSuffix(handle.Display, "(.mcp.json)") {
+	if !strings.HasPrefix(handle.Display, "read-only · acme-dev-archive-db -> http://127.0.0.1:") || !strings.HasSuffix(handle.Display, "(.mcp.json)") {
 		t.Fatalf("display = %q", handle.Display)
 	}
 	config := readFile(t, filepath.Join(cfg.ProjectDir, ".mcp.json"))
@@ -77,7 +77,7 @@ func TestStartFlagsWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer handle.Close()
-	if !strings.HasPrefix(handle.Display, "WRITES ENABLED · MCP ") {
+	if !strings.HasPrefix(handle.Display, "WRITES ENABLED · acme-dev-archive-db -> ") {
 		t.Fatalf("display = %q", handle.Display)
 	}
 }
@@ -115,9 +115,12 @@ func TestCredentialProviderPostgresWithoutIAMAuthIsDisabled(t *testing.T) {
 
 func TestServerName(t *testing.T) {
 	cases := map[[2]string]string{
-		{"dev", "archive-db"}:        "acme-dev-archive-db",
-		{"ACME Prod", "Sales_DB.v2"}: "acme-acme-prod-sales-db-v2",
-		{"dev", "--weird--name--"}:   "acme-dev-weird-name",
+		{"dev", "archive-db"}:         "acme-dev-archive-db",
+		{"ACME Prod", "Sales_DB.v2"}:  "acme-prod-sales-db-v2",
+		{"acme-prod-eu", "orders-db"}: "acme-prod-eu-orders-db",
+		{"acme", "orders-db"}:         "acme-orders-db",
+		{"acmedemo", "orders-db"}:     "acme-acmedemo-orders-db",
+		{"dev", "--weird--name--"}:    "acme-dev-weird-name",
 	}
 	for in, want := range cases {
 		if got := serverName(in[0], in[1]); got != want {

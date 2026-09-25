@@ -287,7 +287,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		mcpServer, mcpDisplay = r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
 		if mcpDisplay != "" {
 			session.Details.MCP = mcpDisplay
-			session.Intro = append(session.Intro, mcpDisplay)
+			session.Intro = append(session.Intro, "MCP "+mcpDisplay)
 		}
 	}
 	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource)
@@ -1245,7 +1245,7 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 	if projectDir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			return nil, fmt.Sprintf("MCP not started: %v", err)
+			return nil, fmt.Sprintf("not started: %v", err)
 		}
 		projectDir = wd
 	}
@@ -1269,7 +1269,7 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		AllowWrites:     allowWrites,
 	})
 	if err != nil {
-		return nil, fmt.Sprintf("MCP not started: %v", err)
+		return nil, fmt.Sprintf("not started: %v", err)
 	}
 	if handle == nil {
 		return nil, ""
