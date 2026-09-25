@@ -1,0 +1,314 @@
+package dbmcp
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	// queryTimeout bounds every database round trip made for a tool call.
+	queryTimeout = 30 * time.Second
+	// maxTables caps list_tables results.
+	maxTables = 1000
+)
+
+// Table is a table or view.
+type Table struct {
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+}
+
+// Column describes a table column.
+type Column struct {
+	Default  *string `json:"default,omitempty"`
+	Name     string  `json:"name"`
+	Type     string  `json:"type"`
+	Nullable bool    `json:"nullable"`
+}
+
+// ForeignKey is one column of a foreign key constraint.
+type ForeignKey struct {
+	Name             string `json:"name"`
+	Column           string `json:"column"`
+	ReferencedSchema string `json:"referenced_schema"`
+	ReferencedTable  string `json:"referenced_table"`
+	ReferencedColumn string `json:"referenced_column"`
+}
+
+// Index is an index and its definition.
+type Index struct {
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
+}
+
+// TableDescription is the structure of one table.
+type TableDescription struct {
+	Schema      string       `json:"schema"`
+	Table       string       `json:"table"`
+	Columns     []Column     `json:"columns"`
+	PrimaryKey  []string     `json:"primary_key"`
+	ForeignKeys []ForeignKey `json:"foreign_keys"`
+	Indexes     []Index      `json:"indexes"`
+}
+
+// Result is the outcome of a read query.
+type Result struct {
+	Columns   []string `json:"columns"`
+	Rows      [][]any  `json:"rows"`
+	RowCount  int      `json:"row_count"`
+	Truncated bool     `json:"truncated"`
+}
+
+// Querier runs the database side of the MCP tools.
+type Querier interface {
+	Databases(ctx context.Context) ([]string, error)
+	Tables(ctx context.Context, database, schema string) (tables []Table, truncated bool, err error)
+	Describe(ctx context.Context, database, schema, table string) (TableDescription, error)
+	Query(ctx context.Context, database, query string, maxRows int) (Result, error)
+	Exec(ctx context.Context, database, statement string) (int64, error)
+	Close() error
+}
+
+// opener opens a connection pool to one database.
+type opener func(ctx context.Context, database string) (*sql.DB, error)
+
+// sqlQuerier implements Querier over database/sql, with one pool per database.
+type sqlQuerier struct {
+	creds     CredentialProvider
+	open      opener
+	pools     map[string]*sql.DB
+	dialect   *dialect
+	defaultDB string
+	port      int
+	mu        sync.Mutex
+}
+
+func newSQLQuerier(d *dialect, creds CredentialProvider, port int, open opener) *sqlQuerier {
+	return &sqlQuerier{dialect: d, creds: creds, port: port, open: open, pools: map[string]*sql.DB{}}
+}
+
+func (q *sqlQuerier) pool(ctx context.Context, database string) (*sql.DB, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if database == "" {
+		if q.defaultDB == "" {
+			creds, err := q.creds.Credentials(ctx, "")
+			if err != nil {
+				return nil, err
+			}
+			q.defaultDB = creds.Database
+		}
+		database = q.defaultDB
+	}
+	if db, ok := q.pools[database]; ok {
+		return db, nil
+	}
+	db, err := q.open(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(2)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	q.pools[database] = db
+	return db, nil
+}
+
+// read runs query in a transaction that is always rolled back, read-only where the engine supports it.
+func (q *sqlQuerier) read(ctx context.Context, database string, maxRows int, query string, args ...any) (Result, error) {
+	db, err := q.pool(ctx, database)
+	if err != nil {
+		return Result{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: q.dialect.readOnlyTx})
+	if err != nil {
+		return Result{}, q.connectionError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, statement := range q.dialect.txSetup {
+		if _, setupErr := tx.ExecContext(ctx, statement); setupErr != nil {
+			return Result{}, setupErr
+		}
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return Result{}, err
+	}
+	defer func() { _ = rows.Close() }()
+	return collectRows(rows, maxRows)
+}
+
+func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
+	columns, err := rows.Columns()
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{Columns: columns, Rows: [][]any{}}
+	for rows.Next() {
+		if len(result.Rows) == maxRows {
+			result.Truncated = true
+			break
+		}
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
+		for i := range values {
+			pointers[i] = &values[i]
+		}
+		if err := rows.Scan(pointers...); err != nil {
+			return Result{}, err
+		}
+		for i, value := range values {
+			values[i] = jsonValue(value)
+		}
+		result.Rows = append(result.Rows, values)
+	}
+	if err := rows.Err(); err != nil {
+		return Result{}, err
+	}
+	result.RowCount = len(result.Rows)
+	return result, nil
+}
+
+// connectionError explains the usual cause of a refused connection: the tunnel is not up yet.
+func (q *sqlQuerier) connectionError(err error) error {
+	if strings.Contains(err.Error(), "connection refused") {
+		return fmt.Errorf("tunnel to localhost:%d is not accepting connections yet; retry shortly: %w", q.port, err)
+	}
+	return err
+}
+
+func (q *sqlQuerier) Query(ctx context.Context, database, query string, maxRows int) (Result, error) {
+	if err := CheckReadOnly(q.dialect.engine, query); err != nil {
+		return Result{}, err
+	}
+	return q.read(ctx, database, maxRows, query)
+}
+
+func (q *sqlQuerier) Exec(ctx context.Context, database, statement string) (int64, error) {
+	db, err := q.pool(ctx, database)
+	if err != nil {
+		return 0, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
+	result, err := db.ExecContext(ctx, statement)
+	if err != nil {
+		return 0, q.connectionError(err)
+	}
+	return result.RowsAffected()
+}
+
+func (q *sqlQuerier) Databases(ctx context.Context) ([]string, error) {
+	names, err := q.creds.Databases(ctx)
+	if err != nil || names != nil {
+		return names, err
+	}
+	result, err := q.read(ctx, "", maxTables, q.dialect.databasesSQL)
+	if err != nil {
+		return nil, err
+	}
+	names = make([]string, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		names = append(names, text(row[0]))
+	}
+	return names, nil
+}
+
+func (q *sqlQuerier) Tables(ctx context.Context, database, schema string) ([]Table, bool, error) {
+	result, err := q.read(ctx, database, maxTables, q.dialect.tablesSQL, schema)
+	if err != nil {
+		return nil, false, err
+	}
+	tables := make([]Table, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		tables = append(tables, Table{Schema: text(row[0]), Name: text(row[1]), Type: text(row[2])})
+	}
+	return tables, result.Truncated, nil
+}
+
+func (q *sqlQuerier) Describe(ctx context.Context, database, schema, table string) (TableDescription, error) {
+	if schema == "" {
+		schema = q.dialect.defaultSchema
+	}
+	description := TableDescription{
+		Schema: schema, Table: table,
+		Columns: []Column{}, PrimaryKey: []string{}, ForeignKeys: []ForeignKey{}, Indexes: []Index{},
+	}
+
+	columns, err := q.read(ctx, database, maxTables, q.dialect.columnsSQL, schema, table)
+	if err != nil {
+		return TableDescription{}, err
+	}
+	if len(columns.Rows) == 0 {
+		return TableDescription{}, fmt.Errorf("table %s.%s not found", schema, table)
+	}
+	for _, row := range columns.Rows {
+		column := Column{Name: text(row[0]), Type: text(row[1]), Nullable: strings.EqualFold(text(row[2]), "YES")}
+		if row[3] != nil {
+			value := text(row[3])
+			column.Default = &value
+		}
+		description.Columns = append(description.Columns, column)
+	}
+
+	primaryKey, err := q.read(ctx, database, maxTables, q.dialect.primaryKeySQL, schema, table)
+	if err != nil {
+		return TableDescription{}, err
+	}
+	for _, row := range primaryKey.Rows {
+		description.PrimaryKey = append(description.PrimaryKey, text(row[0]))
+	}
+
+	foreignKeys, err := q.read(ctx, database, maxTables, q.dialect.foreignKeysSQL, schema, table)
+	if err != nil {
+		return TableDescription{}, err
+	}
+	for _, row := range foreignKeys.Rows {
+		description.ForeignKeys = append(description.ForeignKeys, ForeignKey{
+			Name: text(row[0]), Column: text(row[1]),
+			ReferencedSchema: text(row[2]), ReferencedTable: text(row[3]), ReferencedColumn: text(row[4]),
+		})
+	}
+
+	indexes, err := q.read(ctx, database, maxTables, q.dialect.indexesSQL, schema, table)
+	if err != nil {
+		return TableDescription{}, err
+	}
+	for _, row := range indexes.Rows {
+		description.Indexes = append(description.Indexes, Index{Name: text(row[0]), Definition: text(row[1])})
+	}
+	return description, nil
+}
+
+func (q *sqlQuerier) Close() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var errs []error
+	for name, db := range q.pools {
+		errs = append(errs, db.Close())
+		delete(q.pools, name)
+	}
+	return errors.Join(errs...)
+}
+
+// text renders a converted column value as a string.
+func text(value any) string {
+	if value == nil {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return fmt.Sprint(value)
+}
