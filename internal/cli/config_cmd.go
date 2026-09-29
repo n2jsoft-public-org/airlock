@@ -20,9 +20,14 @@ func newConfigCmd() *cobra.Command {
 		Short: "Show or change airlock's settings (config.json)",
 		Long: "airlock's settings are the conventions of the AWS accounts it connects to, such as the jumphost tag. " +
 			"They live in config.json; flags of the connect command win over them.",
+		// Runnable, so that cobra checks the arguments: an unknown subcommand is an error, not the help.
 		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
-	cmd.AddCommand(newConfigPathCmd(), newConfigShowCmd(), newConfigInitCmd(), newConfigSetCmd(), newConfigUnsetCmd())
+	cmd.AddCommand(newConfigPathCmd(), newConfigShowCmd(), newConfigInitCmd(), newConfigSetCmd(), newConfigUnsetCmd(),
+		newConfigExportCmd(), newConfigImportCmd())
 	return cmd
 }
 

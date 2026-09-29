@@ -162,3 +162,10 @@ func TestRootStillTakesResourceArguments(t *testing.T) {
 		t.Fatalf("Find(config show) = %s, %v", found.Name(), err)
 	}
 }
+
+func TestConfigRejectsAnUnknownSubcommand(t *testing.T) {
+	testConfigFile(t)
+	if _, err := runAirlock(t, "config", "typo"); err == nil || !strings.Contains(err.Error(), `unknown command "typo"`) {
+		t.Fatalf("err = %v, want an unknown command error", err)
+	}
+}
