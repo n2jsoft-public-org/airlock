@@ -37,6 +37,14 @@ linters:
         - performance
         - style
 
+  exclusions:
+    rules:
+      # Bubble Tea components (models, pickers, items, Styles) are passed by value on purpose.
+      - path: internal/ui/
+        linters:
+          - gocritic
+        text: hugeParam
+
 issues:
   max-same-issues: 0
 

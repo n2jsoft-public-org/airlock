@@ -110,7 +110,7 @@ func (s *PrefsStore) Load(ref TargetRef) (ConnectionPrefs, bool) {
 }
 
 // Save records prefs for ref, keeping the entries of other targets.
-func (s *PrefsStore) Save(ref TargetRef, prefs ConnectionPrefs) error {
+func (s *PrefsStore) Save(ref TargetRef, prefs *ConnectionPrefs) error {
 	if !ref.complete() {
 		return errors.New("connection preferences need an AWS account, a region, a type and a name")
 	}
@@ -119,8 +119,9 @@ func (s *PrefsStore) Save(ref TargetRef, prefs ConnectionPrefs) error {
 		// Rewriting would drop every entry of a file we cannot parse.
 		return err
 	}
-	prefs.UpdatedAt = s.now().UTC()
-	file.Connections[ref.key()] = prefs
+	saved := *prefs
+	saved.UpdatedAt = s.now().UTC()
+	file.Connections[ref.key()] = saved
 	return s.write(file)
 }
 

@@ -15,12 +15,12 @@ var searchableResourceTypes = []string{resourceRDS, resourceEKS, resourceElastiC
 // region and identity are resolved once, then each type is listed concurrently: a type whose
 // listing fails is reported in failures, keyed by type, and the others still return. err is set
 // only when nothing could be listed at all.
-func (r *Runner) SearchResources(ctx context.Context, options Options) ([]ResourceSummary, map[string]error, error) {
+func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]ResourceSummary, map[string]error, error) {
 	if err := requireAWSCLI(); err != nil {
 		return nil, nil, err
 	}
 	// One identity check up front: concurrent ones could each start an SSO login.
-	cfg, err := r.resolveAWSConfig(ctx, options)
+	cfg, err := r.resolveAWSConfig(ctx, *options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -32,7 +32,7 @@ func (r *Runner) SearchResources(ctx context.Context, options Options) ([]Resour
 
 // FindResource returns the target named options.Name among the targets of options.ResourceType,
 // or an error when it no longer exists in that profile and region.
-func (r *Runner) FindResource(ctx context.Context, options Options) (ResourceSummary, error) {
+func (r *Runner) FindResource(ctx context.Context, options *Options) (ResourceSummary, error) {
 	resources, err := r.ListResourceSummaries(ctx, options)
 	if err != nil {
 		return ResourceSummary{}, err
@@ -46,7 +46,7 @@ func (r *Runner) FindResource(ctx context.Context, options Options) (ResourceSum
 
 // searchResources runs list for every type concurrently and merges the results, sorted by name
 // then type. Failed types are returned in failures.
-func searchResources(types []string, list func(resourceType string) ([]ResourceSummary, error)) ([]ResourceSummary, map[string]error) {
+func searchResources(types []string, list func(resourceType string) ([]ResourceSummary, error)) (merged []ResourceSummary, failures map[string]error) {
 	type result struct {
 		err       error
 		resources []ResourceSummary
@@ -63,8 +63,8 @@ func searchResources(types []string, list func(resourceType string) ([]ResourceS
 	}
 	wg.Wait()
 
-	merged := []ResourceSummary{}
-	failures := map[string]error{}
+	merged = []ResourceSummary{}
+	failures = map[string]error{}
 	for idx, res := range results {
 		if res.err != nil {
 			failures[types[idx]] = res.err

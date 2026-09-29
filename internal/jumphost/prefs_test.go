@@ -27,11 +27,11 @@ func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 	}
 
 	archive := ConnectionPrefs{DBUser: "acme_rw", SignIn: SignInIAM, LocalPort: 5433, MCPAllowWrites: true}
-	if err := store.Save(devArchive, archive); err != nil {
+	if err := store.Save(devArchive, &archive); err != nil {
 		t.Fatal(err)
 	}
 	otherRegion := TargetRef{Account: devArchive.Account, Region: "eu-west-1", Type: "rds", Name: "archive"}
-	if err := store.Save(otherRegion, ConnectionPrefs{DBUser: "app", SignIn: SignInPassword}); err != nil {
+	if err := store.Save(otherRegion, &ConnectionPrefs{DBUser: "app", SignIn: SignInPassword}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +47,7 @@ func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 	if _, ok := store.Load(TargetRef{Account: "222222222222", Region: "eu-west-3", Type: "rds", Name: "archive"}); ok {
 		t.Fatal("a database of the same name in another account must not share the entry")
 	}
-	if err := store.Save(TargetRef{Region: "eu-west-3", Type: "rds", Name: "archive"}, archive); err == nil {
+	if err := store.Save(TargetRef{Region: "eu-west-3", Type: "rds", Name: "archive"}, &archive); err == nil {
 		t.Fatal("saving without an account must fail")
 	}
 
@@ -74,7 +74,7 @@ func TestPrefsStoreKeepsUnreadableFile(t *testing.T) {
 	if _, ok := store.Load(devArchive); ok {
 		t.Fatal("an unreadable file must read as no preferences")
 	}
-	if err := store.Save(devArchive, ConnectionPrefs{}); err == nil {
+	if err := store.Save(devArchive, &ConnectionPrefs{}); err == nil {
 		t.Fatal("saving must not overwrite a file it cannot parse")
 	}
 	data, err := os.ReadFile(path)
@@ -86,10 +86,10 @@ func TestPrefsStoreKeepsUnreadableFile(t *testing.T) {
 func TestPrefsStoreKeysByTypeAndWritesVersion2(t *testing.T) {
 	store, path := newTestPrefsStore(t)
 	cache := TargetRef{Account: devArchive.Account, Region: devArchive.Region, Type: "elasticache", Name: "archive"}
-	if err := store.Save(devArchive, ConnectionPrefs{Profile: "dev", ResourceType: "rds", LocalPort: 5433}); err != nil {
+	if err := store.Save(devArchive, &ConnectionPrefs{Profile: "dev", ResourceType: "rds", LocalPort: 5433}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(cache, ConnectionPrefs{Profile: "dev", ResourceType: "elasticache", LocalPort: 6380}); err != nil {
+	if err := store.Save(cache, &ConnectionPrefs{Profile: "dev", ResourceType: "elasticache", LocalPort: 6380}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -98,7 +98,7 @@ func TestPrefsStoreKeysByTypeAndWritesVersion2(t *testing.T) {
 	if db.LocalPort != 5433 || redis.LocalPort != 6380 {
 		t.Fatalf("a database and a cache of the same name must not share an entry: %+v %+v", db, redis)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is inside the test temp directory.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestPrefsStoreDeleteKeepsOtherEntries(t *testing.T) {
 	store, _ := newTestPrefsStore(t)
 	other := TargetRef{Account: devArchive.Account, Region: devArchive.Region, Type: "eks", Name: "cluster"}
 	for _, ref := range []TargetRef{devArchive, other} {
-		if err := store.Save(ref, ConnectionPrefs{Profile: "dev"}); err != nil {
+		if err := store.Save(ref, &ConnectionPrefs{Profile: "dev"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -174,7 +174,10 @@ func TestPrefsStoreListAndDeleteRefuseUnreadableFile(t *testing.T) {
 	if err := store.Delete(devArchive); err == nil {
 		t.Fatal("Delete must not rewrite a file it cannot parse")
 	}
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is inside the test temp directory.
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(data) != "{not json" {
 		t.Fatalf("file was rewritten: %q", data)
 	}

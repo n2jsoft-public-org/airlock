@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -18,9 +19,9 @@ type searchRunner struct {
 	targets  []jumphost.ResourceSummary
 }
 
-func (r searchRunner) SearchResources(_ context.Context, options jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error) {
+func (r searchRunner) SearchResources(_ context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error) {
 	if r.searches != nil {
-		*r.searches = append(*r.searches, options)
+		*r.searches = append(*r.searches, *options)
 	}
 	return r.targets, r.failures, nil
 }
@@ -31,11 +32,29 @@ var everyTypeTargets = []jumphost.ResourceSummary{
 	{Name: "platform", Type: "eks"},
 }
 
+func asWizard(t *testing.T, model tea.Model) jumphostWizardModel {
+	t.Helper()
+	m, ok := model.(jumphostWizardModel)
+	if !ok {
+		t.Fatalf("model is %T, want jumphostWizardModel", model)
+	}
+	return m
+}
+
+func asListItem(t *testing.T, item list.Item) jumphostListItem {
+	t.Helper()
+	got, ok := item.(jumphostListItem)
+	if !ok {
+		t.Fatalf("item is %T, want jumphostListItem", item)
+	}
+	return got
+}
+
 func searchWizard(t *testing.T, runner JumphostDiscovery, base jumphost.Options) jumphostWizardModel {
 	t.Helper()
 	m := newTestWizard(t, runner, base)
 	updated, cmd := m.beginSearch()
-	return runCmd(t, updated.(jumphostWizardModel), cmd)
+	return runCmd(t, asWizard(t, updated), cmd)
 }
 
 func TestWizardSearchListsEveryType(t *testing.T) {
@@ -43,11 +62,11 @@ func TestWizardSearchListsEveryType(t *testing.T) {
 	if m.step != jumphostStepTarget || len(m.targetList.Items()) != 3 {
 		t.Fatalf("step = %v items = %d, want the three targets", m.step, len(m.targetList.Items()))
 	}
-	item := m.targetList.Items()[2].(jumphostListItem)
+	item := asListItem(t, m.targetList.Items()[2])
 	if item.desc != "eks" || !strings.Contains(item.FilterValue(), "eks") {
 		t.Fatalf("item = %+v, the type must be shown and filterable", item)
 	}
-	if first := m.targetList.Items()[0].(jumphostListItem); first.desc != "rds · postgres 16" {
+	if first := asListItem(t, m.targetList.Items()[0]); first.desc != "rds · postgres 16" {
 		t.Fatalf("desc = %q", first.desc)
 	}
 	if !strings.Contains(m.View(), "Search a target") {
@@ -83,7 +102,7 @@ func TestWizardSearchFailsWhenEveryTypeFails(t *testing.T) {
 	m := newJumphostWizardModel(context.Background(), searchRunner{prefsRunner: newPrefsRunner(), failures: failures}, jumphost.Options{AwsRegion: "eu-west-3"})
 	m = pastStart(t, m)
 	updated, cmd := m.beginSearch()
-	m = updated.(jumphostWizardModel)
+	m = asWizard(t, updated)
 	m, _ = wizardUpdate(t, m, findMsg[jumphostProfilesLoadedMsg](t, cmd))
 	m, cmd = wizardUpdate(t, m, key("enter"))
 	m = runCmd(t, m, cmd)
@@ -95,7 +114,7 @@ func TestWizardSearchFailsWhenEveryTypeFails(t *testing.T) {
 func TestWizardSearchAsksProfileFirst(t *testing.T) {
 	m := pastStart(t, newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{}))
 	updated, _ := m.beginSearch()
-	m = updated.(jumphostWizardModel)
+	m = asWizard(t, updated)
 	if m.flow != flowSearch || m.step != jumphostStepProfile {
 		t.Fatalf("flow = %v step = %v, want the profile step of a search", m.flow, m.step)
 	}

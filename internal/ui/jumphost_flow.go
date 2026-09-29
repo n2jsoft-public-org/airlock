@@ -16,7 +16,7 @@ import (
 
 type JumphostDiscovery interface {
 	ListAWSProfileSummaries(ctx context.Context) ([]jumphost.AWSProfileSummary, error)
-	ListResourceSummaries(ctx context.Context, options jumphost.Options) ([]jumphost.ResourceSummary, error)
+	ListResourceSummaries(ctx context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, error)
 	ResolveDefaultLocalPort(ctx context.Context, options jumphost.Options) (int, error)
 	CheckLocalPort(port int) error
 	// ResolveRegion returns the region used for profile when none is chosen explicitly.
@@ -32,9 +32,9 @@ type JumphostDiscovery interface {
 	// ForgetConnection removes a remembered connection.
 	ForgetConnection(ctx context.Context, ref jumphost.TargetRef) error
 	// SearchResources lists the targets of every type; failures holds the types whose listing failed.
-	SearchResources(ctx context.Context, options jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error)
+	SearchResources(ctx context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error)
 	// FindResource returns the target of options, or an error when it no longer exists.
-	FindResource(ctx context.Context, options jumphost.Options) (jumphost.ResourceSummary, error)
+	FindResource(ctx context.Context, options *jumphost.Options) (jumphost.ResourceSummary, error)
 }
 
 type jumphostStep int
@@ -756,7 +756,7 @@ func (m jumphostWizardModel) finish() tea.Cmd {
 func (m jumphostWizardModel) loadTargetsCmd() tea.Cmd {
 	opts := m.options
 	return func() tea.Msg {
-		targets, err := m.runner.ListResourceSummaries(m.ctx, opts)
+		targets, err := m.runner.ListResourceSummaries(m.ctx, &opts)
 		return jumphostTargetsLoadedMsg{targets: targets, err: err}
 	}
 }

@@ -18,7 +18,7 @@ func (fakeSessionRunner) ListAWSProfileSummaries(context.Context) ([]jumphost.AW
 	return []jumphost.AWSProfileSummary{{Name: "dev"}, {Name: "prod"}}, nil
 }
 
-func (fakeSessionRunner) ListResourceSummaries(context.Context, jumphost.Options) ([]jumphost.ResourceSummary, error) {
+func (fakeSessionRunner) ListResourceSummaries(context.Context, *jumphost.Options) ([]jumphost.ResourceSummary, error) {
 	return []jumphost.ResourceSummary{{Name: "db"}}, nil
 }
 
@@ -60,11 +60,11 @@ func (fakeSessionRunner) ForgetConnection(context.Context, jumphost.TargetRef) e
 	return nil
 }
 
-func (fakeSessionRunner) SearchResources(context.Context, jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error) {
+func (fakeSessionRunner) SearchResources(context.Context, *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error) {
 	return []jumphost.ResourceSummary{{Name: "db", Type: "rds"}}, nil, nil
 }
 
-func (fakeSessionRunner) FindResource(_ context.Context, options jumphost.Options) (jumphost.ResourceSummary, error) {
+func (fakeSessionRunner) FindResource(_ context.Context, options *jumphost.Options) (jumphost.ResourceSummary, error) {
 	return jumphost.ResourceSummary{Name: options.Name, Type: options.ResourceType}, nil
 }
 

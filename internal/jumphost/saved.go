@@ -51,7 +51,8 @@ func filterSavedConnections(saved []SavedConnection, profile, region string, kno
 	profile = strings.TrimSpace(profile)
 	region = strings.TrimSpace(region)
 	kept := make([]SavedConnection, 0, len(saved))
-	for _, conn := range saved {
+	for idx := range saved {
+		conn := saved[idx]
 		if profile != "" && conn.Prefs.Profile != profile {
 			continue
 		}

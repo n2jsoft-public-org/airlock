@@ -37,8 +37,8 @@ func (r historyRunner) ForgetConnection(_ context.Context, ref jumphost.TargetRe
 	return nil
 }
 
-func (r historyRunner) FindResource(_ context.Context, options jumphost.Options) (jumphost.ResourceSummary, error) {
-	*r.lookups = append(*r.lookups, options)
+func (r historyRunner) FindResource(_ context.Context, options *jumphost.Options) (jumphost.ResourceSummary, error) {
+	*r.lookups = append(*r.lookups, *options)
 	if r.lookupErr != nil {
 		return jumphost.ResourceSummary{}, r.lookupErr
 	}

@@ -218,8 +218,8 @@ type recordingRunner struct {
 	discoveries *[]jumphost.Options
 }
 
-func (r recordingRunner) ListResourceSummaries(_ context.Context, options jumphost.Options) ([]jumphost.ResourceSummary, error) {
-	*r.discoveries = append(*r.discoveries, options)
+func (r recordingRunner) ListResourceSummaries(_ context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, error) {
+	*r.discoveries = append(*r.discoveries, *options)
 	return []jumphost.ResourceSummary{{Name: "db"}}, nil
 }
 

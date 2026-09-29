@@ -106,7 +106,7 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 	m.loading = true
 	opts := m.options
 	lookup := func() tea.Msg {
-		target, err := m.runner.FindResource(m.ctx, opts)
+		target, err := m.runner.FindResource(m.ctx, &opts)
 		return jumphostLookupMsg{target: target, err: err}
 	}
 	return m, tea.Batch(lookup, m.loadingUI.start("Checking "+opts.Name+"...", []string{

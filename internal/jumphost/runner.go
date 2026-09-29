@@ -450,7 +450,7 @@ func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSumma
 
 // ListResourceNames returns available resource names for the given type.
 func (r *Runner) ListResourceNames(ctx context.Context, options Options) ([]string, error) {
-	resources, err := r.ListResourceSummaries(ctx, options)
+	resources, err := r.ListResourceSummaries(ctx, &options)
 	if err != nil {
 		return nil, err
 	}
@@ -562,7 +562,7 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 }
 
 // ListResourceSummaries returns available resources with display details for the given type.
-func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]ResourceSummary, error) {
+func (r *Runner) ListResourceSummaries(ctx context.Context, options *Options) ([]ResourceSummary, error) {
 	if err := requireAWSCLI(); err != nil {
 		return nil, err
 	}
@@ -572,7 +572,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
-	cfg, err := r.resolveAWSConfig(ctx, options)
+	cfg, err := r.resolveAWSConfig(ctx, *options)
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +650,7 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 
 // LoadConnectionPrefs returns the Connect step choices saved for the target of options, if any.
 func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (ConnectionPrefs, bool) {
-	target, ok := r.prefsTarget(ctx, options)
+	target, ok := r.prefsTarget(ctx, &options)
 	if !ok {
 		return ConnectionPrefs{}, false
 	}
@@ -660,11 +660,11 @@ func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (Conn
 // SaveConnectionPrefs remembers the choices of options for its target: profile and local port,
 // plus user, sign-in method and MCP write access for RDS. The password itself is never saved.
 func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
-	target, ok := r.prefsTarget(ctx, options)
+	target, ok := r.prefsTarget(ctx, &options)
 	if !ok {
 		return nil
 	}
-	prefs := ConnectionPrefs{
+	prefs := &ConnectionPrefs{
 		Profile:      resolveProfileName(options.AwsProfile),
 		ResourceType: target.Type,
 		LocalPort:    options.LocalPortNumber,
@@ -682,7 +682,7 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 
 // prefsTarget identifies the target keying the preferences of options; false when none apply
 // (unsupported type, disabled, or the AWS account is unknown).
-func (r *Runner) prefsTarget(ctx context.Context, options Options) (TargetRef, bool) {
+func (r *Runner) prefsTarget(ctx context.Context, options *Options) (TargetRef, bool) {
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if r.prefs == nil || !supportedResourceType(resourceType) || strings.TrimSpace(options.Name) == "" {
 		return TargetRef{}, false
