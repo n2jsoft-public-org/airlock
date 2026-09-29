@@ -52,6 +52,22 @@ func (fakeSessionRunner) SaveConnectionPrefs(context.Context, jumphost.Options) 
 	return nil
 }
 
+func (fakeSessionRunner) ListSavedConnections(context.Context, string, string) ([]jumphost.SavedConnection, error) {
+	return nil, nil
+}
+
+func (fakeSessionRunner) ForgetConnection(context.Context, jumphost.TargetRef) error {
+	return nil
+}
+
+func (fakeSessionRunner) SearchResources(context.Context, jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error) {
+	return []jumphost.ResourceSummary{{Name: "db", Type: "rds"}}, nil, nil
+}
+
+func (fakeSessionRunner) FindResource(_ context.Context, options jumphost.Options) (jumphost.ResourceSummary, error) {
+	return jumphost.ResourceSummary{Name: options.Name, Type: options.ResourceType}, nil
+}
+
 func (fakeSessionRunner) Prepare(_ context.Context, options jumphost.Options) (*jumphost.Session, error) {
 	return &jumphost.Session{Label: options.Name, LocalPort: options.LocalPortNumber}, nil
 }

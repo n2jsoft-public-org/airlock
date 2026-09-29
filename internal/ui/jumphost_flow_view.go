@@ -53,15 +53,40 @@ func (m jumphostWizardModel) contextChips() []string {
 	return []string{m.styles.contextChip("profile", m.options.AwsProfile), region}
 }
 
-// breadcrumb lists the wizard steps and the index of the current one.
+// breadcrumb lists the steps of the current flow and the index of the current one; the start
+// screen has none.
 func (m jumphostWizardModel) breadcrumb() (steps []string, current int) {
-	offset := 0
-	if m.askProfile {
-		steps = append(steps, "Profile")
-		offset = 1
+	if m.flow == flowStart {
+		return nil, 0
 	}
-	steps = append(steps, "Type", "Target", "Connect")
-	return steps, int(m.step) - int(jumphostStepType) + offset
+	for idx, step := range m.flowSteps() {
+		steps = append(steps, m.stepLabel(step))
+		if step == m.step {
+			current = idx
+		}
+	}
+	return steps, current
+}
+
+func (m jumphostWizardModel) stepLabel(step jumphostStep) string {
+	switch step {
+	case jumphostStepProfile:
+		return "Profile"
+	case jumphostStepType:
+		return "Type"
+	case jumphostStepTarget:
+		return "Target"
+	case jumphostStepReview:
+		return "Connect"
+	default:
+		return ""
+	}
+}
+
+// canGoBack reports whether esc leads somewhere from the current step.
+func (m jumphostWizardModel) canGoBack() bool {
+	_, ok := m.previousStep(m.step)
+	return ok
 }
 
 func (m jumphostWizardModel) stepHeading() string {
@@ -114,10 +139,14 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		if m.profileList.SettingFilter() {
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
 		}
-		return [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "select"}, quit}
+		keys := [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "select"}}
+		if m.canGoBack() {
+			keys = append(keys, [2]string{"esc", "back"})
+		}
+		return append(keys, quit)
 	case jumphostStepType:
 		keys := [][2]string{{"↑↓", "move"}, {"1-3", "pick"}, {"enter", "select"}, {"r", "region"}}
-		if m.askProfile {
+		if m.canGoBack() {
 			keys = append(keys, [2]string{"esc", "back"})
 		}
 		return append(keys, quit)

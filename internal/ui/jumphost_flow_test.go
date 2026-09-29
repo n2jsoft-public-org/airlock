@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -28,7 +29,11 @@ func wizardAtReview(t *testing.T, runner JumphostDiscovery, base jumphost.Option
 	base.AwsProfile = "dev"
 	m := newJumphostWizardModel(context.Background(), runner, base)
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
 	m, _ = wizardUpdate(t, m, key("enter")) // rds
+	if m.awaitingRegion {
+		m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: "eu-west-3"})
+	}
 	m, _ = wizardUpdate(t, m, jumphostTargetsLoadedMsg{targets: []jumphost.ResourceSummary{target}})
 	m, _ = wizardUpdate(t, m, key("enter"))
 	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{port: 5433})
@@ -225,6 +230,7 @@ func newTestWizard(t *testing.T, runner JumphostDiscovery, base jumphost.Options
 	}
 	m := newJumphostWizardModel(context.Background(), runner, base)
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
 	return m
 }
 
@@ -276,7 +282,7 @@ func TestWizardStartsOnResourceTypeWithResolvedRegion(t *testing.T) {
 
 func TestWizardKeepsExplicitRegion(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{AwsRegion: "us-east-1"})
-	if cmd := m.Init(); cmd != nil {
+	if m.resolveRegionCmd() != nil {
 		t.Fatal("no region lookup expected when a region is given")
 	}
 	if got := m.currentRegion(); got != "us-east-1" {
@@ -392,15 +398,18 @@ func TestWizardViewFitsTerminal(t *testing.T) {
 
 		m := newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{})
 		m, _ = wizardUpdate(t, m, size)
-		m, _ = wizardUpdate(t, m, jumphostProfilesLoadedMsg{profiles: []jumphost.AWSProfileSummary{{Name: "dev", Description: "region eu-west-3"}}})
-		views["profile"] = m
-		m, _ = wizardUpdate(t, m, key("enter"))
+		views["loading history"] = m
+		m = pastStart(t, m)
 		m.errorMsg = "No RDS targets found in a-very-long-region-name-that-overflows-everything"
 		views["type"] = m
 		picker, _ := wizardUpdate(t, m, key("r"))
 		views["picker"] = picker
-		m, _ = wizardUpdate(t, m, key("enter"))
+		m, _ = wizardUpdate(t, m, key("enter")) // rds, then profiles load
 		views["loading"] = m
+		m, _ = wizardUpdate(t, m, jumphostProfilesLoadedMsg{profiles: []jumphost.AWSProfileSummary{{Name: "dev", Description: "region eu-west-3"}}})
+		views["profile"] = m
+		m, _ = wizardUpdate(t, m, key("enter"))
+		m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: "eu-west-3"})
 		m, _ = wizardUpdate(t, m, jumphostTargetsLoadedMsg{targets: []jumphost.ResourceSummary{{Name: strings.Repeat("long-name-", 20), IAMAuth: true}}})
 		views["target"] = m
 		m, _ = wizardUpdate(t, m, key("enter"))
@@ -640,6 +649,7 @@ func wizardAtReviewWithRegion(t *testing.T, runner JumphostDiscovery, base jumph
 	base.AwsProfile = "dev"
 	m := newJumphostWizardModel(context.Background(), runner, base)
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
 	m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: "eu-west-3"})
 	m, _ = wizardUpdate(t, m, key("enter")) // rds
 	m, _ = wizardUpdate(t, m, jumphostTargetsLoadedMsg{targets: []jumphost.ResourceSummary{target}})
@@ -742,6 +752,7 @@ func TestWizardReviewRequiresUserWithoutDefault(t *testing.T) {
 func TestWizardOpensRegionPickerWhenNoRegion(t *testing.T) {
 	m := newJumphostWizardModel(context.Background(), noDefaultsRunner{}, jumphost.Options{AwsProfile: "dev"})
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
 	m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: ""})
 	if !m.regionResolved {
 		t.Fatal("an empty answer still resolves the region")
@@ -758,8 +769,103 @@ func TestWizardOpensRegionPickerWhenNoRegion(t *testing.T) {
 func TestWizardHeaderShowsMissingRegion(t *testing.T) {
 	m := newJumphostWizardModel(context.Background(), noDefaultsRunner{}, jumphost.Options{AwsProfile: "dev"})
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
 	m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: ""})
 	if view := m.View(); !strings.Contains(view, "none") {
 		t.Fatalf("header should show that no region is set:\n%s", view)
+	}
+}
+
+// pastStart delivers an empty history, which leaves the wizard on the Type step of a new connection.
+func pastStart(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
+	t.Helper()
+	m, _ = wizardUpdate(t, m, jumphostSavedLoadedMsg{})
+	return m
+}
+
+func TestWizardNewConnectionAsksTypeThenProfile(t *testing.T) {
+	m := newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{})
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	if !m.loading || m.step != jumphostStepStart {
+		t.Fatalf("step = %v loading = %v, want the history loading first", m.step, m.loading)
+	}
+	m = pastStart(t, m)
+	if m.step != jumphostStepType || m.flow != flowNew {
+		t.Fatalf("step = %v flow = %v, want the Type step of a new connection", m.step, m.flow)
+	}
+
+	m, _ = wizardUpdate(t, m, key("down")) // eks
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	if m.options.ResourceType != "eks" || !m.loading {
+		t.Fatalf("type = %q loading = %v, want eks and profiles loading", m.options.ResourceType, m.loading)
+	}
+	m, _ = wizardUpdate(t, m, findMsg[jumphostProfilesLoadedMsg](t, cmd))
+	if m.step != jumphostStepProfile {
+		t.Fatalf("step = %v, want the profile step after the type", m.step)
+	}
+
+	m, _ = wizardUpdate(t, m, key("enter")) // dev
+	if !m.awaitingRegion {
+		t.Fatal("the targets must wait for the region of the chosen profile")
+	}
+	var discoveries []jumphost.Options
+	m.runner = recordingRunner{discoveries: &discoveries}
+	m, cmd = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: "eu-west-3"})
+	m = runCmd(t, m, cmd)
+	if len(discoveries) != 1 || discoveries[0].ResourceType != "eks" || discoveries[0].AwsProfile != "dev" {
+		t.Fatalf("discoveries = %+v, want eks targets of dev", discoveries)
+	}
+	if m.step != jumphostStepTarget {
+		t.Fatalf("step = %v, want the target step", m.step)
+	}
+}
+
+func TestWizardNewConnectionSkipsGivenProfile(t *testing.T) {
+	var discoveries []jumphost.Options
+	m := newTestWizard(t, recordingRunner{discoveries: &discoveries}, jumphost.Options{AwsRegion: "eu-west-3"})
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	m = runCmd(t, m, cmd)
+	if m.step != jumphostStepTarget || len(discoveries) != 1 {
+		t.Fatalf("step = %v discoveries = %d, want targets without a profile step", m.step, len(discoveries))
+	}
+}
+
+func TestWizardBreadcrumbFollowsFlow(t *testing.T) {
+	asked := pastStart(t, newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{}))
+	steps, current := asked.breadcrumb()
+	if strings.Join(steps, ",") != "Type,Profile,Target,Connect" || current != 0 {
+		t.Fatalf("breadcrumb = %v %d", steps, current)
+	}
+	given := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
+	steps, _ = given.breadcrumb()
+	if strings.Join(steps, ",") != "Type,Target,Connect" {
+		t.Fatalf("breadcrumb with --profile = %v", steps)
+	}
+}
+
+func TestWizardEscBacktracksNewFlow(t *testing.T) {
+	m := pastStart(t, newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{}))
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = wizardUpdate(t, m, key("esc"))
+	if m.step != jumphostStepType {
+		t.Fatalf("step = %v, esc on the first step without history must stay", m.step)
+	}
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	m, _ = wizardUpdate(t, m, findMsg[jumphostProfilesLoadedMsg](t, cmd))
+	m, _ = wizardUpdate(t, m, key("esc"))
+	if m.step != jumphostStepType {
+		t.Fatalf("step = %v, want back on the Type step", m.step)
+	}
+	m, _ = wizardUpdate(t, m, key("enter"))
+	if m.loading || m.step != jumphostStepProfile {
+		t.Fatalf("loading = %v step = %v, profiles must load only once", m.loading, m.step)
+	}
+}
+
+func TestWizardWarnsAboutUnreadableHistory(t *testing.T) {
+	m := newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{})
+	m, _ = wizardUpdate(t, m, jumphostSavedLoadedMsg{err: errors.New("failed to parse")})
+	if m.step != jumphostStepType || !strings.Contains(m.errorMsg, "connections.json unreadable: failed to parse") {
+		t.Fatalf("step = %v error = %q", m.step, m.errorMsg)
 	}
 }

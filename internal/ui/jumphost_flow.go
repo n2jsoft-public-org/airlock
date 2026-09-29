@@ -26,6 +26,14 @@ type JumphostDiscovery interface {
 	LoadConnectionPrefs(ctx context.Context, options jumphost.Options) (jumphost.ConnectionPrefs, bool)
 	// SaveConnectionPrefs remembers the Connect step choices of options (never the password).
 	SaveConnectionPrefs(ctx context.Context, options jumphost.Options) error
+	// ListSavedConnections returns the remembered connections, most recent first, of profile and region when set.
+	ListSavedConnections(ctx context.Context, profile, region string) ([]jumphost.SavedConnection, error)
+	// ForgetConnection removes a remembered connection.
+	ForgetConnection(ctx context.Context, ref jumphost.TargetRef) error
+	// SearchResources lists the targets of every type; failures holds the types whose listing failed.
+	SearchResources(ctx context.Context, options jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error)
+	// FindResource returns the target of options, or an error when it no longer exists.
+	FindResource(ctx context.Context, options jumphost.Options) (jumphost.ResourceSummary, error)
 }
 
 type jumphostStep int
@@ -36,6 +44,8 @@ const (
 	jumphostStepTarget
 	// jumphostStepReview summarizes the connection and lets the user edit its port (and database sign-in) before connecting.
 	jumphostStepReview
+	// jumphostStepStart lists the recent connections next to "New connection" and "Search a target".
+	jumphostStepStart
 )
 
 // Editable fields of the review step, in focus order.
@@ -69,10 +79,20 @@ type jumphostWizardModel struct {
 	styles     Styles
 	step       jumphostStep
 	askProfile bool
-	errorMsg   string
-	loading    bool
-	loadingUI  loadingState
-	canceled   bool
+	flow       jumphostFlow
+	// base are the options the wizard was opened with; every flow starts from them.
+	base jumphost.Options
+	// hasHistory reports saved connections, which make the start screen the root of every flow.
+	hasHistory bool
+	// recentNeedsProfile asks a profile for a recent connection whose saved profile is gone.
+	recentNeedsProfile bool
+	// awaitingRegion starts the flow's discovery once the default region of the profile is known.
+	awaitingRegion bool
+	profilesLoaded bool
+	errorMsg       string
+	loading        bool
+	loadingUI      loadingState
+	canceled       bool
 	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
 	embedded bool
 
@@ -167,10 +187,6 @@ func RunJumphostWizard(ctx context.Context, runner JumphostDiscovery, base jumph
 
 func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) jumphostWizardModel {
 	askProfile := strings.TrimSpace(base.AwsProfile) == ""
-	initialStep := jumphostStepProfile
-	if !askProfile {
-		initialStep = jumphostStepType
-	}
 
 	if strings.TrimSpace(base.AwsProfile) == "" {
 		base.AwsProfile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
@@ -206,9 +222,11 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 		ctx:           ctx,
 		runner:        runner,
 		styles:        styles,
-		step:          initialStep,
+		step:          jumphostStepStart,
+		flow:          flowStart,
 		askProfile:    askProfile,
-		loading:       askProfile,
+		loading:       true,
+		base:          base,
 		options:       base,
 		profileList:   newWizardList(styles, nil),
 		targetList:    newWizardList(styles, nil),
@@ -217,23 +235,17 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 		passwordInput: passwordInput,
 		passwordless:  true,
 	}
-	if askProfile {
-		// Started here rather than in Init so the label survives: Init works on a copy of the model.
-		m.loadingUI.start("Loading AWS profiles...", []string{
-			"Calibrating jump pads...",
-			"Checking which profile has the best vibes...",
-			"Talking to IAM in polite terminal language...",
-			"Summoning your AWS identities...",
-		})
-	}
+	// Started here rather than in Init so the label survives: Init works on a copy of the model.
+	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
 	return m
 }
 
 func (m jumphostWizardModel) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.loadSavedCmd(), loadingTickCmd()}
 	if !m.askProfile {
-		return m.resolveRegionCmd()
+		cmds = append(cmds, m.resolveRegionCmd())
 	}
-	return tea.Batch(m.loadProfilesCmd(), loadingTickCmd())
+	return tea.Batch(cmds...)
 }
 
 func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -255,6 +267,12 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.profile == m.options.AwsProfile {
 			m.defaultRegion = msg.region
 			m.regionResolved = true
+			if m.awaitingRegion {
+				m.awaitingRegion = false
+				m.loading = false
+				m.loadingUI.stop()
+				return m.startDiscovery()
+			}
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -285,6 +303,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.step = jumphostStepProfile
 			return m, nil
 		}
+		m.profilesLoaded = true
 
 		items := make([]list.Item, 0, len(msg.profiles))
 		selectedIndex := 0
@@ -303,14 +322,10 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.loadingUI.stop()
 		if msg.err != nil {
-			m.errorMsg = msg.err.Error()
-			m.step = jumphostStepType
-			return m, nil
+			return m.failDiscovery(msg.err.Error(), true)
 		}
 		if len(msg.targets) == 0 {
-			m.errorMsg = fmt.Sprintf("No %s targets found in %s", strings.ToUpper(m.options.ResourceType), m.currentRegion())
-			m.step = jumphostStepType
-			return m, nil
+			return m.failDiscovery(fmt.Sprintf("No %s targets found in %s", strings.ToUpper(m.options.ResourceType), m.currentRegion()), true)
 		}
 
 		items := make([]list.Item, 0, len(msg.targets))
@@ -322,13 +337,13 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.targetList.Select(0)
 		m.step = jumphostStepTarget
 		return m, nil
+	case jumphostSavedLoadedMsg:
+		return m.handleSavedLoaded(msg)
 	case jumphostDefaultPortLoadedMsg:
 		m.loading = false
 		m.loadingUI.stop()
 		if msg.err != nil {
-			m.errorMsg = msg.err.Error()
-			m.step = jumphostStepTarget
-			return m, nil
+			return m.failDiscovery(msg.err.Error(), false)
 		}
 
 		m.portInput.SetValue(strconv.Itoa(msg.port))
@@ -356,6 +371,8 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.step {
+	case jumphostStepStart:
+		return m.updateStartStep(msg)
 	case jumphostStepProfile:
 		return m.updateProfileStep(msg)
 	case jumphostStepType:
@@ -392,6 +409,9 @@ func (m jumphostWizardModel) currentRegion() string {
 }
 
 func (m jumphostWizardModel) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "esc" && !m.profileList.SettingFilter() && !m.profileList.IsFiltered() {
+		return m.goBack()
+	}
 	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "enter" {
 		selected, ok := m.profileList.SelectedItem().(jumphostListItem)
 		if !ok {
@@ -403,9 +423,8 @@ func (m jumphostWizardModel) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd)
 			m.regionResolved = false
 		}
 		m.options.AwsProfile = selected.name
-		m.step = jumphostStepType
 		m.errorMsg = ""
-		return m, m.resolveRegionCmd()
+		return m.discoverWhenRegionKnown()
 	}
 
 	var cmd tea.Cmd
@@ -421,12 +440,7 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "esc":
-		if !m.askProfile {
-			return m, nil
-		}
-		m.step = jumphostStepProfile
-		m.errorMsg = ""
-		return m, nil
+		return m.goBack()
 	case "up", "k", "shift+tab":
 		m.resourceIndex = (m.resourceIndex - 1 + len(resourceTypeOptions)) % len(resourceTypeOptions)
 		return m, nil
@@ -436,17 +450,25 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m.openRegionPicker()
 	case "enter":
-		m.options.ResourceType = resourceTypeOptions[m.resourceIndex].name
-		return m.startLoadingTargets()
+		return m.pickResourceType(m.resourceIndex)
 	}
 
 	// Digits pick a card directly.
 	if index, err := strconv.Atoi(key.String()); err == nil && index >= 1 && index <= len(resourceTypeOptions) {
-		m.resourceIndex = index - 1
-		m.options.ResourceType = resourceTypeOptions[m.resourceIndex].name
-		return m.startLoadingTargets()
+		return m.pickResourceType(index - 1)
 	}
 	return m, nil
+}
+
+// pickResourceType chooses the type of a new connection, then asks the profile unless --profile gave it.
+func (m jumphostWizardModel) pickResourceType(index int) (tea.Model, tea.Cmd) {
+	m.resourceIndex = index
+	m.options.ResourceType = resourceTypeOptions[index].name
+	m.errorMsg = ""
+	if m.askProfile {
+		return m.enterProfileStep()
+	}
+	return m.discoverWhenRegionKnown()
 }
 
 func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
@@ -480,9 +502,7 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 				m.targetList.ResetFilter()
 				return m, nil
 			}
-			m.step = jumphostStepType
-			m.errorMsg = ""
-			return m, nil
+			return m.goBack()
 		case "r":
 			return m.openRegionPicker()
 		}
@@ -496,22 +516,27 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 
 		m.options.Name = selected.name
 		m.targetIAMAuth = m.options.ResourceType == "rds" && selected.iamAuth
-		m.loading = true
 		m.errorMsg = ""
-		return m, tea.Batch(
-			m.loadDefaultPortCmd(),
-			m.loadingUI.start("Finding the best local port...", []string{
-				"Looking for a chill port number...",
-				"Avoiding port drama with your local apps...",
-				"Knocking on localhost doors...",
-				"Port scouting mission in progress...",
-			}),
-		)
+		return m.startLoadingPort()
 	}
 
 	var cmd tea.Cmd
 	m.targetList, cmd = m.targetList.Update(msg)
 	return m, cmd
+}
+
+// startLoadingPort suggests the local port and loads the saved choices of the chosen target.
+func (m jumphostWizardModel) startLoadingPort() (tea.Model, tea.Cmd) {
+	m.loading = true
+	return m, tea.Batch(
+		m.loadDefaultPortCmd(),
+		m.loadingUI.start("Finding the best local port...", []string{
+			"Looking for a chill port number...",
+			"Avoiding port drama with your local apps...",
+			"Knocking on localhost doors...",
+			"Port scouting mission in progress...",
+		}),
+	)
 }
 
 func (m jumphostWizardModel) openRegionPicker() (tea.Model, tea.Cmd) {
@@ -536,7 +561,7 @@ func (m jumphostWizardModel) updateRegionPicker(msg tea.Msg) (tea.Model, tea.Cmd
 		m.errorMsg = ""
 		// Targets are regional: the listed ones no longer apply.
 		if changed && m.step == jumphostStepTarget {
-			return m.startLoadingTargets()
+			return m.startDiscovery()
 		}
 		return m, nil
 	default:
@@ -549,9 +574,7 @@ func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		switch key.String() {
 		case "esc":
 			m = m.blurReviewInputs()
-			m.step = jumphostStepTarget
-			m.errorMsg = ""
-			return m, nil
+			return m.goBack()
 		case "tab", "down":
 			return m.moveReviewFocus(1), nil
 		case "shift+tab", "up":
@@ -757,10 +780,6 @@ func (m jumphostWizardModel) resolveRegionCmd() tea.Cmd {
 }
 
 func (m jumphostWizardModel) loadProfilesCmd() tea.Cmd {
-	if !m.askProfile {
-		return nil
-	}
-
 	return func() tea.Msg {
 		profiles, err := m.runner.ListAWSProfileSummaries(m.ctx)
 		return jumphostProfilesLoadedMsg{profiles: profiles, err: err}
