@@ -1,4 +1,4 @@
-// Package appdir resolves where the CLI keeps its user files (logs and preferences).
+// Package appdir resolves where airlock keeps its user files (config, logs and preferences).
 package appdir
 
 import (
@@ -8,26 +8,48 @@ import (
 	"runtime"
 )
 
-const appName = "jumphost"
+const (
+	appName = "airlock"
+	// legacyAppName is the directory used before airlock was extracted from acme-cli.
+	legacyAppName = "jumphost"
+)
 
-// ConfigDir is $XDG_CONFIG_HOME/jumphost, defaulting to ~/.config/jumphost
-// (%AppData%\jumphost on Windows). The directory is not created.
+// ConfigDir is $XDG_CONFIG_HOME/airlock, defaulting to ~/.config/airlock
+// (%AppData%\airlock on Windows). The directory is not created.
 func ConfigDir() (string, error) {
+	root, err := configRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, appName), nil
+}
+
+// configRoot is the directory holding per-application config directories.
+func configRoot() (string, error) {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(xdg) {
-		return filepath.Join(xdg, appName), nil
+		return xdg, nil
 	}
 	if runtime.GOOS == "windows" {
 		base, err := os.UserConfigDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve the user config directory: %w", err)
 		}
-		return filepath.Join(base, appName), nil
+		return base, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve the home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", appName), nil
+	return filepath.Join(home, ".config"), nil
+}
+
+// ConfigFile is the settings file under ConfigDir.
+func ConfigFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.json"), nil
 }
 
 // ConnectionsFile is the file under ConfigDir remembering connection choices per region and database.
