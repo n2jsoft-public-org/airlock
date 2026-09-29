@@ -66,6 +66,8 @@ type RunnerOptions struct {
 	Registry *SessionRegistry
 	// MCPHost serves the MCP servers of database sessions; share it between runners of one process.
 	MCPHost *dbmcp.Host
+	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
+	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
 }
@@ -82,6 +84,7 @@ type SessionDetails struct {
 // in the registry until Release is called.
 type Session struct {
 	release    func() string
+	mcp        *dbmcp.Handle
 	releaseMsg string
 	Label      string
 	// ResourceType (eks, rds, elasticache), Target, Profile and Region describe the connection for display.
@@ -96,6 +99,11 @@ type Session struct {
 	Intro       []string
 	LocalPort   int
 	releaseOnce sync.Once
+}
+
+// MCPServer is the session's running MCP server, nil when none runs.
+func (s *Session) MCPServer() *dbmcp.Handle {
+	return s.mcp
 }
 
 // Release frees the session's port and target and removes its IDE data source.
@@ -116,6 +124,7 @@ type Runner struct {
 	registry   *SessionRegistry
 	mcpHost    *dbmcp.Host
 	projectDir string
+	mcpLogDir  string
 }
 
 // ideTarget carries what is needed to register the forwarded connection in the IDE.
@@ -160,7 +169,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 		mcpHost = dbmcp.NewHost()
 	}
 
-	return &Runner{in: in, out: out, err: err, registry: registry, mcpHost: mcpHost, projectDir: opts.ProjectDir}
+	return &Runner{in: in, out: out, err: err, registry: registry, mcpHost: mcpHost, projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir}
 }
 
 // Run prepares a single session and streams it in the current terminal until it ends.
@@ -289,6 +298,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			session.Details.MCP = mcpDisplay
 			session.Intro = append(session.Intro, "MCP "+mcpDisplay)
 		}
+		session.mcp = mcpServer
 	}
 	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource)
 
@@ -1267,6 +1277,7 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		IAMAuth:         target.IAMAuth,
 		LocalPort:       localPort,
 		AllowWrites:     allowWrites,
+		LogDir:          r.mcpLogDir,
 	})
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)

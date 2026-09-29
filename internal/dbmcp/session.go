@@ -20,6 +20,8 @@ type SessionConfig struct {
 	DBName          string
 	InstanceARN     string
 	MasterSecretARN string
+	// LogDir receives the audit log of the MCP tool calls; empty disables it.
+	LogDir string
 	// IAMUser is the read-only user signing in with RDS IAM tokens (PostgreSQL).
 	IAMUser   string
 	RDSPort   int
@@ -32,11 +34,27 @@ type SessionConfig struct {
 
 // Handle is a running session MCP server.
 type Handle struct {
-	release    func() string
-	releaseMsg string
+	release  func() string
+	recorder *queryRecorder
+	endpoint Endpoint
 	// Display describes the server (access mode, name, URL, config files) for the dashboard MCP row.
 	Display     string
+	releaseMsg  string
 	releaseOnce sync.Once
+}
+
+// Subscribe calls fn with every tool call made through the server, from the goroutine serving it:
+// fn must not block.
+func (h *Handle) Subscribe(fn func(QueryEvent)) {
+	h.recorder.subscribe(fn)
+}
+
+// QueryLogDir is where the tool calls are logged (empty when they are not).
+func (h *Handle) QueryLogDir() string {
+	if h.recorder.log == nil {
+		return ""
+	}
+	return h.recorder.log.Dir()
 }
 
 // Close stops the server, closes its database connections and removes its client entries.
@@ -61,7 +79,17 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	}
 	slug := name + "-" + suffix
 
-	querier := newQuerier(engine, credentialProvider(cfg, engine), cfg.LocalPort)
+	access, accessLabel := "read-only", "read-only"
+	if cfg.AllowWrites {
+		access, accessLabel = "read-write", "WRITES ENABLED"
+	}
+	recorder := &queryRecorder{}
+	if cfg.LogDir != "" {
+		recorder.log = NewAuditLog(cfg.LogDir)
+	}
+	querier := newRecordingQuerier(newQuerier(engine, credentialProvider(cfg, engine), cfg.LocalPort), &QueryEvent{
+		Server: name, Profile: cfg.Profile, Region: cfg.Region, Target: cfg.Target, Engine: engine, Access: access,
+	}, recorder.record)
 	server := NewServer(&ServerConfig{
 		Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region,
 		Engine: engine, AllowWrites: cfg.AllowWrites,
@@ -78,17 +106,15 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	if len(written) > 0 {
 		where = relativeTo(cfg.ProjectDir, written)
 	}
-	access := "read-only"
-	if cfg.AllowWrites {
-		access = "WRITES ENABLED"
-	}
-	display := fmt.Sprintf("%s · %s -> %s (%s)", access, name, endpoint.URL, where)
+	display := fmt.Sprintf("%s · %s -> %s (%s)", accessLabel, name, endpoint.URL, where)
 	if registerErr != nil {
 		display += fmt.Sprintf(" [warning: %v]", registerErr)
 	}
 
 	return &Handle{
-		Display: display,
+		Display:  display,
+		recorder: recorder,
+		endpoint: endpoint,
 		release: func() string {
 			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, entry)
 			if err := errors.Join(unregisterErr, host.Unmount(slug), querier.Close()); err != nil {

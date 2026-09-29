@@ -1,0 +1,159 @@
+package ui
+
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/example/acme-cli/internal/dbmcp"
+)
+
+type fakeQuerySource struct {
+	subscriber func(dbmcp.QueryEvent)
+	logDir     string
+}
+
+func (f *fakeQuerySource) Subscribe(fn func(dbmcp.QueryEvent)) { f.subscriber = fn }
+func (f *fakeQuerySource) QueryLogDir() string                 { return f.logDir }
+
+func queryEvent(tool, sql string) dbmcp.QueryEvent {
+	rows := int64(3)
+	return dbmcp.QueryEvent{
+		Time: time.Date(2026, 9, 29, 14, 5, 7, 0, time.Local), Tool: tool, Database: "archive", SQL: sql,
+		Rows: &rows, Duration: 18 * time.Millisecond,
+	}
+}
+
+// newMCPTestModel returns a dashboard with one database session serving an MCP server.
+func newMCPTestModel(t *testing.T) ssmModel {
+	t.Helper()
+	m := newTestSSMModel(t, "db")
+	m.sessions[0].mcp = &ssmMCPQueries{logDir: "/home/me/.config/jumphost/logs"}
+	return m
+}
+
+func plainView(m ssmModel) string {
+	return ansi.Strip(m.View())
+}
+
+func TestSubscribeMCPQueriesForwardsEventsWithoutBlocking(t *testing.T) {
+	events := make(chan tea.Msg, 1)
+	source := &fakeQuerySource{logDir: "/logs"}
+
+	queries := subscribeMCPQueries(7, source, events)
+	if queries.logDir != "/logs" || source.subscriber == nil {
+		t.Fatalf("queries = %+v, subscribed = %v", queries, source.subscriber != nil)
+	}
+
+	source.subscriber(queryEvent("query", "SELECT 1"))
+	done := make(chan struct{})
+	go func() {
+		source.subscriber(queryEvent("query", "SELECT 2"))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("a full event channel must not block the MCP server")
+	}
+
+	msg, ok := (<-events).(ssmMCPQueryMsg)
+	if !ok || msg.id != 7 || msg.event.SQL != "SELECT 1" {
+		t.Fatalf("message = %#v", msg)
+	}
+}
+
+func TestMCPQueryEventsAreKeptPerSessionAndCapped(t *testing.T) {
+	m := newMCPTestModel(t)
+	id := m.sessions[0].id
+
+	for i := range maxMCPQueries + 5 {
+		m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: queryEvent("query", "SELECT "+strings.Repeat("x", i%3))})
+	}
+	queries := m.sessions[0].mcp
+	if len(queries.events) != maxMCPQueries || queries.total != maxMCPQueries+5 {
+		t.Fatalf("kept %d events, total %d", len(queries.events), queries.total)
+	}
+}
+
+func TestMKeyTogglesTheQueriesPanel(t *testing.T) {
+	m := newMCPTestModel(t)
+	m, _ = update(t, m, ssmMCPQueryMsg{id: m.sessions[0].id, event: queryEvent("query", "SELECT id, name FROM users")})
+
+	if strings.Contains(plainView(m), "SELECT id, name FROM users") {
+		t.Fatal("queries must not be shown before pressing m")
+	}
+	m, _ = update(t, m, key("m"))
+	view := plainView(m)
+	for _, want := range []string{"MCP queries 1", "14:05:07  query · archive", "3 rows · 18ms", "SELECT id, name FROM users"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("queries panel misses %q:\n%s", want, view)
+		}
+	}
+
+	m, _ = update(t, m, key("m"))
+	if strings.Contains(plainView(m), "SELECT id, name FROM users") {
+		t.Fatal("pressing m again must go back to the logs")
+	}
+}
+
+func TestMKeyIgnoredWithoutMCPServer(t *testing.T) {
+	m := newTestSSMModel(t, "cache")
+
+	m, _ = update(t, m, key("m"))
+	if m.showQueries {
+		t.Fatal("m must not switch to queries for a session without MCP server")
+	}
+	if strings.Contains(plainView(m), "MCP queries") {
+		t.Fatal("sessions without MCP server must not mention MCP queries")
+	}
+}
+
+func TestQueriesPanelEmptyStateShowsLogDir(t *testing.T) {
+	m := newMCPTestModel(t)
+	m, _ = update(t, m, key("m"))
+
+	view := plainView(m)
+	for _, want := range []string{"No MCP queries yet", "/home/me/.config/jumphost/logs"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("empty queries panel misses %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestQueriesPanelShowsErrorsAndWrites(t *testing.T) {
+	m := newMCPTestModel(t)
+	id := m.sessions[0].id
+	rejected := queryEvent("query", "DELETE FROM users")
+	rejected.Rows, rejected.Error = nil, "only a single read-only SELECT or WITH statement is allowed"
+	rejected.LogError = errors.New("disk full").Error()
+	write := queryEvent("execute", "UPDATE users SET name = 'x'")
+
+	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: rejected})
+	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: write})
+	m, _ = update(t, m, key("m"))
+
+	view := plainView(m)
+	for _, want := range []string{"✗ failed", "only a single read-only SELECT", "not saved to the audit log: disk full", "execute · archive", "3 rows affected"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("queries panel misses %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestFooterHintsQueriesKeyForMCPSessions(t *testing.T) {
+	if strings.Contains(plainView(newTestSSMModel(t, "cache")), "m  queries") {
+		t.Fatal("sessions without MCP server must not hint the queries key")
+	}
+	m := newMCPTestModel(t)
+	if !strings.Contains(plainView(m), "m  queries") {
+		t.Fatalf("footer misses the queries key:\n%s", plainView(m))
+	}
+	m, _ = update(t, m, key("m"))
+	if !strings.Contains(plainView(m), "m  logs") {
+		t.Fatalf("footer misses the logs key:\n%s", plainView(m))
+	}
+}

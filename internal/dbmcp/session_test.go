@@ -2,10 +2,14 @@ package dbmcp
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func testSessionConfig(t *testing.T, engine string) *SessionConfig {
@@ -126,5 +130,57 @@ func TestServerName(t *testing.T) {
 		if got := serverName(in[0], in[1]); got != want {
 			t.Fatalf("serverName(%q, %q) = %q, want %q", in[0], in[1], got, want)
 		}
+	}
+}
+
+func connectEndpoint(t *testing.T, endpoint Endpoint) *mcp.ClientSession {
+	t.Helper()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint:   endpoint.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: endpoint.Token}, Timeout: 10 * time.Second},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+func TestStartRecordsToolCallsForSubscribersAndAuditLog(t *testing.T) {
+	useIsolatedLocks(t)
+	cfg := testSessionConfig(t, "postgres")
+	cfg.LogDir = filepath.Join(t.TempDir(), "logs")
+	handle, err := Start(NewHost(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	if handle.QueryLogDir() != cfg.LogDir {
+		t.Fatalf("QueryLogDir() = %q, want %q", handle.QueryLogDir(), cfg.LogDir)
+	}
+
+	events := make(chan QueryEvent, 1)
+	handle.Subscribe(func(e QueryEvent) { events <- e })
+	// The read-only guard rejects the statement before any connection is attempted.
+	if result := call(t, connectEndpoint(t, handle.endpoint), "query", map[string]any{"sql": "DELETE FROM users"}); !result.IsError {
+		t.Fatalf("DELETE must be rejected, got %s", resultText(result))
+	}
+
+	var e QueryEvent
+	select {
+	case e = <-events:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no query event recorded")
+	}
+	if e.Server != "acme-dev-archive-db" || e.Target != "Archive_DB" || e.Access != "read-only" || e.Tool != "query" || e.SQL != "DELETE FROM users" || e.Error == "" {
+		t.Fatalf("event = %+v", e)
+	}
+	if e.LogError != "" {
+		t.Fatalf("audit log write failed: %s", e.LogError)
+	}
+	files, err := filepath.Glob(filepath.Join(cfg.LogDir, "mcp-queries-*.jsonl"))
+	if err != nil || len(files) != 1 || !strings.Contains(readFile(t, files[0]), `"sql":"DELETE FROM users"`) {
+		t.Fatalf("audit log files = %v, err = %v", files, err)
 	}
 }

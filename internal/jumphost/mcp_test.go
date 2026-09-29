@@ -3,6 +3,7 @@ package jumphost
 import (
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,5 +114,19 @@ func TestAWSIAMPropertiesOnlyForIAMInstances(t *testing.T) {
 	props := awsIAMProperties(ideTarget{RDSHost: "pg.rds.amazonaws.com", RDSPort: 5432, IAMAuth: true}, cfg)
 	if props["AWS.RdsSigningHost"] != "pg.rds.amazonaws.com" || props["AWS.CredentialId"] != "profile:dev" {
 		t.Fatalf("props = %v", props)
+	}
+}
+
+func TestStartMCPLogsQueriesToTheRunnerLogDir(t *testing.T) {
+	logDir := filepath.Join(t.TempDir(), "logs")
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost(), MCPLogDir: logDir})
+
+	handle, _ := runner.startMCP("archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
+	if handle == nil {
+		t.Fatal("expected an MCP server for sql server")
+	}
+	defer handle.Close()
+	if handle.QueryLogDir() != logDir {
+		t.Fatalf("QueryLogDir() = %q, want %q", handle.QueryLogDir(), logDir)
 	}
 }

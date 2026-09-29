@@ -77,11 +77,13 @@ type ssmLogLine struct {
 
 // ssmSession is one port-forwarding session shown in the sidebar.
 type ssmSession struct {
-	startedAt     time.Time
-	endedAt       time.Time
-	err           error
-	session       *jumphost.Session
-	cmd           *exec.Cmd
+	startedAt time.Time
+	endedAt   time.Time
+	err       error
+	session   *jumphost.Session
+	cmd       *exec.Cmd
+	// mcp holds the calls made through the session's MCP server (nil when none runs).
+	mcp           *ssmMCPQueries
 	lines         []ssmLogLine
 	id            int
 	connections   int
@@ -125,6 +127,8 @@ type ssmModel struct {
 	mode        ssmViewMode
 	confirmYes  bool
 	quitting    bool
+	// showQueries shows the MCP queries of the selected session instead of its logs.
+	showQueries bool
 }
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
@@ -192,6 +196,9 @@ func (m ssmModel) addSession(session *jumphost.Session) ssmModel {
 		state:     ssmSessionStarting,
 		startedAt: time.Now(),
 	}
+	if server := session.MCPServer(); server != nil {
+		s.mcp = subscribeMCPQueries(s.id, server, m.events)
+	}
 	s.appendLines(session.Intro...)
 	s.appendLines("", "Starting session...")
 
@@ -222,6 +229,14 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.appendLines(msg.line)
 			trackPluginOutput(s, msg.line)
 			m.refreshSelected(s)
+		}
+		return m, waitSSMEvent(m.events)
+	case ssmMCPQueryMsg:
+		if s := m.session(msg.id); s != nil && s.mcp != nil {
+			s.mcp.add(&msg.event)
+			if m.queriesShown(s) {
+				m.refreshSelected(s)
+			}
 		}
 		return m, waitSSMEvent(m.events)
 	case ssmStartedMsg:
@@ -291,6 +306,13 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "n":
 		return m.openWizard()
+	case "m":
+		if s := m.selectedSession(); s != nil && s.mcp != nil {
+			m.showQueries = !m.showQueries
+			m.refreshViewport()
+			m.viewport.GotoBottom()
+		}
+		return m, nil
 	case "x":
 		s := m.selectedSession()
 		if s == nil {

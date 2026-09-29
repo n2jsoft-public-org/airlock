@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/example/acme-cli/internal/appdir"
 	"github.com/example/acme-cli/internal/dbmcp"
 	"github.com/example/acme-cli/internal/jumphost"
 	"github.com/example/acme-cli/internal/ui"
@@ -48,14 +49,20 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	registry := jumphost.NewSessionRegistry()
 	mcpHost := dbmcp.NewHost()
 	interactive := isInteractiveInput(cmd.InOrStdin())
+	// SQL run through MCP servers is logged to ~/.config/jumphost/logs; a lookup failure only disables the log.
+	mcpLogDir, err := appdir.LogsDir()
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: MCP queries will not be logged: %v\n", err)
+	}
 
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
 	tuiRunner := jumphost.NewRunner(jumphost.RunnerOptions{
-		In:       cmd.InOrStdin(),
-		Out:      io.Discard,
-		Err:      io.Discard,
-		Registry: registry,
-		MCPHost:  mcpHost,
+		In:        cmd.InOrStdin(),
+		Out:       io.Discard,
+		Err:       io.Discard,
+		Registry:  registry,
+		MCPHost:   mcpHost,
+		MCPLogDir: mcpLogDir,
 	})
 
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
@@ -98,11 +105,12 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	}
 
 	runner := jumphost.NewRunner(jumphost.RunnerOptions{
-		In:       cmd.InOrStdin(),
-		Out:      cmd.OutOrStdout(),
-		Err:      cmd.ErrOrStderr(),
-		Registry: registry,
-		MCPHost:  mcpHost,
+		In:        cmd.InOrStdin(),
+		Out:       cmd.OutOrStdout(),
+		Err:       cmd.ErrOrStderr(),
+		Registry:  registry,
+		MCPHost:   mcpHost,
+		MCPLogDir: mcpLogDir,
 	})
 
 	if !interactive {

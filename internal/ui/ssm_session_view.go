@@ -57,7 +57,11 @@ func (m *ssmModel) refreshViewport() {
 	m.viewport.Height = maxInt(minLogHeight, m.logPanelHeight(l)-3)
 
 	if s := m.selectedSession(); s != nil {
-		m.viewport.SetContent(m.renderLogLines(s, m.viewport.Width))
+		if m.queriesShown(s) {
+			m.viewport.SetContent(m.renderQueryLines(s, m.viewport.Width))
+		} else {
+			m.viewport.SetContent(m.renderLogLines(s, m.viewport.Width))
+		}
 	} else {
 		m.viewport.SetContent("")
 	}
@@ -248,6 +252,14 @@ func (m ssmModel) renderDetails(width int) string {
 
 func (m ssmModel) renderLogs(width, height int) string {
 	title := m.styles.PanelTitle.Render("Logs")
+	if s := m.selectedSession(); s != nil && s.mcp != nil {
+		// Both panels are named as tabs, the active one highlighted.
+		logs, queries := m.styles.PanelTitle, m.styles.Faint
+		if m.showQueries {
+			logs, queries = m.styles.Faint, m.styles.PanelTitle
+		}
+		title = logs.Render("Logs") + "   " + queries.Render("MCP queries") + m.styles.Faint.Render(fmt.Sprintf(" %d", s.mcp.total))
+	}
 	follow := m.styles.Success.Render("● live")
 	if !m.viewport.AtBottom() {
 		follow = m.styles.Warning.Render(fmt.Sprintf("❚❚ paused %d%%", int(m.viewport.ScrollPercent()*100)))
@@ -345,7 +357,15 @@ func (m ssmModel) renderFooter(width int) string {
 	case ssmModeConfirmQuit, ssmModeConfirmStop:
 		keys = [][2]string{{"←→", "choose"}, {"enter", "confirm"}, {"esc", "cancel"}}
 	default:
-		keys = [][2]string{{"n", "new"}, {"x", "stop/close"}, {"tab", "switch"}, {"1-9", "jump"}, {"↑↓", "scroll"}, {"q", "quit"}}
+		keys = [][2]string{{"n", "new"}, {"x", "stop/close"}, {"tab", "switch"}, {"1-9", "jump"}, {"↑↓", "scroll"}}
+		if s := m.selectedSession(); s != nil && s.mcp != nil {
+			panel := "queries"
+			if m.showQueries {
+				panel = "logs"
+			}
+			keys = append(keys, [2]string{"m", panel})
+		}
+		keys = append(keys, [2]string{"q", "quit"})
 	}
 	hints := make([]string, 0, len(keys))
 	for _, k := range keys {
