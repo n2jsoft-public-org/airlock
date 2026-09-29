@@ -37,6 +37,11 @@ const (
 	defaultJumphostTagValue = "jumphost"
 )
 
+// supportedResourceType reports whether resourceType (lower case) is one airlock connects to.
+func supportedResourceType(resourceType string) bool {
+	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache
+}
+
 type Options struct {
 	ResourceType    string
 	Name            string
@@ -386,35 +391,40 @@ func (r *Runner) ListAWSProfiles(ctx context.Context) ([]string, error) {
 	return profiles, nil
 }
 
+// listProfileNames returns the sorted AWS CLI profile names, without the default fallback.
+func (r *Runner) listProfileNames(ctx context.Context) ([]string, error) {
+	rawProfiles, err := r.runAWSCapture(ctx, nil, "configure", "list-profiles")
+	if err != nil {
+		return nil, err
+	}
+	profileSet := map[string]struct{}{}
+	for _, line := range strings.Split(rawProfiles, "\n") {
+		if profile := strings.TrimSpace(line); profile != "" {
+			profileSet[profile] = struct{}{}
+		}
+	}
+	profiles := make([]string, 0, len(profileSet))
+	for profile := range profileSet {
+		profiles = append(profiles, profile)
+	}
+	sort.Strings(profiles)
+	return profiles, nil
+}
+
 // ListAWSProfileSummaries returns available AWS profiles with display details.
 func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSummary, error) {
 	if _, err := exec.LookPath("aws"); err != nil {
 		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
 	}
 
-	rawProfiles, err := r.runAWSCapture(ctx, nil, "configure", "list-profiles")
+	profiles, err := r.listProfileNames(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	profileSet := map[string]struct{}{}
-	for _, line := range strings.Split(rawProfiles, "\n") {
-		profile := strings.TrimSpace(line)
-		if profile == "" {
-			continue
-		}
-		profileSet[profile] = struct{}{}
+	if len(profiles) == 0 {
+		profiles = []string{defaultAwsProfile}
 	}
-
-	if len(profileSet) == 0 {
-		profileSet[defaultAwsProfile] = struct{}{}
-	}
-
-	profiles := make([]string, 0, len(profileSet))
-	for profile := range profileSet {
-		profiles = append(profiles, profile)
-	}
-	sort.Strings(profiles)
 
 	summaries := make([]AWSProfileSummary, 0, len(profiles))
 	for _, profile := range profiles {
@@ -462,7 +472,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
-	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
+	if !supportedResourceType(resourceType) {
 		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
@@ -619,38 +629,43 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 	return r.registry.SuggestPort(port)
 }
 
-// LoadConnectionPrefs returns the Connect step choices saved for the RDS database of options, if any.
+// LoadConnectionPrefs returns the Connect step choices saved for the target of options, if any.
 func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (ConnectionPrefs, bool) {
-	db, ok := r.prefsDatabase(ctx, options)
+	target, ok := r.prefsTarget(ctx, options)
 	if !ok {
 		return ConnectionPrefs{}, false
 	}
-	return r.prefs.Load(db)
+	return r.prefs.Load(target)
 }
 
-// SaveConnectionPrefs remembers the Connect step choices of options for its RDS database: user,
-// sign-in method, local port and MCP write access. The password itself is never saved.
+// SaveConnectionPrefs remembers the choices of options for its target: profile and local port,
+// plus user, sign-in method and MCP write access for RDS. The password itself is never saved.
 func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
-	db, ok := r.prefsDatabase(ctx, options)
+	target, ok := r.prefsTarget(ctx, options)
 	if !ok {
 		return nil
 	}
-	signIn := SignInIAM
-	if options.DBPassword != "" {
-		signIn = SignInPassword
+	prefs := ConnectionPrefs{
+		Profile:      resolveProfileName(options.AwsProfile),
+		ResourceType: target.Type,
+		LocalPort:    options.LocalPortNumber,
 	}
-	return r.prefs.Save(db, ConnectionPrefs{
-		DBUser:         strings.TrimSpace(options.DBUser),
-		SignIn:         signIn,
-		LocalPort:      options.LocalPortNumber,
-		MCPAllowWrites: options.MCPAllowWrites,
-	})
+	if target.Type == resourceRDS {
+		prefs.DBUser = strings.TrimSpace(options.DBUser)
+		prefs.SignIn = SignInIAM
+		if options.DBPassword != "" {
+			prefs.SignIn = SignInPassword
+		}
+		prefs.MCPAllowWrites = options.MCPAllowWrites
+	}
+	return r.prefs.Save(target, prefs)
 }
 
-// prefsDatabase identifies the target keying the preferences of options; false when none apply
-// (not RDS, disabled, or the AWS account is unknown).
-func (r *Runner) prefsDatabase(ctx context.Context, options Options) (TargetRef, bool) {
-	if r.prefs == nil || strings.ToLower(strings.TrimSpace(options.ResourceType)) != resourceRDS || strings.TrimSpace(options.Name) == "" {
+// prefsTarget identifies the target keying the preferences of options; false when none apply
+// (unsupported type, disabled, or the AWS account is unknown).
+func (r *Runner) prefsTarget(ctx context.Context, options Options) (TargetRef, bool) {
+	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
+	if r.prefs == nil || !supportedResourceType(resourceType) || strings.TrimSpace(options.Name) == "" {
 		return TargetRef{}, false
 	}
 	profile := resolveProfileName(options.AwsProfile)
@@ -665,7 +680,7 @@ func (r *Runner) prefsDatabase(ctx context.Context, options Options) (TargetRef,
 	if account == "" {
 		return TargetRef{}, false
 	}
-	return TargetRef{Account: account, Region: region, Type: resourceRDS, Name: strings.TrimSpace(options.Name)}, true
+	return TargetRef{Account: account, Region: region, Type: resourceType, Name: strings.TrimSpace(options.Name)}, true
 }
 
 // accountFor returns the AWS account ID of profile: the one seen by the identity check, which runs

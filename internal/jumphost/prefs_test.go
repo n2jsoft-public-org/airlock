@@ -223,18 +223,41 @@ func TestRememberAccountAcceptsIdentityARNOrAccountID(t *testing.T) {
 	}
 }
 
-func TestRunnerConnectionPrefsOnlyApplyToRDS(t *testing.T) {
+func TestRunnerSavesEKSConnectionWithoutDatabaseFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "connections.json")
 	runner := NewRunner(RunnerOptions{PrefsPath: path})
-	options := Options{ResourceType: "eks", Name: "cluster", AwsRegion: "eu-west-3", LocalPortNumber: 9444}
+	runner.rememberAccount("dev", "111111111111")
+	options := Options{
+		ResourceType: "eks", Name: "cluster", AwsProfile: "dev", AwsRegion: "eu-west-3",
+		LocalPortNumber: 9444, DBUser: "ignored", MCPAllowWrites: true,
+	}
 
 	if err := runner.SaveConnectionPrefs(context.Background(), options); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("an EKS connection must not be saved (stat err = %v)", err)
+	prefs, ok := runner.LoadConnectionPrefs(context.Background(), options)
+	want := ConnectionPrefs{UpdatedAt: prefs.UpdatedAt, Profile: "dev", ResourceType: "eks", LocalPort: 9444}
+	if !ok || prefs != want {
+		t.Fatalf("prefs = %+v, %v; want %+v", prefs, ok, want)
 	}
+}
 
+func TestRunnerSavesProfileAndTypeOfRDSConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "connections.json")
+	runner := NewRunner(RunnerOptions{PrefsPath: path})
+	runner.rememberAccount("dev", "111111111111")
+	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3", DBUser: "app"}
+
+	if err := runner.SaveConnectionPrefs(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	prefs, ok := runner.LoadConnectionPrefs(context.Background(), options)
+	if !ok || prefs.Profile != "dev" || prefs.ResourceType != "rds" || prefs.DBUser != "app" {
+		t.Fatalf("prefs = %+v, %v", prefs, ok)
+	}
+}
+
+func TestRunnerWithoutPrefsPathRemembersNothing(t *testing.T) {
 	disabled := NewRunner(RunnerOptions{})
 	rds := Options{ResourceType: "rds", Name: "archive", AwsRegion: "eu-west-3"}
 	if err := disabled.SaveConnectionPrefs(context.Background(), rds); err != nil {
@@ -242,5 +265,12 @@ func TestRunnerConnectionPrefsOnlyApplyToRDS(t *testing.T) {
 	}
 	if _, ok := disabled.LoadConnectionPrefs(context.Background(), rds); ok {
 		t.Fatal("a runner without prefs path must not remember anything")
+	}
+	saved, err := disabled.ListSavedConnections(context.Background(), "", "")
+	if err != nil || len(saved) != 0 {
+		t.Fatalf("ListSavedConnections = %+v, %v; want none", saved, err)
+	}
+	if err := disabled.ForgetConnection(context.Background(), TargetRef{}); err != nil {
+		t.Fatal(err)
 	}
 }
