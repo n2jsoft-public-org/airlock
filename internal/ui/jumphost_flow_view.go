@@ -91,6 +91,8 @@ func (m jumphostWizardModel) canGoBack() bool {
 
 func (m jumphostWizardModel) stepHeading() string {
 	switch m.step {
+	case jumphostStepStart:
+		return "Recent connections"
 	case jumphostStepProfile:
 		return "Choose an AWS profile"
 	case jumphostStepType:
@@ -109,6 +111,8 @@ func (m jumphostWizardModel) stepHeading() string {
 
 func (m jumphostWizardModel) stepHint() string {
 	switch m.step {
+	case jumphostStepStart:
+		return plural(len(m.recent.list.Items()), "connection")
 	case jumphostStepProfile:
 		return plural(len(m.profileList.Items()), "profile")
 	case jumphostStepTarget:
@@ -126,6 +130,8 @@ func (m jumphostWizardModel) stepHint() string {
 
 func (m jumphostWizardModel) stepBody(width, height int) string {
 	switch m.step {
+	case jumphostStepStart:
+		return m.recent.View(m.styles, width)
 	case jumphostStepProfile:
 		return m.profileList.View()
 	case jumphostStepType:
@@ -142,6 +148,14 @@ func (m jumphostWizardModel) stepBody(width, height int) string {
 func (m jumphostWizardModel) stepKeys() [][2]string {
 	quit := [2]string{"q", m.quitLabel()}
 	switch m.step {
+	case jumphostStepStart:
+		switch {
+		case m.recent.confirmingForget():
+			return [][2]string{{"y", "forget"}, {"any key", "keep"}}
+		case m.recent.typing():
+			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
+		}
+		return [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "reconnect"}, {"n", "new"}, {"s", "search"}, {"d", "forget"}, quit}
 	case jumphostStepProfile:
 		if m.profileList.SettingFilter() {
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}

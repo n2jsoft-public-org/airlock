@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -98,8 +99,11 @@ type jumphostWizardModel struct {
 	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
 	embedded bool
 
-	options       jumphost.Options
-	profileList   list.Model
+	options     jumphost.Options
+	profileList list.Model
+	recent      recentPicker
+	// active holds the connectionKey of the dashboard's running sessions, which cannot be reopened.
+	active        map[string]bool
 	targetList    list.Model
 	portInput     textinput.Model
 	userInput     textinput.Model
@@ -238,6 +242,7 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 		userInput:     userInput,
 		passwordInput: passwordInput,
 		passwordless:  true,
+		recent:        newRecentPicker(styles, nil, nil, time.Now()),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
 	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
@@ -260,6 +265,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		bodyWidth, bodyHeight := wizardBodySize(msg.Width, msg.Height)
 		m.profileList.SetSize(bodyWidth, bodyHeight)
 		m.targetList.SetSize(bodyWidth, bodyHeight)
+		m.recent.SetSize(bodyWidth, bodyHeight)
 		return m, nil
 	case loadingTickMsg:
 		if !m.loading {
@@ -345,6 +351,10 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSearchLoaded(msg)
 	case jumphostSavedLoadedMsg:
 		return m.handleSavedLoaded(msg)
+	case jumphostLookupMsg:
+		return m.handleLookup(msg)
+	case jumphostForgotMsg:
+		return m.handleForgot(msg)
 	case jumphostDefaultPortLoadedMsg:
 		m.loading = false
 		m.loadingUI.stop()
@@ -395,6 +405,8 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // typingText reports whether printable keys belong to a text field (review inputs or list filter).
 func (m jumphostWizardModel) typingText() bool {
 	switch m.step {
+	case jumphostStepStart:
+		return m.recent.typing() || m.recent.confirmingForget()
 	case jumphostStepReview:
 		return true
 	case jumphostStepProfile:

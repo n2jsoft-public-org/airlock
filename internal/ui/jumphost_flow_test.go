@@ -399,6 +399,9 @@ func TestWizardViewFitsTerminal(t *testing.T) {
 		m := newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{})
 		m, _ = wizardUpdate(t, m, size)
 		views["loading history"] = m
+		start := newJumphostWizardModel(context.Background(), newHistoryRunner(savedArchive), jumphost.Options{})
+		start, _ = wizardUpdate(t, start, size)
+		views["start"] = runCmd(t, start, start.loadSavedCmd())
 		m = pastStart(t, m)
 		m.errorMsg = "No RDS targets found in a-very-long-region-name-that-overflows-everything"
 		views["type"] = m

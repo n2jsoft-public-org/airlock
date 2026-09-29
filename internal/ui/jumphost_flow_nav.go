@@ -130,6 +130,8 @@ func (m jumphostWizardModel) startDiscovery() (tea.Model, tea.Cmd) {
 	switch m.flow {
 	case flowSearch:
 		return m.startSearch()
+	case flowRecent:
+		return m.startLookup()
 	default:
 		return m.startLoadingTargets()
 	}
