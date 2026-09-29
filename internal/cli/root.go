@@ -93,7 +93,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if migrated, err := appdir.MigrateLegacy(); err != nil {
 		cmd.PrintErrf("Warning: %v\n", err)
 	} else if migrated {
-		cmd.PrintErrln("Copied saved connections and MCP logs from ~/.config/jumphost to airlock's config directory.")
+		cmd.PrintErrln("Copied saved connections and MCP logs of the former jumphost config directory into airlock's.")
 	}
 	cfg, configPath, err := loadConfig(cmd)
 	if err != nil {

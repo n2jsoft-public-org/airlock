@@ -101,3 +101,38 @@ func TestMigrateLegacyUsesSiblingJumphostDir(t *testing.T) {
 		t.Fatalf("connections.json = %q", got)
 	}
 }
+
+func TestMigrateRunsWhenTargetHoldsOnlyConfig(t *testing.T) {
+	root := t.TempDir()
+	legacy, target := filepath.Join(root, "jumphost"), filepath.Join(root, "airlock")
+	writeFile(t, filepath.Join(legacy, "connections.json"), `{"v":1}`)
+	writeFile(t, filepath.Join(legacy, "logs", "a.jsonl"), "{}\n")
+	// The README has users write config.json before the first run, which creates the directory.
+	writeFile(t, filepath.Join(target, "config.json"), `{"mcpServerPrefix":"acme"}`)
+
+	migrated, err := migrateFrom(legacy, target)
+	if err != nil || !migrated {
+		t.Fatalf("migrateFrom = %v, %v; want the connections and logs copied next to config.json", migrated, err)
+	}
+	if got := readFile(t, filepath.Join(target, "connections.json")); got != `{"v":1}` {
+		t.Fatalf("connections.json = %q", got)
+	}
+	if got := readFile(t, filepath.Join(target, "logs", "a.jsonl")); got != "{}\n" {
+		t.Fatalf("log = %q", got)
+	}
+	if got := readFile(t, filepath.Join(target, "config.json")); got != `{"mcpServerPrefix":"acme"}` {
+		t.Fatalf("config.json must be kept, got %q", got)
+	}
+}
+
+func TestMigrateReportsNothingWhenLegacyDirIsEmpty(t *testing.T) {
+	root := t.TempDir()
+	legacy, target := filepath.Join(root, "jumphost"), filepath.Join(root, "airlock")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := migrateFrom(legacy, target)
+	if err != nil || migrated {
+		t.Fatalf("migrateFrom = %v, %v; want nothing reported for an empty legacy directory", migrated, err)
+	}
+}
