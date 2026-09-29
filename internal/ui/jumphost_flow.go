@@ -41,7 +41,7 @@ const (
 // Editable fields of the review step, in focus order.
 const (
 	reviewFieldPort = iota
-	// reviewFieldPasswordless toggles AWS IAM sign-in, where acme generates short-lived tokens as passwords.
+	// reviewFieldPasswordless toggles AWS IAM sign-in, where airlock generates short-lived tokens as passwords.
 	reviewFieldPasswordless
 	reviewFieldUser
 	// reviewFieldPassword is asked only when passwordless sign-in is turned off.
@@ -94,8 +94,10 @@ type jumphostWizardModel struct {
 
 	// defaultRegion is the region the runner falls back to while options.AwsRegion is empty; "" until resolved.
 	defaultRegion string
-	regionPicker  regionPicker
-	pickingRegion bool
+	// regionResolved reports that defaultRegion holds the runner's answer, even an empty one.
+	regionResolved bool
+	regionPicker   regionPicker
+	pickingRegion  bool
 
 	width  int
 	height int
@@ -252,6 +254,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Ignore answers for a profile the user already moved away from.
 		if msg.profile == m.options.AwsProfile {
 			m.defaultRegion = msg.region
+			m.regionResolved = true
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -397,6 +400,7 @@ func (m jumphostWizardModel) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd)
 
 		if selected.name != m.options.AwsProfile {
 			m.defaultRegion = ""
+			m.regionResolved = false
 		}
 		m.options.AwsProfile = selected.name
 		m.step = jumphostStepType
@@ -446,6 +450,10 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
+	if m.currentRegion() == "" && m.regionResolved {
+		m.errorMsg = "No AWS region set for this profile: pick one"
+		return m.openRegionPicker()
+	}
 	m.errorMsg = ""
 	m.loading = true
 	label := "Discovering AWS resources..."
@@ -525,6 +533,7 @@ func (m jumphostWizardModel) updateRegionPicker(msg tea.Msg) (tea.Model, tea.Cmd
 		region, _ := picker.choice()
 		changed := region != m.currentRegion()
 		m.options.AwsRegion = region
+		m.errorMsg = ""
 		// Targets are regional: the listed ones no longer apply.
 		if changed && m.step == jumphostStepTarget {
 			return m.startLoadingTargets()
@@ -660,7 +669,12 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 			return m.focusReviewField(reviewFieldUser), nil
 		}
 		if m.passwordless {
-			m.options.DBUser = m.runner.ResolveDBUser(user)
+			resolved := m.runner.ResolveDBUser(user)
+			if resolved == "" {
+				m.errorMsg = "Enter the database user signing in with AWS IAM"
+				return m.focusReviewField(reviewFieldUser), nil
+			}
+			m.options.DBUser = resolved
 		} else {
 			if user == "" {
 				m.errorMsg = "Enter the database user signing in with the password"

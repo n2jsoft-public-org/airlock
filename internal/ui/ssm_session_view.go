@@ -72,7 +72,7 @@ func (m ssmModel) View() string {
 	case ssmModeWizard:
 		return m.wizard.View()
 	case ssmModePreparing:
-		return m.loadingUI.View(m.styles, "acme jumphost")
+		return m.loadingUI.View(m.styles, "airlock")
 	default:
 	}
 
@@ -94,7 +94,7 @@ func (m ssmModel) View() string {
 }
 
 func (m ssmModel) renderHeader(width int) string {
-	left := m.styles.Title.Render("◆ acme jumphost")
+	left := m.styles.Title.Render("◆ airlock")
 	if width >= compactBreakpoint {
 		left += m.styles.Faint.Render("  SSM port forwarding")
 	}
@@ -317,7 +317,7 @@ func (m ssmModel) renderDialog(width int) string {
 	switch m.mode {
 	case ssmModeConfirmQuit:
 		active := m.countSessions(func(s *ssmSession) bool { return s.active() })
-		title = "Quit acme jumphost?"
+		title = "Quit airlock?"
 		body = fmt.Sprintf("This stops %d active session(s) and frees their local ports.", active)
 		confirm = "Stop all & quit"
 	default:
