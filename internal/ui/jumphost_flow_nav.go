@@ -81,6 +81,7 @@ func (m jumphostWizardModel) returnToStart() (jumphostWizardModel, tea.Cmd) {
 	m.options = m.base
 	m.recentNeedsProfile = false
 	m.awaitingRegion = false
+	m.searchWarnings = ""
 	m.errorMsg = ""
 	m.defaultRegion = ""
 	m.regionResolved = false
@@ -127,6 +128,8 @@ func (m jumphostWizardModel) discoverWhenRegionKnown() (tea.Model, tea.Cmd) {
 // startDiscovery loads what the flow shows next once the profile and region are known.
 func (m jumphostWizardModel) startDiscovery() (tea.Model, tea.Cmd) {
 	switch m.flow {
+	case flowSearch:
+		return m.startSearch()
 	default:
 		return m.startLoadingTargets()
 	}

@@ -88,6 +88,8 @@ type jumphostWizardModel struct {
 	recentNeedsProfile bool
 	// awaitingRegion starts the flow's discovery once the default region of the profile is known.
 	awaitingRegion bool
+	// searchWarnings names the types a search could not list.
+	searchWarnings string
 	profilesLoaded bool
 	errorMsg       string
 	loading        bool
@@ -127,6 +129,8 @@ type jumphostListItem struct {
 	name    string
 	desc    string
 	iamAuth bool
+	// resourceType is set on search results, which mix types.
+	resourceType string
 }
 
 func (i jumphostListItem) FilterValue() string {
@@ -337,6 +341,8 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.targetList.Select(0)
 		m.step = jumphostStepTarget
 		return m, nil
+	case jumphostSearchLoadedMsg:
+		return m.handleSearchLoaded(msg)
 	case jumphostSavedLoadedMsg:
 		return m.handleSavedLoaded(msg)
 	case jumphostDefaultPortLoadedMsg:
@@ -515,6 +521,9 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		}
 
 		m.options.Name = selected.name
+		if selected.resourceType != "" {
+			m.options.ResourceType = selected.resourceType
+		}
 		m.targetIAMAuth = m.options.ResourceType == "rds" && selected.iamAuth
 		m.errorMsg = ""
 		return m.startLoadingPort()

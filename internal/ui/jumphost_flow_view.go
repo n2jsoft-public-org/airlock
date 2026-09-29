@@ -96,6 +96,9 @@ func (m jumphostWizardModel) stepHeading() string {
 	case jumphostStepType:
 		return "What do you want to reach?"
 	case jumphostStepTarget:
+		if m.flow == flowSearch {
+			return "Search a target"
+		}
 		return fmt.Sprintf("Choose the %s target", strings.ToUpper(m.options.ResourceType))
 	case jumphostStepReview:
 		return "Review and connect"
@@ -109,7 +112,11 @@ func (m jumphostWizardModel) stepHint() string {
 	case jumphostStepProfile:
 		return plural(len(m.profileList.Items()), "profile")
 	case jumphostStepTarget:
-		return plural(len(m.targetList.Items()), "target") + " in " + m.currentRegion()
+		hint := plural(len(m.targetList.Items()), "target") + " in " + m.currentRegion()
+		if m.searchWarnings != "" {
+			hint += " · ⚠ " + m.searchWarnings
+		}
+		return hint
 	case jumphostStepReview:
 		return "edit any field, then connect"
 	default:
