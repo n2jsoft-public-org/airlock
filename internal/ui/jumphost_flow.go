@@ -472,6 +472,12 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		return m.openRegionPicker()
+	case "s":
+		// Without history there is no start screen: search starts from here.
+		if !m.hasHistory {
+			return m.beginSearch()
+		}
+		return m, nil
 	case "enter":
 		return m.pickResourceType(m.resourceIndex)
 	}
@@ -581,8 +587,8 @@ func (m jumphostWizardModel) updateRegionPicker(msg tea.Msg) (tea.Model, tea.Cmd
 		m.pickingRegion = false
 		unblocks := m.regionUnblocks
 		m.regionUnblocks = false
-		// Without a region, a flow started from the start screen is over.
-		if unblocks && m.step == jumphostStepStart {
+		// Without a region, a flow started from the start screen or the Type step is over.
+		if unblocks && (m.step == jumphostStepStart || m.step == jumphostStepType) {
 			return m.failDiscovery(m.errorMsg, false)
 		}
 		return m, nil

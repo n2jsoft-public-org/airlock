@@ -167,6 +167,9 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		return append(keys, quit)
 	case jumphostStepType:
 		keys := [][2]string{{"↑↓", "move"}, {"1-3", "pick"}, {"enter", "select"}, {"r", "region"}}
+		if !m.hasHistory {
+			keys = append(keys, [2]string{"s", "search"})
+		}
 		if m.canGoBack() {
 			keys = append(keys, [2]string{"esc", "back"})
 		}

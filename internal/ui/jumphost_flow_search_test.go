@@ -199,3 +199,73 @@ func TestWizardSearchFailedReloadStepsBackToProfile(t *testing.T) {
 		t.Fatalf("step = %v items = %d, want the profile step and no stale targets", m.step, len(m.targetList.Items()))
 	}
 }
+
+func TestWizardTypeStepSearchesWithoutHistory(t *testing.T) {
+	m := pastStart(t, newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{}))
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	if !strings.Contains(m.View(), "search") {
+		t.Fatalf("the Type step without history must offer search:\n%s", m.View())
+	}
+
+	m, cmd := wizardUpdate(t, m, key("s"))
+	m, _ = wizardUpdate(t, m, findMsg[jumphostProfilesLoadedMsg](t, cmd))
+	if m.flow != flowSearch || m.step != jumphostStepProfile {
+		t.Fatalf("flow = %v step = %v, want the profile step of a search", m.flow, m.step)
+	}
+	steps, _ := m.breadcrumb()
+	if strings.Join(steps, ",") != "Profile,Target,Connect" {
+		t.Fatalf("breadcrumb = %v", steps)
+	}
+
+	m, _ = wizardUpdate(t, m, key("esc"))
+	if m.flow != flowNew || m.step != jumphostStepType {
+		t.Fatalf("flow = %v step = %v, esc must go back to the Type step of a new connection", m.flow, m.step)
+	}
+}
+
+func TestWizardTypeStepSearchNeedsNoHistory(t *testing.T) {
+	m := startWizard(t, newHistoryRunner(savedArchive))
+	m, _ = wizardUpdate(t, m, key("n"))
+	m, _ = wizardUpdate(t, m, key("s"))
+	if m.flow != flowNew || m.step != jumphostStepType {
+		t.Fatalf("flow = %v step = %v, with a history search lives on the start screen", m.flow, m.step)
+	}
+	if strings.Contains(m.View(), "search") {
+		t.Fatal("the Type step with a history must not offer search")
+	}
+}
+
+func TestWizardFailedSearchFromTypeStepKeepsNewConnection(t *testing.T) {
+	failures := map[string]error{"rds": errors.New("denied"), "eks": errors.New("denied"), "elasticache": errors.New("denied")}
+	var discoveries []jumphost.Options
+	runner := searchRunner{prefsRunner: newPrefsRunner(), failures: failures}
+	m := newTestWizard(t, runner, jumphost.Options{AwsRegion: "eu-west-3"})
+
+	m, cmd := wizardUpdate(t, m, key("s"))
+	m = runCmd(t, m, cmd)
+	if m.step != jumphostStepType || m.flow != flowNew || !strings.Contains(m.errorMsg, "RDS: denied") {
+		t.Fatalf("step = %v flow = %v error = %q, want the Type step of a new connection", m.step, m.flow, m.errorMsg)
+	}
+
+	m.runner = recordingRunner{discoveries: &discoveries}
+	m, cmd = wizardUpdate(t, m, key("enter"))
+	m = runCmd(t, m, cmd)
+	if m.step != jumphostStepTarget || len(discoveries) != 1 || discoveries[0].ResourceType != "rds" {
+		t.Fatalf("step = %v discoveries = %+v, enter must load the RDS targets", m.step, discoveries)
+	}
+}
+
+func TestWizardSearchRegionPickerCanceledOnTypeStepKeepsNewConnection(t *testing.T) {
+	m := pastStart(t, newJumphostWizardModel(context.Background(), noDefaultsRunner{}, jumphost.Options{AwsProfile: "dev"}))
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: ""})
+
+	m, _ = wizardUpdate(t, m, key("s"))
+	if !m.pickingRegion {
+		t.Fatal("a search without region must open the region picker")
+	}
+	m, _ = wizardUpdate(t, m, key("esc"))
+	if m.pickingRegion || m.step != jumphostStepType || m.flow != flowNew {
+		t.Fatalf("picking = %v step = %v flow = %v, want the Type step of a new connection", m.pickingRegion, m.step, m.flow)
+	}
+}

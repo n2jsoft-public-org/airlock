@@ -56,6 +56,10 @@ func (m jumphostWizardModel) previousStep(step jumphostStep) (jumphostStep, bool
 	if m.hasHistory && m.flow != flowStart {
 		return jumphostStepStart, true
 	}
+	// Without history, Search is started from the Type step of a new connection.
+	if m.flow == flowSearch {
+		return jumphostStepType, true
+	}
 	return step, false
 }
 
@@ -67,6 +71,9 @@ func (m jumphostWizardModel) goBack() (tea.Model, tea.Cmd) {
 	}
 	if prev == jumphostStepStart {
 		return m.returnToStart()
+	}
+	if prev == jumphostStepType {
+		m.flow = flowNew
 	}
 	m.step = prev
 	m.errorMsg = ""
@@ -108,6 +115,10 @@ func (m jumphostWizardModel) failDiscovery(errMsg string, leaveTargets bool) (te
 	// A flow started from the start screen that fails there is over.
 	if m.step == jumphostStepStart && m.flow != flowStart {
 		m, cmd = m.returnToStart()
+	}
+	// So is a search started from the Type step: the Type step belongs to a new connection.
+	if m.step == jumphostStepType {
+		m.flow = flowNew
 	}
 	m.searchWarnings = ""
 	m.errorMsg = errMsg
