@@ -22,7 +22,8 @@ databases.
 Examples:
 
 - `airlock` (wizard: recent connections, or a new connection by resource type, AWS profile, target and review, or a search of every target of a profile)
-- The wizard opens on your recent connections, most recently used first (`/` filters by name, type, profile or region; `d` forgets one). Picking one checks the target still exists and opens its review step prefilled. `n` starts a new connection, `s` searches a target: choose a profile, then pick among its RDS, EKS and ElastiCache targets in one list (types that cannot be listed are named in a warning). `--profile` and `--region` filter the recent connections and skip the profile question.
+- The wizard opens on your recent connections, most recently used first (`/` filters by name, type, profile or region; `d` forgets one). Picking one checks the target still exists and opens its review step prefilled. `n` starts a new connection, `s` searches a target: choose a profile, then pick among its RDS, EKS and ElastiCache targets in one list (types that cannot be listed are named in a warning). `--profile` and `--region` filter the recent connections and skip the profile question. Without any recent connection the wizard opens on the resource type step, where `s` starts the search.
+- A recent connection whose profile no longer exists asks for one; a profile reaching another AWS account than the one the connection was saved in is refused, since same-named targets often exist in several accounts.
 - `airlock rds my-db 5432`
 - `airlock eks my-cluster 15432`
 - `airlock rds my-db 5432 --db-user app_ro`
