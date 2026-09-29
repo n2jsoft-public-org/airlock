@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/example/acme-cli/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
 // maxMCPQueries caps the MCP tool calls kept per session; the audit log keeps them all.

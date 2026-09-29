@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/example/acme-cli/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
 type fakeQuerySource struct {

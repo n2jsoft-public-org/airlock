@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/example/acme-cli/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 type fakeSessionRunner struct{}

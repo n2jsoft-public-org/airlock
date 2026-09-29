@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/example/acme-cli/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 type JumphostDiscovery interface {

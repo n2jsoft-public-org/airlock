@@ -14,7 +14,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/example/acme-cli/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 const (

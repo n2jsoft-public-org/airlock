@@ -19,8 +19,8 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	"github.com/example/acme-cli/internal/dbmcp"
-	"github.com/example/acme-cli/internal/ideadatasource"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"golang.org/x/term"
 )
 

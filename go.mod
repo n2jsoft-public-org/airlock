@@ -1,4 +1,4 @@
-module github.com/example/acme-cli
+module github.com/n2jsoft/airlock
 
 go 1.26.2
 

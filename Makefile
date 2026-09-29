@@ -1,8 +1,8 @@
 SHELL := /bin/bash
 
-BINARY := acme
+BINARY := airlock
 BINDIR := bin
-ENTRYPOINT := ./cmd/cli
+ENTRYPOINT := ./cmd/airlock
 
 GOBIN := $(shell go env GOBIN)
 ifeq ($(strip $(GOBIN)),)

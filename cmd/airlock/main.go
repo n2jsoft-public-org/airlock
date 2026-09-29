@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/example/acme-cli/internal/cli"
+	"github.com/n2jsoft/airlock/internal/cli"
 )
 
 func main() {

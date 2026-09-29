@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/acme-cli/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
 func testRunner(t *testing.T) *Runner {

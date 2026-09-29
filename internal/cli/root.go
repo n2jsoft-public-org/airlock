@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/example/acme-cli/internal/appdir"
-	"github.com/example/acme-cli/internal/dbmcp"
-	"github.com/example/acme-cli/internal/jumphost"
-	"github.com/example/acme-cli/internal/ui"
+	"github.com/n2jsoft/airlock/internal/appdir"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
