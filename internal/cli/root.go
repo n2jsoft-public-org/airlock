@@ -8,10 +8,12 @@ import (
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/appdir"
+	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 )
 
@@ -31,6 +33,8 @@ func NewRootCmd() *cobra.Command {
 			"When values are omitted in an interactive shell, a wizard asks for them.",
 		Args:         cobra.MaximumNArgs(3),
 		SilenceUsage: true,
+		// main prints the returned error once.
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return executeJumphost(cmd, args, options)
 		},
@@ -44,37 +48,92 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data, as the database user (master user secret on SQL Server)")
 	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database user for RDS AWS IAM authentication (defaults to \"defaultDbUser\" of the config file)")
 
+	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
+	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
+	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
+
 	return cmd
 }
 
+// overridesFromFlags returns the config settings given as flags; flags left out are nil.
+func overridesFromFlags(flags *pflag.FlagSet) config.Overrides {
+	value := func(name string) *string {
+		if !flags.Changed(name) {
+			return nil
+		}
+		v, err := flags.GetString(name)
+		if err != nil {
+			return nil
+		}
+		return &v
+	}
+	return config.Overrides{
+		JumphostTag:       value("jumphost-tag"),
+		ReadOnlySecretTag: value("read-only-secret-tag"),
+		MCPServerPrefix:   value("mcp-server-prefix"),
+	}
+}
+
+// loadConfig merges the flags over the config file; it returns the file path for hints.
+func loadConfig(cmd *cobra.Command) (config.Config, string, error) {
+	path, err := appdir.ConfigFile()
+	if err != nil {
+		cmd.PrintErrf("Warning: config file not read: %v\n", err)
+		path = ""
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return config.Config{}, path, err
+	}
+	cfg, err = cfg.Apply(overridesFromFlags(cmd.Flags()))
+	return cfg, path, err
+}
+
 func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options) error {
+	if migrated, err := appdir.MigrateLegacy(); err != nil {
+		cmd.PrintErrf("Warning: %v\n", err)
+	} else if migrated {
+		cmd.PrintErrln("Copied saved connections and MCP logs from ~/.config/jumphost to airlock's config directory.")
+	}
+	cfg, configPath, err := loadConfig(cmd)
+	if err != nil {
+		return err
+	}
+
 	// Runners share the registry so parallel sessions never reuse a local port or target,
 	// and the MCP host so all database sessions are served on one localhost listener.
 	registry := jumphost.NewSessionRegistry()
 	mcpHost := dbmcp.NewHost()
 	interactive := isInteractiveInput(cmd.InOrStdin())
-	// SQL run through MCP servers is logged to ~/.config/jumphost/logs; a lookup failure only disables the log.
+	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()
 	if err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: MCP queries will not be logged: %v\n", err)
 	}
-	// The wizard's Connect step choices are remembered in ~/.config/jumphost/connections.json;
+	// The wizard's Connect step choices are remembered in ~/.config/airlock/connections.json;
 	// a lookup failure only disables it.
 	prefsPath, err := appdir.ConnectionsFile()
 	if err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: connection choices will not be remembered: %v\n", err)
 	}
 
+	shared := jumphost.RunnerOptions{
+		In:                cmd.InOrStdin(),
+		Registry:          registry,
+		MCPHost:           mcpHost,
+		MCPLogDir:         mcpLogDir,
+		DefaultRegion:     cfg.DefaultRegion,
+		DefaultDBUser:     cfg.DefaultDBUser,
+		JumphostTag:       cfg.JumphostTag,
+		ReadOnlySecretTag: cfg.ReadOnlySecretTag,
+		MCPServerPrefix:   cfg.MCPServerPrefix,
+		ConfigPath:        configPath,
+	}
+
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
-	tuiRunner := jumphost.NewRunner(jumphost.RunnerOptions{
-		In:        cmd.InOrStdin(),
-		Out:       io.Discard,
-		Err:       io.Discard,
-		Registry:  registry,
-		MCPHost:   mcpHost,
-		MCPLogDir: mcpLogDir,
-		PrefsPath: prefsPath,
-	})
+	tuiOptions := shared
+	tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
+	tuiRunner := jumphost.NewRunner(tuiOptions)
 
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
 		discoveryRunner := tuiRunner
@@ -115,14 +174,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		options.ResourceType = resourceType
 	}
 
-	runner := jumphost.NewRunner(jumphost.RunnerOptions{
-		In:        cmd.InOrStdin(),
-		Out:       cmd.OutOrStdout(),
-		Err:       cmd.ErrOrStderr(),
-		Registry:  registry,
-		MCPHost:   mcpHost,
-		MCPLogDir: mcpLogDir,
-	})
+	runnerOptions := shared
+	runnerOptions.Out, runnerOptions.Err = cmd.OutOrStdout(), cmd.ErrOrStderr()
+	runner := jumphost.NewRunner(runnerOptions)
 
 	if !interactive {
 		return runner.Run(cmd.Context(), options)
@@ -139,7 +193,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {
 	file, ok := in.(*os.File)
 	if !ok || !term.IsTerminal(int(file.Fd())) {
-		return "", fmt.Errorf("resource type is required (expected eks, rds or elasticache)")
+		return "", fmt.Errorf("resource type is required (expected eks, rds or elasticache): airlock <type> [name] [local-port]")
 	}
 
 	_, _ = fmt.Fprint(out, "Please specify resource type (eks|rds|elasticache): ")
