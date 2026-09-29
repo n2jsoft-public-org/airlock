@@ -422,6 +422,7 @@ func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
 	}
 	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
 	m.wizard.embedded = true
+	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""
 
@@ -433,6 +434,18 @@ func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, initCmd
+}
+
+// activeConnectionKeys identifies the targets of the running sessions, as connectionKey builds them.
+func (m ssmModel) activeConnectionKeys() map[string]bool {
+	keys := map[string]bool{}
+	for _, s := range m.sessions {
+		if !s.active() || s.session == nil {
+			continue
+		}
+		keys[connectionKey(s.session.Profile, s.session.Region, s.session.ResourceType, s.session.Target)] = true
+	}
+	return keys
 }
 
 func (m ssmModel) updateWizard(msg tea.Msg) (tea.Model, tea.Cmd) {

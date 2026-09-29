@@ -296,3 +296,36 @@ func TestWizardKeepsMCPOptions(t *testing.T) {
 		t.Fatalf("wizard options = %+v, want MCP flags kept", m.wizard.options)
 	}
 }
+
+// savedDBRunner remembers one connection matching the "db" session of newTestSSMModel.
+type savedDBRunner struct {
+	fakeSessionRunner
+}
+
+func (savedDBRunner) ListSavedConnections(context.Context, string, string) ([]jumphost.SavedConnection, error) {
+	return []jumphost.SavedConnection{
+		{Ref: jumphost.TargetRef{Account: "1", Region: "eu-west-3", Type: "rds", Name: "db"}, Prefs: jumphost.ConnectionPrefs{Profile: "dev"}},
+		{Ref: jumphost.TargetRef{Account: "1", Region: "eu-west-3", Type: "rds", Name: "other"}, Prefs: jumphost.ConnectionPrefs{Profile: "dev"}},
+	}, nil
+}
+
+func TestDashboardWizardBlocksConnectedEntries(t *testing.T) {
+	m := newSSMModel(context.Background(), savedDBRunner{}, newProcessTracker(), jumphost.Options{})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds", Profile: "dev", Region: "eu-west-3"})
+	m.sessions[0].state = ssmSessionRunning
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	m, _ = update(t, m, key("n"))
+	m, _ = update(t, m, m.wizard.loadSavedCmd()())
+	if m.wizard.step != jumphostStepStart {
+		t.Fatalf("step = %v, want the start screen", m.wizard.step)
+	}
+	item, _ := m.wizard.recent.selected()
+	if !item.connected || item.conn.Ref.Name != "db" {
+		t.Fatalf("item = %+v, want db marked connected", item)
+	}
+	m, _ = update(t, m, key("enter"))
+	if m.wizard.step != jumphostStepStart || !strings.Contains(m.wizard.View(), "db is already connected") {
+		t.Fatalf("step = %v, a connected entry must not be reopened", m.wizard.step)
+	}
+}
