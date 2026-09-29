@@ -155,3 +155,47 @@ func TestSearchFailureSummaryOrdersTypes(t *testing.T) {
 }
 
 var _ tea.Model = jumphostWizardModel{}
+
+func TestSearchFailureSummaryKeepsTheAWSErrorCode(t *testing.T) {
+	got := searchFailureSummary(map[string]error{
+		"eks": errors.New("aws eks list-clusters failed: An error occurred (AccessDeniedException) when calling the ListClusters operation: denied"),
+		"rds": errors.New("no credentials"),
+	})
+	if got != "RDS: no credentials · EKS: AccessDeniedException" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestWizardFailedSearchClearsWarnings(t *testing.T) {
+	runner := searchRunner{prefsRunner: newPrefsRunner(), targets: everyTypeTargets[:1], failures: map[string]error{"eks": errors.New("AccessDenied")}}
+	m := searchWizard(t, runner, jumphost.Options{AwsRegion: "eu-west-3"})
+	if m.searchWarnings == "" {
+		t.Fatal("the first search must warn about eks")
+	}
+	m, _ = wizardUpdate(t, m, jumphostSearchLoadedMsg{err: errors.New("expired token")})
+	if m.searchWarnings != "" {
+		t.Fatalf("warnings = %q, a failed search must not keep the previous warnings", m.searchWarnings)
+	}
+}
+
+func TestWizardSearchFailedReloadStepsBackToProfile(t *testing.T) {
+	m := pastStart(t, newJumphostWizardModel(context.Background(), searchRunner{prefsRunner: newPrefsRunner(), targets: everyTypeTargets}, jumphost.Options{AwsRegion: "eu-west-3"}))
+	updated, cmd := m.beginSearch()
+	m = asWizard(t, updated)
+	m, _ = wizardUpdate(t, m, findMsg[jumphostProfilesLoadedMsg](t, cmd))
+	m, cmd = wizardUpdate(t, m, key("enter")) // dev
+	m = runCmd(t, m, cmd)
+	if m.step != jumphostStepTarget || len(m.targetList.Items()) != 3 {
+		t.Fatalf("step = %v items = %d, want the three targets", m.step, len(m.targetList.Items()))
+	}
+
+	failures := map[string]error{"rds": errors.New("denied"), "eks": errors.New("denied"), "elasticache": errors.New("denied")}
+	m.runner = searchRunner{prefsRunner: newPrefsRunner(), failures: failures}
+	m, _ = wizardUpdate(t, m, key("r"))
+	m, _ = wizardUpdate(t, m, key("ireland"))
+	m, cmd = wizardUpdate(t, m, key("enter"))
+	m = runCmd(t, m, cmd)
+	if m.step != jumphostStepProfile || len(m.targetList.Items()) != 0 {
+		t.Fatalf("step = %v items = %d, want the profile step and no stale targets", m.step, len(m.targetList.Items()))
+	}
+}

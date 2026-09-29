@@ -196,3 +196,78 @@ func TestWizardQIsTextWhileFilteringRecent(t *testing.T) {
 		t.Fatal("q typed in the filter must not quit")
 	}
 }
+
+func TestWizardForgetWaitsForTheReload(t *testing.T) {
+	other := savedArchive
+	other.Ref.Name = "reporting"
+	runner := newHistoryRunner(savedArchive, other)
+	m := startWizard(t, runner)
+	m, _ = wizardUpdate(t, m, key("d"))
+	m, forget := wizardUpdate(t, m, key("y"))
+	if !m.loading {
+		t.Fatal("forgetting must show a loading screen until the history is reloaded")
+	}
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	if cmd != nil || m.flow != flowStart || len(*runner.lookups) != 0 {
+		t.Fatalf("flow = %v lookups = %d, enter must wait for the reload", m.flow, len(*runner.lookups))
+	}
+	m = runChain(t, m, forget, 3)
+	if m.loading || m.step != jumphostStepStart || len(m.recent.list.Items()) != 1 {
+		t.Fatalf("loading = %v step = %v items = %d, want the reloaded start screen", m.loading, m.step, len(m.recent.list.Items()))
+	}
+}
+
+func TestWizardLateHistoryReloadKeepsTheActiveFlow(t *testing.T) {
+	for _, shortcut := range []string{"n", "s", "enter"} {
+		m := startWizard(t, newHistoryRunner(savedArchive))
+		m, _ = wizardUpdate(t, m, key(shortcut))
+		flow, step, loading := m.flow, m.step, m.loading
+		m, _ = wizardUpdate(t, m, jumphostSavedLoadedMsg{connections: []jumphost.SavedConnection{savedArchive}})
+		if m.flow != flow || m.step != step || m.loading != loading {
+			t.Fatalf("%s: flow = %v step = %v loading = %v, want %v %v %v", shortcut, m.flow, m.step, m.loading, flow, step, loading)
+		}
+	}
+}
+
+// portFailRunner remembers connections but cannot suggest a local port.
+type portFailRunner struct {
+	historyRunner
+}
+
+func (portFailRunner) ResolveDefaultLocalPort(context.Context, jumphost.Options) (int, error) {
+	return 0, errors.New("no free local port")
+}
+
+func TestWizardRecentPortFailureRestoresBaseOptions(t *testing.T) {
+	m := startWizard(t, portFailRunner{newHistoryRunner(savedArchive)})
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	m = runChain(t, m, cmd, 3)
+	if m.step != jumphostStepStart || m.flow != flowStart || !strings.Contains(m.errorMsg, "no free local port") {
+		t.Fatalf("step = %v flow = %v error = %q, want the start screen with the error", m.step, m.flow, m.errorMsg)
+	}
+	m, _ = wizardUpdate(t, m, key("n"))
+	if m.options.AwsRegion != "" || m.options.Name != "" || m.options.ResourceType != "" || m.options.AwsProfile == "acme-staging" {
+		t.Fatalf("options = %+v, want the base options", m.options)
+	}
+}
+
+// noRegionHistoryRunner remembers connections of profiles without default region.
+type noRegionHistoryRunner struct {
+	historyRunner
+}
+
+func (noRegionHistoryRunner) ResolveRegion(context.Context, string) string { return "" }
+
+func TestWizardSearchRegionPickerCanceledOnStartScreenEndsTheSearch(t *testing.T) {
+	m := newJumphostWizardModel(context.Background(), noRegionHistoryRunner{newHistoryRunner(savedArchive)}, jumphost.Options{AwsProfile: "dev"})
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = runChain(t, m, m.Init(), 1)
+	m, _ = wizardUpdate(t, m, key("s"))
+	if !m.pickingRegion || m.step != jumphostStepStart {
+		t.Fatalf("picking = %v step = %v, want the region picker over the start screen", m.pickingRegion, m.step)
+	}
+	m, _ = wizardUpdate(t, m, key("esc"))
+	if m.pickingRegion || m.flow != flowStart || m.step != jumphostStepStart {
+		t.Fatalf("picking = %v flow = %v step = %v, want back on the start screen", m.pickingRegion, m.flow, m.step)
+	}
+}

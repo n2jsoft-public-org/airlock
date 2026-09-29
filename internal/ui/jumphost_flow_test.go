@@ -872,3 +872,20 @@ func TestWizardWarnsAboutUnreadableHistory(t *testing.T) {
 		t.Fatalf("step = %v error = %q", m.step, m.errorMsg)
 	}
 }
+
+func TestWizardPickedRegionContinuesDiscovery(t *testing.T) {
+	m := pastStart(t, newJumphostWizardModel(context.Background(), noDefaultsRunner{}, jumphost.Options{}))
+	m, cmd := wizardUpdate(t, m, key("enter")) // rds
+	m, _ = wizardUpdate(t, m, findMsg[jumphostProfilesLoadedMsg](t, cmd))
+	m, cmd = wizardUpdate(t, m, key("enter")) // dev
+	m = runChain(t, m, cmd, 2)
+	if !m.pickingRegion || m.step != jumphostStepProfile {
+		t.Fatalf("picking = %v step = %v, want the region picker over the profile step", m.pickingRegion, m.step)
+	}
+	m, _ = wizardUpdate(t, m, key("ireland"))
+	m, cmd = wizardUpdate(t, m, key("enter"))
+	m = runCmd(t, m, cmd)
+	if m.pickingRegion || m.step != jumphostStepTarget || m.options.AwsRegion != "eu-west-1" {
+		t.Fatalf("picking = %v step = %v region = %q, want the targets of the picked region", m.pickingRegion, m.step, m.options.AwsRegion)
+	}
+}

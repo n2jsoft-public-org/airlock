@@ -105,9 +105,10 @@ func (m jumphostWizardModel) failDiscovery(errMsg string, leaveTargets bool) (te
 		}
 	}
 	// A flow started from the start screen that fails there is over.
-	if m.step == jumphostStepStart {
-		m.flow = flowStart
+	if m.step == jumphostStepStart && m.flow != flowStart {
+		m, cmd = m.returnToStart()
 	}
+	m.searchWarnings = ""
 	m.errorMsg = errMsg
 	return m, cmd
 }

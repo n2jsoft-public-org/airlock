@@ -124,6 +124,8 @@ type jumphostWizardModel struct {
 	regionResolved bool
 	regionPicker   regionPicker
 	pickingRegion  bool
+	// regionUnblocks continues the discovery the region picker was opened for, once a region is picked.
+	regionUnblocks bool
 
 	width  int
 	height int
@@ -492,6 +494,7 @@ func (m jumphostWizardModel) pickResourceType(index int) (tea.Model, tea.Cmd) {
 func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
 	if m.currentRegion() == "" && m.regionResolved {
 		m.errorMsg = "No AWS region set for this profile: pick one"
+		m.regionUnblocks = true
 		return m.openRegionPicker()
 	}
 	m.errorMsg = ""
@@ -573,15 +576,23 @@ func (m jumphostWizardModel) updateRegionPicker(msg tea.Msg) (tea.Model, tea.Cmd
 	switch outcome {
 	case regionPickerCanceled:
 		m.pickingRegion = false
+		unblocks := m.regionUnblocks
+		m.regionUnblocks = false
+		// Without a region, a flow started from the start screen is over.
+		if unblocks && m.step == jumphostStepStart {
+			return m.failDiscovery(m.errorMsg, false)
+		}
 		return m, nil
 	case regionPickerChosen:
 		m.pickingRegion = false
+		unblocks := m.regionUnblocks
+		m.regionUnblocks = false
 		region, _ := picker.choice()
 		changed := region != m.currentRegion()
 		m.options.AwsRegion = region
 		m.errorMsg = ""
 		// Targets are regional: the listed ones no longer apply.
-		if changed && m.step == jumphostStepTarget {
+		if unblocks || (changed && m.step == jumphostStepTarget) {
 			return m.startDiscovery()
 		}
 		return m, nil

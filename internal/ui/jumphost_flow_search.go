@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -34,6 +35,7 @@ func (m jumphostWizardModel) beginSearch() (tea.Model, tea.Cmd) {
 func (m jumphostWizardModel) startSearch() (tea.Model, tea.Cmd) {
 	if m.currentRegion() == "" && m.regionResolved {
 		m.errorMsg = "No AWS region set for this profile: pick one"
+		m.regionUnblocks = true
 		return m.openRegionPicker()
 	}
 	m.errorMsg = ""
@@ -84,12 +86,20 @@ func (m jumphostWizardModel) handleSearchLoaded(msg jumphostSearchLoadedMsg) (te
 	return m, nil
 }
 
-// searchFailureSummary lists the failed types in display order, e.g. "EKS: AccessDenied".
+// awsErrorCode finds the code of an AWS CLI error, e.g. "An error occurred (AccessDeniedException) when ...".
+var awsErrorCode = regexp.MustCompile(`An error occurred \(([^)]+)\)`)
+
+// searchFailureSummary lists the failed types in display order, e.g. "EKS: AccessDeniedException":
+// the AWS error code when the error has one, else the whole error.
 func searchFailureSummary(failures map[string]error) string {
 	parts := make([]string, 0, len(failures))
 	for _, resourceType := range searchTypeOrder {
 		if err, ok := failures[resourceType]; ok {
-			parts = append(parts, strings.ToUpper(resourceType)+": "+err.Error())
+			reason := err.Error()
+			if match := awsErrorCode.FindStringSubmatch(reason); match != nil {
+				reason = match[1]
+			}
+			parts = append(parts, strings.ToUpper(resourceType)+": "+reason)
 		}
 	}
 	return strings.Join(parts, " · ")

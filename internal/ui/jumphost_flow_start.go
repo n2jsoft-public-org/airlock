@@ -38,8 +38,12 @@ type jumphostForgotMsg struct {
 }
 
 // handleSavedLoaded opens the start screen on a history, else the Type step of a new connection.
-// An unreadable history never blocks a connection: it only warns.
+// An unreadable history never blocks a connection: it only warns. A history arriving once a flow
+// started is ignored, so a late reload never changes an active flow.
 func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.flow != flowStart {
+		return m, nil
+	}
 	m.loading = false
 	m.loadingUI.stop()
 	m.hasHistory = len(msg.connections) > 0
@@ -74,8 +78,12 @@ func (m jumphostWizardModel) updateStartStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recentPickerSearch:
 		return m.beginSearch()
 	case recentPickerForget:
+		// The start screen waits for the reload: the forgotten entry must not be picked meanwhile.
 		item, _ := picker.selected()
-		return m, m.forgetCmd(item.conn.Ref)
+		m.loading = true
+		return m, tea.Batch(m.forgetCmd(item.conn.Ref), m.loadingUI.start("Forgetting "+item.conn.Ref.Name+"...", []string{
+			"Tearing the page out of the logbook...",
+		}))
 	default:
 		return m, cmd
 	}
@@ -137,6 +145,8 @@ func (m jumphostWizardModel) forgetCmd(ref jumphost.TargetRef) tea.Cmd {
 // handleForgot reloads the history once an entry is forgotten.
 func (m jumphostWizardModel) handleForgot(msg jumphostForgotMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
+		m.loading = false
+		m.loadingUI.stop()
 		m.errorMsg = msg.err.Error()
 		return m, nil
 	}
