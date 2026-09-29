@@ -1,6 +1,6 @@
 # AGENTS
 
-This repository hosts the `acme` CLI helper for internal company workflows.
+This repository hosts `airlock`, a CLI for SSM port forwarding to private AWS resources.
 
 ## Scope and goals
 
@@ -10,10 +10,12 @@ This repository hosts the `acme` CLI helper for internal company workflows.
 
 ## Architecture guidelines
 
-- Keep executable entrypoint in `cmd/cli`.
+- Keep executable entrypoint in `cmd/airlock`.
 - Keep command definitions in `internal/cli`.
 - Keep TUI concerns in `internal/ui`.
 - Favor small focused files and explicit function names.
+- Only `internal/cli` reads the config file; other packages receive plain values.
+- Keep company-specific conventions out of the code: they belong in `config.json`.
 
 ## Command conventions
 
@@ -32,6 +34,7 @@ This repository hosts the `acme` CLI helper for internal company workflows.
 
 - Use `make fmt`, `make vet`, `make lint`, and `make test` before submitting changes.
 - Keep `go.mod` and `go.sum` tidy.
+- golangci-lint has pre-existing findings; new code must not add any (`--new-from-rev`).
 - Do not commit generated binaries.
 
 ## Safety and change management
