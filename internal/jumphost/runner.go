@@ -647,11 +647,11 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 	})
 }
 
-// prefsDatabase identifies the database keying the preferences of options; false when none apply
+// prefsDatabase identifies the target keying the preferences of options; false when none apply
 // (not RDS, disabled, or the AWS account is unknown).
-func (r *Runner) prefsDatabase(ctx context.Context, options Options) (DatabaseRef, bool) {
+func (r *Runner) prefsDatabase(ctx context.Context, options Options) (TargetRef, bool) {
 	if r.prefs == nil || strings.ToLower(strings.TrimSpace(options.ResourceType)) != resourceRDS || strings.TrimSpace(options.Name) == "" {
-		return DatabaseRef{}, false
+		return TargetRef{}, false
 	}
 	profile := resolveProfileName(options.AwsProfile)
 	region := strings.TrimSpace(options.AwsRegion)
@@ -659,13 +659,13 @@ func (r *Runner) prefsDatabase(ctx context.Context, options Options) (DatabaseRe
 		region = r.ResolveRegion(ctx, profile)
 	}
 	if region == "" {
-		return DatabaseRef{}, false
+		return TargetRef{}, false
 	}
 	account := r.accountFor(ctx, profile)
 	if account == "" {
-		return DatabaseRef{}, false
+		return TargetRef{}, false
 	}
-	return DatabaseRef{Account: account, Region: region, Name: strings.TrimSpace(options.Name)}, true
+	return TargetRef{Account: account, Region: region, Type: resourceRDS, Name: strings.TrimSpace(options.Name)}, true
 }
 
 // accountFor returns the AWS account ID of profile: the one seen by the identity check, which runs

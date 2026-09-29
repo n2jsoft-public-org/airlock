@@ -18,7 +18,7 @@ func newTestPrefsStore(t *testing.T) (store *PrefsStore, path string) {
 	return store, path
 }
 
-var devArchive = DatabaseRef{Account: "111111111111", Region: "eu-west-3", Name: "archive"}
+var devArchive = TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "rds", Name: "archive"}
 
 func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 	store, path := newTestPrefsStore(t)
@@ -30,7 +30,7 @@ func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 	if err := store.Save(devArchive, archive); err != nil {
 		t.Fatal(err)
 	}
-	otherRegion := DatabaseRef{Account: devArchive.Account, Region: "eu-west-1", Name: "archive"}
+	otherRegion := TargetRef{Account: devArchive.Account, Region: "eu-west-1", Type: "rds", Name: "archive"}
 	if err := store.Save(otherRegion, ConnectionPrefs{DBUser: "app", SignIn: SignInPassword}); err != nil {
 		t.Fatal(err)
 	}
@@ -44,10 +44,10 @@ func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 	if !ok || other.DBUser != "app" || other.Passwordless() {
 		t.Fatalf("the other region's entry = %+v, %v", other, ok)
 	}
-	if _, ok := store.Load(DatabaseRef{Account: "222222222222", Region: "eu-west-3", Name: "archive"}); ok {
+	if _, ok := store.Load(TargetRef{Account: "222222222222", Region: "eu-west-3", Type: "rds", Name: "archive"}); ok {
 		t.Fatal("a database of the same name in another account must not share the entry")
 	}
-	if err := store.Save(DatabaseRef{Region: "eu-west-3", Name: "archive"}, archive); err == nil {
+	if err := store.Save(TargetRef{Region: "eu-west-3", Type: "rds", Name: "archive"}, archive); err == nil {
 		t.Fatal("saving without an account must fail")
 	}
 
@@ -83,6 +83,103 @@ func TestPrefsStoreKeepsUnreadableFile(t *testing.T) {
 	}
 }
 
+func TestPrefsStoreKeysByTypeAndWritesVersion2(t *testing.T) {
+	store, path := newTestPrefsStore(t)
+	cache := TargetRef{Account: devArchive.Account, Region: devArchive.Region, Type: "elasticache", Name: "archive"}
+	if err := store.Save(devArchive, ConnectionPrefs{Profile: "dev", ResourceType: "rds", LocalPort: 5433}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(cache, ConnectionPrefs{Profile: "dev", ResourceType: "elasticache", LocalPort: 6380}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, _ := store.Load(devArchive)
+	redis, _ := store.Load(cache)
+	if db.LocalPort != 5433 || redis.LocalPort != 6380 {
+		t.Fatalf("a database and a cache of the same name must not share an entry: %+v %+v", db, redis)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"111111111111/eu-west-3/rds/archive"`, `"111111111111/eu-west-3/elasticache/archive"`, `"version": 2`, `"profile": "dev"`, `"resource_type": "rds"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("file lacks %s:\n%s", want, data)
+		}
+	}
+}
+
+func TestPrefsStoreListsNewestFirstAndSkipsMalformedKeys(t *testing.T) {
+	store, path := newTestPrefsStore(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	doc := `{"version": 2, "connections": {
+		"111111111111/eu-west-3/rds/old": {"updated_at": "2026-09-01T00:00:00Z", "profile": "dev"},
+		"111111111111/eu-west-3/eks/new": {"updated_at": "2026-09-20T00:00:00Z", "profile": "dev"},
+		"eu-west-3/leftover": {"updated_at": "2026-09-25T00:00:00Z"},
+		"111111111111//rds/no-region": {"updated_at": "2026-09-25T00:00:00Z"}
+	}}`
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 2 || saved[0].Ref.Name != "new" || saved[1].Ref.Name != "old" {
+		t.Fatalf("List = %+v, want new then old", saved)
+	}
+	if saved[0].Ref.Type != "eks" || saved[0].Ref.Account != "111111111111" || saved[0].Prefs.Profile != "dev" {
+		t.Fatalf("first entry = %+v", saved[0])
+	}
+}
+
+func TestPrefsStoreDeleteKeepsOtherEntries(t *testing.T) {
+	store, _ := newTestPrefsStore(t)
+	other := TargetRef{Account: devArchive.Account, Region: devArchive.Region, Type: "eks", Name: "cluster"}
+	for _, ref := range []TargetRef{devArchive, other} {
+		if err := store.Save(ref, ConnectionPrefs{Profile: "dev"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := store.Delete(devArchive); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(devArchive); err != nil {
+		t.Fatalf("deleting a missing entry must not fail: %v", err)
+	}
+	saved, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || saved[0].Ref != other {
+		t.Fatalf("List = %+v, want only %+v", saved, other)
+	}
+}
+
+func TestPrefsStoreListAndDeleteRefuseUnreadableFile(t *testing.T) {
+	store, path := newTestPrefsStore(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(); err == nil {
+		t.Fatal("List must report a file it cannot parse")
+	}
+	if err := store.Delete(devArchive); err == nil {
+		t.Fatal("Delete must not rewrite a file it cannot parse")
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "{not json" {
+		t.Fatalf("file was rewritten: %q", data)
+	}
+}
+
 func TestConnectionPrefsDefaultToPasswordless(t *testing.T) {
 	if !(ConnectionPrefs{}).Passwordless() {
 		t.Fatal("preferences without sign-in method must read as passwordless")
@@ -112,8 +209,8 @@ func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 	if strings.Contains(string(data), "s3cret") {
 		t.Fatalf("the password must never be saved:\n%s", data)
 	}
-	if !strings.Contains(string(data), `"111111111111/eu-west-3/archive"`) {
-		t.Fatalf("the entry must be keyed by account, region and database:\n%s", data)
+	if !strings.Contains(string(data), `"111111111111/eu-west-3/rds/archive"`) {
+		t.Fatalf("the entry must be keyed by account, region, type and name:\n%s", data)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -16,15 +17,17 @@ const (
 	// SignInPassword signs in with a password typed at every connection (never saved).
 	SignInPassword = "password"
 
-	prefsFileVersion = 1
+	prefsFileVersion = 2
 )
 
-// ConnectionPrefs are the Connect step choices remembered for one database (AWS account, region
-// and instance name, which RDS keeps unique).
-// Passwords are never part of them.
+// ConnectionPrefs are the choices remembered for one target (AWS account, region, type and name).
+// Passwords are never part of them. DBUser, SignIn and MCPAllowWrites only apply to RDS.
 type ConnectionPrefs struct {
 	UpdatedAt time.Time `json:"updated_at"`
-	DBUser    string    `json:"db_user,omitempty"`
+	// Profile is the AWS profile of the last connection; ResourceType repeats the type of the key.
+	Profile      string `json:"profile,omitempty"`
+	ResourceType string `json:"resource_type,omitempty"`
+	DBUser       string `json:"db_user,omitempty"`
 	// SignIn is SignInIAM or SignInPassword; empty reads as SignInIAM.
 	SignIn         string `json:"sign_in,omitempty"`
 	LocalPort      int    `json:"local_port,omitempty"`
@@ -38,7 +41,7 @@ func (p ConnectionPrefs) Passwordless() bool {
 
 // prefsFile is the JSON document of a PrefsStore.
 type prefsFile struct {
-	// Connections is keyed by "<account>/<region>/<database>" (see prefsKey).
+	// Connections is keyed by "<account>/<region>/<type>/<name>" (see TargetRef.key).
 	Connections map[string]ConnectionPrefs `json:"connections"`
 	Version     int                        `json:"version"`
 }
@@ -56,39 +59,60 @@ func NewPrefsStore(path string) *PrefsStore {
 	return &PrefsStore{path: path, now: time.Now}
 }
 
-// DatabaseRef identifies an RDS instance across AWS accounts.
-type DatabaseRef struct {
+// TargetRef identifies an RDS instance, EKS cluster or ElastiCache cluster across AWS accounts.
+type TargetRef struct {
 	Account string
 	Region  string
+	Type    string
 	Name    string
 }
 
-func (d DatabaseRef) key() string {
-	return strings.TrimSpace(d.Account) + "/" + strings.TrimSpace(d.Region) + "/" + strings.TrimSpace(d.Name)
+func (t TargetRef) key() string {
+	return strings.Join([]string{strings.TrimSpace(t.Account), strings.TrimSpace(t.Region), strings.TrimSpace(t.Type), strings.TrimSpace(t.Name)}, "/")
 }
 
-func (d DatabaseRef) complete() bool {
-	return strings.TrimSpace(d.Account) != "" && strings.TrimSpace(d.Region) != "" && strings.TrimSpace(d.Name) != ""
+func (t TargetRef) complete() bool {
+	return strings.TrimSpace(t.Account) != "" && strings.TrimSpace(t.Region) != "" &&
+		strings.TrimSpace(t.Type) != "" && strings.TrimSpace(t.Name) != ""
 }
 
-// Load returns the preferences saved for db. A missing or unreadable file reads as no
+// parseTargetRef reads a key written by TargetRef.key; false for any other key.
+func parseTargetRef(key string) (TargetRef, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) != 4 {
+		return TargetRef{}, false
+	}
+	ref := TargetRef{Account: parts[0], Region: parts[1], Type: parts[2], Name: parts[3]}
+	return ref, ref.complete()
+}
+
+// SavedConnection is one remembered target with its choices.
+type SavedConnection struct {
+	Ref   TargetRef
+	Prefs ConnectionPrefs
+	// ProfileMissing reports that Prefs.Profile no longer exists locally. The store leaves it
+	// false; the runner sets it.
+	ProfileMissing bool
+}
+
+// Load returns the preferences saved for ref. A missing or unreadable file reads as no
 // preferences: they are a convenience and never block a connection.
-func (s *PrefsStore) Load(db DatabaseRef) (ConnectionPrefs, bool) {
-	if !db.complete() {
+func (s *PrefsStore) Load(ref TargetRef) (ConnectionPrefs, bool) {
+	if !ref.complete() {
 		return ConnectionPrefs{}, false
 	}
 	file, err := s.read()
 	if err != nil {
 		return ConnectionPrefs{}, false
 	}
-	prefs, ok := file.Connections[db.key()]
+	prefs, ok := file.Connections[ref.key()]
 	return prefs, ok
 }
 
-// Save records prefs for db, keeping the entries of other databases.
-func (s *PrefsStore) Save(db DatabaseRef, prefs ConnectionPrefs) error {
-	if !db.complete() {
-		return errors.New("connection preferences need an AWS account, a region and a database")
+// Save records prefs for ref, keeping the entries of other targets.
+func (s *PrefsStore) Save(ref TargetRef, prefs ConnectionPrefs) error {
+	if !ref.complete() {
+		return errors.New("connection preferences need an AWS account, a region, a type and a name")
 	}
 	file, err := s.read()
 	if err != nil {
@@ -96,9 +120,50 @@ func (s *PrefsStore) Save(db DatabaseRef, prefs ConnectionPrefs) error {
 		return err
 	}
 	prefs.UpdatedAt = s.now().UTC()
-	file.Connections[db.key()] = prefs
-	file.Version = prefsFileVersion
+	file.Connections[ref.key()] = prefs
+	return s.write(file)
+}
 
+// List returns every remembered target, most recently used first. Keys of another format are skipped.
+func (s *PrefsStore) List() ([]SavedConnection, error) {
+	file, err := s.read()
+	if err != nil {
+		return nil, err
+	}
+	saved := make([]SavedConnection, 0, len(file.Connections))
+	for key, prefs := range file.Connections {
+		ref, ok := parseTargetRef(key)
+		if !ok {
+			continue
+		}
+		saved = append(saved, SavedConnection{Ref: ref, Prefs: prefs})
+	}
+	sort.Slice(saved, func(i, j int) bool {
+		if !saved[i].Prefs.UpdatedAt.Equal(saved[j].Prefs.UpdatedAt) {
+			return saved[i].Prefs.UpdatedAt.After(saved[j].Prefs.UpdatedAt)
+		}
+		return saved[i].Ref.key() < saved[j].Ref.key()
+	})
+	return saved, nil
+}
+
+// Delete forgets ref, keeping the other entries. Forgetting an unknown target is not an error.
+func (s *PrefsStore) Delete(ref TargetRef) error {
+	file, err := s.read()
+	if err != nil {
+		// Rewriting would drop every entry of a file we cannot parse.
+		return err
+	}
+	if _, ok := file.Connections[ref.key()]; !ok {
+		return nil
+	}
+	delete(file.Connections, ref.key())
+	return s.write(file)
+}
+
+// write stores file as the current version.
+func (s *PrefsStore) write(file prefsFile) error {
+	file.Version = prefsFileVersion
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode connection preferences: %w", err)
