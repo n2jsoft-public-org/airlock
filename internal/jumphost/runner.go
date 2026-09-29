@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"golang.org/x/term"
@@ -1047,7 +1048,7 @@ func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUs
 		"",
 		"Read-only credentials, one secret per database:",
 		fmt.Sprintf("  aws secretsmanager list-secrets --filters Key=tag-key,Values=DBInstanceArn Key=tag-value,Values=%s --query %q --output text %s",
-			instanceARN, dbmcp.SupportSecretsQuery(instanceARN), awsArgsHint),
+			instanceARN, dbmcp.ReadOnlySecretsQuery(awstag.Tag{Key: "AccessRole", Value: "ro-access"}, instanceARN), awsArgsHint),
 		"  aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text " + awsArgsHint,
 	}
 	if masterSecretARN == "" {
@@ -1442,6 +1443,9 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		LocalPort:       localPort,
 		AllowWrites:     allowWrites,
 		LogDir:          r.mcpLogDir,
+		// Temporary acme values until the runner takes them from the config.
+		ServerPrefix:      "acme",
+		ReadOnlySecretTag: awstag.Tag{Key: "AccessRole", Value: "ro-access"},
 	})
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)

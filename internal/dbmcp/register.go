@@ -48,7 +48,7 @@ var lockRoot = func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cacheDir, "acme", "mcp-config"), nil
+	return filepath.Join(cacheDir, "airlock", "mcp-config"), nil
 }
 
 // userHomeDir returns the user's home directory; overridden in tests.

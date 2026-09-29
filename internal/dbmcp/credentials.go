@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
 // iamTokenMaxAge is how long an RDS IAM token is reused; AWS accepts it for 15 minutes.
@@ -153,45 +155,47 @@ func readSecret(ctx context.Context, aws AWSRunner, secretID string) (secretPayl
 	return payload, nil
 }
 
-// supportSecretsProvider uses the read-only "ro-access" secrets published for an instance, one per database.
-type supportSecretsProvider struct {
+// readOnlySecretsProvider uses the read-only secrets published for an instance, one per database,
+// found by their tag.
+type readOnlySecretsProvider struct {
 	aws         AWSRunner
 	byDatabase  map[string]Credentials
 	instanceARN string
 	instance    string
+	tag         awstag.Tag
 	warnings    []string
 	mu          sync.Mutex
 }
 
-func newSupportSecretsProvider(aws AWSRunner, instance, instanceARN string) *supportSecretsProvider {
-	return &supportSecretsProvider{aws: aws, instance: instance, instanceARN: instanceARN}
+func newReadOnlySecretsProvider(aws AWSRunner, instance, instanceARN string, tag awstag.Tag) *readOnlySecretsProvider {
+	return &readOnlySecretsProvider{aws: aws, instance: instance, instanceARN: instanceARN, tag: tag}
 }
 
-// SupportSecretsQuery keeps the secrets tagged for this instance with AccessRole=ro-access (same filter as jumphost.ps1).
-func SupportSecretsQuery(instanceARN string) string {
-	return fmt.Sprintf("SecretList[?Tags[?Key=='AccessRole' && Value=='ro-access'] && Tags[?Key=='DBInstanceArn' && Value=='%s']].ARN", instanceARN)
+// ReadOnlySecretsQuery keeps the secrets of this instance carrying tag.
+func ReadOnlySecretsQuery(tag awstag.Tag, instanceARN string) string {
+	return fmt.Sprintf("SecretList[?Tags[?Key=='%s' && Value=='%s'] && Tags[?Key=='DBInstanceArn' && Value=='%s']].ARN", tag.Key, tag.Value, instanceARN)
 }
 
 // load discovers and reads the secrets once; failures are not cached so a later call can retry.
-func (p *supportSecretsProvider) load(ctx context.Context) error {
+func (p *readOnlySecretsProvider) load(ctx context.Context) error {
 	if p.byDatabase != nil {
 		return nil
 	}
 	if p.instanceARN == "" {
-		return fmt.Errorf("instance ARN of %s is unknown: cannot look up its ro-access secrets", p.instance)
+		return fmt.Errorf("instance ARN of %s is unknown: cannot look up its read-only secrets", p.instance)
 	}
 
 	raw, err := p.aws(ctx, "secretsmanager", "list-secrets",
 		"--filters", "Key=tag-key,Values=DBInstanceArn", "Key=tag-value,Values="+p.instanceARN,
-		"--query", SupportSecretsQuery(p.instanceARN),
+		"--query", ReadOnlySecretsQuery(p.tag, p.instanceARN),
 		"--output", "json",
 	)
 	if err != nil {
-		return fmt.Errorf("failed to list ro-access secrets of %s (missing secretsmanager:ListSecrets?): %w", p.instance, err)
+		return fmt.Errorf("failed to list read-only secrets of %s (missing secretsmanager:ListSecrets?): %w", p.instance, err)
 	}
 	var arns []string
 	if err := json.Unmarshal([]byte(raw), &arns); err != nil {
-		return fmt.Errorf("failed to parse ro-access secrets of %s: %w", p.instance, err)
+		return fmt.Errorf("failed to parse read-only secrets of %s: %w", p.instance, err)
 	}
 
 	byDatabase := map[string]Credentials{}
@@ -213,7 +217,7 @@ func (p *supportSecretsProvider) load(ctx context.Context) error {
 		byDatabase[database] = Credentials{User: payload.Username, Password: payload.Password, Database: database}
 	}
 	if len(byDatabase) == 0 {
-		message := fmt.Sprintf("no usable ro-access secret found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue)", p.instance)
+		message := fmt.Sprintf("no usable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue)", p.tag, p.instance)
 		if len(warnings) > 0 {
 			message += ": " + strings.Join(warnings, "; ")
 		}
@@ -223,7 +227,7 @@ func (p *supportSecretsProvider) load(ctx context.Context) error {
 	return nil
 }
 
-func (p *supportSecretsProvider) Credentials(ctx context.Context, database string) (Credentials, error) {
+func (p *readOnlySecretsProvider) Credentials(ctx context.Context, database string) (Credentials, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.load(ctx); err != nil {
@@ -240,12 +244,12 @@ func (p *supportSecretsProvider) Credentials(ctx context.Context, database strin
 	}
 	creds, ok := p.byDatabase[database]
 	if !ok {
-		return Credentials{}, fmt.Errorf("no ro-access credentials for database %q (available: %s)", database, strings.Join(p.names(), ", "))
+		return Credentials{}, fmt.Errorf("no read-only credentials for database %q (available: %s)", database, strings.Join(p.names(), ", "))
 	}
 	return creds, nil
 }
 
-func (p *supportSecretsProvider) Databases(ctx context.Context) ([]string, error) {
+func (p *readOnlySecretsProvider) Databases(ctx context.Context) ([]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.load(ctx); err != nil {
@@ -254,14 +258,14 @@ func (p *supportSecretsProvider) Databases(ctx context.Context) ([]string, error
 	return p.names(), nil
 }
 
-// refresh forgets the ro-access secrets, discovered and read again on the next call: they may have been rotated.
-func (p *supportSecretsProvider) refresh() {
+// refresh forgets the read-only secrets, discovered and read again on the next call: they may have been rotated.
+func (p *readOnlySecretsProvider) refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.byDatabase, p.warnings = nil, nil
 }
 
-func (p *supportSecretsProvider) names() []string {
+func (p *readOnlySecretsProvider) names() []string {
 	names := make([]string, 0, len(p.byDatabase))
 	for name := range p.byDatabase {
 		names = append(names, name)

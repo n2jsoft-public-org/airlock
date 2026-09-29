@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
 // fakeAWS answers AWS CLI calls by their first two arguments, and records every call.
@@ -70,6 +72,8 @@ func TestIAMTokenProviderCachesAndRefreshesToken(t *testing.T) {
 
 const testInstanceARN = "arn:aws:rds:eu-west-3:123:db:mssql-1"
 
+var testSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
+
 func supportSecretsAWS(secrets map[string]string) *fakeAWS {
 	return &fakeAWS{responses: map[string]func([]string) (string, error){
 		"secretsmanager list-secrets": func(args []string) (string, error) {
@@ -89,7 +93,7 @@ func TestSupportSecretsProviderSingleDatabaseIsDefault(t *testing.T) {
 	aws := supportSecretsAWS(map[string]string{
 		"arn:s1": `{"username":"app_ro","password":"p1","dbname":"Archive"}`,
 	})
-	provider := newSupportSecretsProvider(aws.run, "mssql-1", testInstanceARN)
+	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
 
 	creds, err := provider.Credentials(context.Background(), "")
 	if err != nil {
@@ -118,7 +122,7 @@ func TestSupportSecretsProviderSeveralDatabases(t *testing.T) {
 		"arn:s2": `{"username":"u2","password":"p2","database":"Accounts"}`,
 		"arn:s3": `{"username":"u3","password":"p3"}`,
 	})
-	provider := newSupportSecretsProvider(aws.run, "mssql-1", testInstanceARN)
+	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
 
 	names, err := provider.Databases(context.Background())
 	if err != nil {
@@ -142,10 +146,10 @@ func TestSupportSecretsProviderSeveralDatabases(t *testing.T) {
 
 func TestSupportSecretsProviderNoSecretIsActionableAndRetried(t *testing.T) {
 	aws := supportSecretsAWS(map[string]string{})
-	provider := newSupportSecretsProvider(aws.run, "mssql-1", testInstanceARN)
+	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
 
 	_, err := provider.Credentials(context.Background(), "")
-	if err == nil || !strings.Contains(err.Error(), "no usable ro-access secret found for mssql-1") {
+	if err == nil || !strings.Contains(err.Error(), "no usable read-only secret (AccessRole=ro-access) found for mssql-1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	_, _ = provider.Credentials(context.Background(), "")
@@ -242,7 +246,7 @@ func TestMasterSecretProviderRefreshReadsRotatedSecret(t *testing.T) {
 func TestSupportSecretsProviderRefreshReadsRotatedSecrets(t *testing.T) {
 	secrets := map[string]string{"arn:s1": `{"username":"app_ro","password":"old","dbname":"Archive"}`}
 	aws := supportSecretsAWS(secrets)
-	provider := newSupportSecretsProvider(aws.run, "mssql-1", testInstanceARN)
+	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
 	if _, err := provider.Credentials(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -252,5 +256,13 @@ func TestSupportSecretsProviderRefreshReadsRotatedSecrets(t *testing.T) {
 	creds, err := provider.Credentials(context.Background(), "Archive")
 	if err != nil || creds.Password != "rotated" {
 		t.Fatalf("credentials = %+v, %v; want the rotated password", creds, err)
+	}
+}
+
+func TestReadOnlySecretsQueryUsesTag(t *testing.T) {
+	got := ReadOnlySecretsQuery(awstag.Tag{Key: "Role", Value: "reader"}, "arn:x")
+	want := "SecretList[?Tags[?Key=='Role' && Value=='reader'] && Tags[?Key=='DBInstanceArn' && Value=='arn:x']].ARN"
+	if got != want {
+		t.Fatalf("ReadOnlySecretsQuery = %q, want %q", got, want)
 	}
 }

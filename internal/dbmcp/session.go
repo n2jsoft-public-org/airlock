@@ -6,7 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/n2jsoft/airlock/internal/awstag"
 )
+
+// DefaultServerPrefix starts server names when SessionConfig.ServerPrefix is empty.
+const DefaultServerPrefix = "airlock"
+
+// ErrReadOnlySecretTagUnset reports a read-only SQL Server session without a read-only secret tag
+// configured: its credentials cannot be found.
+var ErrReadOnlySecretTagUnset = errors.New(`no read-only secret tag configured for SQL Server (set "readOnlySecretTag")`)
 
 // SessionConfig describes the tunneled RDS instance of one jumphost session.
 type SessionConfig struct {
@@ -20,6 +29,11 @@ type SessionConfig struct {
 	DBName          string
 	InstanceARN     string
 	MasterSecretARN string
+	// ServerPrefix starts the client-facing server name (DefaultServerPrefix when empty).
+	ServerPrefix string
+	// ReadOnlySecretTag marks the read-only per-database secrets of SQL Server instances; zero
+	// disables read-only SQL Server access.
+	ReadOnlySecretTag awstag.Tag
 	// LogDir receives the audit log of the MCP tool calls; empty disables it.
 	LogDir string
 	// DBUser signs in with RDS IAM tokens (PostgreSQL), or with DBPassword when it is set.
@@ -75,8 +89,11 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	if !ok {
 		return nil, nil
 	}
+	if engine == EngineSQLServer && !cfg.AllowWrites && cfg.DBPassword == "" && cfg.ReadOnlySecretTag.IsZero() {
+		return nil, ErrReadOnlySecretTagUnset
+	}
 
-	name := serverName(cfg.Profile, cfg.Target)
+	name := serverName(cfg.ServerPrefix, cfg.Profile, cfg.Target)
 	suffix, err := randomHex(3)
 	if err != nil {
 		return nil, err
@@ -143,7 +160,7 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 	case engine == EngineSQLServer && cfg.AllowWrites:
 		return newMasterSecretProvider(cfg.AWS, cfg.Target, cfg.MasterSecretARN, "master")
 	case engine == EngineSQLServer:
-		return newSupportSecretsProvider(cfg.AWS, cfg.Target, cfg.InstanceARN)
+		return newReadOnlySecretsProvider(cfg.AWS, cfg.Target, cfg.InstanceARN, cfg.ReadOnlySecretTag)
 	case !cfg.IAMAuth:
 		return newIAMDisabledProvider(cfg.Target)
 	default:
@@ -151,14 +168,18 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 	}
 }
 
-// serverName is the stable client-facing name of a session's server, e.g. acme-dev-archive-db.
-// The acme- prefix is not repeated when the profile already carries it (e.g. profile acme-prod-eu).
-func serverName(profile, target string) string {
-	prefix := slugify(profile)
-	if prefix != "acme" && !strings.HasPrefix(prefix, "acme-") {
-		prefix = "acme-" + prefix
+// serverName is the stable client-facing name of a session's server, e.g. airlock-dev-archive-db.
+// The prefix is not repeated when the profile already carries it (e.g. prefix team, profile team-prod).
+func serverName(prefix, profile, target string) string {
+	prefix = slugify(prefix)
+	if prefix == "" {
+		prefix = DefaultServerPrefix
 	}
-	return prefix + "-" + slugify(target)
+	name := slugify(profile)
+	if name != prefix && !strings.HasPrefix(name, prefix+"-") {
+		name = prefix + "-" + name
+	}
+	return name + "-" + slugify(target)
 }
 
 func slugify(value string) string {

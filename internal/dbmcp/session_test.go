@@ -2,6 +2,7 @@ package dbmcp
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,6 +22,7 @@ func testSessionConfig(t *testing.T, engine string) *SessionConfig {
 		Profile:    "dev", Region: "eu-west-3", Target: "Archive_DB",
 		AWSEngine: engine, RDSHost: "archive.rds.amazonaws.com", RDSPort: 5432,
 		DBUser: "acme_ro", IAMAuth: true, LocalPort: 15432,
+		ServerPrefix: "acme", ReadOnlySecretTag: awstag.Tag{Key: "AccessRole", Value: "ro-access"},
 	}
 }
 
@@ -91,8 +94,8 @@ func TestCredentialProviderSelection(t *testing.T) {
 	if _, ok := credentialProvider(cfg, EnginePostgres).(*iamTokenProvider); !ok {
 		t.Fatal("postgres read-only must use IAM tokens")
 	}
-	if _, ok := credentialProvider(cfg, EngineSQLServer).(*supportSecretsProvider); !ok {
-		t.Fatal("sql server read-only must use ro-access secrets")
+	if _, ok := credentialProvider(cfg, EngineSQLServer).(*readOnlySecretsProvider); !ok {
+		t.Fatal("sql server read-only must use the read-only secrets")
 	}
 	cfg.AllowWrites = true
 	iam, ok := credentialProvider(cfg, EnginePostgres).(*iamTokenProvider)
@@ -131,19 +134,40 @@ func TestCredentialProviderPostgresWithoutIAMAuthIsDisabled(t *testing.T) {
 }
 
 func TestServerName(t *testing.T) {
-	cases := map[[2]string]string{
-		{"dev", "archive-db"}:         "acme-dev-archive-db",
-		{"ACME Prod", "Sales_DB.v2"}:  "acme-prod-sales-db-v2",
-		{"acme-prod-eu", "orders-db"}: "acme-prod-eu-orders-db",
-		{"acme", "orders-db"}:         "acme-orders-db",
-		{"acmedemo", "orders-db"}:     "acme-acmedemo-orders-db",
-		{"dev", "--weird--name--"}:    "acme-dev-weird-name",
+	cases := map[[3]string]string{
+		{"acme", "dev", "archive-db"}:         "acme-dev-archive-db",
+		{"acme", "ACME Prod", "Sales_DB.v2"}:  "acme-prod-sales-db-v2",
+		{"acme", "acme-prod-eu", "orders-db"}: "acme-prod-eu-orders-db",
+		{"acme", "acme", "orders-db"}:         "acme-orders-db",
+		{"acme", "acmedemo", "orders-db"}:     "acme-acmedemo-orders-db",
+		{"acme", "dev", "--weird--name--"}:    "acme-dev-weird-name",
+		{"", "dev", "archive-db"}:             "airlock-dev-archive-db",
+		{"Team X", "team-x-prod", "db"}:       "team-x-prod-db",
+		{"airlock", "airlock", "db"}:          "airlock-db",
 	}
 	for in, want := range cases {
-		if got := serverName(in[0], in[1]); got != want {
-			t.Fatalf("serverName(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		if got := serverName(in[0], in[1], in[2]); got != want {
+			t.Fatalf("serverName(%q, %q, %q) = %q, want %q", in[0], in[1], in[2], got, want)
 		}
 	}
+}
+
+func TestStartRefusesReadOnlySQLServerWithoutSecretTag(t *testing.T) {
+	useIsolatedLocks(t)
+	cfg := testSessionConfig(t, "sqlserver-se")
+	cfg.ReadOnlySecretTag = awstag.Tag{}
+	handle, err := Start(NewHost(), cfg)
+	if !errors.Is(err, ErrReadOnlySecretTagUnset) || handle != nil {
+		t.Fatalf("Start = %v, %v; want ErrReadOnlySecretTagUnset", handle, err)
+	}
+
+	cfg.AllowWrites = true
+	cfg.MasterSecretARN = "arn:aws:secretsmanager:eu-west-3:1:secret:master"
+	handle, err = Start(NewHost(), cfg)
+	if err != nil || handle == nil {
+		t.Fatalf("writes mode does not need the read-only tag: %v, %v", handle, err)
+	}
+	handle.Close()
 }
 
 func connectEndpoint(t *testing.T, endpoint Endpoint) *mcp.ClientSession {

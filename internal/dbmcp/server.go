@@ -141,7 +141,7 @@ func instructions(cfg *ServerConfig) string {
 		access = "WRITES ARE ENABLED through the execute tool: always confirm with the user before modifying data or schema."
 	}
 	return fmt.Sprintf(
-		"Database %s (%s dialect), reached through an acme jumphost tunnel. AWS profile %s, region %s. %s "+
+		"Database %s (%s dialect), reached through an airlock SSM tunnel. AWS profile %s, region %s. %s "+
 			"Explore with list_databases, list_tables and describe_table before writing queries. "+
 			"The query tool runs one SELECT/WITH statement and returns at most %d rows.",
 		cfg.Target, cfg.Engine.Dialect(), cfg.Profile, cfg.Region, access, maxRowsLimit,

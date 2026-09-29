@@ -13,8 +13,8 @@ import (
 	mssql "github.com/microsoft/go-mssqldb"
 )
 
-// applicationName identifies acme MCP connections in database activity views.
-const applicationName = "acme-mcp"
+// applicationName identifies airlock MCP connections in database activity views.
+const applicationName = "airlock-mcp"
 
 // dialect holds the engine-specific SQL used by sqlQuerier.
 type dialect struct {
