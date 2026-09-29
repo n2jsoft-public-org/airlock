@@ -36,50 +36,70 @@ func Defaults() Config {
 	}
 }
 
-// file is the JSON layout of config.json.
+// file is the JSON layout of config.json; a nil field is a key absent from the file. Fields are
+// in the order the file is written in.
 type file struct {
-	JumphostTag       *string `json:"jumphostTag"`
-	DefaultDBUser     *string `json:"defaultDbUser"`
-	ReadOnlySecretTag *string `json:"readOnlySecretTag"`
-	MCPServerPrefix   *string `json:"mcpServerPrefix"`
-	DefaultRegion     *string `json:"defaultRegion"`
+	JumphostTag       *string `json:"jumphostTag,omitempty"`
+	DefaultDBUser     *string `json:"defaultDbUser,omitempty"`
+	ReadOnlySecretTag *string `json:"readOnlySecretTag,omitempty"`
+	MCPServerPrefix   *string `json:"mcpServerPrefix,omitempty"`
+	DefaultRegion     *string `json:"defaultRegion,omitempty"`
 }
 
 // Load reads path over the defaults. A missing file (or an empty path) gives the defaults; invalid
 // JSON, an unknown key or a malformed value is an error naming the file.
 func Load(path string) (Config, error) {
-	cfg := Defaults()
+	f, err := readFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	defaults := Defaults()
+	cfg, err := f.apply(&defaults)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// readFile decodes path; a missing file (or an empty path) has no key. Invalid JSON or an unknown
+// key is an error naming the file.
+func readFile(path string) (file, error) {
+	var f file
 	if path == "" {
-		return cfg, nil
+		return f, nil
 	}
 	raw, err := os.ReadFile(path) // #nosec G304 -- the path is the user's own config file.
 	if errors.Is(err, fs.ErrNotExist) {
-		return cfg, nil
+		return f, nil
 	}
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to read %s: %w", path, err)
+		return file{}, fmt.Errorf("failed to read %s: %w", path, err)
 	}
-
-	var f file
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&f); err != nil {
-		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
+		return file{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
+	return f, nil
+}
 
+// apply returns base with the keys of f over it; a malformed value is an error naming its key.
+func (f *file) apply(base *Config) (Config, error) {
+	cfg := *base
+	var err error
 	if f.JumphostTag != nil {
 		if cfg.JumphostTag, err = parseRequiredTag(*f.JumphostTag); err != nil {
-			return Config{}, fmt.Errorf("invalid config %s: jumphostTag: %w", path, err)
+			return Config{}, fmt.Errorf("jumphostTag: %w", err)
 		}
 	}
 	if f.ReadOnlySecretTag != nil {
 		if cfg.ReadOnlySecretTag, err = awstag.Parse(*f.ReadOnlySecretTag); err != nil {
-			return Config{}, fmt.Errorf("invalid config %s: readOnlySecretTag: %w", path, err)
+			return Config{}, fmt.Errorf("readOnlySecretTag: %w", err)
 		}
 	}
 	if f.MCPServerPrefix != nil {
 		if cfg.MCPServerPrefix, err = parsePrefix(*f.MCPServerPrefix); err != nil {
-			return Config{}, fmt.Errorf("invalid config %s: mcpServerPrefix: %w", path, err)
+			return Config{}, fmt.Errorf("mcpServerPrefix: %w", err)
 		}
 	}
 	if f.DefaultDBUser != nil {

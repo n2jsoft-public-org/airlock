@@ -52,6 +52,8 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
 	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
 
+	cmd.AddCommand(newConfigCmd())
+
 	return cmd
 }
 
