@@ -33,8 +33,9 @@ type JumphostDiscovery interface {
 	ForgetConnection(ctx context.Context, ref jumphost.TargetRef) error
 	// SearchResources lists the targets of every type; failures holds the types whose listing failed.
 	SearchResources(ctx context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error)
-	// FindResource returns the target of options, or an error when it no longer exists.
-	FindResource(ctx context.Context, options *jumphost.Options) (jumphost.ResourceSummary, error)
+	// FindResource returns the target of options, or an error when it no longer exists; a
+	// non-empty account must be the profile's, else a *jumphost.AccountMismatchError is returned.
+	FindResource(ctx context.Context, options *jumphost.Options, account string) (jumphost.ResourceSummary, error)
 }
 
 type jumphostStep int
@@ -87,6 +88,8 @@ type jumphostWizardModel struct {
 	hasHistory bool
 	// recentNeedsProfile asks a profile for a recent connection whose saved profile is gone.
 	recentNeedsProfile bool
+	// recentAccount is the AWS account the recent connection was saved in.
+	recentAccount string
 	// awaitingRegion starts the flow's discovery once the default region of the profile is known.
 	awaitingRegion bool
 	// searchWarnings names the types a search could not list.

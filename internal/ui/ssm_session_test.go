@@ -64,7 +64,7 @@ func (fakeSessionRunner) SearchResources(context.Context, *jumphost.Options) ([]
 	return []jumphost.ResourceSummary{{Name: "db", Type: "rds"}}, nil, nil
 }
 
-func (fakeSessionRunner) FindResource(_ context.Context, options *jumphost.Options) (jumphost.ResourceSummary, error) {
+func (fakeSessionRunner) FindResource(_ context.Context, options *jumphost.Options, _ string) (jumphost.ResourceSummary, error) {
 	return jumphost.ResourceSummary{Name: options.Name, Type: options.ResourceType}, nil
 }
 

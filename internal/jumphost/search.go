@@ -30,11 +30,29 @@ func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]Resou
 	return resources, failures, nil
 }
 
+// AccountMismatchError refuses a profile that reaches another AWS account than the one a
+// remembered target was saved in: same-named targets are common across accounts.
+type AccountMismatchError struct {
+	Profile        string
+	ProfileAccount string
+	EntryAccount   string
+}
+
+func (e *AccountMismatchError) Error() string {
+	return fmt.Sprintf("profile %s is account %s, this entry is account %s", e.Profile, e.ProfileAccount, e.EntryAccount)
+}
+
 // FindResource returns the target named options.Name among the targets of options.ResourceType,
-// or an error when it no longer exists in that profile and region.
-func (r *Runner) FindResource(ctx context.Context, options *Options) (ResourceSummary, error) {
+// or an error when it no longer exists in that profile and region. A non-empty account must be
+// the one the profile reaches, else an *AccountMismatchError is returned.
+func (r *Runner) FindResource(ctx context.Context, options *Options, account string) (ResourceSummary, error) {
 	resources, err := r.ListResourceSummaries(ctx, options)
 	if err != nil {
+		return ResourceSummary{}, err
+	}
+	// The listing ran the identity check, which remembered the profile's account.
+	profile := resolveProfileName(options.AwsProfile)
+	if err := checkAccount(profile, r.accountFor(ctx, profile), account); err != nil {
 		return ResourceSummary{}, err
 	}
 	region := strings.TrimSpace(options.AwsRegion)
@@ -90,6 +108,20 @@ func findResourceByName(resources []ResourceSummary, name, resourceType, region 
 		}
 	}
 	return ResourceSummary{}, fmt.Errorf("%s target %s no longer exists in %s", strings.ToUpper(resourceType), name, region)
+}
+
+// checkAccount accepts profileAccount when it is want, or when no account is expected.
+func checkAccount(profile, profileAccount, want string) error {
+	want = strings.TrimSpace(want)
+	profileAccount = strings.TrimSpace(profileAccount)
+	switch {
+	case want == "" || profileAccount == want:
+		return nil
+	case profileAccount == "":
+		return fmt.Errorf("cannot confirm that profile %s reaches account %s", profile, want)
+	default:
+		return &AccountMismatchError{Profile: profile, ProfileAccount: profileAccount, EntryAccount: want}
+	}
 }
 
 // withType sets the type of every resource.

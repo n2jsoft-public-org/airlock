@@ -80,6 +80,7 @@ func (m jumphostWizardModel) returnToStart() (jumphostWizardModel, tea.Cmd) {
 	m.step = jumphostStepStart
 	m.options = m.base
 	m.recentNeedsProfile = false
+	m.recentAccount = ""
 	m.awaitingRegion = false
 	m.searchWarnings = ""
 	m.errorMsg = ""

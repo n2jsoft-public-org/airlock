@@ -14,8 +14,10 @@ import (
 type historyRunner struct {
 	fakeSessionRunner
 	lookupErr error
-	saved     *[]jumphost.SavedConnection
-	lookups   *[]jumphost.Options
+	// accounts maps a profile to the AWS account it reaches; lookups expecting another one are refused.
+	accounts map[string]string
+	saved    *[]jumphost.SavedConnection
+	lookups  *[]jumphost.Options
 }
 
 func newHistoryRunner(saved ...jumphost.SavedConnection) historyRunner {
@@ -37,10 +39,13 @@ func (r historyRunner) ForgetConnection(_ context.Context, ref jumphost.TargetRe
 	return nil
 }
 
-func (r historyRunner) FindResource(_ context.Context, options *jumphost.Options) (jumphost.ResourceSummary, error) {
+func (r historyRunner) FindResource(_ context.Context, options *jumphost.Options, account string) (jumphost.ResourceSummary, error) {
 	*r.lookups = append(*r.lookups, *options)
 	if r.lookupErr != nil {
 		return jumphost.ResourceSummary{}, r.lookupErr
+	}
+	if got, known := r.accounts[options.AwsProfile]; known && account != "" && got != account {
+		return jumphost.ResourceSummary{}, &jumphost.AccountMismatchError{Profile: options.AwsProfile, ProfileAccount: got, EntryAccount: account}
 	}
 	return jumphost.ResourceSummary{Name: options.Name, Type: options.ResourceType, IAMAuth: true}, nil
 }
@@ -269,5 +274,43 @@ func TestWizardSearchRegionPickerCanceledOnStartScreenEndsTheSearch(t *testing.T
 	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.pickingRegion || m.flow != flowStart || m.step != jumphostStepStart {
 		t.Fatalf("picking = %v flow = %v step = %v, want back on the start screen", m.pickingRegion, m.flow, m.step)
+	}
+}
+
+func TestWizardRecentRefusesProfileOfAnotherAccount(t *testing.T) {
+	missing := savedArchive
+	missing.ProfileMissing = true
+	runner := newHistoryRunner(missing)
+	runner.accounts = map[string]string{"dev": "1", "prod": "2"}
+	m := startWizard(t, runner)
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	m = runChain(t, m, cmd, 3)
+
+	m, _ = wizardUpdate(t, m, key("down")) // prod
+	m, cmd = wizardUpdate(t, m, key("enter"))
+	m = runChain(t, m, cmd, 3)
+	if m.step != jumphostStepProfile || m.flow != flowRecent || m.loading {
+		t.Fatalf("step = %v flow = %v loading = %v, want the profile step again", m.step, m.flow, m.loading)
+	}
+	if want := "profile prod is account 2, this entry is account 1"; m.errorMsg != want {
+		t.Fatalf("error = %q, want %q", m.errorMsg, want)
+	}
+
+	m, _ = wizardUpdate(t, m, key("up")) // dev
+	m, cmd = wizardUpdate(t, m, key("enter"))
+	m = runChain(t, m, cmd, 3)
+	if m.step != jumphostStepReview || m.options.AwsProfile != "dev" {
+		t.Fatalf("step = %v profile = %q, want the review with dev", m.step, m.options.AwsProfile)
+	}
+}
+
+func TestWizardRecentSavedProfileOfAnotherAccountReturnsToStart(t *testing.T) {
+	runner := newHistoryRunner(savedArchive)
+	runner.accounts = map[string]string{"acme-staging": "9"}
+	m := startWizard(t, runner)
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	m = runChain(t, m, cmd, 3)
+	if m.step != jumphostStepStart || m.flow != flowStart || !strings.Contains(m.errorMsg, "profile acme-staging is account 9, this entry is account 1") {
+		t.Fatalf("step = %v flow = %v error = %q", m.step, m.flow, m.errorMsg)
 	}
 }

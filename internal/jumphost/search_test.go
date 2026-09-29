@@ -66,3 +66,25 @@ func TestWithTypeTagsEveryResource(t *testing.T) {
 		t.Fatalf("got = %+v", got)
 	}
 }
+
+func TestCheckAccount(t *testing.T) {
+	if err := checkAccount("dev", "111111111111", "111111111111"); err != nil {
+		t.Fatalf("same account refused: %v", err)
+	}
+	if err := checkAccount("dev", "111111111111", ""); err != nil {
+		t.Fatalf("no expected account must not refuse: %v", err)
+	}
+
+	err := checkAccount("prod", "222222222222", "111111111111")
+	var mismatch *AccountMismatchError
+	if !errors.As(err, &mismatch) || mismatch.Profile != "prod" {
+		t.Fatalf("err = %v, want an AccountMismatchError for prod", err)
+	}
+	if want := "profile prod is account 222222222222, this entry is account 111111111111"; err.Error() != want {
+		t.Fatalf("message = %q, want %q", err.Error(), want)
+	}
+
+	if err := checkAccount("prod", "", "111111111111"); err == nil || !strings.Contains(err.Error(), "cannot confirm that profile prod reaches account 111111111111") {
+		t.Fatalf("unknown account err = %v", err)
+	}
+}

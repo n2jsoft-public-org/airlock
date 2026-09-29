@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -98,6 +99,7 @@ func (m jumphostWizardModel) openRecent(conn jumphost.SavedConnection) (tea.Mode
 	m.options.ResourceType = conn.Ref.Type
 	m.options.Name = conn.Ref.Name
 	m.options.AwsRegion = conn.Ref.Region
+	m.recentAccount = conn.Ref.Account
 	m.recentNeedsProfile = m.askProfile && (conn.ProfileMissing || conn.Prefs.Profile == "")
 	if m.recentNeedsProfile {
 		return m.enterProfileStep()
@@ -113,8 +115,9 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 	m.errorMsg = ""
 	m.loading = true
 	opts := m.options
+	account := m.recentAccount
 	lookup := func() tea.Msg {
-		target, err := m.runner.FindResource(m.ctx, &opts)
+		target, err := m.runner.FindResource(m.ctx, &opts, account)
 		return jumphostLookupMsg{target: target, err: err}
 	}
 	return m, tea.Batch(lookup, m.loadingUI.start("Checking "+opts.Name+"...", []string{
@@ -123,10 +126,16 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 	}))
 }
 
-// handleLookup continues to the review of a found target; a lookup error returns to the start screen.
+// handleLookup continues to the review of a found target; a lookup error returns to the start
+// screen, except a profile picked for the entry that reaches another account: another one is asked.
 func (m jumphostWizardModel) handleLookup(msg jumphostLookupMsg) (tea.Model, tea.Cmd) {
 	m.loading = false
 	m.loadingUI.stop()
+	var mismatch *jumphost.AccountMismatchError
+	if errors.As(msg.err, &mismatch) && m.step == jumphostStepProfile {
+		m.errorMsg = msg.err.Error()
+		return m, nil
+	}
 	if msg.err != nil {
 		start, cmd := m.returnToStart()
 		start.errorMsg = msg.err.Error()
