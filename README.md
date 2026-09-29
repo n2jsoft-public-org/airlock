@@ -21,7 +21,8 @@ databases.
 
 Examples:
 
-- `airlock` (wizard: AWS profile, resource type, target, review)
+- `airlock` (wizard: recent connections, or a new connection by resource type, AWS profile, target and review, or a search of every target of a profile)
+- The wizard opens on your recent connections, most recently used first (`/` filters by name, type, profile or region; `d` forgets one). Picking one checks the target still exists and opens its review step prefilled. `n` starts a new connection, `s` searches a target: choose a profile, then pick among its RDS, EKS and ElastiCache targets in one list (types that cannot be listed are named in a warning). `--profile` and `--region` filter the recent connections and skip the profile question.
 - `airlock rds my-db 5432`
 - `airlock eks my-cluster 15432`
 - `airlock rds my-db 5432 --db-user app_ro`
@@ -29,20 +30,20 @@ Examples:
 AWS region:
 
 - The wizard does not ask for a region: the header shows the current one (`--region`, then `AWS_REGION`, then the profile's configured region, then `defaultRegion`). Without any, the header shows `region none` and the wizard opens the region list before looking for targets; non-interactive runs fail and name the settings to add.
-- Press `r` on the resource type or target step to switch region from a searchable list (by code, city or country, e.g. `paris`, `eu-west`, `japan`). Switching on the target step reloads the targets of the new region.
+- Press `r` on the resource type, target or search step to switch region from a searchable list (by code, city or country, e.g. `paris`, `eu-west`, `japan`). Switching on the target step reloads the targets (or the search) of the new region.
 
 Database user (RDS with AWS IAM authentication):
 
-- The wizard ends on a review step summarizing the connection, where the local port and the database user can be edited before connecting (`tab` switches field, `enter` connects, `esc` goes back to the target list).
+- The wizard ends on a review step summarizing the connection, where the local port and the database user can be edited before connecting (`tab` switches field, `enter` connects, `esc` goes back one step).
 - The user is prefilled with `--db-user`, else the user saved for that database, else `defaultDbUser`; it is required for AWS IAM sign-in.
 - The user is used by the connection hints, the IntelliJ data source, the MCP server and the restart command. Instances without IAM authentication (SQL Server) only show the port.
 - The review step also shows an `IAM auth` toggle (`space` switches it), on by default: airlock signs in passwordless, generating short-lived AWS IAM tokens.
 - Turn it off to sign in with a password instead: the review then asks for the user and its password. The password is kept in memory only: the MCP server uses it, the IntelliJ data source switches to user & password (the IDE asks for the password), and the restart command falls back to IAM sign-in.
-- Connecting from the wizard remembers the review choices per database (AWS account, region and instance name, so several profiles reaching one account share them) in `~/.config/airlock/connections.json` (`$XDG_CONFIG_HOME/airlock` when set): user, IAM auth on or off, local port and MCP write access. The next connection to that database starts from them; a saved port already in use falls back to a free one, and `--db-user` / `--mcp-allow-writes` still win. Passwords are never saved: with IAM auth off, the review asks for it again.
+- Connecting from the wizard remembers every connection per target (AWS account, region, resource type and name, so several profiles reaching one account share them) in `~/.config/airlock/connections.json` (`$XDG_CONFIG_HOME/airlock` when set) with its last profile and local port, plus for databases: user, IAM auth on or off and MCP write access. The next connection to that database starts from them; a saved port already in use falls back to a free one, and `--db-user` / `--mcp-allow-writes` still win. Passwords are never saved: with IAM auth off, the review asks for it again.
 
 Parallel sessions:
 
-- While a session runs, press `n` to open another connection (any profile, any resource); running sessions stay active.
+- While a session runs, press `n` to open another connection (any profile, any resource); running sessions stay active. The start screen marks recent connections already open as connected.
 - `tab` / `←` `→` / `1`-`9` switch between sessions, `x` stops the selected one (or closes it once ended), `ctrl+c` stops all and quits.
 - Local ports never collide: the suggested port skips ports used by other sessions or other local processes (e.g. a second `5432` RDS gets `5433`). An explicitly requested busy port is rejected.
 - Connecting twice to the same target (same type, name, profile and region) is refused.
