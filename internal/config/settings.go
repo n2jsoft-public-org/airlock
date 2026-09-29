@@ -68,7 +68,8 @@ func Settings(path string) ([]Setting, error) {
 }
 
 // Set validates value for key and writes it into path, keeping the other keys of the file. The
-// file is created when missing; a file that cannot be parsed is never rewritten.
+// file is created when missing; a file that cannot be parsed, or whose other keys are invalid, is
+// never rewritten. Setting an invalid key repairs it.
 func Set(path, key, value string) error {
 	f, err := readFile(path)
 	if err != nil {
@@ -78,9 +79,13 @@ func Set(path, key, value string) error {
 	if err != nil {
 		return err
 	}
+	defaults := Defaults()
+	*field = nil
+	if _, err = f.apply(&defaults); err != nil {
+		return fmt.Errorf("invalid config %s: %w", path, err)
+	}
 	value = strings.TrimSpace(value)
 	*field = &value
-	defaults := Defaults()
 	if _, err = f.apply(&defaults); err != nil {
 		return err
 	}

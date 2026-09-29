@@ -209,3 +209,17 @@ func TestWriteTemplateRefusesAnExistingFileUnlessForced(t *testing.T) {
 		t.Fatalf("forced template = %+v, %v", cfg, err)
 	}
 }
+
+func TestSetNamesTheFileWhenAnotherKeyIsInvalid(t *testing.T) {
+	path := writeConfig(t, `{"jumphostTag": "Usage"}`)
+	err := Set(path, "defaultRegion", "eu-west-3")
+	if err == nil || !strings.Contains(err.Error(), "invalid config "+path+": jumphostTag") {
+		t.Fatalf("err = %v, want the invalid file and key named", err)
+	}
+	if err := Set(path, "jumphostTag", "Env=bastion"); err != nil {
+		t.Fatalf("setting the invalid key must repair the file: %v", err)
+	}
+	if cfg, err := Load(path); err != nil || cfg.JumphostTag.String() != "Env=bastion" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+}
