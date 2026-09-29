@@ -100,8 +100,6 @@ type RunnerOptions struct {
 	ReadOnlySecretTag awstag.Tag
 	// MCPServerPrefix starts MCP server names (dbmcp.DefaultServerPrefix when empty).
 	MCPServerPrefix string
-	// ConfigPath is the settings file named in hints about missing settings.
-	ConfigPath string
 }
 
 type SessionDetails struct {
@@ -171,8 +169,6 @@ type Runner struct {
 	jumphostTag       awstag.Tag
 	readOnlySecretTag awstag.Tag
 	mcpServerPrefix   string
-	// configPath is named in hints about missing settings.
-	configPath string
 }
 
 // ideTarget carries what is needed to register the forwarded connection in the IDE.
@@ -231,7 +227,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: strings.TrimSpace(opts.DefaultDBUser),
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
-		mcpServerPrefix: opts.MCPServerPrefix, configPath: opts.ConfigPath,
+		mcpServerPrefix: opts.MCPServerPrefix,
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)
@@ -867,8 +863,8 @@ func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConf
 	}
 	if region == "" {
 		return awsConfig{}, fmt.Errorf(
-			"no AWS region for profile %q: pass --region, set AWS_REGION, configure the profile's region (aws configure set region <region> --profile %s), or set \"defaultRegion\" in %s",
-			profile, profile, r.configHint())
+			"no AWS region for profile %q: pass --region, set AWS_REGION, configure the profile's region (aws configure set region <region> --profile %s), or set a default with `airlock config set defaultRegion <region>`",
+			profile, profile)
 	}
 
 	cfg := awsConfig{
@@ -907,12 +903,16 @@ func (r *Runner) ResolveRegion(ctx context.Context, profile string) string {
 	return r.defaultRegion
 }
 
-// configHint names the settings file in messages about missing settings.
-func (r *Runner) configHint() string {
-	if r.configPath != "" {
-		return r.configPath
-	}
-	return "the airlock config file"
+// settingHint tells how to fix a setting of the config file: look at it, change it, or override it.
+func settingHint(key, example, flag string) string {
+	return fmt.Sprintf("check it with `airlock config show`, change it with `airlock config set %s %s`, or pass %s", key, example, flag)
+}
+
+// jumphostNotFoundError explains that no running instance carries the jumphost tag, which may be
+// the wrong profile or region, or a tag that does not match the account's conventions.
+func jumphostNotFoundError(tag awstag.Tag, profile, region string) error {
+	return fmt.Errorf("no running jumphost instance tagged %s in %s (profile %s). Are you using the correct profile/region? The tag comes from \"jumphostTag\": %s",
+		tag, region, profile, settingHint("jumphostTag", "Key=Value", "--jumphost-tag"))
 }
 
 func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
@@ -962,7 +962,7 @@ func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, erro
 		return "", err
 	}
 	if jumphostID == "" || strings.EqualFold(jumphostID, "none") {
-		return "", fmt.Errorf("no running jumphost instance tagged %s found in %s. Are you using the correct profile/region?", r.jumphostTag, cfg.Region)
+		return "", jumphostNotFoundError(r.jumphostTag, cfg.Profile, cfg.Region)
 	}
 
 	fprintf(r.out, "%s\n", jumphostID)
@@ -1049,8 +1049,8 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == ""
 	if iamAuth && r.ResolveDBUser(options.DBUser) == "" {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf(
-			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set \"defaultDbUser\" in %s",
-			instance.DBInstanceIdentifier, r.configHint())
+			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set a default with `airlock config set defaultDbUser <user>`",
+			instance.DBInstanceIdentifier)
 	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
@@ -1533,7 +1533,7 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		ReadOnlySecretTag: r.readOnlySecretTag,
 	})
 	if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
-		return nil, fmt.Sprintf("not started: set \"readOnlySecretTag\" in %s for read-only SQL Server access (or enable writes)", r.configHint())
+		return nil, "not started: set the tag of the read-only SQL Server secrets with `airlock config set readOnlySecretTag Key=Value` (or enable writes)"
 	}
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)

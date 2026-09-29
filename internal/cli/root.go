@@ -74,7 +74,7 @@ func overridesFromFlags(flags *pflag.FlagSet) config.Overrides {
 	}
 }
 
-// loadConfig merges the flags over the config file; it returns the file path for hints.
+// loadConfig merges the flags over the config file; it also returns the file path.
 func loadConfig(cmd *cobra.Command) (config.Config, string, error) {
 	path, err := appdir.ConfigFile()
 	if err != nil {
@@ -95,7 +95,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	} else if migrated {
 		cmd.PrintErrln("Copied saved connections and MCP logs of the former jumphost config directory into airlock's.")
 	}
-	cfg, configPath, err := loadConfig(cmd)
+	cfg, _, err := loadConfig(cmd)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,6 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		JumphostTag:       cfg.JumphostTag,
 		ReadOnlySecretTag: cfg.ReadOnlySecretTag,
 		MCPServerPrefix:   cfg.MCPServerPrefix,
-		ConfigPath:        configPath,
 	}
 
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.

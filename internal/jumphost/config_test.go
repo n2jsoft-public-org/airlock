@@ -93,32 +93,47 @@ func TestSecretsSessionInfoWithoutTagOmitsReadOnlyHint(t *testing.T) {
 }
 
 func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), ConfigPath: "/cfg/airlock/config.json"})
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	target := ideTarget{Engine: "sqlserver-se", InstanceARN: "arn:db"}
 	handle, display := runner.startMCP("mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
 	if handle != nil {
 		t.Fatal("no MCP server expected without a read-only secret tag")
 	}
-	if !strings.Contains(display, "readOnlySecretTag") || !strings.Contains(display, "/cfg/airlock/config.json") {
-		t.Fatalf("display = %q, want the setting and config path named", display)
+	if !strings.Contains(display, "`airlock config set readOnlySecretTag Key=Value`") {
+		t.Fatalf("display = %q, want the command setting the tag", display)
 	}
 }
 
 func TestPrepareRDSWithoutIAMUserFailsBeforeReservingAPort(t *testing.T) {
 	installRecordingAWS(t, `{"Engine":"postgres","DBInstanceIdentifier":"archive","DBInstanceArn":"arn:db","Endpoint":{"Address":"archive.rds.amazonaws.com","Port":55432},"IAMDatabaseAuthenticationEnabled":true}`)
 	registry := NewSessionRegistry()
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Registry: registry, ConfigPath: "/cfg/airlock/config.json"})
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Registry: registry})
 
 	_, _, _, _, _, err := runner.prepareRDS(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, Options{Name: "archive"})
 	if err == nil {
 		t.Fatal("IAM sign-in without a database user must fail")
 	}
-	for _, want := range []string{"--db-user", "defaultDbUser", "/cfg/airlock/config.json"} {
+	for _, want := range []string{"--db-user", "`airlock config set defaultDbUser <user>`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not mention %q", err, want)
 		}
 	}
 	if !registry.PortAvailable(55432) {
 		t.Fatal("the failed connection must not keep a local port reserved")
+	}
+}
+
+func TestJumphostNotFoundErrorNamesTheSetting(t *testing.T) {
+	err := jumphostNotFoundError(awstag.Tag{Key: "Usage", Value: "jumphost"}, "dev", "eu-west-3")
+	for _, want := range []string{
+		"no running jumphost instance tagged Usage=jumphost in eu-west-3 (profile dev)",
+		`"jumphostTag"`,
+		"`airlock config show`",
+		"`airlock config set jumphostTag Key=Value`",
+		"--jumphost-tag",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
 	}
 }

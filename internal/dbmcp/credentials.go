@@ -217,7 +217,7 @@ func (p *readOnlySecretsProvider) load(ctx context.Context) error {
 		byDatabase[database] = Credentials{User: payload.Username, Password: payload.Password, Database: database}
 	}
 	if len(byDatabase) == 0 {
-		message := fmt.Sprintf("no usable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue)", p.tag, p.instance)
+		message := fmt.Sprintf("no usable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue; tag from \"readOnlySecretTag\", see `airlock config show`)", p.tag, p.instance)
 		if len(warnings) > 0 {
 			message += ": " + strings.Join(warnings, "; ")
 		}

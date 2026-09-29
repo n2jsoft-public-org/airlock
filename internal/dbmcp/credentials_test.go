@@ -149,7 +149,7 @@ func TestSupportSecretsProviderNoSecretIsActionableAndRetried(t *testing.T) {
 	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
 
 	_, err := provider.Credentials(context.Background(), "")
-	if err == nil || !strings.Contains(err.Error(), "no usable read-only secret (AccessRole=ro-access) found for mssql-1") {
+	if err == nil || !strings.Contains(err.Error(), "no usable read-only secret (AccessRole=ro-access) found for mssql-1") || !strings.Contains(err.Error(), `tag from "readOnlySecretTag", see `+"`airlock config show`") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	_, _ = provider.Credentials(context.Background(), "")

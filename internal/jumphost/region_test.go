@@ -61,12 +61,12 @@ func TestResolveAWSConfigWithoutRegionErrors(t *testing.T) {
 	installFakeAWS(t, "")
 	t.Setenv("AWS_REGION", "")
 
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ConfigPath: "/cfg/airlock/config.json"})
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
 	_, err := runner.resolveAWSConfig(context.Background(), Options{AwsProfile: "prod"})
 	if err == nil {
 		t.Fatal("resolveAWSConfig without any region must fail")
 	}
-	for _, want := range []string{"--region", "defaultRegion", "/cfg/airlock/config.json"} {
+	for _, want := range []string{"--region", "`airlock config set defaultRegion <region>`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not mention %q", err, want)
 		}
