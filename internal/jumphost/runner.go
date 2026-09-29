@@ -29,10 +29,12 @@ const (
 	resourceEKS         = "eks"
 	resourceRDS         = "rds"
 	resourceElastiCache = "elasticache"
-	defaultRegion       = "eu-west-3"
 	defaultAwsProfile   = "default"
 	defaultEKSLocalPort = 9444
 	defaultRedisPort    = 6379
+	// defaultJumphostTagKey and defaultJumphostTagValue find the jumphost when no tag is configured.
+	defaultJumphostTagKey   = "Usage"
+	defaultJumphostTagValue = "jumphost"
 )
 
 type Options struct {
@@ -48,7 +50,7 @@ type Options struct {
 	// MCPAllowWrites exposes the MCP execute tool. PostgreSQL writes as DBUser; SQL Server, without
 	// AWS IAM sign-in, uses the master user secret.
 	MCPAllowWrites bool
-	// DBUser is the database user signing in with AWS IAM on RDS (defaults to DefaultRDSIAMUser).
+	// DBUser is the database user signing in with AWS IAM on RDS (defaults to RunnerOptions.DefaultDBUser).
 	DBUser string
 	// DBPassword signs DBUser in with a password instead of an AWS IAM token. It is only kept in
 	// memory (the MCP server uses it; the IDE asks for it) and is never written to disk.
@@ -81,13 +83,25 @@ type RunnerOptions struct {
 	ProjectDir string
 	// PrefsPath is the file remembering the Connect step choices per region and database; empty disables it.
 	PrefsPath string
+	// DefaultRegion is used after AWS_REGION and the profile's region; empty means none.
+	DefaultRegion string
+	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means one is required.
+	DefaultDBUser string
+	// JumphostTag finds the SSM jumphost instance (Usage=jumphost when zero).
+	JumphostTag awstag.Tag
+	// ReadOnlySecretTag marks the read-only secrets of SQL Server instances; zero disables them.
+	ReadOnlySecretTag awstag.Tag
+	// MCPServerPrefix starts MCP server names (dbmcp.DefaultServerPrefix when empty).
+	MCPServerPrefix string
+	// ConfigPath is the settings file named in hints about missing settings.
+	ConfigPath string
 }
 
 type SessionDetails struct {
 	ConnectedServer string
 	RestartCommand  string
 	IDEDataSource   string
-	// Auth describes how the database is signed in to, e.g. "AWS IAM token · acme_ro" (empty when not applicable).
+	// Auth describes how the database is signed in to, e.g. "AWS IAM token · app_ro" (empty when not applicable).
 	Auth string
 	// MCP describes the session's MCP server (empty when none runs).
 	MCP string
@@ -143,6 +157,15 @@ type Runner struct {
 	accountsMu sync.Mutex
 	projectDir string
 	mcpLogDir  string
+	// defaultRegion and defaultDBUser are used when none is given; empty when not configured.
+	defaultRegion string
+	defaultDBUser string
+	// jumphostTag finds the SSM jumphost instance; readOnlySecretTag the read-only SQL Server secrets.
+	jumphostTag       awstag.Tag
+	readOnlySecretTag awstag.Tag
+	mcpServerPrefix   string
+	// configPath is named in hints about missing settings.
+	configPath string
 }
 
 // ideTarget carries what is needed to register the forwarded connection in the IDE.
@@ -192,9 +215,16 @@ func NewRunner(opts RunnerOptions) *Runner {
 		mcpHost = dbmcp.NewHost()
 	}
 
+	jumphostTag := opts.JumphostTag
+	if jumphostTag.IsZero() {
+		jumphostTag = awstag.Tag{Key: defaultJumphostTagKey, Value: defaultJumphostTagValue}
+	}
 	runner := &Runner{
 		in: in, out: out, err: err, registry: registry, mcpHost: mcpHost,
 		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
+		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: strings.TrimSpace(opts.DefaultDBUser),
+		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
+		mcpServerPrefix: opts.MCPServerPrefix, configPath: opts.ConfigPath,
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)
@@ -628,6 +658,9 @@ func (r *Runner) prefsDatabase(ctx context.Context, options Options) (DatabaseRe
 	if region == "" {
 		region = r.ResolveRegion(ctx, profile)
 	}
+	if region == "" {
+		return DatabaseRef{}, false
+	}
 	account := r.accountFor(ctx, profile)
 	if account == "" {
 		return DatabaseRef{}, false
@@ -798,6 +831,11 @@ func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConf
 	if region == "" {
 		region = r.ResolveRegion(ctx, profile)
 	}
+	if region == "" {
+		return awsConfig{}, fmt.Errorf(
+			"no AWS region for profile %q: pass --region, set AWS_REGION, configure the profile's region (aws configure set region <region> --profile %s), or set \"defaultRegion\" in %s",
+			profile, profile, r.configHint())
+	}
 
 	cfg := awsConfig{
 		Profile: profile,
@@ -813,8 +851,8 @@ func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConf
 	return cfg, nil
 }
 
-// ResolveRegion returns the region used when none is given explicitly:
-// AWS_REGION, then the region configured for profile, then eu-west-3.
+// ResolveRegion returns the region used when none is given explicitly: AWS_REGION, then the region
+// configured for profile, then the configured default region; "" when none.
 func (r *Runner) ResolveRegion(ctx context.Context, profile string) string {
 	if region := strings.TrimSpace(os.Getenv("AWS_REGION")); region != "" {
 		return region
@@ -832,7 +870,15 @@ func (r *Runner) ResolveRegion(ctx context.Context, profile string) string {
 	if region := strings.TrimSpace(configuredRegion); err == nil && region != "" {
 		return region
 	}
-	return defaultRegion
+	return r.defaultRegion
+}
+
+// configHint names the settings file in messages about missing settings.
+func (r *Runner) configHint() string {
+	if r.configPath != "" {
+		return r.configPath
+	}
+	return "the airlock config file"
 }
 
 func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
@@ -873,7 +919,7 @@ func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, erro
 	fprintf(r.out, "Using jumphost... ")
 	jumphostID, err := r.runAWSCapture(ctx, cfg.Args,
 		"ec2", "describe-instances",
-		"--filters", "Name=tag:Usage,Values=jumphost", "Name=instance-state-name,Values=running",
+		"--filters", fmt.Sprintf("Name=tag:%s,Values=%s", r.jumphostTag.Key, r.jumphostTag.Value), "Name=instance-state-name,Values=running",
 		"--output", "text",
 		"--query", "Reservations[0].Instances[0].InstanceId",
 		"--no-cli-pager",
@@ -882,7 +928,7 @@ func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, erro
 		return "", err
 	}
 	if jumphostID == "" || strings.EqualFold(jumphostID, "none") {
-		return "", fmt.Errorf("no jumphost found in %s. Are you using the correct profile/region?", cfg.Region)
+		return "", fmt.Errorf("no running jumphost instance tagged %s found in %s. Are you using the correct profile/region?", r.jumphostTag, cfg.Region)
 	}
 
 	fprintf(r.out, "%s\n", jumphostID)
@@ -966,6 +1012,12 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	if options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
 		return "", "", nil, nil, ideTarget{}, errors.New("a database user is required to sign in with a password")
 	}
+	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == ""
+	if iamAuth && r.ResolveDBUser(options.DBUser) == "" {
+		return "", "", nil, nil, ideTarget{}, fmt.Errorf(
+			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set \"defaultDbUser\" in %s",
+			instance.DBInstanceIdentifier, r.configHint())
+	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
 	if err != nil {
@@ -983,16 +1035,15 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	awsArgsHint := strings.Join(cfg.Args, " ")
 	var sessionInfo []string
 	var dbUser string
-	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == ""
 	switch {
 	case options.DBPassword != "":
 		dbUser = strings.TrimSpace(options.DBUser)
 		sessionInfo = rdsPasswordSessionInfo(localPort, dbUser)
 	case iamAuth:
-		dbUser = ResolveDBUser(options.DBUser)
+		dbUser = r.ResolveDBUser(options.DBUser)
 		sessionInfo = rdsIAMSessionInfo(localPort, instance.Endpoint.Address, instance.Endpoint.Port, dbUser, cfg, awsArgsHint)
 	default:
-		sessionInfo = rdsSecretsSessionInfo(localPort, instance.DBInstanceArn, instance.MasterUserSecret.SecretArn, instance.MasterUsername, awsArgsHint)
+		sessionInfo = rdsSecretsSessionInfo(localPort, instance.DBInstanceArn, instance.MasterUserSecret.SecretArn, instance.MasterUsername, r.readOnlySecretTag, awsArgsHint)
 	}
 
 	params := map[string][]string{
@@ -1040,16 +1091,20 @@ func rdsPasswordSessionInfo(localPort int, user string) []string {
 }
 
 // rdsSecretsSessionInfo explains where the credentials of an instance without IAM authentication (SQL Server) live.
-func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUsername, awsArgsHint string) []string {
+func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUsername string, readOnlyTag awstag.Tag, awsArgsHint string) []string {
 	info := []string{
 		"IAM authentication is not enabled for this instance: use Secrets Manager.",
 		fmt.Sprintf("  host:port            = localhost:%d", localPort),
 		"  user / password      = read them from a secret below (the JSON holds both)",
-		"",
-		"Read-only credentials, one secret per database:",
-		fmt.Sprintf("  aws secretsmanager list-secrets --filters Key=tag-key,Values=DBInstanceArn Key=tag-value,Values=%s --query %q --output text %s",
-			instanceARN, dbmcp.ReadOnlySecretsQuery(awstag.Tag{Key: "AccessRole", Value: "ro-access"}, instanceARN), awsArgsHint),
-		"  aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text " + awsArgsHint,
+	}
+	if !readOnlyTag.IsZero() {
+		info = append(info,
+			"",
+			"Read-only credentials, one secret per database:",
+			fmt.Sprintf("  aws secretsmanager list-secrets --filters Key=tag-key,Values=DBInstanceArn Key=tag-value,Values=%s --query %q --output text %s",
+				instanceARN, dbmcp.ReadOnlySecretsQuery(readOnlyTag, instanceARN), awsArgsHint),
+			"  aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text "+awsArgsHint,
+		)
 	}
 	if masterSecretARN == "" {
 		return append(info, "", "No master user secret found for this instance.")
@@ -1324,7 +1379,7 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 	key := strings.Join([]string{resourceType, cfg.Profile, cfg.Region, targetName}, "|")
 	dataSource := &ideadatasource.DataSource{
 		Key:        key,
-		Name:       fmt.Sprintf("acme %s %s", cfg.Profile, targetName),
+		Name:       fmt.Sprintf("airlock %s %s", cfg.Profile, targetName),
 		Engine:     target.Engine,
 		Host:       "localhost",
 		Port:       port,
@@ -1361,19 +1416,16 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 	return fmt.Sprintf("IntelliJ data source %q -> localhost:%d (%s)", result.Name, port, relativePaths(projectDir, result.Paths)), remove
 }
 
-const (
-	// awsIAMAuthProvider is the IntelliJ authentication method "AWS IAM".
-	awsIAMAuthProvider = "aws.rds.iam"
-	// DefaultRDSIAMUser is the read-only database user signing in with AWS IAM when none is chosen.
-	DefaultRDSIAMUser = "acme_ro"
-)
+// awsIAMAuthProvider is the IntelliJ authentication method "AWS IAM".
+const awsIAMAuthProvider = "aws.rds.iam"
 
-// ResolveDBUser returns the database user signing in with AWS IAM: user, or DefaultRDSIAMUser when blank.
-func ResolveDBUser(user string) string {
+// ResolveDBUser returns the database user signing in with AWS IAM: user, else the configured
+// default user; "" when neither is set.
+func (r *Runner) ResolveDBUser(user string) string {
 	if user = strings.TrimSpace(user); user != "" {
 		return user
 	}
-	return DefaultRDSIAMUser
+	return r.defaultDBUser
 }
 
 // awsIAMProperties prefills the AWS Toolkit settings used by IntelliJ's "AWS IAM" authentication.
@@ -1427,26 +1479,28 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		AWS: func(ctx context.Context, args ...string) (string, error) {
 			return r.runAWSCapture(ctx, cfg.Args, args...)
 		},
-		ProjectDir:      projectDir,
-		Profile:         cfg.Profile,
-		Region:          cfg.Region,
-		Target:          targetName,
-		AWSEngine:       target.Engine,
-		RDSHost:         target.RDSHost,
-		RDSPort:         target.RDSPort,
-		DBName:          target.Database,
-		InstanceARN:     target.InstanceARN,
-		MasterSecretARN: target.MasterSecretARN,
-		DBUser:          target.DBUser,
-		DBPassword:      target.DBPassword,
-		IAMAuth:         target.IAMAuth,
-		LocalPort:       localPort,
-		AllowWrites:     allowWrites,
-		LogDir:          r.mcpLogDir,
-		// Temporary acme values until the runner takes them from the config.
-		ServerPrefix:      "acme",
-		ReadOnlySecretTag: awstag.Tag{Key: "AccessRole", Value: "ro-access"},
+		ProjectDir:        projectDir,
+		Profile:           cfg.Profile,
+		Region:            cfg.Region,
+		Target:            targetName,
+		AWSEngine:         target.Engine,
+		RDSHost:           target.RDSHost,
+		RDSPort:           target.RDSPort,
+		DBName:            target.Database,
+		InstanceARN:       target.InstanceARN,
+		MasterSecretARN:   target.MasterSecretARN,
+		DBUser:            target.DBUser,
+		DBPassword:        target.DBPassword,
+		IAMAuth:           target.IAMAuth,
+		LocalPort:         localPort,
+		AllowWrites:       allowWrites,
+		LogDir:            r.mcpLogDir,
+		ServerPrefix:      r.mcpServerPrefix,
+		ReadOnlySecretTag: r.readOnlySecretTag,
 	})
+	if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
+		return nil, fmt.Sprintf("not started: set \"readOnlySecretTag\" in %s for read-only SQL Server access (or enable writes)", r.configHint())
+	}
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
@@ -1547,7 +1601,7 @@ func firstValue(values map[string][]string, key string) string {
 func describeAuth(target *ideTarget) string {
 	switch {
 	case target.IAMAuth:
-		return "AWS IAM token (generated by acme) · " + target.DBUser
+		return "AWS IAM token (generated by airlock) · " + target.DBUser
 	case target.DBPassword != "":
 		return "password · " + target.DBUser
 	default:
@@ -1565,7 +1619,7 @@ func restartDBUser(target *ideTarget) string {
 }
 
 func buildRestartCommand(resourceType string, targetName string, localPort string, dbUser string, cfg awsConfig) string {
-	parts := []string{"acme", "jumphost", resourceType}
+	parts := []string{"airlock", resourceType}
 
 	targetName = strings.TrimSpace(targetName)
 	if targetName != "" {
@@ -1583,7 +1637,7 @@ func buildRestartCommand(resourceType string, targetName string, localPort strin
 	if cfg.Region != "" {
 		parts = append(parts, "--region", cfg.Region)
 	}
-	if dbUser != "" && dbUser != DefaultRDSIAMUser {
+	if dbUser != "" {
 		parts = append(parts, "--db-user", dbUser)
 	}
 

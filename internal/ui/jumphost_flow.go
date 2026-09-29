@@ -20,6 +20,8 @@ type JumphostDiscovery interface {
 	CheckLocalPort(port int) error
 	// ResolveRegion returns the region used for profile when none is chosen explicitly.
 	ResolveRegion(ctx context.Context, profile string) string
+	// ResolveDBUser returns user, else the default database user; "" when none is configured.
+	ResolveDBUser(user string) string
 	// LoadConnectionPrefs returns the Connect step choices saved for the database of options, if any.
 	LoadConnectionPrefs(ctx context.Context, options jumphost.Options) (jumphost.ConnectionPrefs, bool)
 	// SaveConnectionPrefs remembers the Connect step choices of options (never the password).
@@ -184,7 +186,10 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 	portInput.CharLimit = 6
 
 	userInput := textinput.New()
-	userInput.Placeholder = jumphost.DefaultRDSIAMUser
+	userInput.Placeholder = "Database user"
+	if def := runner.ResolveDBUser(""); def != "" {
+		userInput.Placeholder = def
+	}
 	userInput.Prompt = ""
 	userInput.CharLimit = 63
 
@@ -330,7 +335,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.TrimSpace(user) == "" && msg.saved {
 			user = msg.prefs.DBUser
 		}
-		m.userInput.SetValue(jumphost.ResolveDBUser(user))
+		m.userInput.SetValue(m.runner.ResolveDBUser(user))
 		m.userInput.CursorEnd()
 		// Every connection starts from the target's saved choices, else passwordless and with the
 		// --mcp-allow-writes default. A password typed for another target is never reused.
@@ -655,7 +660,7 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 			return m.focusReviewField(reviewFieldUser), nil
 		}
 		if m.passwordless {
-			m.options.DBUser = jumphost.ResolveDBUser(user)
+			m.options.DBUser = m.runner.ResolveDBUser(user)
 		} else {
 			if user == "" {
 				m.errorMsg = "Enter the database user signing in with the password"

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 const (
@@ -213,7 +212,10 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 
 	portHelp := "Ports already used by sessions or local apps are skipped."
 	toggleHelp := "Space toggles. On, acme generates AWS IAM tokens: nothing to type."
-	userHelp := "Signs in with AWS IAM. Leave empty for " + jumphost.DefaultRDSIAMUser + "."
+	userHelp := "Signs in with AWS IAM."
+	if def := m.runner.ResolveDBUser(""); def != "" {
+		userHelp = "Signs in with AWS IAM. Leave empty for " + def + "."
+	}
 	passwordHelp := "Kept in memory only, for the MCP server. The IDE asks for it."
 	mcpHelp := "Space toggles. On, AI assistants write as the user above."
 	if !m.targetIAMAuth {

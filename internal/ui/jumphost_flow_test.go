@@ -73,11 +73,11 @@ func TestWizardReviewPrefillsPortAndDatabaseUser(t *testing.T) {
 	if !m.portInput.Focused() || m.portInput.Value() != "5433" {
 		t.Fatalf("port = %q focused = %v, want the suggested port focused", m.portInput.Value(), m.portInput.Focused())
 	}
-	if got := m.userInput.Value(); got != jumphost.DefaultRDSIAMUser {
-		t.Fatalf("user input = %q, want prefilled with %q", got, jumphost.DefaultRDSIAMUser)
+	if got := m.userInput.Value(); got != testDefaultDBUser {
+		t.Fatalf("user input = %q, want prefilled with %q", got, testDefaultDBUser)
 	}
 	view := m.View()
-	for _, want := range []string{"archive", "5433", jumphost.DefaultRDSIAMUser, "Connect"} {
+	for _, want := range []string{"archive", "5433", testDefaultDBUser, "Connect"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("review does not show %q", want)
 		}
@@ -91,7 +91,7 @@ func TestWizardReviewConnectsWithDefaults(t *testing.T) {
 	if !isQuit(cmd) {
 		t.Fatal("enter on the review did not connect")
 	}
-	if m.options.LocalPortNumber != 5433 || m.options.DBUser != jumphost.DefaultRDSIAMUser {
+	if m.options.LocalPortNumber != 5433 || m.options.DBUser != testDefaultDBUser {
 		t.Fatalf("options = %+v, want port 5433 and the default user", m.options)
 	}
 }
@@ -135,8 +135,8 @@ func TestWizardReviewEmptyDatabaseUserFallsBackToDefault(t *testing.T) {
 	m = focusUserField(t, m)
 	m = clearInput(t, m)
 	m, _ = wizardUpdate(t, m, key("enter"))
-	if m.options.DBUser != jumphost.DefaultRDSIAMUser {
-		t.Fatalf("DBUser = %q, want %q", m.options.DBUser, jumphost.DefaultRDSIAMUser)
+	if m.options.DBUser != testDefaultDBUser {
+		t.Fatalf("DBUser = %q, want %q", m.options.DBUser, testDefaultDBUser)
 	}
 }
 
@@ -178,7 +178,7 @@ func TestWizardReviewWithoutIAMAuthOrMCPHasOnlyPort(t *testing.T) {
 	if !m.portInput.Focused() || m.userInput.Focused() {
 		t.Fatal("tab should stay on the port when there is no other field")
 	}
-	if strings.Contains(m.View(), jumphost.DefaultRDSIAMUser) {
+	if strings.Contains(m.View(), testDefaultDBUser) {
 		t.Fatal("the review shows a database user for an instance without IAM auth")
 	}
 	if _, cmd := wizardUpdate(t, m, key("enter")); !isQuit(cmd) {
@@ -424,7 +424,7 @@ func TestWizardReviewKeepsEditableFieldsOnShortTerminals(t *testing.T) {
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 60, Height: 16})
 
 	view := m.View()
-	for _, want := range []string{"5433", jumphost.DefaultRDSIAMUser} {
+	for _, want := range []string{"5433", testDefaultDBUser} {
 		if !strings.Contains(view, want) {
 			t.Errorf("compact review does not show %q:\n%s", want, view)
 		}
@@ -442,7 +442,7 @@ func TestWizardReviewIsPasswordlessByDefault(t *testing.T) {
 		t.Fatalf("focus = %d, want the passwordless toggle shown on", m.reviewFocus)
 	}
 	m, cmd := wizardUpdate(t, m, key("enter"))
-	if !isQuit(cmd) || m.options.DBPassword != "" || m.options.DBUser != jumphost.DefaultRDSIAMUser {
+	if !isQuit(cmd) || m.options.DBPassword != "" || m.options.DBUser != testDefaultDBUser {
 		t.Fatalf("options = %+v, want an IAM connection with the default user", m.options)
 	}
 }
@@ -575,7 +575,7 @@ func TestWizardReviewMCPWritesKeepsIAMSignIn(t *testing.T) {
 	m, _ = wizardUpdate(t, m, key("l"))
 
 	m, cmd := wizardUpdate(t, m, key("enter"))
-	if !isQuit(cmd) || !m.options.MCPAllowWrites || m.options.DBUser != jumphost.DefaultRDSIAMUser {
+	if !isQuit(cmd) || !m.options.MCPAllowWrites || m.options.DBUser != testDefaultDBUser {
 		t.Fatalf("options = %+v, want MCP writes with the default IAM user", m.options)
 	}
 }
@@ -711,7 +711,7 @@ func TestWizardReviewSavesChoicesOnConnect(t *testing.T) {
 		t.Fatal("enter on the review did not connect")
 	}
 	saved := *runner.lastSave
-	if saved.AwsRegion != "eu-west-3" || saved.Name != "archive" || !saved.MCPAllowWrites || saved.LocalPortNumber != 5432 || saved.DBUser != jumphost.DefaultRDSIAMUser {
+	if saved.AwsRegion != "eu-west-3" || saved.Name != "archive" || !saved.MCPAllowWrites || saved.LocalPortNumber != 5432 || saved.DBUser != testDefaultDBUser {
 		t.Fatalf("saved options = %+v, want the connection's choices under its region", saved)
 	}
 }

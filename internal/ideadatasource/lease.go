@@ -45,7 +45,7 @@ func defaultLeaseRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cacheDir, "acme", "ide-datasources"), nil
+	return filepath.Join(cacheDir, "airlock", "ide-datasources"), nil
 }
 
 func openLeaseStore(projectDir, key string) (leaseStore, error) {

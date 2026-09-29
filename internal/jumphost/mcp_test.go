@@ -7,17 +7,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
+var acmeSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
+
 func testRunner(t *testing.T) *Runner {
 	t.Helper()
-	return NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost()})
+	return NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost(),
+		MCPServerPrefix: "acme", ReadOnlySecretTag: acmeSecretTag})
 }
 
 func TestStartMCPForPostgres(t *testing.T) {
 	runner := testRunner(t)
-	target := ideTarget{Engine: "postgres", Database: "app", RDSHost: "db.rds.amazonaws.com", RDSPort: 5432, IAMAuth: true, DBUser: DefaultRDSIAMUser}
+	target := ideTarget{Engine: "postgres", Database: "app", RDSHost: "db.rds.amazonaws.com", RDSPort: 5432, IAMAuth: true, DBUser: "acme_ro"}
 
 	handle, display := runner.startMCP("archive", 15432, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
 	if handle == nil {
@@ -80,7 +84,7 @@ func TestSessionReleaseWithoutMCPOrDataSource(t *testing.T) {
 }
 
 func TestRDSSecretsSessionInfo(t *testing.T) {
-	info := strings.Join(rdsSecretsSessionInfo(1433, "arn:aws:rds:eu-west-3:1:db:mssql", "arn:master", "admin", "--profile dev --region eu-west-3"), "\n")
+	info := strings.Join(rdsSecretsSessionInfo(1433, "arn:aws:rds:eu-west-3:1:db:mssql", "arn:master", "admin", acmeSecretTag, "--profile dev --region eu-west-3"), "\n")
 
 	for _, want := range []string{
 		"IAM authentication is not enabled",
@@ -100,7 +104,7 @@ func TestRDSSecretsSessionInfo(t *testing.T) {
 }
 
 func TestRDSSecretsSessionInfoWithoutMasterSecret(t *testing.T) {
-	info := strings.Join(rdsSecretsSessionInfo(1433, "arn:db", "", "", ""), "\n")
+	info := strings.Join(rdsSecretsSessionInfo(1433, "arn:db", "", "", awstag.Tag{}, ""), "\n")
 	if !strings.Contains(info, "No master user secret found") {
 		t.Fatalf("session info = %s", info)
 	}
@@ -117,15 +121,6 @@ func TestAWSIAMPropertiesOnlyForIAMInstances(t *testing.T) {
 	}
 }
 
-func TestResolveDBUserDefaultsToReadOnlyUser(t *testing.T) {
-	if user := ResolveDBUser("  "); user != DefaultRDSIAMUser {
-		t.Fatalf("blank user resolved to %q, want %q", user, DefaultRDSIAMUser)
-	}
-	if user := ResolveDBUser(" app_ro "); user != "app_ro" {
-		t.Fatalf("user = %q, want app_ro", user)
-	}
-}
-
 func TestRDSIAMSessionInfoUsesChosenUser(t *testing.T) {
 	info := strings.Join(rdsIAMSessionInfo(5432, "pg.rds.amazonaws.com", 5432, "app_ro", awsConfig{Profile: "dev", Region: "eu-west-3"}, "--profile dev"), "\n")
 
@@ -134,7 +129,7 @@ func TestRDSIAMSessionInfoUsesChosenUser(t *testing.T) {
 			t.Fatalf("session info misses %q:\n%s", want, info)
 		}
 	}
-	if strings.Contains(info, DefaultRDSIAMUser) {
+	if strings.Contains(info, "acme_ro") {
 		t.Fatalf("session info still mentions the default user:\n%s", info)
 	}
 }
@@ -142,19 +137,21 @@ func TestRDSIAMSessionInfoUsesChosenUser(t *testing.T) {
 func TestBuildRestartCommandKeepsCustomDBUser(t *testing.T) {
 	cfg := awsConfig{Profile: "dev", Region: "eu-west-3"}
 
-	if got := buildRestartCommand("rds", "archive", "5433", "app_ro", cfg); got != "acme jumphost rds archive 5433 --profile dev --region eu-west-3 --db-user app_ro" {
+	if got := buildRestartCommand("rds", "archive", "5433", "app_ro", cfg); got != "airlock rds archive 5433 --profile dev --region eu-west-3 --db-user app_ro" {
 		t.Fatalf("restart command = %q", got)
 	}
-	for _, user := range []string{"", DefaultRDSIAMUser} {
-		if got := buildRestartCommand("rds", "archive", "5433", user, cfg); strings.Contains(got, "--db-user") {
-			t.Fatalf("restart command with user %q = %q, want no --db-user", user, got)
-		}
+	if got := buildRestartCommand("rds", "archive", "5433", "", cfg); strings.Contains(got, "--db-user") {
+		t.Fatalf("restart command without user = %q, want no --db-user", got)
+	}
+	if got := buildRestartCommand("rds", "archive", "5433", "acme_ro", cfg); !strings.HasSuffix(got, "--db-user acme_ro") {
+		t.Fatalf("restart command = %q, want the user kept: the config default may differ where it is rerun", got)
 	}
 }
 
 func TestStartMCPLogsQueriesToTheRunnerLogDir(t *testing.T) {
 	logDir := filepath.Join(t.TempDir(), "logs")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost(), MCPLogDir: logDir})
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost(), MCPLogDir: logDir,
+		ReadOnlySecretTag: acmeSecretTag})
 
 	handle, _ := runner.startMCP("archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
 	if handle == nil {
@@ -202,7 +199,7 @@ func TestRestartDBUserOnlyForIAMSessions(t *testing.T) {
 }
 
 func TestDescribeAuthNamesTheSignInMode(t *testing.T) {
-	if got := describeAuth(&ideTarget{IAMAuth: true, DBUser: "acme_ro"}); got != "AWS IAM token (generated by acme) · acme_ro" {
+	if got := describeAuth(&ideTarget{IAMAuth: true, DBUser: "acme_ro"}); got != "AWS IAM token (generated by airlock) · acme_ro" {
 		t.Fatalf("IAM auth = %q", got)
 	}
 	if got := describeAuth(&ideTarget{DBUser: "acme_rw", DBPassword: "s3cret"}); got != "password · acme_rw" || strings.Contains(got, "s3cret") {

@@ -30,6 +30,16 @@ func (fakeSessionRunner) CheckLocalPort(int) error {
 	return nil
 }
 
+// testDefaultDBUser is the default database user of fakeSessionRunner.
+const testDefaultDBUser = "default_ro"
+
+func (fakeSessionRunner) ResolveDBUser(user string) string {
+	if user = strings.TrimSpace(user); user != "" {
+		return user
+	}
+	return testDefaultDBUser
+}
+
 func (fakeSessionRunner) ResolveRegion(context.Context, string) string {
 	return "eu-west-3"
 }

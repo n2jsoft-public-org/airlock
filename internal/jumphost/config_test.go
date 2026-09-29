@@ -1,0 +1,105 @@
+package jumphost
+
+import (
+	"context"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/n2jsoft/airlock/internal/awstag"
+)
+
+func TestRunnerResolveDBUser(t *testing.T) {
+	withDefault := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultDBUser: "acme_ro"})
+	if got := withDefault.ResolveDBUser("  "); got != "acme_ro" {
+		t.Fatalf("blank user resolved to %q, want the configured default", got)
+	}
+	if got := withDefault.ResolveDBUser(" app_ro "); got != "app_ro" {
+		t.Fatalf("explicit user resolved to %q", got)
+	}
+	without := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	if got := without.ResolveDBUser(""); got != "" {
+		t.Fatalf("blank user without default resolved to %q, want empty", got)
+	}
+}
+
+// installRecordingAWS puts an aws executable on PATH that appends its arguments to a log file and
+// prints output.
+func installRecordingAWS(t *testing.T, output string) (logPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	logPath = filepath.Join(dir, "calls.log")
+	script := "#!/bin/sh\necho \"$@\" >> '" + logPath + "'\nprintf '%s\\n' '" + output + "'\n"
+	// #nosec G306 -- the fake aws must be executable.
+	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	return logPath
+}
+
+func TestGetJumphostIDUsesConfiguredTag(t *testing.T) {
+	logPath := installRecordingAWS(t, "i-0123")
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, JumphostTag: awstag.Tag{Key: "Role", Value: "bastion"}})
+
+	id, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
+	if err != nil || id != "i-0123" {
+		t.Fatalf("getJumphostID = %q, %v", id, err)
+	}
+	calls, err := os.ReadFile(logPath) // #nosec G304 -- test file.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "Name=tag:Role,Values=bastion") {
+		t.Fatalf("describe-instances filter = %q, want the configured tag", calls)
+	}
+}
+
+func TestGetJumphostIDDefaultsToUsageJumphost(t *testing.T) {
+	logPath := installRecordingAWS(t, "i-0123")
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	if _, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := os.ReadFile(logPath) // #nosec G304 -- test file.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "Name=tag:Usage,Values=jumphost") {
+		t.Fatalf("describe-instances filter = %q, want Usage=jumphost", calls)
+	}
+}
+
+func TestGetJumphostIDNotFoundNamesTag(t *testing.T) {
+	installRecordingAWS(t, "None")
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	_, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
+	if err == nil || !strings.Contains(err.Error(), "Usage=jumphost") || !strings.Contains(err.Error(), "eu-west-3") {
+		t.Fatalf("error = %v, want the tag and region named", err)
+	}
+}
+
+func TestSecretsSessionInfoWithoutTagOmitsReadOnlyHint(t *testing.T) {
+	info := strings.Join(rdsSecretsSessionInfo(11433, "arn:db", "arn:master", "admin", awstag.Tag{}, "--profile dev"), "\n")
+	if strings.Contains(info, "list-secrets") {
+		t.Fatalf("no read-only hint expected without a tag:\n%s", info)
+	}
+	info = strings.Join(rdsSecretsSessionInfo(11433, "arn:db", "arn:master", "admin", awstag.Tag{Key: "AccessRole", Value: "ro-access"}, "--profile dev"), "\n")
+	if !strings.Contains(info, "Key=='AccessRole' && Value=='ro-access'") {
+		t.Fatalf("read-only hint must use the configured tag:\n%s", info)
+	}
+}
+
+func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), ConfigPath: "/cfg/airlock/config.json"})
+	target := ideTarget{Engine: "sqlserver-se", InstanceARN: "arn:db"}
+	handle, display := runner.startMCP("mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
+	if handle != nil {
+		t.Fatal("no MCP server expected without a read-only secret tag")
+	}
+	if !strings.Contains(display, "readOnlySecretTag") || !strings.Contains(display, "/cfg/airlock/config.json") {
+		t.Fatalf("display = %q, want the setting and config path named", display)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,7 +39,36 @@ func TestResolveRegionUsesProfileRegion(t *testing.T) {
 	if got := runner.ResolveRegion(context.Background(), "dev"); got != "us-east-1" {
 		t.Fatalf("region = %q, want the profile region", got)
 	}
-	if got := runner.ResolveRegion(context.Background(), "prod"); got != defaultRegion {
-		t.Fatalf("region = %q, want %s for a profile without region", got, defaultRegion)
+	if got := runner.ResolveRegion(context.Background(), "prod"); got != "" {
+		t.Fatalf("region = %q, want none for a profile without region and no default", got)
+	}
+}
+
+func TestResolveRegionFallsBackToConfiguredDefault(t *testing.T) {
+	installFakeAWS(t, "us-east-1")
+	t.Setenv("AWS_REGION", "")
+
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultRegion: "eu-west-3"})
+	if got := runner.ResolveRegion(context.Background(), "prod"); got != "eu-west-3" {
+		t.Fatalf("region = %q, want the configured default", got)
+	}
+	if got := runner.ResolveRegion(context.Background(), "dev"); got != "us-east-1" {
+		t.Fatalf("region = %q, the profile region must win over the configured default", got)
+	}
+}
+
+func TestResolveAWSConfigWithoutRegionErrors(t *testing.T) {
+	installFakeAWS(t, "")
+	t.Setenv("AWS_REGION", "")
+
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ConfigPath: "/cfg/airlock/config.json"})
+	_, err := runner.resolveAWSConfig(context.Background(), Options{AwsProfile: "prod"})
+	if err == nil {
+		t.Fatal("resolveAWSConfig without any region must fail")
+	}
+	for _, want := range []string{"--region", "defaultRegion", "/cfg/airlock/config.json"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
 	}
 }
