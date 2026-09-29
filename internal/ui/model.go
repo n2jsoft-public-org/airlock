@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -17,7 +16,6 @@ type step int
 const (
 	stepSelect step = iota
 	stepProfile
-	stepRegion
 )
 
 type commandItem struct {
@@ -41,11 +39,11 @@ type model struct {
 	errorMsg        string
 	list            list.Model
 	profileList     list.Model
-	regionInput     textinput.Model
 	styles          Styles
 	selectedCmd     string
 	selectedProfile string
-	selectedRegion  string
+	width           int
+	height          int
 }
 
 type profileSummary struct {
@@ -59,47 +57,27 @@ type profileLoadedMsg struct {
 }
 
 func newModel() model {
+	styles := NewStyles()
 	items := []list.Item{
 		commandItem{name: "jumphost", desc: "Guided EKS/RDS SSM wizard"},
 		commandItem{name: "update-translate", desc: "Download latest i18n bundle"},
 	}
 
-	commandList := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	commandList.Title = "acme commands"
-	commandList.SetShowStatusBar(false)
+	commandList := newWizardList(styles, items)
 	commandList.SetFilteringEnabled(false)
-	commandList.SetShowHelp(false)
-
-	profileList := list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	profileList.Title = "Select AWS profile"
-	profileList.SetShowStatusBar(false)
-	profileList.SetFilteringEnabled(true)
-	profileList.SetShowHelp(false)
-
-	regionInput := textinput.New()
-	regionInput.Placeholder = "AWS region"
-	regionInput.CharLimit = 40
+	commandList.SetShowTitle(false)
 
 	defaultProfile := strings.TrimSpace(os.Getenv("AWS_PROFILE"))
 	if defaultProfile == "" {
 		defaultProfile = "default"
 	}
 
-	defaultRegion := strings.TrimSpace(os.Getenv("AWS_REGION"))
-	if defaultRegion == "" {
-		defaultRegion = "eu-west-3"
-	}
-
-	regionInput.SetValue(defaultRegion)
-
 	return model{
 		step:            stepSelect,
 		list:            commandList,
-		profileList:     profileList,
-		regionInput:     regionInput,
-		styles:          NewStyles(),
+		profileList:     newWizardList(styles, nil),
+		styles:          styles,
 		selectedProfile: defaultProfile,
-		selectedRegion:  defaultRegion,
 	}
 }
 
@@ -110,8 +88,11 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.list.SetSize(msg.Width-4, msg.Height-7)
-		m.profileList.SetSize(msg.Width-4, msg.Height-7)
+		m.width = msg.Width
+		m.height = msg.Height
+		bodyWidth, bodyHeight := wizardBodySize(msg.Width, msg.Height)
+		m.list.SetSize(bodyWidth, bodyHeight)
+		m.profileList.SetSize(bodyWidth, bodyHeight)
 		return m, nil
 	case loadingTickMsg:
 		if !m.loading {
@@ -120,11 +101,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadingUI.update(msg)
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
-			m.selectedCmd = ""
-			m.selectedProfile = ""
-			m.selectedRegion = ""
-			return m, tea.Quit
+		case "ctrl+c":
+			return m.quit()
+		case "q":
+			// While filtering profiles, "q" is part of the typed filter.
+			if m.step != stepProfile || !m.profileList.SettingFilter() {
+				return m.quit()
+			}
+		}
+		if m.loading {
+			return m, nil
 		}
 	case profileLoadedMsg:
 		m.loading = false
@@ -153,11 +139,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateSelectStep(msg)
 	case stepProfile:
 		return m.updateProfileStep(msg)
-	case stepRegion:
-		return m.updateRegionStep(msg)
 	default:
 		return m, nil
 	}
+}
+
+func (m model) quit() (tea.Model, tea.Cmd) {
+	m.selectedCmd = ""
+	m.selectedProfile = ""
+	return m, tea.Quit
 }
 
 func (m model) updateSelectStep(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -170,7 +160,6 @@ func (m model) updateSelectStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedCmd = item.name
 		if item.name == "update-translate" {
 			m.selectedProfile = ""
-			m.selectedRegion = ""
 			return m, tea.Quit
 		}
 
@@ -193,10 +182,14 @@ func (m model) updateSelectStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// updateProfileStep ends the picker once a profile is chosen; the region is switched later inside the wizard.
 func (m model) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "esc":
+			if m.profileList.FilterState() != list.Unfiltered {
+				break
+			}
 			m.step = stepSelect
 			return m, nil
 		case "enter":
@@ -210,9 +203,7 @@ func (m model) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 				profile = "default"
 			}
 			m.selectedProfile = profile
-			m.step = stepRegion
-			m.regionInput.Focus()
-			return m, nil
+			return m, tea.Quit
 		}
 	}
 
@@ -221,68 +212,30 @@ func (m model) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) updateRegionStep(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.String() {
-		case "esc":
-			m.step = stepProfile
-			m.regionInput.Blur()
-			return m, nil
-		case "enter":
-			region := strings.TrimSpace(m.regionInput.Value())
-			if region == "" {
-				region = "eu-west-3"
-				m.regionInput.SetValue(region)
-			}
-			m.selectedRegion = region
-			m.regionInput.Blur()
-			return m, tea.Quit
-		}
-	}
-
-	var cmd tea.Cmd
-	m.regionInput, cmd = m.regionInput.Update(msg)
-	return m, cmd
-}
-
 func (m model) View() string {
-	if m.loading {
-		return m.loadingUI.View(m.styles, "acme CLI helper")
-	}
+	frame := wizardFrame{title: "acme", tagline: "CLI helper", errorMsg: m.errorMsg}
 
-	if m.step == stepSelect {
-		return m.styles.Container.Render(
-			m.styles.Title.Render("acme CLI helper") + "\n" +
-				m.styles.Subtitle.Render("Select a command") + "\n\n" +
-				m.list.View() + "\n\n" +
-				m.styles.Muted.Render("Enter: select   q: quit"),
-		)
-	}
-
-	if m.step == stepProfile {
-		errorLine := ""
-		if m.errorMsg != "" {
-			errorLine = "\n" + m.styles.Subtitle.Render(m.errorMsg) + "\n"
+	switch {
+	case m.loading:
+		frame.heading = "Working on it"
+		frame.body = m.loadingUI.Body(m.styles)
+		frame.keys = [][2]string{{"q", "quit"}}
+	case m.step == stepSelect:
+		frame.heading = "What do you want to do?"
+		frame.body = m.list.View()
+		frame.keys = [][2]string{{"↑↓", "move"}, {"enter", "select"}, {"q", "quit"}}
+	default:
+		frame.chips = []string{m.styles.contextChip("command", m.selectedCmd)}
+		frame.heading = "Choose an AWS profile"
+		frame.hint = plural(len(m.profileList.Items()), "profile")
+		frame.body = m.profileList.View()
+		frame.keys = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "continue"}, {"esc", "back"}, {"q", "quit"}}
+		if m.profileList.SettingFilter() {
+			frame.keys = [][2]string{{"enter", "continue"}, {"esc", "clear filter"}}
 		}
-
-		content := m.styles.Title.Render("acme CLI helper") + "\n" +
-			m.styles.Subtitle.Render(fmt.Sprintf("Command: %s", m.selectedCmd)) + "\n\n" +
-			m.styles.Subtitle.Render("AWS profile") +
-			errorLine + "\n" +
-			m.profileList.View() + "\n\n" +
-			m.styles.Muted.Render("Enter: continue   esc: back   q: quit")
-
-		return m.styles.Container.Render(content)
 	}
 
-	content := m.styles.Title.Render("acme CLI helper") + "\n" +
-		m.styles.Subtitle.Render(fmt.Sprintf("Command: %s", m.selectedCmd)) + "\n\n" +
-		m.styles.Subtitle.Render(fmt.Sprintf("AWS profile: %s", m.selectedProfile)) + "\n\n" +
-		m.styles.Subtitle.Render("AWS region") + "\n" +
-		m.regionInput.View() + "\n\n" +
-		m.styles.Muted.Render("Enter: run command   esc: back   q: quit")
-
-	return m.styles.Container.Render(content)
+	return m.styles.renderWizardFrame(frame, m.width, m.height)
 }
 
 func loadProfilesCmd() tea.Cmd {

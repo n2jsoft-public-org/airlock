@@ -288,3 +288,97 @@ func TestDescribeUnknownTable(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestConnectionErrorExplainsRejectedCredentials(t *testing.T) {
+	rejected := errors.New(`failed to connect to user=acme_rw: failed SASL auth: FATAL: password authentication failed for user "acme_rw" (SQLSTATE 28P01)`)
+
+	iam := newSQLQuerier(&postgresDialect, newIAMTokenProvider(nil, "db", 5432, "acme_rw", "app"), 15432, nil)
+	err := iam.connectionError(rejected)
+	if !strings.Contains(err.Error(), "GRANT rds_iam TO acme_rw") || !strings.Contains(err.Error(), "IAM auth turned off") || !errors.Is(err, rejected) {
+		t.Fatalf("IAM error = %v", err)
+	}
+
+	password := newSQLQuerier(&postgresDialect, newPasswordProvider("acme_rw", "wrong", "app"), 15432, nil)
+	if err := password.connectionError(rejected); !strings.Contains(err.Error(), "password entered for acme_rw was rejected") {
+		t.Fatalf("password error = %v", err)
+	}
+
+	other := errors.New("relation users does not exist")
+	if err := iam.connectionError(other); err != other {
+		t.Fatalf("unrelated error rewritten: %v", err)
+	}
+}
+
+// rotatingCreds is a credentialRefresher whose refresh calls onRefresh, e.g. to accept connections again.
+type rotatingCreds struct {
+	onRefresh func()
+	staticCreds
+	refreshes int
+}
+
+func (r *rotatingCreds) refresh() {
+	r.refreshes++
+	if r.onRefresh != nil {
+		r.onRefresh()
+	}
+}
+
+var errLoginFailed = errors.New("mssql: login error: Login failed for user 'admin'")
+
+func TestQueryRereadsRotatedSecretOnce(t *testing.T) {
+	creds := &rotatingCreds{staticCreds: staticCreds{fallback: "app"}}
+	q, db, opened := newTestQuerier(&sqlServerDialect, creds)
+	db.connectErr = errLoginFailed
+	creds.onRefresh = func() { db.connectErr = nil }
+
+	if _, err := q.Query(context.Background(), "", "SELECT 1", 1); err != nil {
+		t.Fatalf("query after rotation: %v", err)
+	}
+	if creds.refreshes != 1 || !reflect.DeepEqual(*opened, []string{"app", "app"}) {
+		t.Fatalf("refreshes = %d opened = %v, want one refresh and a new pool", creds.refreshes, *opened)
+	}
+}
+
+func TestExecRereadsRotatedSecretAndRunsStatementOnce(t *testing.T) {
+	creds := &rotatingCreds{staticCreds: staticCreds{fallback: "app"}}
+	q, db, _ := newTestQuerier(&sqlServerDialect, creds)
+	db.connectErr = errLoginFailed
+	creds.onRefresh = func() { db.connectErr = nil }
+
+	affected, err := q.Exec(context.Background(), "", "DELETE FROM users WHERE id = 1")
+	if err != nil || affected != 3 {
+		t.Fatalf("affected = %d, err = %v", affected, err)
+	}
+	if got := db.statements(); !reflect.DeepEqual(got, []string{"DELETE FROM users WHERE id = 1"}) {
+		t.Fatalf("statements = %q, want the statement run once", got)
+	}
+}
+
+func TestQueryGivesUpWhenRereadSecretIsStillRejected(t *testing.T) {
+	creds := &rotatingCreds{staticCreds: staticCreds{fallback: "app"}}
+	q, db, _ := newTestQuerier(&sqlServerDialect, creds)
+	db.connectErr = errLoginFailed
+
+	_, err := q.Query(context.Background(), "", "SELECT 1", 1)
+	if err == nil || !strings.Contains(err.Error(), "Login failed") || creds.refreshes != 1 {
+		t.Fatalf("err = %v refreshes = %d, want the rejection reported after a single retry", err, creds.refreshes)
+	}
+}
+
+func TestQueryDoesNotRetryOtherErrorsOrStaticCredentials(t *testing.T) {
+	creds := &rotatingCreds{staticCreds: staticCreds{fallback: "app"}}
+	q, db, opened := newTestQuerier(&postgresDialect, creds)
+	db.connectErr = errors.New("dial tcp 127.0.0.1:15432: connect: connection refused")
+	if _, err := q.Query(context.Background(), "", "SELECT 1", 1); err == nil || creds.refreshes != 0 {
+		t.Fatalf("err = %v refreshes = %d, want no retry for a refused connection", err, creds.refreshes)
+	}
+
+	static, staticDB, staticOpened := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
+	staticDB.connectErr = errLoginFailed
+	if _, err := static.Query(context.Background(), "", "SELECT 1", 1); err == nil || len(*staticOpened) != 1 {
+		t.Fatalf("err = %v opened = %v, want no retry without cached secrets", err, *staticOpened)
+	}
+	if len(*opened) != 1 {
+		t.Fatalf("opened = %v, want a single pool", *opened)
+	}
+}

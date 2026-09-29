@@ -74,9 +74,38 @@ func (p *iamTokenProvider) Credentials(ctx context.Context, database string) (Cr
 
 func (*iamTokenProvider) Databases(context.Context) ([]string, error) { return nil, nil }
 
-// iamDisabledProvider explains that read-only PostgreSQL MCP access needs AWS IAM database
-// authentication, which this instance does not have enabled (there is no other read-only
-// PostgreSQL credential).
+func (p *iamTokenProvider) authFailureHint() string {
+	// PostgreSQL gives the same answer for an unknown user and for a password user without rds_iam.
+	return fmt.Sprintf("%s rejected the AWS IAM token: the user does not exist on this instance, or lacks the rds_iam role "+
+		"(GRANT rds_iam TO %s); otherwise connect again with IAM auth turned off and its password", p.user, p.user)
+}
+
+// passwordProvider signs in with the user and password entered by the user.
+type passwordProvider struct {
+	user            string
+	password        string
+	defaultDatabase string
+}
+
+func newPasswordProvider(user, password, defaultDatabase string) *passwordProvider {
+	return &passwordProvider{user: user, password: password, defaultDatabase: defaultDatabase}
+}
+
+func (p *passwordProvider) Credentials(_ context.Context, database string) (Credentials, error) {
+	if database == "" {
+		database = p.defaultDatabase
+	}
+	return Credentials{User: p.user, Password: p.password, Database: database}, nil
+}
+
+func (*passwordProvider) Databases(context.Context) ([]string, error) { return nil, nil }
+
+func (p *passwordProvider) authFailureHint() string {
+	return fmt.Sprintf("the password entered for %s was rejected: connect again with the right one", p.user)
+}
+
+// iamDisabledProvider explains that PostgreSQL MCP access without a password needs AWS IAM
+// database authentication, which this instance does not have enabled.
 type iamDisabledProvider struct {
 	instance string
 }
@@ -87,7 +116,7 @@ func newIAMDisabledProvider(instance string) *iamDisabledProvider {
 
 func (p *iamDisabledProvider) err() error {
 	return fmt.Errorf(
-		"IAM authentication is disabled on %s: read-only MCP access needs it (enable IAM auth, or use --mcp-allow-writes with the master user secret)",
+		"IAM authentication is disabled on %s: MCP access needs it (enable IAM auth, or connect with a database user and password)",
 		p.instance)
 }
 
@@ -225,6 +254,13 @@ func (p *supportSecretsProvider) Databases(ctx context.Context) ([]string, error
 	return p.names(), nil
 }
 
+// refresh forgets the ro-access secrets, discovered and read again on the next call: they may have been rotated.
+func (p *supportSecretsProvider) refresh() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.byDatabase, p.warnings = nil, nil
+}
+
 func (p *supportSecretsProvider) names() []string {
 	names := make([]string, 0, len(p.byDatabase))
 	for name := range p.byDatabase {
@@ -234,7 +270,7 @@ func (p *supportSecretsProvider) names() []string {
 	return names
 }
 
-// masterSecretProvider uses the RDS-managed master user secret (writes mode).
+// masterSecretProvider uses the RDS-managed master user secret (SQL Server writes mode).
 type masterSecretProvider struct {
 	aws             AWSRunner
 	creds           *Credentials
@@ -269,3 +305,10 @@ func (p *masterSecretProvider) Credentials(ctx context.Context, database string)
 }
 
 func (*masterSecretProvider) Databases(context.Context) ([]string, error) { return nil, nil }
+
+// refresh forgets the master secret, read again on the next call: RDS may have rotated it.
+func (p *masterSecretProvider) refresh() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.creds = nil
+}

@@ -192,3 +192,65 @@ func TestMasterSecretProviderErrors(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCredentialProviderUsesEnteredPasswordInsteadOfIAM(t *testing.T) {
+	cfg := &SessionConfig{Target: "archive", DBName: "app", DBUser: "app_user", DBPassword: "s3cret", IAMAuth: true}
+
+	provider, ok := credentialProvider(cfg, EnginePostgres).(*passwordProvider)
+	if !ok {
+		t.Fatalf("provider = %T, want the entered password", credentialProvider(cfg, EnginePostgres))
+	}
+	creds, err := provider.Credentials(context.Background(), "")
+	if err != nil || creds != (Credentials{User: "app_user", Password: "s3cret", Database: "app"}) {
+		t.Fatalf("credentials = %+v, err = %v", creds, err)
+	}
+
+	// Enabling writes keeps the entered password: no master user secret is read.
+	cfg.AllowWrites = true
+	if _, ok := credentialProvider(cfg, EnginePostgres).(*passwordProvider); !ok {
+		t.Fatalf("provider = %T, want the entered password for writes too", credentialProvider(cfg, EnginePostgres))
+	}
+}
+
+func TestCredentialProviderWithoutPasswordUsesIAMTokens(t *testing.T) {
+	cfg := &SessionConfig{Target: "archive", DBUser: "acme_ro", IAMAuth: true}
+	if _, ok := credentialProvider(cfg, EnginePostgres).(*iamTokenProvider); !ok {
+		t.Fatalf("provider = %T, want IAM tokens", credentialProvider(cfg, EnginePostgres))
+	}
+}
+
+func TestMasterSecretProviderRefreshReadsRotatedSecret(t *testing.T) {
+	password := "old"
+	aws := &fakeAWS{responses: map[string]func([]string) (string, error){
+		"secretsmanager get-secret-value": func([]string) (string, error) {
+			return `{"username":"admin","password":"` + password + `"}`, nil
+		},
+	}}
+	provider := newMasterSecretProvider(aws.run, "pg-1", "arn:master", "postgres")
+	if _, err := provider.Credentials(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	password = "rotated"
+	provider.refresh()
+	creds, err := provider.Credentials(context.Background(), "")
+	if err != nil || creds.Password != "rotated" {
+		t.Fatalf("credentials = %+v, %v; want the rotated password", creds, err)
+	}
+}
+
+func TestSupportSecretsProviderRefreshReadsRotatedSecrets(t *testing.T) {
+	secrets := map[string]string{"arn:s1": `{"username":"app_ro","password":"old","dbname":"Archive"}`}
+	aws := supportSecretsAWS(secrets)
+	provider := newSupportSecretsProvider(aws.run, "mssql-1", testInstanceARN)
+	if _, err := provider.Credentials(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	secrets["arn:s1"] = `{"username":"app_ro","password":"rotated","dbname":"Archive"}`
+	provider.refresh()
+	creds, err := provider.Credentials(context.Background(), "Archive")
+	if err != nil || creds.Password != "rotated" {
+		t.Fatalf("credentials = %+v, %v; want the rotated password", creds, err)
+	}
+}

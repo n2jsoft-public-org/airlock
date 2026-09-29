@@ -6,8 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-var loadingFrames = []string{"|", "/", "-", "\\"}
-
 const (
 	loadingTickInterval   = 120 * time.Millisecond
 	loadingPhraseInterval = 18
@@ -53,7 +51,7 @@ func (l *loadingState) update(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	l.frameIndex = (l.frameIndex + 1) % len(loadingFrames)
+	l.frameIndex = (l.frameIndex + 1) % len(spinnerFrames)
 	l.tickCount++
 	if len(l.funnyLines) > 1 && l.tickCount%loadingPhraseInterval == 0 {
 		l.phraseIndex = (l.phraseIndex + 1) % len(l.funnyLines)
@@ -63,16 +61,14 @@ func (l *loadingState) update(msg tea.Msg) tea.Cmd {
 }
 
 func (l loadingState) View(styles Styles, title string) string {
-	line := ""
+	return styles.Container.Render(styles.Title.Render(title) + "\n\n" + l.Body(styles))
+}
+
+// Body renders the spinner, label and current phrase without any title, for embedding in a frame.
+func (l loadingState) Body(styles Styles) string {
+	content := styles.Subtitle.Render(spinnerFrames[l.frameIndex] + " " + l.label)
 	if len(l.funnyLines) > 0 {
-		line = l.funnyLines[l.phraseIndex]
+		content += "\n" + styles.Muted.Render(l.funnyLines[l.phraseIndex])
 	}
-
-	content := styles.Title.Render(title) + "\n\n" +
-		styles.Subtitle.Render(loadingFrames[l.frameIndex]+" "+l.label)
-	if line != "" {
-		content += "\n" + styles.Muted.Render(line)
-	}
-
-	return styles.Container.Render(content)
+	return content
 }

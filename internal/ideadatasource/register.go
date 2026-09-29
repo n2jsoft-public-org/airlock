@@ -27,6 +27,7 @@ type DataSource struct {
 	// Properties are written as JDBC additional properties (e.g. AWS IAM settings).
 	Properties map[string]string
 	// AuthProvider (e.g. "aws.rds.iam") and User are per-user settings stored in dataSources.local.xml.
+	// A User without AuthProvider signs in with the IDE default, user & password.
 	AuthProvider string
 	User         string
 	// Key uniquely identifies the target; the same key always maps to the same IDE entry.

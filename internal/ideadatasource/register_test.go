@@ -551,3 +551,32 @@ func TestRegisterSkipsLocalSettingsWhenEmpty(t *testing.T) {
 		t.Fatal("dataSources.local.xml must not be created without auth settings")
 	}
 }
+
+func TestRegisterWithPasswordDropsEarlierAuthProvider(t *testing.T) {
+	useIsolatedLeases(t)
+	dir := t.TempDir()
+	mustMkdir(t, filepath.Join(dir, ideaDirName))
+
+	ds := samplePostgres(5432)
+	ds.AuthProvider = "aws.rds.iam"
+	ds.User = "acme_ro"
+	if _, err := Register(dir, ds); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	ds.AuthProvider = ""
+	ds.User = "app_user"
+	if _, err := Register(dir, ds); err != nil {
+		t.Fatalf("register again: %v", err)
+	}
+
+	entry := readDoc(t, filepath.Join(dir, ideaDirName, localFileName)).
+		FindElement("//component[@name='dataSourceStorageLocal']/data-source[@uuid='" + stableUUID(ds.Key) + "']")
+	if entry == nil {
+		t.Fatal("missing local settings entry")
+	}
+	if entry.SelectElement("auth-provider") != nil {
+		t.Fatal("a password session must not keep the AWS IAM authentication method")
+	}
+	assertChild(t, entry, "user-name", "app_user")
+}

@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Palette shared by every screen (256-color codes).
 const (
@@ -39,6 +43,14 @@ type Styles struct {
 	SelectedCard lipgloss.Style
 	CardMarker   lipgloss.Style
 	FieldLabel   lipgloss.Style
+
+	// Card and CardFocus frame the wizard choices; the focused one gets the accent border.
+	Card      lipgloss.Style
+	CardFocus lipgloss.Style
+	// StepDone, StepCurrent and StepPending render the wizard breadcrumb.
+	StepDone    lipgloss.Style
+	StepCurrent lipgloss.Style
+	StepPending lipgloss.Style
 
 	Badge       lipgloss.Style
 	BadgeRDS    lipgloss.Color
@@ -97,6 +109,22 @@ func NewStyles() Styles {
 			Foreground(colorMuted).
 			Width(9),
 
+		Card: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorBorder).
+			Padding(0, 1),
+		CardFocus: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorAccent).
+			Padding(0, 1),
+		StepDone: lipgloss.NewStyle().
+			Foreground(colorSuccess),
+		StepCurrent: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorAccent),
+		StepPending: lipgloss.NewStyle().
+			Foreground(colorFaint),
+
 		Badge: lipgloss.NewStyle().
 			Bold(true).
 			Padding(0, 1).
@@ -122,4 +150,27 @@ func NewStyles() Styles {
 			Foreground(colorOnBadge).
 			Background(lipgloss.Color("25")),
 	}
+}
+
+// ResourceBadge renders the colored badge of a jumphost resource type.
+func (s Styles) ResourceBadge(resourceType string) string {
+	switch strings.ToLower(resourceType) {
+	case "rds":
+		return s.Badge.Background(s.BadgeRDS).Render("RDS")
+	case "eks":
+		return s.Badge.Background(s.BadgeEKS).Render("EKS")
+	case "elasticache":
+		return s.Badge.Background(s.BadgeCache).Render("CACHE")
+	default:
+		return s.Badge.Background(s.BadgeOther).Render(strings.ToUpper(resourceType))
+	}
+}
+
+// KeyHints renders "key description" pairs as key caps, truncated to width.
+func (s Styles) KeyHints(keys [][2]string, width int) string {
+	hints := make([]string, 0, len(keys))
+	for _, k := range keys {
+		hints = append(hints, s.KeyCap.Render(k[0])+" "+s.KeyDesc.Render(k[1]))
+	}
+	return truncate(strings.Join(hints, "  "), width)
 }

@@ -30,6 +30,18 @@ func (fakeSessionRunner) CheckLocalPort(int) error {
 	return nil
 }
 
+func (fakeSessionRunner) ResolveRegion(context.Context, string) string {
+	return "eu-west-3"
+}
+
+func (fakeSessionRunner) LoadConnectionPrefs(context.Context, jumphost.Options) (jumphost.ConnectionPrefs, bool) {
+	return jumphost.ConnectionPrefs{}, false
+}
+
+func (fakeSessionRunner) SaveConnectionPrefs(context.Context, jumphost.Options) error {
+	return nil
+}
+
 func (fakeSessionRunner) Prepare(_ context.Context, options jumphost.Options) (*jumphost.Session, error) {
 	return &jumphost.Session{Label: options.Name, LocalPort: options.LocalPortNumber}, nil
 }
@@ -235,6 +247,15 @@ func TestDetailsShowMCPServer(t *testing.T) {
 
 	if view := m.View(); !strings.Contains(view, "read-only · acme-dev-db") {
 		t.Fatalf("details do not show the MCP server:\n%s", view)
+	}
+}
+
+func TestDetailsShowSignInMode(t *testing.T) {
+	m := newTestSSMModel(t, "db")
+	m.sessions[0].session.Details.Auth = "password · acme_rw"
+
+	if view := m.View(); !strings.Contains(view, "password · acme_rw") {
+		t.Fatalf("details do not show the sign-in mode:\n%s", view)
 	}
 }
 

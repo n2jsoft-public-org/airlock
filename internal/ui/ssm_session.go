@@ -418,6 +418,7 @@ func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
 		SkipIDEDataSource: m.baseOptions.SkipIDEDataSource,
 		SkipMCP:           m.baseOptions.SkipMCP,
 		MCPAllowWrites:    m.baseOptions.MCPAllowWrites,
+		DBUser:            m.baseOptions.DBUser,
 	}
 	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
 	m.wizard.embedded = true

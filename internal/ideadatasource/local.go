@@ -24,7 +24,8 @@ func localSettingsPath(dataSourcesPath string) string {
 }
 
 // writeLocalSettings stores the per-user settings (authentication method, user name) of ds in
-// dataSources.local.xml. It does nothing when ds carries no such setting.
+// dataSources.local.xml. It does nothing when ds carries no such setting; a user without an
+// authentication method selects the IDE default, user & password.
 func writeLocalSettings(path string, ds *DataSource) error {
 	if ds.AuthProvider == "" && ds.User == "" {
 		return nil
@@ -53,6 +54,9 @@ func writeLocalSettings(path string, ds *DataSource) error {
 
 	if ds.AuthProvider != "" {
 		setChildText(element, "auth-provider", ds.AuthProvider)
+	} else if provider := element.SelectElement("auth-provider"); provider != nil {
+		// Without a method the IDE signs in with user & password: drop one set by an earlier session (e.g. AWS IAM).
+		element.RemoveChild(provider)
 	}
 	if ds.User != "" {
 		setChildText(element, "user-name", ds.User)

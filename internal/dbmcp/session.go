@@ -22,13 +22,17 @@ type SessionConfig struct {
 	MasterSecretARN string
 	// LogDir receives the audit log of the MCP tool calls; empty disables it.
 	LogDir string
-	// IAMUser is the read-only user signing in with RDS IAM tokens (PostgreSQL).
-	IAMUser   string
-	RDSPort   int
-	LocalPort int
+	// DBUser signs in with RDS IAM tokens (PostgreSQL), or with DBPassword when it is set.
+	DBUser string
+	// DBPassword is the password entered by the user instead of AWS IAM sign-in; empty when unused.
+	DBPassword string
+	RDSPort    int
+	LocalPort  int
 	// IAMAuth reports whether the RDS instance has AWS IAM database authentication enabled.
-	// Read-only PostgreSQL access needs it (there is no other read-only credential for PostgreSQL).
-	IAMAuth     bool
+	// PostgreSQL access needs it unless DBPassword is set.
+	IAMAuth bool
+	// AllowWrites exposes the execute tool. PostgreSQL still signs in as DBUser, whose grants decide
+	// what can be written; SQL Server, without AWS IAM sign-in, switches to the master user secret.
 	AllowWrites bool
 }
 
@@ -134,17 +138,16 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 		defaultDatabase = "postgres"
 	}
 	switch {
-	case cfg.AllowWrites:
-		if engine == EngineSQLServer {
-			defaultDatabase = "master"
-		}
-		return newMasterSecretProvider(cfg.AWS, cfg.Target, cfg.MasterSecretARN, defaultDatabase)
+	case cfg.DBPassword != "":
+		return newPasswordProvider(cfg.DBUser, cfg.DBPassword, defaultDatabase)
+	case engine == EngineSQLServer && cfg.AllowWrites:
+		return newMasterSecretProvider(cfg.AWS, cfg.Target, cfg.MasterSecretARN, "master")
 	case engine == EngineSQLServer:
 		return newSupportSecretsProvider(cfg.AWS, cfg.Target, cfg.InstanceARN)
 	case !cfg.IAMAuth:
 		return newIAMDisabledProvider(cfg.Target)
 	default:
-		return newIAMTokenProvider(cfg.AWS, cfg.RDSHost, cfg.RDSPort, cfg.IAMUser, defaultDatabase)
+		return newIAMTokenProvider(cfg.AWS, cfg.RDSHost, cfg.RDSPort, cfg.DBUser, defaultDatabase)
 	}
 }
 

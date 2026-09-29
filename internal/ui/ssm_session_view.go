@@ -237,6 +237,9 @@ func (m ssmModel) renderDetails(width int) string {
 		m.field("AWS", s.session.Profile+m.styles.Faint.Render(" · ")+s.session.Region, inner),
 		m.field("Uptime", uptime, inner),
 	}
+	if auth := strings.TrimSpace(s.session.Details.Auth); auth != "" {
+		rows = append(rows, m.field("Auth", auth, inner))
+	}
 	if ide := strings.TrimSpace(s.session.Details.IDEDataSource); ide != "" {
 		rows = append(rows, m.field("IDE", ide, inner))
 	}
@@ -367,11 +370,7 @@ func (m ssmModel) renderFooter(width int) string {
 		}
 		keys = append(keys, [2]string{"q", "quit"})
 	}
-	hints := make([]string, 0, len(keys))
-	for _, k := range keys {
-		hints = append(hints, m.styles.KeyCap.Render(k[0])+" "+m.styles.KeyDesc.Render(k[1]))
-	}
-	lines = append(lines, truncate(strings.Join(hints, "  "), width))
+	lines = append(lines, m.styles.KeyHints(keys, width))
 	return strings.Join(lines, "\n")
 }
 
@@ -400,16 +399,7 @@ func (m ssmModel) status(s *ssmSession) (icon, label string, style lipgloss.Styl
 }
 
 func (m ssmModel) badge(resourceType string) string {
-	switch strings.ToLower(resourceType) {
-	case "rds":
-		return m.styles.Badge.Background(m.styles.BadgeRDS).Render("RDS")
-	case "eks":
-		return m.styles.Badge.Background(m.styles.BadgeEKS).Render("EKS")
-	case "elasticache":
-		return m.styles.Badge.Background(m.styles.BadgeCache).Render("CACHE")
-	default:
-		return m.styles.Badge.Background(m.styles.BadgeOther).Render(strings.ToUpper(resourceType))
-	}
+	return m.styles.ResourceBadge(resourceType)
 }
 
 func (m ssmModel) field(label, value string, width int) string {

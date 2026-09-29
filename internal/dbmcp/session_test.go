@@ -19,7 +19,7 @@ func testSessionConfig(t *testing.T, engine string) *SessionConfig {
 		ProjectDir: t.TempDir(),
 		Profile:    "dev", Region: "eu-west-3", Target: "Archive_DB",
 		AWSEngine: engine, RDSHost: "archive.rds.amazonaws.com", RDSPort: 5432,
-		IAMUser: "acme_ro", IAMAuth: true, LocalPort: 15432,
+		DBUser: "acme_ro", IAMAuth: true, LocalPort: 15432,
 	}
 }
 
@@ -95,9 +95,22 @@ func TestCredentialProviderSelection(t *testing.T) {
 		t.Fatal("sql server read-only must use ro-access secrets")
 	}
 	cfg.AllowWrites = true
+	iam, ok := credentialProvider(cfg, EnginePostgres).(*iamTokenProvider)
+	if !ok || iam.user != cfg.DBUser {
+		t.Fatalf("postgres writes must sign in as the chosen user with IAM tokens, got %#v", credentialProvider(cfg, EnginePostgres))
+	}
 	provider, ok := credentialProvider(cfg, EngineSQLServer).(*masterSecretProvider)
 	if !ok || provider.defaultDatabase != "master" {
-		t.Fatalf("writes must use the master secret on master, got %#v", provider)
+		t.Fatalf("sql server writes must use the master secret on master, got %#v", provider)
+	}
+}
+
+func TestCredentialProviderPostgresWritesWithoutIAMAuthNeverReadsMasterSecret(t *testing.T) {
+	cfg := testSessionConfig(t, "postgres")
+	cfg.IAMAuth, cfg.AllowWrites = false, true
+
+	if _, ok := credentialProvider(cfg, EnginePostgres).(*iamDisabledProvider); !ok {
+		t.Fatalf("provider = %T, want an iamDisabledProvider", credentialProvider(cfg, EnginePostgres))
 	}
 }
 

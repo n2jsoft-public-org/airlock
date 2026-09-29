@@ -120,12 +120,57 @@ func (q *sqlQuerier) pool(ctx context.Context, database string) (*sql.DB, error)
 	return db, nil
 }
 
-// read runs query in a transaction that is always rolled back, read-only where the engine supports it.
-func (q *sqlQuerier) read(ctx context.Context, database string, maxRows int, query string, args ...any) (Result, error) {
+// credentialRefresher is a CredentialProvider caching secrets that can be rotated while a session runs.
+type credentialRefresher interface {
+	// refresh forgets the cached secrets so the next Credentials call reads them again.
+	refresh()
+}
+
+// withPool runs fn on the pool of database. When the database rejects credentials read from a
+// secret, the secret may have been rotated since it was read: fn runs once more on a new pool,
+// with the secret read again. Rejected credentials fail at sign-in, before fn's statement runs.
+func (q *sqlQuerier) withPool(ctx context.Context, database string, fn func(db *sql.DB) error) error {
 	db, err := q.pool(ctx, database)
 	if err != nil {
-		return Result{}, err
+		return err
 	}
+	err = fn(db)
+	refresher, ok := q.creds.(credentialRefresher)
+	if err == nil || !ok || !isAuthFailure(err) {
+		return err
+	}
+	refresher.refresh()
+	q.dropPool(db)
+	if db, err = q.pool(ctx, database); err != nil {
+		return err
+	}
+	return fn(db)
+}
+
+// dropPool closes db and forgets it, so the next call opens a new pool (SQL Server pools keep the
+// credentials they were opened with). A pool another call already replaced is left alone.
+func (q *sqlQuerier) dropPool(db *sql.DB) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for name, pool := range q.pools {
+		if pool == db {
+			delete(q.pools, name)
+			_ = db.Close()
+		}
+	}
+}
+
+// read runs query in a transaction that is always rolled back, read-only where the engine supports it.
+func (q *sqlQuerier) read(ctx context.Context, database string, maxRows int, query string, args ...any) (Result, error) {
+	var result Result
+	err := q.withPool(ctx, database, func(db *sql.DB) (err error) {
+		result, err = q.readFrom(ctx, db, maxRows, query, args...)
+		return err
+	})
+	return result, err
+}
+
+func (q *sqlQuerier) readFrom(ctx context.Context, db *sql.DB, maxRows int, query string, args ...any) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
@@ -218,7 +263,22 @@ func (q *sqlQuerier) connectionError(err error) error {
 	if strings.Contains(err.Error(), "connection refused") {
 		return fmt.Errorf("tunnel to localhost:%d is not accepting connections yet; retry shortly: %w", q.port, err)
 	}
+	if hinter, ok := q.creds.(authFailureHinter); ok && isAuthFailure(err) {
+		return fmt.Errorf("%s: %w", hinter.authFailureHint(), err)
+	}
 	return err
+}
+
+// authFailureHinter explains how to fix credentials the database rejected.
+type authFailureHinter interface {
+	authFailureHint() string
+}
+
+// isAuthFailure reports whether the database rejected the credentials (PostgreSQL 28P01, SQL Server 18456).
+func isAuthFailure(err error) bool {
+	text := err.Error()
+	return strings.Contains(text, "28P01") || strings.Contains(text, "password authentication failed") ||
+		strings.Contains(text, "Login failed for user")
 }
 
 func (q *sqlQuerier) Query(ctx context.Context, database, query string, maxRows int) (Result, error) {
@@ -229,18 +289,19 @@ func (q *sqlQuerier) Query(ctx context.Context, database, query string, maxRows 
 }
 
 func (q *sqlQuerier) Exec(ctx context.Context, database, statement string) (int64, error) {
-	db, err := q.pool(ctx, database)
-	if err != nil {
-		return 0, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
-	defer cancel()
+	var affected int64
+	err := q.withPool(ctx, database, func(db *sql.DB) error {
+		execCtx, cancel := context.WithTimeout(ctx, queryTimeout)
+		defer cancel()
 
-	result, err := db.ExecContext(ctx, statement)
-	if err != nil {
-		return 0, q.connectionError(err)
-	}
-	return result.RowsAffected()
+		result, err := db.ExecContext(execCtx, statement)
+		if err != nil {
+			return q.connectionError(err)
+		}
+		affected, err = result.RowsAffected()
+		return err
+	})
+	return affected, err
 }
 
 func (q *sqlQuerier) Databases(ctx context.Context) ([]string, error) {

@@ -1,4 +1,4 @@
-// Package appdir resolves where the CLI keeps its user files (logs, and preferences later on).
+// Package appdir resolves where the CLI keeps its user files (logs and preferences).
 package appdir
 
 import (
@@ -28,6 +28,15 @@ func ConfigDir() (string, error) {
 		return "", fmt.Errorf("failed to resolve the home directory: %w", err)
 	}
 	return filepath.Join(home, ".config", appName), nil
+}
+
+// ConnectionsFile is the file under ConfigDir remembering connection choices per region and database.
+func ConnectionsFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "connections.json"), nil
 }
 
 // LogsDir is the logs directory under ConfigDir. The directory is not created.

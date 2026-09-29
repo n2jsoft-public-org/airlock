@@ -40,9 +40,6 @@ func runRootTUI(cmd *cobra.Command, _ []string) error {
 	if selection.AWSProfile != "" {
 		_ = os.Setenv("AWS_PROFILE", selection.AWSProfile)
 	}
-	if selection.AWSRegion != "" {
-		_ = os.Setenv("AWS_REGION", selection.AWSRegion)
-	}
 
 	switch selection.Command {
 	case "":
@@ -50,7 +47,6 @@ func runRootTUI(cmd *cobra.Command, _ []string) error {
 	case "jumphost":
 		return executeJumphost(cmd, nil, jumphost.Options{
 			AwsProfile: selection.AWSProfile,
-			AwsRegion:  selection.AWSRegion,
 		})
 	case "update-translate":
 		return runUpdateTranslate(cmd, nil)

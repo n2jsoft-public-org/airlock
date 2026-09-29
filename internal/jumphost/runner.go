@@ -44,13 +44,21 @@ type Options struct {
 	SkipIDEDataSource bool
 	// SkipMCP disables the MCP server giving AI assistants access to tunneled databases.
 	SkipMCP bool
-	// MCPAllowWrites makes the MCP server use the master user secret and expose the execute tool.
+	// MCPAllowWrites exposes the MCP execute tool. PostgreSQL writes as DBUser; SQL Server, without
+	// AWS IAM sign-in, uses the master user secret.
 	MCPAllowWrites bool
+	// DBUser is the database user signing in with AWS IAM on RDS (defaults to DefaultRDSIAMUser).
+	DBUser string
+	// DBPassword signs DBUser in with a password instead of an AWS IAM token. It is only kept in
+	// memory (the MCP server uses it; the IDE asks for it) and is never written to disk.
+	DBPassword string
 }
 
 type ResourceSummary struct {
 	Name        string
 	Description string
+	// IAMAuth reports whether the RDS instance accepts AWS IAM authentication.
+	IAMAuth bool
 }
 
 type AWSProfileSummary struct {
@@ -70,12 +78,16 @@ type RunnerOptions struct {
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
+	// PrefsPath is the file remembering the Connect step choices per region and database; empty disables it.
+	PrefsPath string
 }
 
 type SessionDetails struct {
 	ConnectedServer string
 	RestartCommand  string
 	IDEDataSource   string
+	// Auth describes how the database is signed in to, e.g. "AWS IAM token · acme_ro" (empty when not applicable).
+	Auth string
 	// MCP describes the session's MCP server (empty when none runs).
 	MCP string
 }
@@ -118,11 +130,16 @@ func (s *Session) Release() string {
 }
 
 type Runner struct {
-	in         io.Reader
-	out        io.Writer
-	err        io.Writer
-	registry   *SessionRegistry
-	mcpHost    *dbmcp.Host
+	in       io.Reader
+	out      io.Writer
+	err      io.Writer
+	registry *SessionRegistry
+	mcpHost  *dbmcp.Host
+	// prefs is nil when connection preferences are not remembered.
+	prefs *PrefsStore
+	// accounts caches the AWS account ID of each profile, learned from the identity check.
+	accounts   map[string]string
+	accountsMu sync.Mutex
 	projectDir string
 	mcpLogDir  string
 }
@@ -136,8 +153,13 @@ type ideTarget struct {
 	// InstanceARN and MasterSecretARN locate the Secrets Manager credentials of the instance.
 	InstanceARN     string
 	MasterSecretARN string
-	RDSPort         int
-	// IAMAuth reports whether the instance accepts AWS IAM authentication (not SQL Server).
+	// DBUser is the database user, signing in with AWS IAM when IAMAuth is true, else with DBPassword.
+	DBUser string
+	// DBPassword is the password entered by the user; empty when the session signs in with AWS IAM.
+	DBPassword string
+	RDSPort    int
+	// IAMAuth reports whether the session signs in with AWS IAM: the instance accepts it (not SQL
+	// Server) and the user did not choose a password instead.
 	IAMAuth bool
 }
 
@@ -169,7 +191,14 @@ func NewRunner(opts RunnerOptions) *Runner {
 		mcpHost = dbmcp.NewHost()
 	}
 
-	return &Runner{in: in, out: out, err: err, registry: registry, mcpHost: mcpHost, projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir}
+	runner := &Runner{
+		in: in, out: out, err: err, registry: registry, mcpHost: mcpHost,
+		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
+	}
+	if opts.PrefsPath != "" {
+		runner.prefs = NewPrefsStore(opts.PrefsPath)
+	}
+	return runner
 }
 
 // Run prepares a single session and streams it in the current terminal until it ends.
@@ -268,7 +297,8 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		Region:       cfg.Region,
 		Details: SessionDetails{
 			ConnectedServer: connectedServer,
-			RestartCommand:  buildRestartCommand(resourceType, resolvedTargetName, localPort, cfg),
+			RestartCommand:  buildRestartCommand(resourceType, resolvedTargetName, localPort, restartDBUser(&target), cfg),
+			Auth:            describeAuth(&target),
 		},
 		AwsArgs: append([]string{}, cfg.Args...),
 		CommandArgs: []string{
@@ -414,7 +444,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 	case resourceRDS:
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
 			"rds", "describe-db-instances",
-			"--query", "DBInstances[*].{name:DBInstanceIdentifier,engine:Engine,engineVersion:EngineVersion,host:Endpoint.Address,port:Endpoint.Port,size:AllocatedStorage,status:DBInstanceStatus}",
+			"--query", "DBInstances[*].{name:DBInstanceIdentifier,engine:Engine,engineVersion:EngineVersion,host:Endpoint.Address,port:Endpoint.Port,size:AllocatedStorage,status:DBInstanceStatus,iamAuth:IAMDatabaseAuthenticationEnabled}",
 			"--output", "json",
 		)
 		if err != nil {
@@ -429,6 +459,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 			Port          int    `json:"port"`
 			SizeGiB       int    `json:"size"`
 			Status        string `json:"status"`
+			IAMAuth       bool   `json:"iamAuth"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
 			return nil, fmt.Errorf("failed to parse RDS instances: %w", err)
@@ -444,6 +475,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 			resources = append(resources, ResourceSummary{
 				Name:        name,
 				Description: formatRDSResourceDescription(instance.Engine, instance.EngineVersion, instance.Host, instance.Port, instance.SizeGiB, instance.Status),
+				IAMAuth:     instance.IAMAuth,
 			})
 		}
 
@@ -554,6 +586,95 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 		return 0, err
 	}
 	return r.registry.SuggestPort(port)
+}
+
+// LoadConnectionPrefs returns the Connect step choices saved for the RDS database of options, if any.
+func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (ConnectionPrefs, bool) {
+	db, ok := r.prefsDatabase(ctx, options)
+	if !ok {
+		return ConnectionPrefs{}, false
+	}
+	return r.prefs.Load(db)
+}
+
+// SaveConnectionPrefs remembers the Connect step choices of options for its RDS database: user,
+// sign-in method, local port and MCP write access. The password itself is never saved.
+func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
+	db, ok := r.prefsDatabase(ctx, options)
+	if !ok {
+		return nil
+	}
+	signIn := SignInIAM
+	if options.DBPassword != "" {
+		signIn = SignInPassword
+	}
+	return r.prefs.Save(db, ConnectionPrefs{
+		DBUser:         strings.TrimSpace(options.DBUser),
+		SignIn:         signIn,
+		LocalPort:      options.LocalPortNumber,
+		MCPAllowWrites: options.MCPAllowWrites,
+	})
+}
+
+// prefsDatabase identifies the database keying the preferences of options; false when none apply
+// (not RDS, disabled, or the AWS account is unknown).
+func (r *Runner) prefsDatabase(ctx context.Context, options Options) (DatabaseRef, bool) {
+	if r.prefs == nil || strings.ToLower(strings.TrimSpace(options.ResourceType)) != resourceRDS || strings.TrimSpace(options.Name) == "" {
+		return DatabaseRef{}, false
+	}
+	profile := resolveProfileName(options.AwsProfile)
+	region := strings.TrimSpace(options.AwsRegion)
+	if region == "" {
+		region = r.ResolveRegion(ctx, profile)
+	}
+	account := r.accountFor(ctx, profile)
+	if account == "" {
+		return DatabaseRef{}, false
+	}
+	return DatabaseRef{Account: account, Region: region, Name: strings.TrimSpace(options.Name)}, true
+}
+
+// accountFor returns the AWS account ID of profile: the one seen by the identity check, which runs
+// before targets are listed, else asked to STS. It is empty when unknown.
+func (r *Runner) accountFor(ctx context.Context, profile string) string {
+	r.accountsMu.Lock()
+	account, ok := r.accounts[profile]
+	r.accountsMu.Unlock()
+	if ok {
+		return account
+	}
+	account, err := r.runAWSCapture(ctx, []string{"--profile", profile}, "sts", "get-caller-identity", "--query", "Account", "--output", "text")
+	if err != nil {
+		return ""
+	}
+	r.rememberAccount(profile, account)
+	return strings.TrimSpace(account)
+}
+
+// rememberAccount caches the account of profile, from an account ID or a caller identity ARN
+// (arn:aws:sts::<account>:assumed-role/...).
+func (r *Runner) rememberAccount(profile, identity string) {
+	account := strings.TrimSpace(identity)
+	if parts := strings.Split(account, ":"); len(parts) > 4 {
+		account = parts[4]
+	}
+	if account == "" {
+		return
+	}
+	r.accountsMu.Lock()
+	defer r.accountsMu.Unlock()
+	r.accounts[profile] = account
+}
+
+// resolveProfileName is profile, else AWS_PROFILE, else the default profile.
+func resolveProfileName(profile string) string {
+	if profile = strings.TrimSpace(profile); profile != "" {
+		return profile
+	}
+	if profile = strings.TrimSpace(os.Getenv("AWS_PROFILE")); profile != "" {
+		return profile
+	}
+	return defaultAwsProfile
 }
 
 // CheckLocalPort returns an error explaining why port cannot be used for a new session.
@@ -670,24 +791,11 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options Options)
 }
 
 func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConfig, error) {
-	profile := strings.TrimSpace(options.AwsProfile)
-	if profile == "" {
-		profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
-	}
-	if profile == "" {
-		profile = defaultAwsProfile
-	}
+	profile := resolveProfileName(options.AwsProfile)
 
 	region := strings.TrimSpace(options.AwsRegion)
 	if region == "" {
-		region = strings.TrimSpace(os.Getenv("AWS_REGION"))
-	}
-	if region == "" {
-		configuredRegion, _ := r.runAWSCapture(ctx, nil, "configure", "get", "region", "--profile", profile)
-		region = strings.TrimSpace(configuredRegion)
-	}
-	if region == "" {
-		region = defaultRegion
+		region = r.ResolveRegion(ctx, profile)
 	}
 
 	cfg := awsConfig{
@@ -704,11 +812,34 @@ func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConf
 	return cfg, nil
 }
 
+// ResolveRegion returns the region used when none is given explicitly:
+// AWS_REGION, then the region configured for profile, then eu-west-3.
+func (r *Runner) ResolveRegion(ctx context.Context, profile string) string {
+	if region := strings.TrimSpace(os.Getenv("AWS_REGION")); region != "" {
+		return region
+	}
+
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
+	}
+	if profile == "" {
+		profile = defaultAwsProfile
+	}
+
+	configuredRegion, err := r.runAWSCapture(ctx, nil, "configure", "get", "region", "--profile", profile)
+	if region := strings.TrimSpace(configuredRegion); err == nil && region != "" {
+		return region
+	}
+	return defaultRegion
+}
+
 func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
 	fprintf(r.out, "Using AWS identity... ")
 	identity, err := r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
 	if err == nil {
 		fprintf(r.out, "%s\n", identity)
+		r.rememberAccount(cfg.Profile, identity)
 		return nil
 	}
 
@@ -733,6 +864,7 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
 	}
 
 	fprintf(r.out, "%s\n", identity)
+	r.rememberAccount(cfg.Profile, identity)
 	return nil
 }
 
@@ -830,6 +962,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		return "", "", nil, nil, ideTarget{}, errors.New("RDS instance endpoint is missing")
 	}
 
+	if options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
+		return "", "", nil, nil, ideTarget{}, errors.New("a database user is required to sign in with a password")
+	}
+
 	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
 	if err != nil {
 		return "", "", nil, nil, ideTarget{}, err
@@ -845,9 +981,16 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 
 	awsArgsHint := strings.Join(cfg.Args, " ")
 	var sessionInfo []string
-	if instance.IAMDatabaseAuthenticationEnabled {
-		sessionInfo = rdsIAMSessionInfo(localPort, instance.Endpoint.Address, instance.Endpoint.Port, cfg, awsArgsHint)
-	} else {
+	var dbUser string
+	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == ""
+	switch {
+	case options.DBPassword != "":
+		dbUser = strings.TrimSpace(options.DBUser)
+		sessionInfo = rdsPasswordSessionInfo(localPort, dbUser)
+	case iamAuth:
+		dbUser = ResolveDBUser(options.DBUser)
+		sessionInfo = rdsIAMSessionInfo(localPort, instance.Endpoint.Address, instance.Endpoint.Port, dbUser, cfg, awsArgsHint)
+	default:
 		sessionInfo = rdsSecretsSessionInfo(localPort, instance.DBInstanceArn, instance.MasterUserSecret.SecretArn, instance.MasterUsername, awsArgsHint)
 	}
 
@@ -864,22 +1007,34 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		RDSPort:         instance.Endpoint.Port,
 		InstanceARN:     instance.DBInstanceArn,
 		MasterSecretARN: instance.MasterUserSecret.SecretArn,
-		IAMAuth:         instance.IAMDatabaseAuthenticationEnabled,
+		IAMAuth:         iamAuth,
+		DBUser:          dbUser,
+		DBPassword:      options.DBPassword,
 	}, nil
 }
 
 // rdsIAMSessionInfo explains how to sign in with AWS IAM authentication.
-func rdsIAMSessionInfo(localPort int, rdsHost string, rdsPort int, cfg awsConfig, awsArgsHint string) []string {
+func rdsIAMSessionInfo(localPort int, rdsHost string, rdsPort int, iamUser string, cfg awsConfig, awsArgsHint string) []string {
 	return []string{
 		"For tools which support AWS IAM authentication, use:",
 		fmt.Sprintf("  host:port            = localhost:%d", localPort),
-		"  user                 = " + rdsIAMUser,
+		"  user                 = " + iamUser,
 		fmt.Sprintf("  region               = %s", cfg.Region),
 		fmt.Sprintf("  credential/profile   = %s", cfg.Profile),
 		fmt.Sprintf("  rds host:port        = %s:%d", rdsHost, rdsPort),
 		"",
 		"Otherwise, generate a temporary token (valid for 15 minutes) with:",
-		fmt.Sprintf("  aws rds generate-db-auth-token --hostname %s --port %d --username %s %s", rdsHost, rdsPort, rdsIAMUser, awsArgsHint),
+		fmt.Sprintf("  aws rds generate-db-auth-token --hostname %s --port %d --username %s %s", rdsHost, rdsPort, iamUser, awsArgsHint),
+	}
+}
+
+// rdsPasswordSessionInfo explains how to sign in with the password entered in place of AWS IAM.
+func rdsPasswordSessionInfo(localPort int, user string) []string {
+	return []string{
+		"Signs in with a password (AWS IAM passwordless sign-in turned off):",
+		fmt.Sprintf("  host:port            = localhost:%d", localPort),
+		"  user                 = " + user,
+		"  password             = the one entered before connecting (kept in memory only; the IDE asks for it)",
 	}
 }
 
@@ -1175,9 +1330,9 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		Database:   target.Database,
 		Properties: awsIAMProperties(target, cfg),
 	}
+	dataSource.User = target.DBUser
 	if target.IAMAuth {
 		dataSource.AuthProvider = awsIAMAuthProvider
-		dataSource.User = rdsIAMUser
 	}
 	result, err := ideadatasource.Register(projectDir, dataSource)
 	if err != nil {
@@ -1208,9 +1363,17 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 const (
 	// awsIAMAuthProvider is the IntelliJ authentication method "AWS IAM".
 	awsIAMAuthProvider = "aws.rds.iam"
-	// rdsIAMUser is the database user allowed to sign in with AWS IAM.
-	rdsIAMUser = "acme_ro"
+	// DefaultRDSIAMUser is the read-only database user signing in with AWS IAM when none is chosen.
+	DefaultRDSIAMUser = "acme_ro"
 )
+
+// ResolveDBUser returns the database user signing in with AWS IAM: user, or DefaultRDSIAMUser when blank.
+func ResolveDBUser(user string) string {
+	if user = strings.TrimSpace(user); user != "" {
+		return user
+	}
+	return DefaultRDSIAMUser
+}
 
 // awsIAMProperties prefills the AWS Toolkit settings used by IntelliJ's "AWS IAM" authentication.
 func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
@@ -1273,7 +1436,8 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		DBName:          target.Database,
 		InstanceARN:     target.InstanceARN,
 		MasterSecretARN: target.MasterSecretARN,
-		IAMUser:         rdsIAMUser,
+		DBUser:          target.DBUser,
+		DBPassword:      target.DBPassword,
 		IAMAuth:         target.IAMAuth,
 		LocalPort:       localPort,
 		AllowWrites:     allowWrites,
@@ -1374,7 +1538,29 @@ func firstValue(values map[string][]string, key string) string {
 	return strings.TrimSpace(list[0])
 }
 
-func buildRestartCommand(resourceType string, targetName string, localPort string, cfg awsConfig) string {
+// describeAuth tells how the session signs in to the database; empty when it does not (not RDS, or
+// credentials read from Secrets Manager).
+func describeAuth(target *ideTarget) string {
+	switch {
+	case target.IAMAuth:
+		return "AWS IAM token (generated by acme) · " + target.DBUser
+	case target.DBPassword != "":
+		return "password · " + target.DBUser
+	default:
+		return ""
+	}
+}
+
+// restartDBUser is the --db-user of the restart command: only AWS IAM sign-in can be restarted
+// unattended, a password session is restarted as an IAM one.
+func restartDBUser(target *ideTarget) string {
+	if !target.IAMAuth {
+		return ""
+	}
+	return target.DBUser
+}
+
+func buildRestartCommand(resourceType string, targetName string, localPort string, dbUser string, cfg awsConfig) string {
 	parts := []string{"acme", "jumphost", resourceType}
 
 	targetName = strings.TrimSpace(targetName)
@@ -1392,6 +1578,9 @@ func buildRestartCommand(resourceType string, targetName string, localPort strin
 	}
 	if cfg.Region != "" {
 		parts = append(parts, "--region", cfg.Region)
+	}
+	if dbUser != "" && dbUser != DefaultRDSIAMUser {
+		parts = append(parts, "--db-user", dbUser)
 	}
 
 	return strings.Join(parts, " ")
