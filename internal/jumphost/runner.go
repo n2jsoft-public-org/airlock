@@ -67,6 +67,8 @@ type ResourceSummary struct {
 	Description string
 	// IAMAuth reports whether the RDS instance accepts AWS IAM authentication.
 	IAMAuth bool
+	// Type is the resource type (rds, eks, elasticache) the summary was listed as.
+	Type string
 }
 
 type AWSProfileSummary struct {
@@ -465,22 +467,16 @@ func (r *Runner) ListResourceNames(ctx context.Context, options Options) ([]stri
 	return names, nil
 }
 
-// ListResourceSummaries returns available resources with display details for the given type.
-func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]ResourceSummary, error) {
+// requireAWSCLI returns an error if the AWS CLI is not installed.
+func requireAWSCLI() error {
 	if _, err := exec.LookPath("aws"); err != nil {
-		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+		return errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
 	}
+	return nil
+}
 
-	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
-	if !supportedResourceType(resourceType) {
-		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
-	}
-
-	cfg, err := r.resolveAWSConfig(ctx, options)
-	if err != nil {
-		return nil, err
-	}
-
+// listResources lists the targets of resourceType with the resolved cfg.
+func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType string) ([]ResourceSummary, error) {
 	switch resourceType {
 	case resourceRDS:
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -561,8 +557,31 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]
 		}
 		return resources, nil
 	default:
-		return nil, fmt.Errorf("unsupported resource type %q", options.ResourceType)
+		return nil, fmt.Errorf("unsupported resource type %q", resourceType)
 	}
+}
+
+// ListResourceSummaries returns available resources with display details for the given type.
+func (r *Runner) ListResourceSummaries(ctx context.Context, options Options) ([]ResourceSummary, error) {
+	if err := requireAWSCLI(); err != nil {
+		return nil, err
+	}
+
+	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
+	if !supportedResourceType(resourceType) {
+		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
+	}
+
+	cfg, err := r.resolveAWSConfig(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+
+	resources, err := r.listResources(ctx, cfg, resourceType)
+	if err != nil {
+		return nil, err
+	}
+	return withType(resources, resourceType), nil
 }
 
 func formatElastiCacheResourceDescription(host string, port int, status string) string {
