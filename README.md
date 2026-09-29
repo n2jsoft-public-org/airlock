@@ -65,6 +65,11 @@ Database MCP server (AI access):
 `~/.config/airlock/config.json` (`$XDG_CONFIG_HOME/airlock` when set, `%AppData%\airlock` on Windows).
 Every key is optional and flags win over the file. An unknown key or a malformed value is an error naming the file.
 
+- `airlock config show` lists every setting, its value and whether it comes from the file or the defaults (`--json` for the effective values only); `airlock config path` prints the file location.
+- `airlock config init` writes the file with every key and its default, and explains each key. An existing file is kept unless `--force`, which saves it as `config.json.bak` first.
+- `airlock config set <key> <value>` validates the value and writes it, keeping the other keys (for example `airlock config set jumphostTag Env=bastion`); `airlock config unset <key>` removes a key so its default applies again. The file is rewritten indented, in a fixed key order.
+- Errors caused by a setting name it, e.g. a jumphost not found with the configured tag points to `jumphostTag`, `airlock config show` and `--jumphost-tag`.
+
 | Key | Flag | Default | Meaning |
 |---|---|---|---|
 | `jumphostTag` | `--jumphost-tag` | `Usage=jumphost` | Tag (`Key=Value`) of the running SSM jumphost EC2 instance |
