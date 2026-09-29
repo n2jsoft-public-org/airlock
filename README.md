@@ -6,7 +6,7 @@ databases.
 
 ## Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - AWS CLI v2
 - AWS Session Manager Plugin (required by `aws ssm start-session`)
 - AWS credentials and profiles (for example with `aws configure` or AWS SSO), with IAM permissions for the AWS API calls used by this tool and `ssm:StartSession`
