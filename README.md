@@ -10,7 +10,32 @@ databases.
 - AWS CLI v2
 - AWS Session Manager Plugin (required by `aws ssm start-session`)
 - AWS credentials and profiles (for example with `aws configure` or AWS SSO), with IAM permissions for the AWS API calls used by this tool and `ssm:StartSession`
-- A running EC2 instance tagged `Usage=jumphost` (configurable, see [Configuration](#configuration)) in each account and region you connect to
+- A running EC2 instance tagged `Usage=jumphost` (configurable, see [Configuration](#configuration)) in each account and region you connect to: see [Setting up a jumphost](docs/jumphost-setup.md)
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph laptop["Developer machine"]
+    tools["IDE · psql · kubectl · redis-cli<br/>AI assistant (MCP)"] -->|"localhost:&lt;port&gt;"| airlock["airlock"]
+    airlock --> plugin["AWS CLI +<br/>Session Manager plugin"]
+  end
+  plugin -->|"HTTPS 443<br/>ssm:StartSession"| ssm["AWS Systems Manager"]
+  subgraph vpc["VPC, private subnets"]
+    jumphost["EC2 jumphost<br/>tag Usage=jumphost<br/>SSM Agent, no inbound port"]
+    rds[("RDS")]
+    eks["EKS private<br/>API endpoint"]
+    cache[("ElastiCache")]
+    jumphost -->|"database port"| rds
+    jumphost -->|"443"| eks
+    jumphost -->|"cache port"| cache
+  end
+  jumphost -->|"outbound HTTPS 443<br/>(NAT or VPC endpoints)"| ssm
+```
+
+1. airlock finds the target with the AWS APIs (`rds describe-db-instances`, `eks describe-cluster`, `elasticache describe-*`) and the jumphost with `ec2 describe-instances`, filtered on the jumphost tag.
+2. It starts `aws ssm start-session` with the `AWS-StartPortForwardingSessionToRemoteHost` document: Systems Manager relays the traffic to the SSM Agent of the jumphost, which opens the connection to the target's endpoint inside the VPC.
+3. Your tools connect to `localhost:<port>`. Nothing is exposed to the internet: the jumphost has no public IP and no inbound rule, it only reaches out to Systems Manager.
 
 ## Install
 
