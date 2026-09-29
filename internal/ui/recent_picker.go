@@ -38,8 +38,8 @@ func connectionKey(profile, region, resourceType, name string) string {
 
 // recentItem is one remembered connection of the start screen.
 type recentItem struct {
-	conn      jumphost.SavedConnection
 	age       string
+	conn      jumphost.SavedConnection
 	connected bool
 }
 
@@ -69,8 +69,8 @@ func (i recentItem) FilterValue() string {
 // recentPicker is the start screen: the remembered connections, then the "New connection" and
 // "Search a target" actions.
 type recentPicker struct {
-	notice string
 	list   list.Model
+	notice string
 	// action is the focused action row, or recentActionNone while the list has the focus.
 	action int
 	// confirming waits for y to forget the selected entry.
@@ -79,9 +79,10 @@ type recentPicker struct {
 
 func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, now time.Time) recentPicker {
 	items := make([]list.Item, 0, len(connections))
-	for _, conn := range connections {
+	for idx := range connections {
+		conn := &connections[idx]
 		items = append(items, recentItem{
-			conn:      conn,
+			conn:      *conn,
 			age:       relativeAge(now, conn.Prefs.UpdatedAt),
 			connected: active[connectionKey(conn.Prefs.Profile, conn.Ref.Region, conn.Ref.Type, conn.Ref.Name)],
 		})
