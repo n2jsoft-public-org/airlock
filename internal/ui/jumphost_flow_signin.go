@@ -74,6 +74,18 @@ func (m jumphostWizardModel) cycleSignIn(delta int) jumphostWizardModel {
 	if m.signIn != jumphost.SignInPassword {
 		m.passwordInput.Reset()
 		m.remember = false
+		m.prefilledFor = ""
+	}
+	return m
+}
+
+// dropPrefilledPasswordOfOtherUser empties the password field filled from the keychain once the
+// User field names another user: that password is not theirs, and saving it would move it to
+// their keychain entry. Remember is left as the user set it.
+func (m jumphostWizardModel) dropPrefilledPasswordOfOtherUser() jumphostWizardModel {
+	if m.prefilledFor != "" && strings.TrimSpace(m.userInput.Value()) != m.prefilledFor {
+		m.passwordInput.Reset()
+		m.prefilledFor = ""
 	}
 	return m
 }
@@ -82,7 +94,7 @@ func (m jumphostWizardModel) cycleSignIn(delta int) jumphostWizardModel {
 // else from the first one; a remembered password is prefilled.
 func (m jumphostWizardModel) applySavedSignIn(msg jumphostDefaultPortLoadedMsg) jumphostWizardModel {
 	options := m.signInOptions()
-	m.remember, m.secret = false, jumphost.SecretSummary{}
+	m.remember, m.secret, m.prefilledFor = false, jumphost.SecretSummary{}, ""
 	if len(options) == 0 {
 		m.signIn = ""
 		return m
@@ -108,6 +120,7 @@ func (m jumphostWizardModel) applySavedSignIn(msg jumphostDefaultPortLoadedMsg) 
 		m.remember = msg.prefs.PasswordInKeychain && m.keychainAvailable
 		if msg.keychainPassword != "" {
 			m.passwordInput.SetValue(msg.keychainPassword)
+			m.prefilledFor = strings.TrimSpace(m.userInput.Value())
 		}
 	case jumphost.SignInSecret:
 		if arn := msg.prefs.DBSecretARN; arn != "" {

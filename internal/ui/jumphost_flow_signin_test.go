@@ -209,13 +209,13 @@ func TestWizardCarriesKeychainWarning(t *testing.T) {
 
 func TestWizardLeavesSignInUnchosenWhenPasswordAndSecretNotOffered(t *testing.T) {
 	cases := []struct {
+		target jumphost.ResourceSummary
 		name   string
 		base   jumphost.Options
-		target jumphost.ResourceSummary
 	}{
-		{"no mcp with iam", jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true}},
-		{"mysql with iam", jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "mysql", IAMAuth: true}},
-		{"no mcp", jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"}},
+		{jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true}, "no mcp with iam", jumphost.Options{SkipMCP: true}},
+		{jumphost.ResourceSummary{Name: "archive", Engine: "mysql", IAMAuth: true}, "mysql with iam", jumphost.Options{}},
+		{jumphost.ResourceSummary{Name: "archive", Engine: "postgres"}, "no mcp", jumphost.Options{SkipMCP: true}},
 	}
 	for _, c := range cases {
 		runner := newPrefsRunner()
@@ -239,5 +239,44 @@ func TestWizardRecordsIAMChosenAmongPasswordAndSecret(t *testing.T) {
 	}
 	if got := *runner.lastSave; got.SignIn != jumphost.SignInIAM {
 		t.Fatalf("saved options = %+v, want IAM chosen", got)
+	}
+}
+
+func TestWizardDropsKeychainPasswordWhenUserChanges(t *testing.T) {
+	runner := &keychainPrefsRunner{prefsRunner: newPrefsRunner()}
+	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{DBUser: "app_user", SignIn: jumphost.SignInPassword, PasswordInKeychain: true}
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"})
+	m = focusSignIn(t, m)
+	m, _ = wizardUpdate(t, m, key("tab")) // user
+	if m.reviewFocus != reviewFieldUser || m.passwordInput.Value() != "from-keychain" {
+		t.Fatalf("focus = %d password = %q, want the user field and the prefilled password", m.reviewFocus, m.passwordInput.Value())
+	}
+	m, _ = wizardUpdate(t, m, key("2")) // app_user2
+	if m.passwordInput.Value() != "" || !m.remember {
+		t.Fatalf("password = %q remember = %v, want the password of app_user dropped, remember kept", m.passwordInput.Value(), m.remember)
+	}
+	// Typing the password of the new user: moving back to app_user keeps what was typed.
+	m, _ = wizardUpdate(t, m, key("tab"))
+	m, _ = wizardUpdate(t, m, key("typed"))
+	m, _ = wizardUpdate(t, m, key("shift+tab"))
+	m, _ = wizardUpdate(t, m, key("backspace"))
+	if m.userInput.Value() != "app_user" || m.passwordInput.Value() != "typed" {
+		t.Fatalf("user = %q password = %q, want the typed password kept", m.userInput.Value(), m.passwordInput.Value())
+	}
+}
+
+func TestWizardKeepsKeychainPasswordWhileUserUnchanged(t *testing.T) {
+	runner := &keychainPrefsRunner{prefsRunner: newPrefsRunner()}
+	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{DBUser: "app_user", SignIn: jumphost.SignInPassword, PasswordInKeychain: true}
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"})
+	m = focusSignIn(t, m)
+	m, _ = wizardUpdate(t, m, key("tab"))  // user
+	m, _ = wizardUpdate(t, m, key("left")) // the cursor moves, the user stays
+	m, _ = wizardUpdate(t, m, key("tab"))  // password
+	if _, cmd := wizardUpdate(t, m, key("enter")); !isQuit(cmd) {
+		t.Fatal("wizard did not connect")
+	}
+	if got := *runner.lastSave; got.DBUser != "app_user" || got.DBPassword != "from-keychain" || !got.RememberPassword {
+		t.Fatalf("saved options: user = %q remember = %v, password kept = %v", got.DBUser, got.RememberPassword, got.DBPassword == "from-keychain")
 	}
 }

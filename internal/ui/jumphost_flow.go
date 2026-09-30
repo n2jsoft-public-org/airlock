@@ -133,6 +133,9 @@ type jumphostWizardModel struct {
 	// remember keeps the typed password in the OS keychain; keychainAvailable offers it.
 	remember          bool
 	keychainAvailable bool
+	// prefilledFor is the user whose keychain password fills the password field; "" once the user
+	// typed a password, or when none was prefilled.
+	prefilledFor string
 	// secret is the picked Secrets Manager secret; a zero ARN means none.
 	secret jumphost.SecretSummary
 	// mcpWrites lets the MCP server modify data; off, it is read-only.
@@ -667,8 +670,13 @@ func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 	switch m.reviewFocus {
 	case reviewFieldUser:
 		m.userInput, cmd = m.userInput.Update(msg)
+		m = m.dropPrefilledPasswordOfOtherUser()
 	case reviewFieldPassword:
+		before := m.passwordInput.Value()
 		m.passwordInput, cmd = m.passwordInput.Update(msg)
+		if m.passwordInput.Value() != before {
+			m.prefilledFor = ""
+		}
 	case reviewFieldPort:
 		m.portInput, cmd = m.portInput.Update(msg)
 	}
