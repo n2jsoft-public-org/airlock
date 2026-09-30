@@ -7,17 +7,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
+
+	"github.com/n2jsoft/airlock/internal/platform"
 )
 
 // ownerSuffix names the file next to a kubeconfig holding the PID of the airlock that wrote it.
 const ownerSuffix = ".owner"
 
 // processAlive reports whether pid runs; a variable so tests can end a process.
-var processAlive = func(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
+var processAlive = platform.ProcessAlive
 
 // RemoveOrphans removes the kubeconfigs of dir left by an airlock that ended without releasing
 // them (killed, crashed), and returns their paths. Those of a running airlock, maybe another one,

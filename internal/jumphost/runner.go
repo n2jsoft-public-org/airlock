@@ -24,6 +24,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
+	"github.com/n2jsoft/airlock/internal/platform"
 	"golang.org/x/term"
 )
 
@@ -1780,7 +1781,7 @@ func RunOnHangup(fn func()) (stop func()) {
 		case <-signals:
 			fn()
 			signal.Reset(syscall.SIGHUP)
-			if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+			if err := raiseSignal(syscall.SIGHUP); err != nil {
 				os.Exit(1)
 			}
 		case <-done:
@@ -1794,6 +1795,15 @@ func RunOnHangup(fn func()) (stop func()) {
 			close(done)
 		})
 	}
+}
+
+// raiseSignal sends sig to the current process. It fails on Windows, which only delivers Kill.
+func raiseSignal(sig os.Signal) error {
+	self, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		return err
+	}
+	return self.Signal(sig)
 }
 
 // elastiCacheEngine defaults to redis when AWS does not report the engine.
@@ -2057,11 +2067,11 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	args := append([]string{}, commandArgs...)
 	args = append(args, awsArgs...)
 
-	// Use exec.Command (not CommandContext) and set Setpgid so that aws and its
-	// child process session-manager-plugin share a process group. This lets us
-	// kill both when the context is cancelled.
+	// Use exec.Command (not CommandContext) and start aws in its own process group,
+	// so that it and its child process session-manager-plugin are both stopped
+	// when the context is cancelled.
 	cmd := exec.Command("aws", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	platform.StartInOwnGroup(cmd)
 	cmd.Stdin = r.in
 	cmd.Stdout = r.out
 	cmd.Stderr = r.err
@@ -2075,7 +2085,7 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+			platform.TerminateGroup(cmd)
 		case <-done:
 		}
 	}()

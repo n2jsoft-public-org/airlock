@@ -11,8 +11,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/platform"
 )
 
 const (
@@ -73,12 +74,12 @@ func (s leaseStore) lock() (unlock func() error, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+	if err := platform.LockFile(file); err != nil {
 		return nil, errors.Join(fmt.Errorf("failed to lock %s: %w", file.Name(), err), file.Close())
 	}
 
 	return func() error {
-		return errors.Join(syscall.Flock(int(file.Fd()), syscall.LOCK_UN), file.Close())
+		return errors.Join(platform.UnlockFile(file), file.Close())
 	}, nil
 }
 
@@ -135,9 +136,5 @@ func (s leaseStore) active() ([]lease, error) {
 }
 
 func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
+	return platform.ProcessAlive(pid)
 }

@@ -42,6 +42,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 ```sh
 # 1. Install
 make install          # from a checkout, to GOBIN (or GOPATH/bin)
+.\install.ps1         # same on Windows, from PowerShell (no make needed)
 
 # 2. Launch the wizard
 airlock
@@ -53,11 +54,36 @@ airlock rds my-db 5432
 Then point your tools at `localhost:5432`. That's it.
 
 <details>
+<summary><b>Install on Windows</b></summary>
+
+Windows has no `make`, so the checkout ships `install.ps1`. From PowerShell, at the root of the
+checkout:
+
+```powershell
+.\install.ps1              # build and install airlock.exe to GOBIN (or GOPATH\bin)
+.\install.ps1 -Uninstall   # remove it
+```
+
+It adds the install folder to your user PATH when it is missing (`-SkipPath` to opt out), then
+warns if the AWS CLI or the Session Manager plugin is not found. If PowerShell refuses to run
+scripts, run `install.cmd` instead (from `cmd` or by double-clicking it): it starts the same script
+without changing your execution policy.
+
+</details>
+
+<details>
 <summary><b>Install with <code>go install</code></b></summary>
 
 ```sh
 GOPRIVATE=github.com/n2jsoft \
   go install github.com/n2jsoft/airlock/cmd/airlock@latest
+```
+
+On Windows (PowerShell):
+
+```powershell
+$env:GOPRIVATE = 'github.com/n2jsoft'
+go install github.com/n2jsoft/airlock/cmd/airlock@latest
 ```
 
 </details>
@@ -446,6 +472,7 @@ skips the question. Keys in your file that the string does not set are kept, unl
 make run                     # run the CLI
 make build                   # build to bin/airlock
 make install                 # install to GOBIN (make uninstall to remove)
+.\install.ps1                # install on Windows (-Uninstall to remove)
 make fmt vet lint test       # format, vet, lint and test
 ```
 

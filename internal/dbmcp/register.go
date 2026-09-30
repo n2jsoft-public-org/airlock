@@ -9,7 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
+
+	"github.com/n2jsoft/airlock/internal/platform"
 )
 
 // ClientEntry is the MCP server entry written into AI client configuration files.
@@ -245,11 +246,11 @@ func lockConfig(path string) (unlock func() error, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+	if err := platform.LockFile(file); err != nil {
 		return nil, errors.Join(fmt.Errorf("failed to lock %s: %w", file.Name(), err), file.Close())
 	}
 	return func() error {
-		return errors.Join(syscall.Flock(int(file.Fd()), syscall.LOCK_UN), file.Close())
+		return errors.Join(platform.UnlockFile(file), file.Close())
 	}, nil
 }
 

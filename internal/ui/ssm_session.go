@@ -9,12 +9,12 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/platform"
 )
 
 const (
@@ -848,10 +848,9 @@ func (m ssmModel) launchCommand(s *ssmSession) {
 
 	go func() {
 		// Use exec.Command (not CommandContext) so we can manage the process group
-		// ourselves. Setting Setpgid ensures aws and its child session-manager-plugin
-		// are in the same process group and can be killed together.
+		// ourselves: aws and its child session-manager-plugin must be stopped together.
 		cmd := exec.Command("aws", awsArgs...) // #nosec G204 -- arguments are built by the jumphost runner.
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		platform.StartInOwnGroup(cmd)
 		stdoutPipe, err := cmd.StdoutPipe()
 		if err != nil {
 			events <- ssmFinishedMsg{id: id, err: err}
@@ -915,10 +914,7 @@ func waitSSMEvent(events <-chan tea.Msg) tea.Cmd {
 }
 
 func terminateProcessGroup(cmd *exec.Cmd) {
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	platform.TerminateGroup(cmd)
 }
 
 func maxInt(a, b int) int {
