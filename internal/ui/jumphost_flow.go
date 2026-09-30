@@ -143,6 +143,8 @@ type jumphostWizardModel struct {
 	regionResolved bool
 	regionPicker   regionPicker
 	pickingRegion  bool
+	secretPicker   secretPicker
+	pickingSecret  bool
 	// regionUnblocks continues the discovery the region picker was opened for, once a region is picked.
 	regionUnblocks bool
 
@@ -187,6 +189,12 @@ type jumphostDefaultPortLoadedMsg struct {
 	// keychainPassword is the remembered password of the saved user; "" when none.
 	keychainPassword  string
 	keychainAvailable bool
+}
+
+// jumphostSecretsLoadedMsg carries the secrets offered by the secret picker.
+type jumphostSecretsLoadedMsg struct {
+	err     error
+	secrets []jumphost.SecretSummary
 }
 
 // jumphostRegionResolvedMsg carries the default region of profile.
@@ -300,6 +308,9 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickingRegion {
 			return m.updateRegionPicker(msg)
 		}
+		if m.pickingSecret {
+			return m.updateSecretPicker(msg)
+		}
 		if msg.String() == "q" && !m.typingText() {
 			m.canceled = true
 			return m, m.finish()
@@ -362,6 +373,9 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLookup(msg)
 	case jumphostForgotMsg:
 		return m.handleForgot(msg)
+	case jumphostSecretsLoadedMsg:
+		m.secretPicker = m.secretPicker.loaded(msg.secrets, msg.err)
+		return m, nil
 	case jumphostDefaultPortLoadedMsg:
 		m.loading = false
 		m.loadingUI.stop()
@@ -392,6 +406,9 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Non-key messages such as cursor blinks reach the picker's search input while it is open.
 	if m.pickingRegion {
 		return m.updateRegionPicker(msg)
+	}
+	if m.pickingSecret {
+		return m.updateSecretPicker(msg)
 	}
 
 	switch m.step {

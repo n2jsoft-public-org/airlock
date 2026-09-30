@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -86,6 +88,12 @@ func (m jumphostWizardModel) applySavedSignIn(msg jumphostDefaultPortLoadedMsg) 
 		return m
 	}
 	m.signIn = options[0]
+	// A --db-secret flag wins over the saved choices, as --db-user wins over the saved user.
+	if flag := strings.TrimSpace(m.base.DBSecretARN); flag != "" && slices.Contains(options, jumphost.SignInSecret) {
+		m.signIn = jumphost.SignInSecret
+		m.secret = jumphost.SecretSummary{ARN: flag, Name: jumphost.SecretDisplayName(flag)}
+		return m
+	}
 	if !msg.saved {
 		return m
 	}
@@ -147,7 +155,30 @@ func (m jumphostWizardModel) applySignIn() (next jumphostWizardModel, field int,
 	return m, 0, ""
 }
 
-// openSecretPicker opens the secret picker; the next task implements it.
+// openSecretPicker opens the secret picker and lists the secrets of the target's account and region.
 func (m jumphostWizardModel) openSecretPicker() (tea.Model, tea.Cmd) {
-	return m, nil
+	m.secretPicker = newSecretPicker(m.currentRegion())
+	m.pickingSecret = true
+	m.errorMsg = ""
+	opts := m.prefsOptions()
+	return m, tea.Batch(textinput.Blink, func() tea.Msg {
+		secrets, err := m.runner.ListDBSecrets(m.ctx, &opts)
+		return jumphostSecretsLoadedMsg{secrets: secrets, err: err}
+	})
+}
+
+// updateSecretPicker forwards msg to the open picker and applies its outcome.
+func (m jumphostWizardModel) updateSecretPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	picker, outcome, cmd := m.secretPicker.Update(msg)
+	m.secretPicker = picker
+	switch outcome {
+	case secretPickerCanceled:
+		m.pickingSecret = false
+		return m.focusReviewField(reviewFieldSecret), nil
+	case secretPickerChosen:
+		m.pickingSecret = false
+		m.secret, _ = picker.choice()
+		return m.focusReviewField(reviewFieldUser), nil
+	}
+	return m, cmd
 }

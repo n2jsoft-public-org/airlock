@@ -34,6 +34,10 @@ func (m jumphostWizardModel) View() string {
 		frame.heading = m.stepHeading()
 		frame.body = m.regionPicker.View(m.styles, bodyWidth, bodyHeight)
 		frame.keys = [][2]string{{"ctrl+c", m.quitLabel()}}
+	case m.pickingSecret:
+		frame.heading = m.stepHeading()
+		frame.body = m.secretPicker.View(m.styles, bodyWidth, bodyHeight)
+		frame.keys = [][2]string{{"ctrl+c", m.quitLabel()}}
 	default:
 		frame.heading = m.stepHeading()
 		frame.hint = m.stepHint()
