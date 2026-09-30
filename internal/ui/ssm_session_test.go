@@ -174,6 +174,56 @@ func TestWizardCancelReturnsToSessions(t *testing.T) {
 	}
 }
 
+func TestStartupWizardOpensOnEmptyDashboard(t *testing.T) {
+	base := jumphost.Options{AwsProfile: "prod", AwsRegion: "us-east-1", SkipMCP: true}
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), base).startupWizard()
+
+	if m.mode != ssmModeWizard || !m.wizard.embedded || len(m.sessions) != 0 {
+		t.Fatalf("mode = %v embedded = %v sessions = %d, want an embedded wizard on an empty dashboard", m.mode, m.wizard.embedded, len(m.sessions))
+	}
+	if m.wizard.askProfile || m.wizard.options.AwsProfile != "prod" || m.wizard.options.AwsRegion != "us-east-1" || !m.wizard.options.SkipMCP {
+		t.Fatalf("wizard options = %+v askProfile = %v, want --profile, --region and MCP flags kept", m.wizard.options, m.wizard.askProfile)
+	}
+	if m.wizard.quitLabel() != "quit" {
+		t.Fatalf("quit label = %q, want quit: canceling leaves airlock without sessions", m.wizard.quitLabel())
+	}
+}
+
+func TestStartupWizardCancelQuits(t *testing.T) {
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{}).startupWizard()
+
+	_, cmd := update(t, m, jumphostWizardDoneMsg{canceled: true})
+	if !isQuit(cmd) {
+		t.Fatal("canceling the startup wizard did not quit")
+	}
+}
+
+func TestStartupWizardConnectsInDashboard(t *testing.T) {
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{}).startupWizard()
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	m, _ = update(t, m, jumphostWizardDoneMsg{options: jumphost.Options{ResourceType: "rds", Name: "db", LocalPortNumber: 5432}})
+	if m.mode != ssmModePreparing {
+		t.Fatalf("mode = %v, want preparing inside the dashboard", m.mode)
+	}
+	m, _ = update(t, m, ssmPreparedMsg{session: &jumphost.Session{Label: "db", LocalPort: 5432}})
+	if m.mode != ssmModeSessions || len(m.sessions) != 1 {
+		t.Fatalf("mode = %v sessions = %d, want the first session shown", m.mode, len(m.sessions))
+	}
+}
+
+func TestDashboardWizardLaterIgnoresProfileFlag(t *testing.T) {
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{AwsProfile: "prod"})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"})
+	m.sessions[0].state = ssmSessionRunning
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	m, _ = update(t, m, key("n"))
+	if !m.wizard.askProfile || m.wizard.quitLabel() != "cancel" {
+		t.Fatalf("askProfile = %v quit label = %q, want the profile asked and cancel back to sessions", m.wizard.askProfile, m.wizard.quitLabel())
+	}
+}
+
 func TestPrepareFailureIsShownWithoutQuitting(t *testing.T) {
 	m := newTestSSMModel(t, "first")
 	m.mode = ssmModePreparing

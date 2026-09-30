@@ -136,18 +136,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
 	tuiRunner := jumphost.NewRunner(tuiOptions)
 
+	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
-		discoveryRunner := tuiRunner
-
-		selectedOptions, canceled, err := ui.RunJumphostWizard(cmd.Context(), discoveryRunner, options)
-		if err != nil {
-			return err
-		}
-		if canceled {
-			return nil
-		}
-
-		options = selectedOptions
+		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout())
 	}
 
 	if len(args) > 0 {

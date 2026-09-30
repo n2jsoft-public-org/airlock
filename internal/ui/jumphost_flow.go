@@ -181,23 +181,6 @@ type jumphostWizardDoneMsg struct {
 	canceled bool
 }
 
-func RunJumphostWizard(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) (jumphost.Options, bool, error) {
-	model := newJumphostWizardModel(ctx, runner, base)
-	program := tea.NewProgram(model, tea.WithAltScreen())
-
-	finalModel, err := program.Run()
-	if err != nil {
-		return jumphost.Options{}, false, err
-	}
-
-	result, ok := finalModel.(jumphostWizardModel)
-	if !ok {
-		return jumphost.Options{}, true, nil
-	}
-
-	return result.options, result.canceled, nil
-}
-
 func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) jumphostWizardModel {
 	askProfile := strings.TrimSpace(base.AwsProfile) == ""
 

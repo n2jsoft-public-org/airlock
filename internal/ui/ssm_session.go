@@ -132,14 +132,19 @@ type ssmModel struct {
 }
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
-// first is already prepared; new sessions are prepared with runner, reusing base for their defaults.
+// first is already prepared; when nil, the dashboard opens on the wizard, as if the user pressed n.
+// New sessions are prepared with runner, reusing base for their defaults.
 func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, first *jumphost.Session, base jumphost.Options, out io.Writer) error {
 	processes := newProcessTracker()
 	stopHangupWatch := jumphost.RunOnHangup(processes.shutdown)
 	defer stopHangupWatch()
 
 	model := newSSMModel(ctx, runner, processes, base)
-	model = model.addSession(first)
+	if first != nil {
+		model = model.addSession(first)
+	} else {
+		model = model.startupWizard()
+	}
 
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := program.Run()
@@ -181,7 +186,11 @@ func (m ssmModel) Init() tea.Cmd {
 			m.launchCommand(s)
 		}
 	}
-	return tea.Batch(waitSSMEvent(m.events), ssmTickCmd())
+	cmds := []tea.Cmd{waitSSMEvent(m.events), ssmTickCmd()}
+	if m.mode == ssmModeWizard {
+		cmds = append(cmds, m.wizard.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 func ssmTickCmd() tea.Cmd {
@@ -413,18 +422,36 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 	return m, waitSSMEvent(m.events)
 }
 
-func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
-	base := jumphost.Options{
+// wizardDefaults are the options every new connection inherits from the command line.
+func (m ssmModel) wizardDefaults() jumphost.Options {
+	return jumphost.Options{
 		SkipIDEDataSource: m.baseOptions.SkipIDEDataSource,
 		SkipMCP:           m.baseOptions.SkipMCP,
 		MCPAllowWrites:    m.baseOptions.MCPAllowWrites,
 		DBUser:            m.baseOptions.DBUser,
 	}
+}
+
+// startupWizard opens the wizard before the program runs; Init starts it. The first connection
+// also honors --profile and --region, so the wizard skips the steps they answer.
+func (m ssmModel) startupWizard() ssmModel {
+	base := m.wizardDefaults()
+	base.AwsProfile = m.baseOptions.AwsProfile
+	base.AwsRegion = m.baseOptions.AwsRegion
+	return m.showWizard(base)
+}
+
+func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
 	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
 	m.wizard.embedded = true
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""
+	return m
+}
+
+func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
+	m = m.showWizard(m.wizardDefaults())
 
 	initCmd := m.wizard.Init()
 	if m.width > 0 && m.height > 0 {

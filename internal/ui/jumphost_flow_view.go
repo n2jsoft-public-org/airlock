@@ -330,7 +330,8 @@ func (m jumphostWizardModel) reviewInput(field int, label, input, help string, w
 }
 
 func (m jumphostWizardModel) quitLabel() string {
-	if m.embedded {
+	// Without active sessions, canceling an embedded wizard also quits its host.
+	if m.embedded && len(m.active) > 0 {
 		return "cancel"
 	}
 	return "quit"
