@@ -434,11 +434,13 @@ func (m ssmModel) wizardDefaults() jumphost.Options {
 }
 
 // startupWizard opens the wizard before the program runs; Init starts it. The first connection
-// also honors --profile and --region, so the wizard skips the steps they answer.
+// also honors --profile and --region, so the wizard skips the steps they answer, and --db-secret,
+// which belongs to that one target (later connections keep their own saved choices).
 func (m ssmModel) startupWizard() ssmModel {
 	base := m.wizardDefaults()
 	base.AwsProfile = m.baseOptions.AwsProfile
 	base.AwsRegion = m.baseOptions.AwsRegion
+	base.DBSecretARN = m.baseOptions.DBSecretARN
 	return m.showWizard(base)
 }
 

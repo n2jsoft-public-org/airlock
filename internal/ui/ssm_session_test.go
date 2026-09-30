@@ -404,3 +404,17 @@ func TestAppendWarningAddsALineToTheIntro(t *testing.T) {
 		t.Fatalf("an empty warning added a line: %v", session.Intro)
 	}
 }
+
+func TestStartupWizardCarriesDBSecretFlag(t *testing.T) {
+	base := jumphost.Options{AwsProfile: "prod", DBSecretARN: "prod/app-user"}
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), base).startupWizard()
+	if m.wizard.base.DBSecretARN != "prod/app-user" {
+		t.Fatalf("wizard base = %+v, want the --db-secret flag", m.wizard.base)
+	}
+
+	// A secret belongs to one target: connections opened later from the dashboard do not inherit it.
+	next, _ := m.openWizard()
+	if dashboard, ok := next.(ssmModel); !ok || dashboard.wizard.base.DBSecretARN != "" {
+		t.Fatalf("new connection base = %+v, want no secret", dashboard.wizard.base)
+	}
+}
