@@ -392,3 +392,15 @@ func TestDashboardWizardBlocksConnectedEntries(t *testing.T) {
 		t.Fatalf("step = %v, a connected entry must not be reopened", m.wizard.step)
 	}
 }
+
+func TestAppendWarningAddsALineToTheIntro(t *testing.T) {
+	session := &jumphost.Session{Intro: []string{"RDS archive"}}
+	appendWarning(session, "keychain: the password was not remembered: locked")
+	if got := strings.Join(session.Intro, "\n"); got != "RDS archive\nWarning: keychain: the password was not remembered: locked" {
+		t.Fatalf("intro = %q", got)
+	}
+	appendWarning(session, "")
+	if len(session.Intro) != 2 {
+		t.Fatalf("an empty warning added a line: %v", session.Intro)
+	}
+}

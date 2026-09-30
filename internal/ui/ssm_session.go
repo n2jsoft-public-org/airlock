@@ -68,6 +68,7 @@ type ssmTickMsg time.Time
 type ssmPreparedMsg struct {
 	session *jumphost.Session
 	err     error
+	warning string
 }
 
 type ssmLogLine struct {
@@ -495,9 +496,10 @@ func (m ssmModel) handleWizardDone(msg jumphostWizardDoneMsg) (tea.Model, tea.Cm
 
 	m.mode = ssmModePreparing
 	options := msg.options
+	warning := msg.warning
 	prepare := func() tea.Msg {
 		session, err := m.runner.Prepare(m.ctx, options)
-		return ssmPreparedMsg{session: session, err: err}
+		return ssmPreparedMsg{session: session, err: err, warning: warning}
 	}
 	return m, tea.Batch(
 		prepare,
@@ -518,6 +520,7 @@ func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	appendWarning(msg.session, msg.warning)
 	m = m.addSession(msg.session)
 	m.launchCommand(m.sessions[len(m.sessions)-1])
 	return m, nil
@@ -723,6 +726,13 @@ func (m ssmModel) printSessionSummary(out io.Writer) {
 		if strings.TrimSpace(s.session.Details.RestartCommand) != "" {
 			_, _ = fmt.Fprintf(out, "  new session command: %s\n", s.session.Details.RestartCommand)
 		}
+	}
+}
+
+// appendWarning adds warning, if any, as the last intro line of session.
+func appendWarning(session *jumphost.Session, warning string) {
+	if warning != "" {
+		session.Intro = append(session.Intro, "Warning: "+warning)
 	}
 }
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -25,7 +26,8 @@ type JumphostDiscovery interface {
 	ResolveDBUser(user string) string
 	// LoadConnectionPrefs returns the Connect step choices saved for the database of options, if any.
 	LoadConnectionPrefs(ctx context.Context, options jumphost.Options) (jumphost.ConnectionPrefs, bool)
-	// SaveConnectionPrefs remembers the Connect step choices of options (never the password).
+	// SaveConnectionPrefs remembers the Connect step choices of options (never the password, remembered
+	// in the OS keychain only when asked). Keychain failures come back wrapped in jumphost.ErrKeychain.
 	SaveConnectionPrefs(ctx context.Context, options jumphost.Options) error
 	// ListSavedConnections returns the remembered connections, most recent first, of profile and region when set.
 	ListSavedConnections(ctx context.Context, profile, region string) ([]jumphost.SavedConnection, error)
@@ -111,6 +113,8 @@ type jumphostWizardModel struct {
 	canceled       bool
 	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
 	embedded bool
+	// warning is shown in the session log once connected (e.g. the keychain failed).
+	warning string
 
 	options     jumphost.Options
 	profileList list.Model
@@ -207,6 +211,7 @@ type jumphostRegionResolvedMsg struct {
 type jumphostWizardDoneMsg struct {
 	options  jumphost.Options
 	canceled bool
+	warning  string
 }
 
 func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) jumphostWizardModel {
@@ -767,7 +772,11 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 	m.errorMsg = ""
 	m = m.blurReviewInputs()
 	// Remembering the choices is a convenience: a failure to save never blocks the connection.
-	_ = m.runner.SaveConnectionPrefs(m.ctx, m.prefsOptions())
+	// A keychain failure is reported in the session log.
+	m.warning = ""
+	if err := m.runner.SaveConnectionPrefs(m.ctx, m.prefsOptions()); errors.Is(err, jumphost.ErrKeychain) {
+		m.warning = err.Error()
+	}
 	return m, m.finish()
 }
 
@@ -776,7 +785,7 @@ func (m jumphostWizardModel) finish() tea.Cmd {
 	if !m.embedded {
 		return tea.Quit
 	}
-	done := jumphostWizardDoneMsg{options: m.options, canceled: m.canceled}
+	done := jumphostWizardDoneMsg{options: m.options, canceled: m.canceled, warning: m.warning}
 	return func() tea.Msg { return done }
 }
 

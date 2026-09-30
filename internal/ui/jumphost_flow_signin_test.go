@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -180,5 +182,27 @@ func TestWizardHidesSignInWhereAirlockDoesNotUseCredentials(t *testing.T) {
 				t.Errorf("%s: options = %+v, want the sign-in options untouched", c.name, done.options)
 			}
 		}
+	}
+}
+
+// failingKeychainRunner fails to remember any password.
+type failingKeychainRunner struct{ *prefsRunner }
+
+func (r *failingKeychainRunner) SaveConnectionPrefs(ctx context.Context, options jumphost.Options) error {
+	_ = r.prefsRunner.SaveConnectionPrefs(ctx, options) //nolint:errcheck // test: save succeeds, keychain fails
+	return fmt.Errorf("%w: the password was not remembered: %w", jumphost.ErrKeychain, errors.New("locked"))
+}
+
+func TestWizardCarriesKeychainWarning(t *testing.T) {
+	runner := &failingKeychainRunner{prefsRunner: newPrefsRunner()}
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"})
+	m.embedded = true
+	m.userInput.SetValue("app_user")
+	m.passwordInput.SetValue("s3cret")
+	m.remember = true
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	done, ok := cmd().(jumphostWizardDoneMsg)
+	if !ok || done.canceled || !strings.Contains(done.warning, "not remembered") {
+		t.Fatalf("done = %+v, want the connection with a keychain warning", done)
 	}
 }
