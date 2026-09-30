@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -104,5 +107,31 @@ func TestMCPEngineSupported(t *testing.T) {
 		if got := MCPEngineSupported(engine); got != want {
 			t.Errorf("MCPEngineSupported(%q) = %v, want %v", engine, got, want)
 		}
+	}
+}
+
+// installSecretsAWS puts an aws executable on PATH for ListDBSecrets: identity of account
+// 111111111111, an instance, and the secrets list secretsJSON.
+func installSecretsAWS(t *testing.T, secretsJSON string) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
+		"'sts get-caller-identity') echo 'arn:aws:sts::111111111111:assumed-role/dev/me' ;;\n" +
+		"'rds describe-db-instances') echo '{\"arn\":\"arn:aws:rds:eu-west-3:111111111111:db:archive\",\"masterSecret\":null}' ;;\n" +
+		"'secretsmanager list-secrets') echo '" + secretsJSON + "' ;;\n" +
+		"*) exit 1 ;;\nesac\n"
+	// #nosec G306 -- the fake aws must be executable.
+	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestListDBSecretsNamesAccountAndRegionWhenEmpty(t *testing.T) {
+	installSecretsAWS(t, "[]")
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	_, err := runner.ListDBSecrets(context.Background(), &Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3"})
+	if err == nil || err.Error() != "no secret in 111111111111/eu-west-3" {
+		t.Fatalf("err = %v, want the account and the region named", err)
 	}
 }

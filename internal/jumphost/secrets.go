@@ -75,7 +75,12 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 		return nil, fmt.Errorf("failed to parse the secrets: %w", err)
 	}
 	if len(entries) == 0 {
-		return nil, errors.New("no secret in " + cfg.Region)
+		// The identity check of resolveAWSConfig learned the account.
+		where := cfg.Region
+		if account := r.accountFor(ctx, cfg.Profile); account != "" {
+			where = account + "/" + cfg.Region
+		}
+		return nil, errors.New("no secret in " + where)
 	}
 	return rankDBSecrets(entries, instance, described.ARN, described.MasterSecret), nil
 }
