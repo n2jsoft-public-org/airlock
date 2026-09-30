@@ -305,7 +305,7 @@ func TestSecretPasswordProviderUsesSecretUserElseTypedUser(t *testing.T) {
 	if err != nil || creds != (Credentials{User: "app_user", Password: "s3cret", Database: "app"}) {
 		t.Fatalf("credentials = %+v, %v", creds, err)
 	}
-	if _, err := provider.Credentials(context.Background(), "other"); err != nil {
+	if _, err = provider.Credentials(context.Background(), "other"); err != nil {
 		t.Fatalf("second read: %v", err)
 	}
 	if len(aws.calls) != 1 {
