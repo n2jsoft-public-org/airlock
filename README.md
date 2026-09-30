@@ -29,7 +29,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 |  |  |
 |---|---|
 | 🧭 **Guided wizard** | Pick a recent connection, or go resource type → profile → target → review. Search every target of a profile in one list. |
-| 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password sign-in is available too and stays in memory only. |
+| 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password and AWS Secrets Manager sign-in are available too, with an optional OS keychain. |
 | 🪟 **Parallel sessions** | Open as many tunnels as you need, switch between them with a keystroke. Local ports never collide. |
 | 🤖 **AI-ready** | Each PostgreSQL or SQL Server session serves a read-only MCP server and registers it for Claude Code and VS Code. |
 | 🧾 **Audited** | Every MCP query is shown live in the dashboard and written to a daily JSONL audit log. |
@@ -120,6 +120,7 @@ airlock rds my-db 5432 --db-user app_ro
 | `-p`, `--profile` | AWS profile to use (the wizard asks when omitted). `--aws-profile` is an alias. |
 | `--region` | AWS region (defaults to `AWS_REGION`, then the profile's region) |
 | `--db-user` | Database user for RDS AWS IAM authentication |
+| `--db-secret` | Secrets Manager secret (ARN or name) holding the RDS password |
 | `--no-ide-datasource` | Do not register the connection in `./.idea/dataSources.xml` |
 | `--no-mcp` | Do not serve the database MCP server |
 | `--mcp-allow-writes` | Let the MCP server modify data |
@@ -164,30 +165,75 @@ or the search, for the new region.
 
 ### Database sign-in
 
-The wizard ends on a **review step** that summarizes the connection. You can edit the local port and
-the database user there before connecting.
+The wizard ends on a **review step** that summarizes the connection. You can edit the local port,
+the sign-in method and the database user there before connecting.
 
 | Key | Action |
 |---|---|
 | `tab` | Switch field |
-| `space` | Toggle **IAM auth** |
-| `enter` | Connect |
+| `←` `→` · `space` | Change the **Sign-in** method |
+| `enter` | Connect (on the Secret field: search the secrets) |
 
-- **IAM auth (default).** airlock signs in without a password, generating short-lived AWS IAM
-  tokens. The user is prefilled with `--db-user`, then the user saved for that database, then
-  `defaultDbUser`.
-- **Password.** Turn IAM auth off to enter a user and its password. The password stays in memory
-  only: the MCP server uses it, the IntelliJ data source switches to user & password (the IDE asks for
-  the password), and the restart command falls back to IAM sign-in.
+The **Sign-in** selector offers up to four methods, depending on the target:
+
+| Method | Offered when |
+|---|---|
+| **IAM token** | The instance has IAM authentication enabled. Default when offered. |
+| **Auto** | SQL Server only: the tagged read-only secrets, or the master user secret with MCP writes. |
+| **Password** | PostgreSQL, Aurora PostgreSQL and SQL Server targets, with the MCP server on (no `--no-mcp`). |
+| **Secrets Manager** | Same as Password. |
+
+Password and Secrets Manager are offered only where airlock itself uses the credentials, that is for
+the MCP server. Elsewhere (MySQL, or `--no-mcp`) only IAM token is shown when enabled, and your IDE
+asks for the password as before.
+
+- **IAM token.** airlock signs in without a password, generating short-lived AWS IAM tokens. The user
+  is prefilled with `--db-user`, then the user saved for that database, then `defaultDbUser`.
+- **Password.** Enter a user and its password. It stays in memory for the MCP server; the IntelliJ
+  data source switches to user & password (the IDE asks for the password), and the restart command
+  falls back to IAM sign-in. The **Remember** toggle (off by default) stores the password in the OS
+  keychain, and the next connection prefills it, masked.
+- **Secrets Manager.** Press `enter` on the **Secret** field to search every secret of the account
+  and region. The secrets linked to the instance come first: tagged `DBInstanceArn`, the RDS master
+  user secret, or a name containing the instance name. The secret is either RDS JSON (`username` and
+  `password`) or plain text (then fill the **User** field). It is read before the tunnel opens, so an
+  unreadable secret fails fast, and the MCP server reads it again after the database rejects the
+  password, which covers rotation. From the CLI, `--db-secret <arn|name>` selects it and wins over the
+  saved choice; the restart command of such a session carries `--db-secret`.
 - The user feeds the connection hints, the IntelliJ data source, the MCP server and the restart
-  command. Instances without IAM authentication (SQL Server) only show the port.
+  command. Instances without IAM authentication or MCP support only show the port.
+
+```sh
+airlock rds my-db 5432 --db-secret prod/app-user
+```
+
+#### The OS keychain
+
+With **Remember**, the password is stored under the service `airlock` in the macOS Keychain, the
+Windows Credential Manager or the Linux Secret Service. It is forgotten when you turn **Remember**
+off, when the database rejects it, or when you forget the connection from the recent list (`d`).
+Without an OS keychain (a headless Linux, for example), the toggle is not offered and the password is
+asked every time. A keychain failure never blocks the connection: it appears as a `Warning:` line in
+the session log.
+
+> [!WARNING]
+> On macOS, airlock reaches the Keychain through `/usr/bin/security`, so the item trusts that tool,
+> not airlock. Another process running as the same user can read it without a prompt. It is safer
+> than a plaintext file, but it is not per-application isolation.
+
+#### IAM permissions
+
+Secrets Manager sign-in needs `secretsmanager:ListSecrets` and `secretsmanager:GetSecretValue`, plus
+`kms:Decrypt` when the secret uses a customer-managed KMS key.
 
 > [!TIP]
 > airlock remembers each connection per target (AWS account, region, resource type and name), so
 > several profiles that reach one account share it. It stores the last profile and local port, plus the
-> user, IAM auth setting and MCP write access for databases, in `~/.config/airlock/connections.json`
-> (`$XDG_CONFIG_HOME/airlock` when set). A saved port that is already in use falls back to a free
-> one, and `--db-user` / `--mcp-allow-writes` still win. **Passwords are never saved.**
+> user, sign-in method, secret ARN, keychain flag and MCP write access for databases, in
+> `~/.config/airlock/connections.json` (`$XDG_CONFIG_HOME/airlock` when set), as `sign_in`,
+> `db_secret_arn` and `password_in_keychain`. A saved port that is already in use falls back to a free
+> one, and `--db-user` / `--db-secret` / `--mcp-allow-writes` still win. **`connections.json` never
+> holds a password.**
 
 ### Parallel sessions
 
