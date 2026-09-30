@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 // staticCreds is a CredentialProvider with a fixed default database and optional database list.
@@ -410,5 +413,62 @@ func TestQueryDoesNotReportOtherErrorsAsRejectedPassword(t *testing.T) {
 	_, _ = q.Query(context.Background(), "", "SELECT 1", 1)
 	if rejected != 0 {
 		t.Fatalf("rejected = %d, want none for a refused connection", rejected)
+	}
+}
+
+// sqlServerLoginError is the error go-mssqldb returns when the server refused the login with the
+// error numbers of chain, in order.
+func sqlServerLoginError(chain ...mssql.Error) error {
+	last := chain[len(chain)-1]
+	last.Message = "login error: " + last.Message
+	last.All = chain
+	return last
+}
+
+func TestQueryDoesNotReportUnknownDatabaseAsRejectedPassword(t *testing.T) {
+	cannotOpen := mssql.Error{Number: 4060, Message: `Cannot open database "archive" requested by the login. The login failed.`}
+	loginFailed := mssql.Error{Number: 18456, Message: "Login failed for user 'acme_rw'."}
+	for name, connectErr := range map[string]error{
+		"driver error": sqlServerLoginError(cannotOpen, loginFailed),
+		"text only":    errors.New(sqlServerLoginError(cannotOpen, loginFailed).Error()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rejected := 0
+			creds := newPasswordProvider("acme_rw", "s3cret", "app")
+			creds.onRejected = func() { rejected++ }
+			q, db, _ := newTestQuerier(&sqlServerDialect, creds)
+			db.connectErr = connectErr
+
+			if _, err := q.Query(context.Background(), "archive", "SELECT 1", 1); err == nil {
+				t.Fatal("the query must fail")
+			}
+			if rejected != 0 {
+				t.Fatalf("rejected = %d, want none: the password was accepted, the database is unknown", rejected)
+			}
+		})
+	}
+}
+
+func TestQueryReportsSQLServerRejectedPassword(t *testing.T) {
+	loginFailed := mssql.Error{Number: 18456, Message: "Login failed for user 'acme_rw'."}
+	for name, connectErr := range map[string]error{
+		"driver error": sqlServerLoginError(loginFailed),
+		"wrapped":      fmt.Errorf("open: %w", sqlServerLoginError(loginFailed)),
+		"text only":    errLoginFailed,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rejected := 0
+			creds := newPasswordProvider("acme_rw", "wrong", "app")
+			creds.onRejected = func() { rejected++ }
+			q, db, _ := newTestQuerier(&sqlServerDialect, creds)
+			db.connectErr = connectErr
+
+			if _, err := q.Query(context.Background(), "", "SELECT 1", 1); err == nil {
+				t.Fatal("the query must fail")
+			}
+			if rejected != 1 {
+				t.Fatalf("rejected = %d, want one notification", rejected)
+			}
+		})
 	}
 }

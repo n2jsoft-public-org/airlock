@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 const (
@@ -154,7 +156,7 @@ func (q *sqlQuerier) withPool(ctx context.Context, database string, fn func(db *
 			return err
 		}
 	}
-	if listener, ok := q.creds.(credentialRejectionListener); ok {
+	if listener, ok := q.creds.(credentialRejectionListener); ok && isPasswordRejected(err) {
 		listener.rejected()
 	}
 	return err
@@ -293,6 +295,40 @@ func isAuthFailure(err error) bool {
 	return strings.Contains(text, "28P01") || strings.Contains(text, "password authentication failed") ||
 		strings.Contains(text, "Login failed for user")
 }
+
+// isPasswordRejected reports whether the database refused the password itself, which
+// isAuthFailure does not tell apart on SQL Server: a login to an unknown or inaccessible database
+// (error 4060) always comes with 18456 "Login failed", although the password was accepted.
+func isPasswordRejected(err error) bool {
+	var sqlErr mssql.Error
+	if errors.As(err, &sqlErr) {
+		chain := sqlErr.All
+		if len(chain) == 0 {
+			chain = []mssql.Error{sqlErr}
+		}
+		rejected := false
+		for i := range chain {
+			switch chain[i].Number {
+			case mssqlCannotOpenDatabase:
+				return false
+			case mssqlLoginFailed:
+				rejected = true
+			}
+		}
+		return rejected
+	}
+	text := err.Error()
+	if strings.Contains(text, "28P01") || strings.Contains(text, "password authentication failed") {
+		return true
+	}
+	return strings.Contains(text, "Login failed for user") && !strings.Contains(text, "Cannot open database")
+}
+
+// SQL Server error numbers of a refused login.
+const (
+	mssqlLoginFailed        = 18456
+	mssqlCannotOpenDatabase = 4060
+)
 
 func (q *sqlQuerier) Query(ctx context.Context, database, query string, maxRows int) (Result, error) {
 	if err := CheckReadOnly(q.dialect.engine, query); err != nil {
