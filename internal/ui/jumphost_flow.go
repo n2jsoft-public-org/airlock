@@ -117,6 +117,8 @@ type jumphostWizardModel struct {
 	// older one and is dropped. pending reports that such a result is awaited, which esc cancels.
 	loadID  int
 	pending bool
+	// cancelLoad cancels the context of the awaited loading, stopping its AWS calls.
+	cancelLoad context.CancelFunc
 	// loadReplacesTargets reports that the awaited result replaces the listed targets, which a
 	// canceled loading must not leave on screen (they belong to the previous region).
 	loadReplacesTargets bool
@@ -303,7 +305,7 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 func (m jumphostWizardModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.loadSavedCmd(), loadingTickCmd()}
 	if !m.askProfile {
-		cmds = append(cmds, m.resolveRegionCmd())
+		cmds = append(cmds, m.resolveRegionCmd(m.ctx))
 	}
 	return tea.Batch(cmds...)
 }
@@ -599,7 +601,7 @@ func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
 	if region := m.currentRegion(); region != "" {
 		label = fmt.Sprintf("Discovering %s resources in %s...", strings.ToUpper(m.options.ResourceType), region)
 	}
-	load := m.await(m.loadTargetsCmd(), true)
+	load := m.await(m.loadTargetsCmd, true)
 	return m, tea.Batch(
 		load,
 		m.loadingUI.start(label, []string{
@@ -650,7 +652,7 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 // startLoadingPort suggests the local port and loads the saved choices of the chosen target.
 func (m jumphostWizardModel) startLoadingPort() (tea.Model, tea.Cmd) {
 	m.loading = true
-	load := m.await(m.loadDefaultPortCmd(), false)
+	load := m.await(m.loadDefaultPortCmd, false)
 	return m, tea.Batch(
 		load,
 		m.loadingUI.start("Finding the best local port...", []string{
@@ -849,22 +851,35 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 	return m, m.finish()
 }
 
-// await tags cmd as the result the loading waits for, which esc cancels; replacesTargets tells
-// that the result replaces the listed targets. A nil cmd stays nil.
-func (m *jumphostWizardModel) await(cmd tea.Cmd, replacesTargets bool) tea.Cmd {
+// await builds the loading the wizard waits for with a context that esc cancels, stopping its
+// AWS calls, and tags its result; replacesTargets tells that the result replaces the listed
+// targets. A nil command stays nil.
+func (m *jumphostWizardModel) await(build func(ctx context.Context) tea.Cmd, replacesTargets bool) tea.Cmd {
+	ctx, cancel := context.WithCancel(m.ctx)
+	cmd := build(ctx)
 	if cmd == nil {
+		cancel()
 		return nil
 	}
 	m.loadID++
 	m.pending = true
 	m.loadReplacesTargets = replacesTargets
+	m.cancelLoad = cancel
 	id := m.loadID
-	return func() tea.Msg { return awaitedMsg{id: id, msg: cmd()} }
+	return func() tea.Msg {
+		msg := cmd()
+		cancel()
+		return awaitedMsg{id: id, msg: msg}
+	}
 }
 
 // cancelLoading stops waiting for the loading's result, which is dropped when it comes, and returns
 // to the step it started from; the AWS call ends in the background.
 func (m jumphostWizardModel) cancelLoading() (tea.Model, tea.Cmd) {
+	if m.cancelLoad != nil {
+		m.cancelLoad()
+		m.cancelLoad = nil
+	}
 	m.loadID++
 	m.pending = false
 	m.loading = false
@@ -886,25 +901,25 @@ func (m jumphostWizardModel) finish() tea.Cmd {
 	return func() tea.Msg { return done }
 }
 
-func (m jumphostWizardModel) loadTargetsCmd() tea.Cmd {
+func (m jumphostWizardModel) loadTargetsCmd(ctx context.Context) tea.Cmd {
 	opts := m.options
 	return func() tea.Msg {
-		targets, err := m.runner.ListResourceSummaries(m.ctx, &opts)
+		targets, err := m.runner.ListResourceSummaries(ctx, &opts)
 		return jumphostTargetsLoadedMsg{targets: targets, err: err}
 	}
 }
 
 // loadDefaultPortCmd suggests a free local port and loads the choices saved for the target; its
 // saved port is suggested instead while it is free.
-func (m jumphostWizardModel) loadDefaultPortCmd() tea.Cmd {
+func (m jumphostWizardModel) loadDefaultPortCmd(ctx context.Context) tea.Cmd {
 	opts := m.options
 	prefsOpts := m.prefsOptions()
 	return func() tea.Msg {
-		port, err := m.runner.ResolveDefaultLocalPort(m.ctx, opts)
+		port, err := m.runner.ResolveDefaultLocalPort(ctx, opts)
 		if err != nil {
 			return jumphostDefaultPortLoadedMsg{err: err}
 		}
-		prefs, saved := m.runner.LoadConnectionPrefs(m.ctx, prefsOpts)
+		prefs, saved := m.runner.LoadConnectionPrefs(ctx, prefsOpts)
 		if saved && prefs.LocalPort > 0 && m.runner.CheckLocalPort(prefs.LocalPort) == nil {
 			port = prefs.LocalPort
 		}
@@ -915,7 +930,7 @@ func (m jumphostWizardModel) loadDefaultPortCmd() tea.Cmd {
 			if strings.TrimSpace(keyOpts.DBUser) == "" {
 				keyOpts.DBUser = prefs.DBUser
 			}
-			msg.keychainPassword, _ = m.runner.LoadKeychainPassword(m.ctx, keyOpts)
+			msg.keychainPassword, _ = m.runner.LoadKeychainPassword(ctx, keyOpts)
 		}
 		return msg
 	}
@@ -932,19 +947,19 @@ func (m jumphostWizardModel) prefsOptions() jumphost.Options {
 }
 
 // resolveRegionCmd looks up the default region of the current profile unless a region was chosen explicitly.
-func (m jumphostWizardModel) resolveRegionCmd() tea.Cmd {
+func (m jumphostWizardModel) resolveRegionCmd(ctx context.Context) tea.Cmd {
 	if m.options.AwsRegion != "" {
 		return nil
 	}
 	profile := m.options.AwsProfile
 	return func() tea.Msg {
-		return jumphostRegionResolvedMsg{profile: profile, region: m.runner.ResolveRegion(m.ctx, profile)}
+		return jumphostRegionResolvedMsg{profile: profile, region: m.runner.ResolveRegion(ctx, profile)}
 	}
 }
 
-func (m jumphostWizardModel) loadProfilesCmd() tea.Cmd {
+func (m jumphostWizardModel) loadProfilesCmd(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
-		profiles, err := m.runner.ListAWSProfileSummaries(m.ctx)
+		profiles, err := m.runner.ListAWSProfileSummaries(ctx)
 		return jumphostProfilesLoadedMsg{profiles: profiles, err: err}
 	}
 }

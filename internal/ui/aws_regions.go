@@ -13,6 +13,15 @@ type awsRegion struct {
 	keywords string
 }
 
+// RegionCompletions lists the AWS commercial regions as shell completions, "code\tname".
+func RegionCompletions() []string {
+	completions := make([]string, 0, len(awsRegions))
+	for _, region := range awsRegions {
+		completions = append(completions, region.code+"\t"+region.name)
+	}
+	return completions
+}
+
 // awsRegions lists the AWS commercial regions offered by the region switcher, Europe first.
 var awsRegions = []awsRegion{
 	{code: "eu-west-3", name: "Europe (Paris)", keywords: "france"},

@@ -283,7 +283,7 @@ func TestWizardStartsOnResourceTypeWithResolvedRegion(t *testing.T) {
 
 func TestWizardKeepsExplicitRegion(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{AwsRegion: "us-east-1"})
-	if m.resolveRegionCmd() != nil {
+	if m.resolveRegionCmd(context.Background()) != nil {
 		t.Fatal("no region lookup expected when a region is given")
 	}
 	if got := m.currentRegion(); got != "us-east-1" {

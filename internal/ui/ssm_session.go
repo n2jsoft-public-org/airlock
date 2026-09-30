@@ -110,6 +110,18 @@ type ssmSession struct {
 	reconnects   int
 	reconnectAt  time.Time
 	reconnecting bool
+	// cancelReconnect cancels the context of the reconnection being prepared.
+	cancelReconnect context.CancelFunc
+}
+
+// stopReconnecting cancels the scheduled or running automatic reconnection of s; the result of a
+// running one is released when it comes.
+func (s *ssmSession) stopReconnecting() {
+	if s.cancelReconnect != nil {
+		s.cancelReconnect()
+		s.cancelReconnect = nil
+	}
+	s.reconnectAt, s.reconnecting = time.Time{}, false
 }
 
 func (s *ssmSession) active() bool {
@@ -160,8 +172,10 @@ type ssmModel struct {
 	showQueries bool
 	// notice is a neutral message shown above the key hints until the next key.
 	notice string
-	// prepareID identifies the preparation the dashboard waits for (see ssmPreparedMsg.id).
-	prepareID int
+	// prepareID identifies the preparation the dashboard waits for (see ssmPreparedMsg.id);
+	// cancelPrepare cancels its context, stopping its AWS calls.
+	prepareID     int
+	cancelPrepare context.CancelFunc
 	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
 	copier     func(text string) error
 	copyCursor int
@@ -448,6 +462,10 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m ssmModel) handlePreparingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
+		if m.cancelPrepare != nil {
+			m.cancelPrepare()
+			m.cancelPrepare = nil
+		}
 		m.prepareID++
 		m.loadingUI.stop()
 		m.mode = ssmModeSessions
@@ -653,7 +671,7 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 	}
 
 	// A restart by hand takes over an automatic reconnection, whose result is then released.
-	s.reconnectAt, s.reconnecting = time.Time{}, false
+	s.stopReconnecting()
 	label := fmt.Sprintf("Restarting %s %s...", strings.ToUpper(session.ResourceType), session.Target)
 	return m.prepare(ssmPreparedMsg{options: restartOptions(s), replaces: s.id}, label)
 }
@@ -676,9 +694,12 @@ func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.
 	m.mode = ssmModePreparing
 	m.prepareID++
 	pending.id = m.prepareID
+	// Canceled by esc only: a prepared session may keep using its context.
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.cancelPrepare = cancel
 	prepare := func() tea.Msg {
 		result := pending
-		result.session, result.err = m.runner.Prepare(m.ctx, pending.options)
+		result.session, result.err = m.runner.Prepare(ctx, pending.options)
 		return result
 	}
 	return m, tea.Batch(
@@ -744,6 +765,7 @@ func (m ssmModel) removeSelected() ssmModel {
 	if m.selected < 0 || m.selected >= len(m.sessions) {
 		return m
 	}
+	m.sessions[m.selected].stopReconnecting()
 	m.sessions = append(append([]*ssmSession{}, m.sessions[:m.selected]...), m.sessions[m.selected+1:]...)
 	return m.selectSession(m.selected)
 }

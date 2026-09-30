@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -100,7 +101,21 @@ func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, acti
 		item.production = production.matches(item.conn.Prefs.Profile)
 		items = append(items, item)
 	}
-	return recentPicker{list: newWizardList(styles, items), action: recentActionNone}
+	l := newWizardList(styles, items)
+	l.Title = "⌕ type to filter"
+	return recentPicker{list: l, action: recentActionNone}
+}
+
+// recentShortcuts are the keys of the start screen and its list, which never start the filter.
+const recentShortcuts = "nsdqjkhlgG?/"
+
+// startsFilter reports whether key is a printable character that is not a shortcut.
+func startsFilter(key tea.KeyMsg) bool {
+	if key.Type != tea.KeyRunes || key.Alt || len(key.Runes) != 1 {
+		return false
+	}
+	r := key.Runes[0]
+	return unicode.IsPrint(r) && !unicode.IsSpace(r) && !strings.ContainsRune(recentShortcuts, r)
 }
 
 // SetSize fits the list and the action rows in width x height.
@@ -141,6 +156,13 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 		}
 		if p.action != recentActionNone {
 			return p.updateActions(key)
+		}
+		// A letter that is not a shortcut starts the filter with it.
+		if startsFilter(key) {
+			p.list, _ = p.list.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+			var cmd tea.Cmd
+			p.list, cmd = p.list.Update(msg)
+			return p, recentPickerOpen, cmd
 		}
 		switch key.String() {
 		case "down", "j":

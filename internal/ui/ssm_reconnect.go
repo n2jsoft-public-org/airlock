@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -74,9 +75,12 @@ func (m ssmModel) handleReconnect(msg ssmReconnectMsg) (tea.Model, tea.Cmd) {
 	s.reconnecting = true
 	pending := ssmPreparedMsg{options: restartOptions(s), replaces: s.id, background: true}
 	pending.options.Unattended = true
+	// Canceled when the session is closed or restarted by hand meanwhile.
+	ctx, cancel := context.WithCancel(m.ctx)
+	s.cancelReconnect = cancel
 	return m, func() tea.Msg {
 		result := pending
-		result.session, result.err = m.runner.Prepare(m.ctx, pending.options)
+		result.session, result.err = m.runner.Prepare(ctx, pending.options)
 		return result
 	}
 }
@@ -93,7 +97,7 @@ func (m ssmModel) handleReconnected(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	dropped := m.sessions[index]
-	dropped.reconnecting = false
+	dropped.reconnecting, dropped.cancelReconnect = false, nil
 	if msg.err != nil {
 		dropped.appendLines("Automatic reconnection failed: " + msg.err.Error())
 		var cmd tea.Cmd

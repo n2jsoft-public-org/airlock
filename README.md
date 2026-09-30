@@ -132,6 +132,21 @@ airlock rds my-db 5432 --db-user app_ro
 
 </details>
 
+<details>
+<summary><b>Shell completion</b></summary>
+
+`airlock completion bash|zsh|fish|powershell` prints the completion script. It completes the
+resource type, the targets you connected to (filtered by `--profile` and `--region` when given),
+the local port they last used, the AWS profiles and the regions, all without calling AWS.
+
+```sh
+airlock completion zsh > "${fpath[1]}/_airlock"      # zsh
+airlock completion bash > ~/.local/share/bash-completion/completions/airlock   # bash
+airlock completion fish > ~/.config/fish/completions/airlock.fish              # fish
+```
+
+</details>
+
 ### The wizard
 
 The wizard opens on your **recent connections**, most recently used first. Picking one checks that
@@ -140,7 +155,7 @@ on the resource type step.
 
 | Key | Action |
 |---|---|
-| `/` | Filter recent connections by name, type, profile or region |
+| any letter · `/` | Filter recent connections by name, type, profile or region: type right away, or press `/` first when the name starts with a shortcut letter (`n`, `s`, `d`, `q`, `j`, `k`…) |
 | `n` | Start a new connection (resource type → AWS profile → target → review) |
 | `s` | Search a target: choose a profile, then pick among all its RDS, EKS and ElastiCache targets in one list |
 | `d` | Forget a recent connection |
@@ -244,7 +259,8 @@ Each EKS session gets its own kubeconfig, written to `~/.config/airlock/kube/`
 (`$XDG_CONFIG_HOME/airlock/kube` when set) and removed when the session stops. Its only context
 points at the tunnel, checks the certificate against the real cluster endpoint (`tls-server-name`)
 and signs in with `aws eks get-token`, with the session's profile and region. Your own
-`~/.kube/config` is never touched.
+`~/.kube/config` is never touched. A kubeconfig left by an airlock that was killed is removed at
+the next start; those of another running airlock are kept.
 
 ```sh
 export KUBECONFIG=~/.config/airlock/kube/airlock-<profile>-<region>-<cluster>.json

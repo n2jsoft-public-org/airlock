@@ -103,7 +103,7 @@ func (m jumphostWizardModel) returnToStart() (jumphostWizardModel, tea.Cmd) {
 	m.errorMsg = ""
 	m.defaultRegion = ""
 	m.regionResolved = false
-	return m, m.resolveRegionCmd()
+	return m, m.resolveRegionCmd(m.ctx)
 }
 
 // failDiscovery reports errMsg on the step the loading started from. leaveTargets empties a
@@ -143,7 +143,7 @@ func (m jumphostWizardModel) discoverWhenRegionKnown() (tea.Model, tea.Cmd) {
 	}
 	m.awaitingRegion = true
 	m.loading = true
-	resolve := m.await(m.resolveRegionCmd(), false)
+	resolve := m.await(m.resolveRegionCmd, false)
 	return m, tea.Batch(resolve, m.loadingUI.start("Resolving the AWS region...", []string{
 		"Asking the profile where it lives...",
 	}))
@@ -169,7 +169,7 @@ func (m jumphostWizardModel) enterProfileStep() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.loading = true
-	load := m.await(m.loadProfilesCmd(), false)
+	load := m.await(m.loadProfilesCmd, false)
 	return m, tea.Batch(load, m.loadingUI.start("Loading AWS profiles...", []string{
 		"Calibrating jump pads...",
 		"Checking which profile has the best vibes...",

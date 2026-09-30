@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -123,9 +124,11 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 	m.loading = true
 	opts := m.options
 	account := m.recentAccount
-	lookup := func() tea.Msg {
-		target, err := m.runner.FindResource(m.ctx, &opts, account)
-		return jumphostLookupMsg{target: target, err: err}
+	lookup := func(ctx context.Context) tea.Cmd {
+		return func() tea.Msg {
+			target, err := m.runner.FindResource(ctx, &opts, account)
+			return jumphostLookupMsg{target: target, err: err}
+		}
 	}
 	load := m.await(lookup, false)
 	return m, tea.Batch(load, m.loadingUI.start("Checking "+opts.Name+"...", []string{

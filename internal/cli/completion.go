@@ -1,0 +1,95 @@
+package cli
+
+import (
+	"io"
+	"strconv"
+	"strings"
+
+	"github.com/n2jsoft/airlock/internal/appdir"
+	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/ui"
+	"github.com/spf13/cobra"
+)
+
+// registerCompletions completes the arguments of cmd from the remembered connections, the
+// regions from a built-in list and the profiles from the AWS CLI config, without any AWS API call.
+func registerCompletions(cmd *cobra.Command) {
+	cmd.ValidArgsFunction = completeArgs
+	for _, flag := range []string{"profile", "aws-profile"} {
+		cobra.CheckErr(cmd.RegisterFlagCompletionFunc(flag, completeProfiles))
+	}
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("region", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return ui.RegionCompletions(), cobra.ShellCompDirectiveNoFileComp
+	}))
+}
+
+// completeArgs completes the resource type, then the targets remembered for it, then the local
+// port they last used.
+func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		return []string{"rds\tRDS database", "eks\tEKS cluster API endpoint", "elasticache\tElastiCache cluster"}, cobra.ShellCompDirectiveNoFileComp
+	case 1:
+		var names []string
+		seen := map[string]bool{}
+		recent := recentConnections(cmd, args[0])
+		for idx := range recent {
+			if conn := &recent[idx]; !seen[conn.Ref.Name] {
+				seen[conn.Ref.Name] = true
+				names = append(names, conn.Ref.Name+"\t"+conn.Prefs.Profile+" · "+conn.Ref.Region)
+			}
+		}
+		return names, cobra.ShellCompDirectiveNoFileComp
+	case 2:
+		recent := recentConnections(cmd, args[0])
+		for idx := range recent {
+			if conn := &recent[idx]; conn.Ref.Name == args[1] && conn.Prefs.LocalPort > 0 {
+				return []string{strconv.Itoa(conn.Prefs.LocalPort) + "\tlast used"}, cobra.ShellCompDirectiveNoFileComp
+			}
+		}
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
+}
+
+// recentConnections lists the remembered connections of resourceType, most recent first, limited
+// to the --profile and --region given; none when connections.json cannot be read.
+func recentConnections(cmd *cobra.Command, resourceType string) []jumphost.SavedConnection {
+	path, err := appdir.ConnectionsFile()
+	if err != nil {
+		return nil
+	}
+	saved, err := jumphost.NewPrefsStore(path).List()
+	if err != nil {
+		return nil
+	}
+	profile, region := flagValue(cmd, "profile"), flagValue(cmd, "region")
+	var matching []jumphost.SavedConnection
+	for idx := range saved {
+		switch conn := &saved[idx]; {
+		case !strings.EqualFold(conn.Ref.Type, resourceType):
+		case profile != "" && conn.Prefs.Profile != profile:
+		case region != "" && conn.Ref.Region != region:
+		default:
+			matching = append(matching, *conn)
+		}
+	}
+	return matching
+}
+
+// flagValue is the value of the flag name of cmd; "" when it has none.
+func flagValue(cmd *cobra.Command, name string) string {
+	if flag := cmd.Flags().Lookup(name); flag != nil {
+		return flag.Value.String()
+	}
+	return ""
+}
+
+// completeProfiles completes the AWS CLI profiles.
+func completeProfiles(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	runner := jumphost.NewRunner(jumphost.RunnerOptions{Out: io.Discard, Err: io.Discard})
+	profiles, err := runner.ListAWSProfileNames(cmd.Context())
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return profiles, cobra.ShellCompDirectiveNoFileComp
+}

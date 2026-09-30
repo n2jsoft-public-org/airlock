@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -45,9 +46,11 @@ func (m jumphostWizardModel) startSearch() (tea.Model, tea.Cmd) {
 		label = fmt.Sprintf("Searching RDS, EKS and ElastiCache targets in %s...", region)
 	}
 	opts := m.options
-	search := func() tea.Msg {
-		targets, failures, err := m.runner.SearchResources(m.ctx, &opts)
-		return jumphostSearchLoadedMsg{targets: targets, failures: failures, err: err}
+	search := func(ctx context.Context) tea.Cmd {
+		return func() tea.Msg {
+			targets, failures, err := m.runner.SearchResources(ctx, &opts)
+			return jumphostSearchLoadedMsg{targets: targets, failures: failures, err: err}
+		}
 	}
 	load := m.await(search, true)
 	return m, tea.Batch(load, m.loadingUI.start(label, []string{

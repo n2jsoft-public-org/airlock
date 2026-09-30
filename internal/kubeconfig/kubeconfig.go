@@ -33,6 +33,8 @@ var unsafeNameChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // Write writes a kubeconfig whose only context is c to dir, created when missing, and returns
 // its path and a function removing it. JSON is valid YAML, so every Kubernetes client reads it.
+// The file is owned by this process (see RemoveOrphans), and remove leaves it once another airlock
+// took it over for the same cluster.
 func Write(dir string, c *Cluster) (path string, remove func() error, err error) {
 	content, err := json.MarshalIndent(document(c), "", "  ")
 	if err != nil {
@@ -45,13 +47,27 @@ func Write(dir string, c *Cluster) (path string, remove func() error, err error)
 	if err := os.WriteFile(path, append(content, '\n'), 0o600); err != nil {
 		return "", nil, fmt.Errorf("failed to write %s: %w", path, err)
 	}
+	if err := writeOwner(path); err != nil {
+		return "", nil, err
+	}
 	remove = func() error {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+		if owner, ok := readOwner(path); !ok || owner != os.Getpid() {
+			return nil
 		}
-		return nil
+		return removeWithOwner(path)
 	}
 	return path, remove, nil
+}
+
+// removeWithOwner removes the kubeconfig at path and its owner file; missing ones are not errors.
+func removeWithOwner(path string) error {
+	var errs []error
+	for _, name := range []string{path, path + ownerSuffix} {
+		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type config struct {

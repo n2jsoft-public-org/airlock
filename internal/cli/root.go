@@ -12,6 +12,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -53,6 +54,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
 	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
 	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
+	registerCompletions(cmd)
 
 	cmd.AddCommand(newConfigCmd())
 
@@ -118,6 +120,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	kubeconfigDir, err := appdir.KubeconfigDir()
 	if err != nil {
 		cmd.PrintErrf("Warning: EKS sessions will not get a kubeconfig: %v\n", err)
+	} else if _, removeErr := kubeconfig.RemoveOrphans(kubeconfigDir); removeErr != nil {
+		// Kubeconfigs left by a killed airlock go; those of a running one stay.
+		cmd.PrintErrf("Warning: stale EKS kubeconfigs were not all removed: %v\n", removeErr)
 	}
 	// The wizard's Connect step choices are remembered in ~/.config/airlock/connections.json;
 	// a lookup failure only disables it.

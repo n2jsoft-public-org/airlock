@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
@@ -153,4 +154,58 @@ func TestRecentPickerEscClearsFilterFirst(t *testing.T) {
 	if outcome != recentPickerOpen || p.list.IsFiltered() {
 		t.Fatalf("outcome = %v filtered = %v, want the filter cleared first", outcome, p.list.IsFiltered())
 	}
+}
+
+func TestRecentPickerTypingALetterFilters(t *testing.T) {
+	p, outcome := pickerKey(t, newTestRecentPicker(nil), "p")
+	p, _, filter := p.Update(key("l"))
+	if outcome != recentPickerOpen || !p.typing() || p.list.FilterValue() != "pl" {
+		t.Fatalf("outcome = %v typing = %v filter = %q, want pl typed in the filter", outcome, p.typing(), p.list.FilterValue())
+	}
+	p = applyFilter(p, filter)
+	items := p.list.VisibleItems()
+	if len(items) != 1 {
+		t.Fatalf("visible = %v, want platform only", items)
+	}
+	if item, ok := items[0].(recentItem); !ok || item.conn.Ref.Name != "platform" {
+		t.Fatalf("visible = %v, want platform only", items)
+	}
+	if !strings.Contains(ansi.Strip(newTestRecentPicker(nil).View(NewStyles(), 100)), "type to filter") {
+		t.Fatal("the start screen does not say that typing filters")
+	}
+}
+
+func TestRecentPickerShortcutLettersDoNotFilter(t *testing.T) {
+	for _, k := range []string{"n", "s", "d", "q", "j", "k", "?"} {
+		if p, _ := pickerKey(t, newTestRecentPicker(nil), k); p.typing() {
+			t.Errorf("%s started the filter, it is a shortcut", k)
+		}
+	}
+}
+
+func TestWizardTypingOnStartScreenFilters(t *testing.T) {
+	m := startWizard(t, newHistoryRunner(savedArchive))
+	m, _ = wizardUpdate(t, m, key("a"))
+	m, cmd := wizardUpdate(t, m, key("q"))
+	if !m.recent.typing() || isQuit(cmd) || m.recent.list.FilterValue() != "aq" {
+		t.Fatalf("typing = %v filter = %q, want the letters typed in the filter", m.recent.typing(), m.recent.list.FilterValue())
+	}
+}
+
+// applyFilter feeds p the matches its list computes in the background after a filter change.
+func applyFilter(p recentPicker, cmd tea.Cmd) recentPicker {
+	msg := runWithTimeout(cmd)
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		batch = tea.BatchMsg{func() tea.Msg { return msg }}
+	}
+	for _, inner := range batch {
+		if inner == nil {
+			continue
+		}
+		if matches, ok := runWithTimeout(inner).(list.FilterMatchesMsg); ok {
+			p, _, _ = p.Update(matches)
+		}
+	}
+	return p
 }

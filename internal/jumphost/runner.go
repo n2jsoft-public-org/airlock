@@ -467,6 +467,12 @@ func (r *Runner) ListAWSProfiles(ctx context.Context) ([]string, error) {
 }
 
 // listProfileNames returns the sorted AWS CLI profile names, without the default fallback.
+// ListAWSProfileNames returns the AWS CLI profile names, sorted, with a single aws call: fast
+// enough for shell completion, unlike ListAWSProfileSummaries.
+func (r *Runner) ListAWSProfileNames(ctx context.Context) ([]string, error) {
+	return r.listProfileNames(ctx)
+}
+
 func (r *Runner) listProfileNames(ctx context.Context) ([]string, error) {
 	rawProfiles, err := r.runAWSCapture(ctx, nil, "configure", "list-profiles")
 	if err != nil {
