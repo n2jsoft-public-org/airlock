@@ -110,10 +110,12 @@ func (m ssmModel) renderHeader(width int) string {
 	if n := m.countSessions(func(s *ssmSession) bool { return s.state == ssmSessionRunning && s.ready }); n > 0 {
 		counts = append(counts, m.styles.Success.Render(fmt.Sprintf("● %d ready", n)))
 	}
-	if n := m.countSessions(func(s *ssmSession) bool { return s.active() && (s.state != ssmSessionRunning || !s.ready) }); n > 0 {
+	if n := m.countSessions(func(s *ssmSession) bool {
+		return (s.active() && (s.state != ssmSessionRunning || !s.ready)) || s.reconnectPending()
+	}); n > 0 {
 		counts = append(counts, m.styles.Warning.Render(fmt.Sprintf("%s %d pending", m.spinner(), n)))
 	}
-	if n := m.countSessions(func(s *ssmSession) bool { return !s.active() }); n > 0 {
+	if n := m.countSessions(func(s *ssmSession) bool { return !s.active() && !s.reconnectPending() }); n > 0 {
 		counts = append(counts, m.styles.Muted.Render(fmt.Sprintf("○ %d ended", n)))
 	}
 	right := strings.Join(counts, m.styles.Faint.Render("  ·  "))
@@ -448,6 +450,10 @@ func (m ssmModel) status(s *ssmSession) (icon, label string, style lipgloss.Styl
 		return m.spinner(), "Stopping", m.styles.Warning
 	default:
 		switch {
+		case s.reconnecting:
+			return m.spinner(), reconnectStatus(s), m.styles.Warning
+		case s.reconnectPending():
+			return "↻", reconnectStatus(s), m.styles.Warning
 		case s.stopRequested:
 			return "○", "Stopped", m.styles.Muted
 		case s.err != nil:

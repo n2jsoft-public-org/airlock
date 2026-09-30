@@ -2,10 +2,12 @@ package jumphost
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,7 +42,7 @@ func TestExpiredIdentitySignsInThroughTheInteractiveRunner(t *testing.T) {
 		return os.WriteFile(signedIn, nil, 0o600)
 	}})
 
-	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}); err != nil {
+	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"aws", "sso", "login", "--profile", "dev"}; !reflect.DeepEqual(got, want) {
@@ -60,7 +62,7 @@ func TestConcurrentExpiredIdentityChecksSignInOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 3 {
 		wg.Go(func() {
-			if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}); err != nil {
+			if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, true); err != nil {
 				t.Error(err)
 			}
 		})
@@ -68,5 +70,22 @@ func TestConcurrentExpiredIdentityChecksSignInOnce(t *testing.T) {
 	wg.Wait()
 	if n := logins.Load(); n != 1 {
 		t.Fatalf("signed in %d times, want once: each sign-in opens the browser", n)
+	}
+}
+
+func TestUnattendedExpiredIdentityNeverSignsIn(t *testing.T) {
+	installExpiredAWS(t)
+	var logins atomic.Int32
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
+		logins.Add(1)
+		return nil
+	}})
+
+	_, err := runner.resolveAWSConfig(context.Background(), Options{AwsProfile: "dev", AwsRegion: "eu-west-3", Unattended: true})
+	if !errors.Is(err, ErrSignInRequired) || !strings.Contains(err.Error(), "dev") {
+		t.Fatalf("err = %v, want ErrSignInRequired naming the profile", err)
+	}
+	if n := logins.Load(); n != 0 {
+		t.Fatalf("signed in %d times, want never: nobody may be there to answer", n)
 	}
 }

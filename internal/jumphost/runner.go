@@ -69,7 +69,13 @@ type Options struct {
 	DBSecretARN string
 	// RememberPassword keeps DBPassword in the OS keychain for the next connections.
 	RememberPassword bool
+	// Unattended never signs in interactively, as nobody may be there to answer (automatic
+	// reconnections): missing or expired credentials fail with ErrSignInRequired.
+	Unattended bool
 }
+
+// ErrSignInRequired reports AWS credentials that only an interactive sign-in can renew.
+var ErrSignInRequired = errors.New("AWS sign-in required")
 
 // SignInMethod returns how the connection signs in to an RDS database.
 func (o *Options) SignInMethod() string {
@@ -968,7 +974,7 @@ func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConf
 	}
 
 	fprintf(r.out, "Using AWS profile/region... %s/%s\n", cfg.Profile, cfg.Region)
-	if err := r.ensureIdentity(ctx, cfg); err != nil {
+	if err := r.ensureIdentity(ctx, cfg, !options.Unattended); err != nil {
 		return awsConfig{}, err
 	}
 
@@ -1018,7 +1024,9 @@ func (r *Runner) ssoLogin(ctx context.Context, profile string) error {
 	return r.interactive(ctx, purpose, "aws", "sso", "login", "--profile", profile)
 }
 
-func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
+// ensureIdentity checks the AWS identity of cfg, signing in again when it is missing or expired,
+// unless interactive is false: then it fails with ErrSignInRequired.
+func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive bool) error {
 	fprintf(r.out, "Using AWS identity... ")
 	identity, err := r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
 	if err == nil {
@@ -1037,6 +1045,9 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
 		return nil
 	}
 
+	if !interactive {
+		return fmt.Errorf("%w: the AWS credentials of profile %s are missing or expired", ErrSignInRequired, cfg.Profile)
+	}
 	fprintf(r.out, "Failed. Reauthorize...\n")
 	parentProfile, _ := r.runAWSCapture(ctx, nil, "configure", "get", "source_profile", "--profile", cfg.Profile)
 	loginProfile := strings.TrimSpace(parentProfile)

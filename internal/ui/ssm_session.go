@@ -78,6 +78,8 @@ type ssmPreparedMsg struct {
 	replaces int
 	// id identifies the preparation; a canceled one carries an older id than ssmModel.prepareID.
 	id int
+	// background marks an automatic reconnection, which never takes the screen.
+	background bool
 }
 
 type ssmLogLine struct {
@@ -103,6 +105,11 @@ type ssmSession struct {
 	stopRequested bool
 	// ready is set once session-manager-plugin listens on the local port.
 	ready bool
+	// reconnects counts the automatic reconnections in a row; reconnectAt is when the next one
+	// starts (zero when none is scheduled) and reconnecting reports one being prepared.
+	reconnects   int
+	reconnectAt  time.Time
+	reconnecting bool
 }
 
 func (s *ssmSession) active() bool {
@@ -235,7 +242,7 @@ func ssmTickCmd() tea.Cmd {
 // addSession registers a session prepared with options as a new tab and selects it. The process is
 // launched separately.
 func (m ssmModel) addSession(session *jumphost.Session, options jumphost.Options) ssmModel {
-	m.sessions = append(m.sessions, m.newSession(session, options, nil))
+	m.sessions = append(m.sessions, m.newSession(session, options, nil, ""))
 	m.selected = len(m.sessions) - 1
 	m.refreshViewport()
 	m.viewport.GotoBottom()
@@ -243,8 +250,8 @@ func (m ssmModel) addSession(session *jumphost.Session, options jumphost.Options
 }
 
 // newSession builds the tab of a prepared session; history holds the log lines of the ended run a
-// restart replaces.
-func (m *ssmModel) newSession(session *jumphost.Session, options jumphost.Options, history []ssmLogLine) *ssmSession {
+// restart replaces, followed by note.
+func (m *ssmModel) newSession(session *jumphost.Session, options jumphost.Options, history []ssmLogLine, note string) *ssmSession {
 	s := &ssmSession{
 		id:        m.nextID,
 		session:   session,
@@ -256,8 +263,8 @@ func (m *ssmModel) newSession(session *jumphost.Session, options jumphost.Option
 	if server := session.MCPServer(); server != nil {
 		s.mcp = subscribeMCPQueries(s.id, server, m.events)
 	}
-	if len(history) > 0 {
-		s.appendLines("", "Restarting session...", "")
+	if note != "" {
+		s.appendLines("", note, "")
 	}
 	s.appendLines(session.Intro...)
 	s.appendLines("", "Starting session...")
@@ -311,6 +318,8 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePrepared(msg)
 	case ssmCopiedMsg:
 		return m.handleCopied(msg)
+	case ssmReconnectMsg:
+		return m.handleReconnect(msg)
 	case jumphostWizardDoneMsg:
 		return m.handleWizardDone(msg)
 	case loadingTickMsg:
@@ -516,13 +525,14 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 	if cleanup := s.session.Release(); cleanup != "" {
 		s.appendLines(cleanup)
 	}
+	reconnect := m.scheduleReconnect(s)
 	m.refreshSelected(s)
 
 	// Only "stop all & quit" leaves on its own: an ended session stays on screen with its logs.
 	if m.quitting && !m.hasActiveSessions() {
 		return m, tea.Quit
 	}
-	return m, waitSSMEvent(m.events)
+	return m, tea.Batch(waitSSMEvent(m.events), reconnect)
 }
 
 // wizardDefaults are the options every new connection inherits from the command line.
@@ -629,14 +639,22 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	options := s.options
-	options.ResourceType = session.ResourceType
-	options.Name = session.Target
-	options.AwsProfile = session.Profile
-	options.AwsRegion = session.Region
-	options.LocalPortNumber = session.LocalPort
+	// A restart by hand takes over an automatic reconnection, whose result is then released.
+	s.reconnectAt, s.reconnecting = time.Time{}, false
 	label := fmt.Sprintf("Restarting %s %s...", strings.ToUpper(session.ResourceType), session.Target)
-	return m.prepare(ssmPreparedMsg{options: options, replaces: s.id}, label)
+	return m.prepare(ssmPreparedMsg{options: restartOptions(s), replaces: s.id}, label)
+}
+
+// restartOptions prepares the session of s again: same target, profile, region, local port and
+// sign-in choices, so the tools pointed at it reconnect as they were.
+func restartOptions(s *ssmSession) jumphost.Options {
+	options := s.options
+	options.ResourceType = s.session.ResourceType
+	options.Name = s.session.Target
+	options.AwsProfile = s.session.Profile
+	options.AwsRegion = s.session.Region
+	options.LocalPortNumber = s.session.LocalPort
+	return options
 }
 
 // prepare prepares the session of pending.options in the background; pending carries what the
@@ -661,6 +679,9 @@ func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.
 }
 
 func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
+	if msg.background {
+		return m.handleReconnected(msg)
+	}
 	// The user canceled this preparation: free what it reserved rather than open it.
 	if msg.id != m.prepareID {
 		if msg.session != nil {
@@ -682,7 +703,7 @@ func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
 	appendWarning(msg.session, msg.warning)
 	// A restart takes the slot of the ended session, keeping its logs above the new run.
 	if index := m.sessionIndex(msg.replaces); index >= 0 {
-		s := m.newSession(msg.session, msg.options, m.sessions[index].lines)
+		s := m.newSession(msg.session, msg.options, m.sessions[index].lines, "Restarting session...")
 		m.sessions[index] = s
 		m = m.selectSession(index)
 		m.launchCommand(s)

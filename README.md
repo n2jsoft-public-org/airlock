@@ -282,6 +282,18 @@ WezTerm, Ghostty, Windows Terminal, tmux with `set-clipboard on`), but not macOS
 A session that ends, on its own or with `x`, stays in the dashboard with its logs until you close it,
 restart it or quit.
 
+**Automatic reconnection.** A session that worked and then drops on its own (SSM idle timeout,
+network loss, laptop sleep) reconnects in the background, in the same slot, on the same local port
+and with the same sign-in, so your tools keep working. Its card shows `Retry in 5s`, then
+`Reconnecting`. Attempts wait 2 s, 5 s, 15 s, 30 s, then 1 min, and stop after the fifth in a row;
+a session that then runs for a minute gets fresh attempts. `r` reconnects now, `x` closes the
+session instead.
+
+- A session stopped with `x`, or that never listened (its settings are likely wrong), is not
+  reconnected.
+- A reconnection never signs in: nobody may be there to answer the browser. When the AWS
+  credentials have expired, it stops and asks you to press `r`, which signs in again.
+
 - **Ports never collide.** The suggested port skips ports used by other sessions or other local
   processes (a second `5432` RDS gets `5433`). A busy port requested explicitly is rejected.
 - **No duplicates.** Connecting twice to the same target (same type, name, profile and region) is
