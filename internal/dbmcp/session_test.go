@@ -63,6 +63,22 @@ func TestStartRegistersAndCloseCleansUp(t *testing.T) {
 	}
 }
 
+func TestHandleReportsWriteAccess(t *testing.T) {
+	useIsolatedLocks(t)
+	for _, writes := range []bool{false, true} {
+		cfg := testSessionConfig(t, "postgres")
+		cfg.AllowWrites = writes
+		handle, err := Start(NewHost(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handle.AllowsWrites() != writes {
+			t.Fatalf("AllowsWrites() = %v, want %v", handle.AllowsWrites(), writes)
+		}
+		handle.Close()
+	}
+}
+
 func TestStartWithoutClientConfigPrintsToken(t *testing.T) {
 	useIsolatedLocks(t)
 	handle, err := Start(NewHost(), testSessionConfig(t, "sqlserver-se"))

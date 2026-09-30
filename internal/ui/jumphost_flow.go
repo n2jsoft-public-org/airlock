@@ -286,15 +286,29 @@ func (m jumphostWizardModel) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// Update handles msg, then fits the lists to the body the error leaves, as it may take several lines.
 func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.update(msg)
+	if wizard, ok := updated.(jumphostWizardModel); ok {
+		return wizard.fitLists(), cmd
+	}
+	return updated, cmd
+}
+
+// fitLists sizes the lists to the frame body.
+func (m jumphostWizardModel) fitLists() jumphostWizardModel {
+	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg)
+	m.profileList.SetSize(bodyWidth, bodyHeight)
+	m.targetList.SetSize(bodyWidth, bodyHeight)
+	m.recent.SetSize(bodyWidth, bodyHeight)
+	return m
+}
+
+func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		bodyWidth, bodyHeight := wizardBodySize(msg.Width, msg.Height)
-		m.profileList.SetSize(bodyWidth, bodyHeight)
-		m.targetList.SetSize(bodyWidth, bodyHeight)
-		m.recent.SetSize(bodyWidth, bodyHeight)
 		return m, nil
 	case loadingTickMsg:
 		if !m.loading {

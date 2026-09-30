@@ -103,6 +103,11 @@ func (s *ssmSession) active() bool {
 	return s.state != ssmSessionEnded
 }
 
+// mcpWrites reports whether the MCP server of s lets AI assistants modify data.
+func (s *ssmSession) mcpWrites() bool {
+	return s.mcp != nil && s.mcp.writes
+}
+
 // key identifies the target of s as the wizard's recent connections do (see connectionKey).
 func (s *ssmSession) key() string {
 	return connectionKey(s.session.Profile, s.session.Region, s.session.ResourceType, s.session.Target)
@@ -376,6 +381,10 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.selectSession(index), nil
 		}
 		return m, nil
+	case "g", "home":
+		m.viewport.GotoTop()
+	case "G", "end":
+		m.viewport.GotoBottom()
 	case "pgup":
 		m.viewport.HalfPageUp()
 	case "pgdown":
@@ -393,34 +402,46 @@ func (m ssmModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "left", "right", "tab":
 		m.confirmYes = !m.confirmYes
 		return m, nil
-	case "esc":
-		m.mode = ssmModeSessions
-		m.refreshViewport()
-		return m, nil
+	case "n", "esc":
+		return m.closeDialog(false)
+	case "y":
+		return m.closeDialog(true)
 	case "enter":
-		confirmed := m.confirmYes
-		mode := m.mode
-		m.mode = ssmModeSessions
-		if !confirmed {
-			m.refreshViewport()
-			return m, nil
+		return m.closeDialog(m.confirmYes)
+	case "ctrl+c":
+		// ctrl+c always means quitting: pressed again on the quit dialog, it confirms it.
+		if m.mode == ssmModeConfirmQuit {
+			return m.closeDialog(true)
 		}
-		if mode == ssmModeConfirmQuit {
-			m.quitting = true
-			for _, s := range m.sessions {
-				m.stopSession(s)
-			}
-			if !m.hasActiveSessions() {
-				return m, tea.Quit
-			}
-		} else if s := m.selectedSession(); s != nil {
-			m.stopSession(s)
-		}
-		m.refreshViewport()
+		m.mode = ssmModeConfirmQuit
+		m.confirmYes = true
 		return m, nil
 	default:
 		return m, nil
 	}
+}
+
+// closeDialog closes the confirmation dialog, doing what it asked when confirmed.
+func (m ssmModel) closeDialog(confirmed bool) (tea.Model, tea.Cmd) {
+	mode := m.mode
+	m.mode = ssmModeSessions
+	if !confirmed {
+		m.refreshViewport()
+		return m, nil
+	}
+	if mode == ssmModeConfirmQuit {
+		m.quitting = true
+		for _, s := range m.sessions {
+			m.stopSession(s)
+		}
+		if !m.hasActiveSessions() {
+			return m, tea.Quit
+		}
+	} else if s := m.selectedSession(); s != nil {
+		m.stopSession(s)
+	}
+	m.refreshViewport()
+	return m, nil
 }
 
 func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {

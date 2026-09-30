@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -875,5 +876,46 @@ func TestWizardPickedRegionContinuesDiscovery(t *testing.T) {
 	m = runCmd(t, m, cmd)
 	if m.pickingRegion || m.step != jumphostStepTarget || m.options.AwsRegion != "eu-west-1" {
 		t.Fatalf("picking = %v step = %v region = %q, want the targets of the picked region", m.pickingRegion, m.step, m.options.AwsRegion)
+	}
+}
+
+func TestWizardLongErrorWrapsWithinTheTerminal(t *testing.T) {
+	long := "no running jumphost instance tagged Usage=jumphost in eu-west-3 (profile dev). The tag comes from " +
+		`"jumphostTag": check it with airlock config show, change it with airlock config set jumphostTag Key=Value, or pass --jumphost-tag`
+	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{AwsRegion: "eu-west-3"})
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 70, Height: 24})
+	m, _ = wizardUpdate(t, m, key("enter")) // rds: the targets load
+	targets := make([]jumphost.ResourceSummary, 0, 30)
+	for idx := range 30 {
+		targets = append(targets, jumphost.ResourceSummary{Name: fmt.Sprintf("db-%02d", idx)})
+	}
+	m, _ = wizardUpdate(t, m, jumphostTargetsLoadedMsg{targets: targets})
+	m, _ = wizardUpdate(t, m, key("enter")) // the port loads
+	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{err: errors.New(long)})
+	if m.step != jumphostStepTarget {
+		t.Fatalf("step = %v, want the error shown on the target step", m.step)
+	}
+
+	out := m.View()
+	view := ansi.Strip(out)
+	if !strings.Contains(view, "--jumphost-tag") {
+		t.Fatalf("the end of the error, where its advice is, is cut:\n%s", view)
+	}
+	if got := lipgloss.Height(out); got > 24 {
+		t.Fatalf("height %d exceeds the terminal", got)
+	}
+	if !strings.Contains(view, "db-00") {
+		t.Fatalf("the selected target is pushed out by the error:\n%s", view)
+	}
+}
+
+func TestErrorLinesAreCapped(t *testing.T) {
+	lines := NewStyles().errorLines(strings.Repeat("word ", 400), 40)
+	if len(lines) != maxErrorLines {
+		t.Fatalf("%d lines, want %d", len(lines), maxErrorLines)
+	}
+	last := ansi.Strip(lines[len(lines)-1])
+	if !strings.HasSuffix(last, "…") || lipgloss.Width(last) > 40 {
+		t.Fatalf("last line = %q, want it cut with … within 40 cells", last)
 	}
 }

@@ -16,7 +16,7 @@ const (
 )
 
 func (m jumphostWizardModel) View() string {
-	bodyWidth, bodyHeight := wizardBodySize(m.width, m.height)
+	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg)
 	frame := wizardFrame{
 		title:    "airlock",
 		tagline:  "SSM port forwarding",

@@ -17,6 +17,7 @@ const maxMCPQueries = 500
 type mcpQuerySource interface {
 	Subscribe(fn func(dbmcp.QueryEvent))
 	QueryLogDir() string
+	AllowsWrites() bool
 }
 
 type ssmMCPQueryMsg struct {
@@ -28,6 +29,8 @@ type ssmMCPQueryMsg struct {
 type ssmMCPQueries struct {
 	// logDir is where every call is logged (empty when the audit log is disabled).
 	logDir string
+	// writes reports that the server may modify data (the execute tool is offered).
+	writes bool
 	events []dbmcp.QueryEvent
 	total  int
 }
@@ -49,7 +52,7 @@ func subscribeMCPQueries(id int, source mcpQuerySource, events chan<- tea.Msg) *
 		default:
 		}
 	})
-	return &ssmMCPQueries{logDir: source.QueryLogDir()}
+	return &ssmMCPQueries{logDir: source.QueryLogDir(), writes: source.AllowsWrites()}
 }
 
 // queriesShown reports whether the bottom panel shows the MCP queries of s rather than its logs.

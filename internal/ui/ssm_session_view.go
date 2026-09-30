@@ -155,8 +155,9 @@ func (m ssmModel) renderCard(s *ssmSession, selected bool, width int) []string {
 	icon, label, style := m.status(s)
 	contentWidth := width - 2
 
+	badges := m.badges(s)
 	rows := []string{
-		m.badge(s.session.ResourceType) + " " + m.styles.Text.Bold(true).Render(truncate(s.session.Target, contentWidth-lipgloss.Width(m.badge(s.session.ResourceType))-1)),
+		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.session.Target, contentWidth-lipgloss.Width(badges)-1)),
 		spread(style.Render(icon+" "+label), m.styles.Text.Render(fmt.Sprintf("localhost:%d", s.session.LocalPort)), contentWidth),
 		m.styles.Muted.Render(truncate(fmt.Sprintf("%s · %s · %s", s.session.Profile, s.session.Region, formatUptime(s)), contentWidth)),
 	}
@@ -180,6 +181,9 @@ func (m ssmModel) renderPills(width int) string {
 	for idx, s := range m.sessions {
 		icon, _, style := m.status(s)
 		pill := fmt.Sprintf("%s %s :%d", style.Render(icon), s.session.Target, s.session.LocalPort)
+		if s.mcpWrites() {
+			pill += " " + m.styles.Danger.Render("WRITES")
+		}
 		if idx == m.selected {
 			pills = append(pills, m.styles.SelectedCard.Padding(0, 1).Bold(true).Render(pill))
 		} else {
@@ -217,7 +221,7 @@ func (m ssmModel) renderDetails(width int) string {
 
 	icon, label, style := m.status(s)
 	title := spread(
-		m.badge(s.session.ResourceType)+" "+m.styles.Text.Bold(true).Render(s.session.Target),
+		m.badges(s)+" "+m.styles.Text.Bold(true).Render(s.session.Target),
 		style.Render(icon+" "+label),
 		inner,
 	)
@@ -270,7 +274,7 @@ func (m ssmModel) renderLogs(width, height int) string {
 	}
 	follow := m.styles.Success.Render("● live")
 	if !m.viewport.AtBottom() {
-		follow = m.styles.Warning.Render(fmt.Sprintf("❚❚ paused %d%%", int(m.viewport.ScrollPercent()*100)))
+		follow = m.styles.Warning.Render(fmt.Sprintf("❚❚ paused %d%%", int(m.viewport.ScrollPercent()*100))) + m.styles.Faint.Render("  G follow")
 	}
 	header := spread(title, follow, width-4)
 
@@ -362,8 +366,10 @@ func (m ssmModel) renderFooter(width int) string {
 
 	var keys [][2]string
 	switch m.mode {
-	case ssmModeConfirmQuit, ssmModeConfirmStop:
-		keys = [][2]string{{"←→", "choose"}, {"enter", "confirm"}, {"esc", "cancel"}}
+	case ssmModeConfirmQuit:
+		keys = [][2]string{{"y", "quit"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}, {"ctrl+c", "quit"}}
+	case ssmModeConfirmStop:
+		keys = [][2]string{{"y", "stop"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}}
 	default:
 		keys = [][2]string{{"n", "new"}}
 		switch s := m.selectedSession(); {
@@ -413,6 +419,15 @@ func (m ssmModel) status(s *ssmSession) (icon, label string, style lipgloss.Styl
 
 func (m ssmModel) badge(resourceType string) string {
 	return m.styles.ResourceBadge(resourceType)
+}
+
+// badges renders the resource type of s, flagged when its MCP server may modify data.
+func (m ssmModel) badges(s *ssmSession) string {
+	badges := m.badge(s.session.ResourceType)
+	if s.mcpWrites() {
+		badges += " " + m.styles.WritesBadge()
+	}
+	return badges
 }
 
 func (m ssmModel) field(label, value string, width int) string {

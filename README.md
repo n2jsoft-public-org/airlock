@@ -265,9 +265,11 @@ on one of them switches to its session instead of opening a second one.
 | `n` | Open another connection |
 | `tab` · `←` `→` · `1`–`9` | Switch between sessions |
 | `m` | Switch the bottom panel between logs and MCP queries (database sessions) |
+| `↑` `↓` · `pgup` `pgdn` | Scroll the logs; scrolling up pauses them |
+| `g` · `home` / `G` · `end` | Jump to the start of the logs / back to the live tail |
 | `x` | Stop the selected session, or close it once ended |
 | `r` | Restart the selected ended session: same target, local port and sign-in |
-| `q` · `ctrl+c` | Stop all sessions and quit |
+| `q` · `ctrl+c` | Stop all sessions and quit, after a confirmation (`y` / `n`, or `ctrl+c` again) |
 
 A session that ends, on its own or with `x`, stays in the dashboard with its logs until you close it,
 restart it or quit.
@@ -299,8 +301,9 @@ as long as the session runs, so AI assistants can explore and query the database
 
 It is removed when the session stops. The prefix comes from `mcpServerPrefix` (default `airlock`)
 and is not repeated for profiles that already start with it: prefix `team` with profile `team-prod`
-gives `team-prod-<instance>`. The dashboard's `MCP` row shows `read-only` or `WRITES ENABLED`, the
-server name and its URL. When neither file exists, it also shows the bearer token so you can
+gives `team-prod-<instance>`. A red `WRITES` badge flags the sessions whose server can modify
+data, in the sidebar and the compact pills. The dashboard's `MCP` row shows `read-only` or
+`WRITES ENABLED`, the server name and its URL. When neither file exists, it also shows the bearer token so you can
 configure a client by hand.
 
 > [!IMPORTANT]

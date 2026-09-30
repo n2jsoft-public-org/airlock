@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -38,7 +39,18 @@ type wizardFrame struct {
 	current int
 }
 
-// wizardBodySize returns the width and height available to a frame body in a terminal of the given size.
+// frameBodySize returns the size left to the body of a frame showing errorMsg, which takes up
+// to maxErrorLines lines.
+func (s Styles) frameBodySize(width, height int, errorMsg string) (bodyWidth, bodyHeight int) {
+	bodyWidth, bodyHeight = wizardBodySize(width, height)
+	if errorMsg != "" {
+		bodyHeight = maxInt(bodyHeight-len(s.errorLines(errorMsg, bodyWidth))+1, 1)
+	}
+	return bodyWidth, bodyHeight
+}
+
+// wizardBodySize returns the width and height available to a frame body in a terminal of the
+// given size, with a one-line error.
 func wizardBodySize(width, height int) (bodyWidth, bodyHeight int) {
 	width, height = frameSize(width, height)
 	return maxInt(width-wizardChromeWidth, 20), maxInt(height-wizardChromeHeight, 3)
@@ -57,7 +69,7 @@ func frameSize(width, height int) (frameWidth, frameHeight int) {
 // renderWizardFrame lays out f to fill exactly width x height cells.
 func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 	width, height = frameSize(width, height)
-	inner, bodyHeight := wizardBodySize(width, height)
+	inner, bodyHeight := s.frameBodySize(width, height, f.errorMsg)
 
 	right := strings.Join(f.chips, s.Faint.Render("   "))
 	left := s.Title.Render("◆ " + f.title)
@@ -72,9 +84,9 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 		heading += s.Faint.Render("  " + f.hint)
 	}
 
-	errorLine := ""
+	errorLines := []string{""}
 	if f.errorMsg != "" {
-		errorLine = truncate(s.Danger.Render("✗ "+f.errorMsg), inner)
+		errorLines = s.errorLines(f.errorMsg, inner)
 	}
 
 	body := lipgloss.NewStyle().MaxWidth(inner).Height(bodyHeight).MaxHeight(bodyHeight).Render(f.body)
@@ -87,10 +99,31 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 		truncate(heading, inner),
 		"",
 		body,
-		errorLine,
+		strings.Join(errorLines, "\n"),
 		s.KeyHints(f.keys, inner),
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(lines, "\n"))
+}
+
+// maxErrorLines caps the lines of a frame error; a longer one is cut with "…".
+const maxErrorLines = 4
+
+// errorLines wraps msg under a "✗" marker in at most maxErrorLines lines of width cells.
+func (s Styles) errorLines(msg string, width int) []string {
+	wrapped := wrapText(msg, maxInt(width-2, 1))
+	if len(wrapped) > maxErrorLines {
+		wrapped = wrapped[:maxErrorLines]
+		wrapped[maxErrorLines-1] = ansi.Truncate(wrapped[maxErrorLines-1], maxInt(width-3, 0), "") + "…"
+	}
+	lines := make([]string, 0, len(wrapped))
+	for idx, line := range wrapped {
+		prefix := "  "
+		if idx == 0 {
+			prefix = "✗ "
+		}
+		lines = append(lines, s.Danger.Render(prefix+line))
+	}
+	return lines
 }
 
 func (s Styles) breadcrumb(steps []string, current int) string {

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -651,5 +652,94 @@ func TestStartupWizardEscOnFirstStepStays(t *testing.T) {
 	m, cmd := update(t, m, key("esc"))
 	if _, ok := wizardDone(cmd); ok || m.wizard.step != jumphostStepType {
 		t.Fatal("esc left the startup wizard: without sessions there is nowhere to go back to")
+	}
+}
+
+// newLongLogModel returns a dashboard whose session log is longer than the logs panel.
+func newLongLogModel(t *testing.T) ssmModel {
+	t.Helper()
+	m := newTestSSMModel(t, "db")
+	for idx := range 200 {
+		m.sessions[0].appendLines(fmt.Sprintf("line %d", idx))
+	}
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return m
+}
+
+func TestLogKeysJumpToTopAndResumeFollowing(t *testing.T) {
+	for _, keys := range [][2]string{{"g", "G"}, {"home", "end"}} {
+		m := newLongLogModel(t)
+
+		m, _ = update(t, m, key(keys[0]))
+		if m.viewport.YOffset != 0 {
+			t.Fatalf("%s: offset = %d, want the top of the log", keys[0], m.viewport.YOffset)
+		}
+		if view := plainView(m); !strings.Contains(view, "paused") || !strings.Contains(view, "G follow") {
+			t.Fatalf("%s: a paused log does not say how to follow it again:\n%s", keys[0], view)
+		}
+
+		m, _ = update(t, m, key(keys[1]))
+		if !m.viewport.AtBottom() || !strings.Contains(plainView(m), "● live") {
+			t.Fatalf("%s: the log does not follow again", keys[1])
+		}
+	}
+}
+
+func TestStopDialogShortcuts(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+
+	m, _ = update(t, m, key("x"))
+	if view := plainView(m); !strings.Contains(view, "y  stop") || !strings.Contains(view, "n  cancel") {
+		t.Fatalf("the dialog keys do not name y and n:\n%s", view)
+	}
+	m, _ = update(t, m, key("n"))
+	if m.mode != ssmModeSessions || m.sessions[0].stopRequested {
+		t.Fatalf("mode = %v stopped = %v, want n to keep the session", m.mode, m.sessions[0].stopRequested)
+	}
+
+	m, _ = update(t, m, key("x"))
+	m, _ = update(t, m, key("tab")) // focus Cancel: y still stops
+	m, _ = update(t, m, key("y"))
+	if m.mode != ssmModeSessions || !m.sessions[0].stopRequested {
+		t.Fatalf("mode = %v stopped = %v, want y to stop the session", m.mode, m.sessions[0].stopRequested)
+	}
+}
+
+func TestQuitDialogShortcuts(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+
+	m, _ = update(t, m, key("q"))
+	m, _ = update(t, m, key("n"))
+	if m.mode != ssmModeSessions || m.quitting {
+		t.Fatalf("mode = %v quitting = %v, want n to stay", m.mode, m.quitting)
+	}
+	m, _ = update(t, m, key("q"))
+	m, _ = update(t, m, key("y"))
+	if !m.quitting || !m.sessions[0].stopRequested {
+		t.Fatal("y did not stop the sessions to quit")
+	}
+}
+
+func TestCtrlCTwiceStopsAllAndQuits(t *testing.T) {
+	m := newTestSSMModel(t, "first", "second")
+
+	m, _ = update(t, m, key("ctrl+c"))
+	if m.mode != ssmModeConfirmQuit {
+		t.Fatalf("mode = %v, want the quit dialog", m.mode)
+	}
+	m, _ = update(t, m, key("ctrl+c"))
+	if !m.quitting || !m.sessions[0].stopRequested || !m.sessions[1].stopRequested {
+		t.Fatal("a second ctrl+c did not stop every session to quit")
+	}
+}
+
+func TestCtrlCInStopDialogAsksToQuit(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+
+	m, _ = update(t, m, key("x"))
+	m, _ = update(t, m, key("ctrl+c"))
+	if m.mode != ssmModeConfirmQuit || m.sessions[0].stopRequested {
+		t.Fatalf("mode = %v stopped = %v, want the quit dialog instead", m.mode, m.sessions[0].stopRequested)
 	}
 }

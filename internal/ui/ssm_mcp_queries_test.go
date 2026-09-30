@@ -14,10 +14,12 @@ import (
 type fakeQuerySource struct {
 	subscriber func(dbmcp.QueryEvent)
 	logDir     string
+	writes     bool
 }
 
 func (f *fakeQuerySource) Subscribe(fn func(dbmcp.QueryEvent)) { f.subscriber = fn }
 func (f *fakeQuerySource) QueryLogDir() string                 { return f.logDir }
+func (f *fakeQuerySource) AllowsWrites() bool                  { return f.writes }
 
 func queryEvent(tool, sql string) dbmcp.QueryEvent {
 	rows := int64(3)
@@ -76,6 +78,28 @@ func TestMCPQueryEventsAreKeptPerSessionAndCapped(t *testing.T) {
 	queries := m.sessions[0].mcp
 	if len(queries.events) != maxMCPQueries || queries.total != maxMCPQueries+5 {
 		t.Fatalf("kept %d events, total %d", len(queries.events), queries.total)
+	}
+}
+
+func TestSubscribeMCPQueriesKnowsWriteAccess(t *testing.T) {
+	queries := subscribeMCPQueries(7, &fakeQuerySource{writes: true}, make(chan tea.Msg, 1))
+	if !queries.writes {
+		t.Fatal("a session whose MCP server can write is not known as such")
+	}
+}
+
+func TestWritableMCPSessionIsFlagged(t *testing.T) {
+	for _, width := range []int{140, 80} { // sidebar cards, then the compact pills
+		m := newTestSSMModel(t, "reader", "writer")
+		m.sessions[0].mcp = &ssmMCPQueries{}
+		m.sessions[1].mcp = &ssmMCPQueries{writes: true}
+		m = m.selectSession(0)
+		m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 40})
+
+		// The unselected writer is flagged too: its badge must be seen from any session.
+		if got := strings.Count(plainView(m), "WRITES"); got != 1 {
+			t.Fatalf("width %d: %d WRITES badges, want one for the writer:\n%s", width, got, plainView(m))
+		}
 	}
 }
 

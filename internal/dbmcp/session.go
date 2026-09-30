@@ -65,6 +65,12 @@ type Handle struct {
 	Display     string
 	releaseMsg  string
 	releaseOnce sync.Once
+	allowWrites bool
+}
+
+// AllowsWrites reports whether the server offers the execute tool, which modifies data.
+func (h *Handle) AllowsWrites() bool {
+	return h.allowWrites
 }
 
 // Subscribe calls fn with every tool call made through the server, from the goroutine serving it:
@@ -139,9 +145,10 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	}
 
 	return &Handle{
-		Display:  display,
-		recorder: recorder,
-		endpoint: endpoint,
+		allowWrites: cfg.AllowWrites,
+		Display:     display,
+		recorder:    recorder,
+		endpoint:    endpoint,
 		release: func() string {
 			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, entry)
 			if err := errors.Join(unregisterErr, host.Unmount(slug), querier.Close()); err != nil {

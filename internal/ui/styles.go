@@ -166,6 +166,11 @@ func (s Styles) ResourceBadge(resourceType string) string {
 	}
 }
 
+// WritesBadge flags a session whose MCP server lets AI assistants modify data.
+func (s Styles) WritesBadge() string {
+	return s.Badge.Background(colorDanger).Render("WRITES")
+}
+
 // KeyHints renders "key description" pairs as key caps, truncated to width.
 func (s Styles) KeyHints(keys [][2]string, width int) string {
 	hints := make([]string, 0, len(keys))
