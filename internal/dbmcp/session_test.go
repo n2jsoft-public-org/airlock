@@ -221,3 +221,28 @@ func TestStartRecordsToolCallsForSubscribersAndAuditLog(t *testing.T) {
 		t.Fatalf("audit log files = %v, err = %v", files, err)
 	}
 }
+
+func TestCredentialProviderPrefersThePasswordSecret(t *testing.T) {
+	cfg := testSessionConfig(t, "postgres")
+	cfg.IAMAuth, cfg.DBSecretARN, cfg.DBPassword = false, "arn:app-password", "ignored"
+	if _, ok := credentialProvider(cfg, EnginePostgres).(*secretPasswordProvider); !ok {
+		t.Fatalf("provider = %T, want the Secrets Manager password", credentialProvider(cfg, EnginePostgres))
+	}
+	cfg.AllowWrites = true
+	if _, ok := credentialProvider(cfg, EngineSQLServer).(*secretPasswordProvider); !ok {
+		t.Fatalf("sql server writes provider = %T, want the Secrets Manager password, not the master secret", credentialProvider(cfg, EngineSQLServer))
+	}
+}
+
+func TestStartAcceptsReadOnlySQLServerWithPasswordSecret(t *testing.T) {
+	useIsolatedLocks(t)
+	cfg := testSessionConfig(t, "sqlserver-se")
+	cfg.ReadOnlySecretTag, cfg.DBSecretARN = awstag.Tag{}, "arn:app-password"
+	handle, err := Start(NewHost(), cfg)
+	if err != nil {
+		t.Fatalf("Start = %v, want the password secret accepted without the read-only tag", err)
+	}
+	if handle != nil {
+		handle.Close()
+	}
+}

@@ -266,3 +266,89 @@ func TestReadOnlySecretsQueryUsesTag(t *testing.T) {
 		t.Fatalf("ReadOnlySecretsQuery = %q, want %q", got, want)
 	}
 }
+
+func secretValueAWS(values ...string) *fakeAWS {
+	reads := 0
+	return &fakeAWS{responses: map[string]func([]string) (string, error){
+		"secretsmanager get-secret-value": func(args []string) (string, error) {
+			if argAfter(args, "--secret-id") != "arn:app-password" {
+				return "", errors.New("unexpected secret " + argAfter(args, "--secret-id"))
+			}
+			value := values[min(reads, len(values)-1)]
+			reads++
+			return value, nil
+		},
+	}}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func TestReadPasswordSecretJSONAndPlainText(t *testing.T) {
+	json, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app_user","password":"s3cret"}`).run, "arn:app-password")
+	if err != nil || json != (PasswordSecret{Username: "app_user", Password: "s3cret"}) {
+		t.Fatalf("JSON secret = %+v, %v", json, err)
+	}
+	plain, err := ReadPasswordSecret(context.Background(), secretValueAWS("s3cret").run, "arn:app-password")
+	if err != nil || plain != (PasswordSecret{Password: "s3cret"}) {
+		t.Fatalf("plain secret = %+v, %v", plain, err)
+	}
+	if _, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app_user"}`).run, "arn:app-password"); err == nil || !strings.Contains(err.Error(), "has no password") {
+		t.Fatalf("JSON without password = %v", err)
+	}
+	if _, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":`).run, "arn:app-password"); err == nil || !strings.Contains(err.Error(), "not valid JSON") {
+		t.Fatalf("broken JSON = %v", err)
+	}
+}
+
+func TestSecretPasswordProviderUsesSecretUserElseTypedUser(t *testing.T) {
+	aws := secretValueAWS(`{"username":"app_user","password":"s3cret"}`)
+	provider := newSecretPasswordProvider(aws.run, "arn:app-password", "typed_user", "app")
+	creds, err := provider.Credentials(context.Background(), "")
+	if err != nil || creds != (Credentials{User: "app_user", Password: "s3cret", Database: "app"}) {
+		t.Fatalf("credentials = %+v, %v", creds, err)
+	}
+	_, _ = provider.Credentials(context.Background(), "other")
+	if len(aws.calls) != 1 {
+		t.Fatalf("the secret must be read once, got %d reads", len(aws.calls))
+	}
+
+	plain := newSecretPasswordProvider(secretValueAWS("s3cret").run, "arn:app-password", "typed_user", "app")
+	creds, err = plain.Credentials(context.Background(), "")
+	if err != nil || creds.User != "typed_user" || creds.Password != "s3cret" {
+		t.Fatalf("plain credentials = %+v, %v", creds, err)
+	}
+
+	noUser := newSecretPasswordProvider(secretValueAWS("s3cret").run, "arn:app-password", "", "app")
+	if _, err := noUser.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "has no username") {
+		t.Fatalf("plain secret without user = %v", err)
+	}
+}
+
+func TestSecretPasswordProviderRefreshReadsRotatedSecret(t *testing.T) {
+	aws := secretValueAWS(`{"username":"app_user","password":"old"}`, `{"username":"app_user","password":"new"}`)
+	provider := newSecretPasswordProvider(aws.run, "arn:app-password", "", "app")
+	first, _ := provider.Credentials(context.Background(), "")
+	provider.refresh()
+	second, err := provider.Credentials(context.Background(), "")
+	if err != nil || first.Password != "old" || second.Password != "new" {
+		t.Fatalf("first = %+v second = %+v err = %v", first, second, err)
+	}
+}
+
+func TestSecretPasswordProviderExplainsFailures(t *testing.T) {
+	denied := &fakeAWS{responses: map[string]func([]string) (string, error){
+		"secretsmanager get-secret-value": func([]string) (string, error) { return "", errors.New("AccessDeniedException") },
+	}}
+	provider := newSecretPasswordProvider(denied.run, "arn:app-password", "", "app")
+	if _, err := provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "secretsmanager:GetSecretValue") {
+		t.Fatalf("denied read = %v", err)
+	}
+	if hint := provider.authFailureHint(); !strings.Contains(hint, "arn:app-password") {
+		t.Fatalf("hint = %q, want the secret named", hint)
+	}
+}

@@ -40,8 +40,11 @@ type SessionConfig struct {
 	DBUser string
 	// DBPassword is the password entered by the user instead of AWS IAM sign-in; empty when unused.
 	DBPassword string
-	RDSPort    int
-	LocalPort  int
+	// DBSecretARN names the Secrets Manager secret holding the password (RDS JSON or plain text);
+	// it wins over DBPassword and the automatic secrets. Empty when unused.
+	DBSecretARN string
+	RDSPort     int
+	LocalPort   int
 	// IAMAuth reports whether the RDS instance has AWS IAM database authentication enabled.
 	// PostgreSQL access needs it unless DBPassword is set.
 	IAMAuth bool
@@ -89,7 +92,7 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	if !ok {
 		return nil, nil
 	}
-	if engine == EngineSQLServer && !cfg.AllowWrites && cfg.DBPassword == "" && cfg.ReadOnlySecretTag.IsZero() {
+	if engine == EngineSQLServer && !cfg.AllowWrites && cfg.DBPassword == "" && cfg.DBSecretARN == "" && cfg.ReadOnlySecretTag.IsZero() {
 		return nil, ErrReadOnlySecretTagUnset
 	}
 
@@ -155,6 +158,8 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 		defaultDatabase = "postgres"
 	}
 	switch {
+	case cfg.DBSecretARN != "":
+		return newSecretPasswordProvider(cfg.AWS, cfg.DBSecretARN, cfg.DBUser, defaultDatabase)
 	case cfg.DBPassword != "":
 		return newPasswordProvider(cfg.DBUser, cfg.DBPassword, defaultDatabase)
 	case engine == EngineSQLServer && cfg.AllowWrites:

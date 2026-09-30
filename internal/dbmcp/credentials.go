@@ -106,6 +106,59 @@ func (p *passwordProvider) authFailureHint() string {
 	return fmt.Sprintf("the password entered for %s was rejected: connect again with the right one", p.user)
 }
 
+// secretPasswordProvider signs in with a password read from a Secrets Manager secret picked by the
+// user: the secret's username, else the typed user. The secret is read once, and again after the
+// database rejects it (it may have been rotated).
+type secretPasswordProvider struct {
+	aws             AWSRunner
+	creds           *Credentials
+	secretID        string
+	user            string
+	defaultDatabase string
+	mu              sync.Mutex
+}
+
+func newSecretPasswordProvider(aws AWSRunner, secretID, user, defaultDatabase string) *secretPasswordProvider {
+	return &secretPasswordProvider{aws: aws, secretID: secretID, user: strings.TrimSpace(user), defaultDatabase: defaultDatabase}
+}
+
+func (p *secretPasswordProvider) Credentials(ctx context.Context, database string) (Credentials, error) {
+	if database == "" {
+		database = p.defaultDatabase
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.creds == nil {
+		secret, err := ReadPasswordSecret(ctx, p.aws, p.secretID)
+		if err != nil {
+			return Credentials{}, fmt.Errorf("password secret %s is not readable (needs secretsmanager:GetSecretValue, and kms:Decrypt for a customer-managed key): %w", p.secretID, err)
+		}
+		user := secret.Username
+		if user == "" {
+			user = p.user
+		}
+		if user == "" {
+			return Credentials{}, fmt.Errorf("secret %s has no username: fill the User field", p.secretID)
+		}
+		p.creds = &Credentials{User: user, Password: secret.Password}
+	}
+	return Credentials{User: p.creds.User, Password: p.creds.Password, Database: database}, nil
+}
+
+func (*secretPasswordProvider) Databases(context.Context) ([]string, error) { return nil, nil }
+
+// refresh forgets the secret, read again on the next call.
+func (p *secretPasswordProvider) refresh() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.creds = nil
+}
+
+func (p *secretPasswordProvider) authFailureHint() string {
+	return fmt.Sprintf("the credentials of secret %s were rejected, even read again: check it holds the current password", p.secretID)
+}
+
 // iamDisabledProvider explains that PostgreSQL MCP access without a password needs AWS IAM
 // database authentication, which this instance does not have enabled.
 type iamDisabledProvider struct {
@@ -153,6 +206,41 @@ func readSecret(ctx context.Context, aws AWSRunner, secretID string) (secretPayl
 		return secretPayload{}, fmt.Errorf("secret %s has no username/password", secretID)
 	}
 	return payload, nil
+}
+
+// PasswordSecret is a secret holding a database password: RDS JSON (username and password) or the
+// password as plain text, without username.
+type PasswordSecret struct {
+	Username string
+	Password string
+}
+
+// ReadPasswordSecret reads secretID as a PasswordSecret. Plain text is the whole secret string
+// (the AWS CLI output is trimmed, so leading and trailing spaces are lost).
+func ReadPasswordSecret(ctx context.Context, aws AWSRunner, secretID string) (PasswordSecret, error) {
+	raw, err := aws(ctx, "secretsmanager", "get-secret-value",
+		"--secret-id", secretID,
+		"--query", "SecretString",
+		"--output", "text",
+	)
+	if err != nil {
+		return PasswordSecret{}, err
+	}
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "{") {
+		if raw == "" {
+			return PasswordSecret{}, fmt.Errorf("secret %s is empty", secretID)
+		}
+		return PasswordSecret{Password: raw}, nil
+	}
+	var payload secretPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return PasswordSecret{}, fmt.Errorf("secret %s is not valid JSON: %w", secretID, err)
+	}
+	if payload.Password == "" {
+		return PasswordSecret{}, fmt.Errorf("secret %s has no password", secretID)
+	}
+	return PasswordSecret{Username: payload.Username, Password: payload.Password}, nil
 }
 
 // readOnlySecretsProvider uses the read-only secrets published for an instance, one per database,
