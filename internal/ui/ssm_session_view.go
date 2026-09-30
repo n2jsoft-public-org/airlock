@@ -241,7 +241,7 @@ func (m ssmModel) renderDetails(width int) string {
 	}
 	uptime := formatUptime(s)
 	if s.connections > 0 {
-		uptime += m.styles.Muted.Render(fmt.Sprintf("  ·  %d connection(s)", s.connections))
+		uptime += m.styles.Muted.Render("  ·  " + plural(s.connections, "connection"))
 	}
 
 	rows := []string{
@@ -336,7 +336,10 @@ func (m ssmModel) renderDialog(width int) string {
 	case ssmModeConfirmQuit:
 		active := m.countSessions(func(s *ssmSession) bool { return s.active() })
 		title = "Quit airlock?"
-		body = fmt.Sprintf("This stops %d active session(s) and frees their local ports.", active)
+		body = fmt.Sprintf("This stops %s and frees their local ports.", plural(active, "active session"))
+		if active == 1 {
+			body = "This stops 1 active session and frees its local port."
+		}
 		confirm = "Stop all & quit"
 	default:
 		s := m.selectedSession()

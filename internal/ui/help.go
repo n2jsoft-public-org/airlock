@@ -34,7 +34,7 @@ func (s Styles) renderHelp(groups []helpGroup, width, height int) string {
 	}
 	lines = append(lines, "", s.Faint.Render("any key closes this help"))
 
-	// Modal border (2) and padding (6) around the content.
-	panel := s.ModalPanel.MaxWidth(width).Render(strings.Join(lines, "\n"))
+	// No vertical padding: the help must fit a 24-line terminal.
+	panel := s.ModalPanel.Padding(0, 2).MaxWidth(width).Render(strings.Join(lines, "\n"))
 	return lipgloss.NewStyle().MaxHeight(height).Render(lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, panel))
 }

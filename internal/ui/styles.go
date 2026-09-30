@@ -6,18 +6,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Palette shared by every screen (256-color codes).
-const (
-	colorAccent  = lipgloss.Color("81")
-	colorWarm    = lipgloss.Color("223")
-	colorMuted   = lipgloss.Color("244")
-	colorFaint   = lipgloss.Color("240")
-	colorBorder  = lipgloss.Color("238")
-	colorText    = lipgloss.Color("252")
-	colorSurface = lipgloss.Color("236")
-	colorSuccess = lipgloss.Color("42")
-	colorWarning = lipgloss.Color("214")
-	colorDanger  = lipgloss.Color("203")
+// Palette shared by every screen (256-color codes), with darker variants for terminals with a
+// light background, where the light ones would not be readable.
+var (
+	colorAccent  = lipgloss.AdaptiveColor{Dark: "81", Light: "31"}
+	colorWarm    = lipgloss.AdaptiveColor{Dark: "223", Light: "130"}
+	colorMuted   = lipgloss.AdaptiveColor{Dark: "244", Light: "242"}
+	colorFaint   = lipgloss.AdaptiveColor{Dark: "240", Light: "247"}
+	colorBorder  = lipgloss.AdaptiveColor{Dark: "238", Light: "250"}
+	colorText    = lipgloss.AdaptiveColor{Dark: "252", Light: "235"}
+	colorSurface = lipgloss.AdaptiveColor{Dark: "236", Light: "254"}
+	colorSuccess = lipgloss.AdaptiveColor{Dark: "42", Light: "28"}
+	colorWarning = lipgloss.AdaptiveColor{Dark: "214", Light: "166"}
+	colorDanger  = lipgloss.AdaptiveColor{Dark: "203", Light: "160"}
+	// colorOnBadge is the text of the colored badges and buttons, white on both backgrounds.
 	colorOnBadge = lipgloss.Color("231")
 )
 

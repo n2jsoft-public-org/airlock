@@ -182,11 +182,12 @@ type jumphostListItem struct {
 }
 
 func (i jumphostListItem) FilterValue() string {
-	if i.desc == "" {
-		return i.name
-	}
-	return i.name + " " + i.desc
+	return strings.Join(strings.Fields(strings.Join([]string{i.name, i.resourceType, i.desc}, " ")), " ")
 }
+
+// itemType is the resource type shown as a badge on search results; "" on single-type lists.
+func (i jumphostListItem) itemType() string { return i.resourceType }
+
 func (i jumphostListItem) Title() string       { return i.name }
 func (i jumphostListItem) Description() string { return i.desc }
 

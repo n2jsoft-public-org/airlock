@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -43,8 +44,11 @@ func TestRecentPickerPicksEntry(t *testing.T) {
 
 func TestRecentPickerDescribesEntries(t *testing.T) {
 	item, _ := newTestRecentPicker(nil).selected()
-	if got := item.Description(); got != "rds · dev · eu-west-3 · 3h ago" {
-		t.Fatalf("description = %q", got)
+	if got := item.Description(); got != "dev · eu-west-3 · 3h ago" {
+		t.Fatalf("description = %q, want the type in its badge only", got)
+	}
+	if view := ansi.Strip(newTestRecentPicker(nil).View(NewStyles(), 100)); !strings.Contains(view, "RDS") || !strings.Contains(view, "EKS") {
+		t.Fatalf("the recent connections do not show their type badge:\n%s", view)
 	}
 	for _, want := range []string{"archive", "rds", "dev", "eu-west-3"} {
 		if !strings.Contains(item.FilterValue(), want) {

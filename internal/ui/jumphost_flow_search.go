@@ -74,11 +74,7 @@ func (m jumphostWizardModel) handleSearchLoaded(msg jumphostSearchLoadedMsg) (te
 	m.searchWarnings = searchFailureSummary(msg.failures)
 	items := make([]list.Item, 0, len(msg.targets))
 	for _, target := range msg.targets {
-		desc := target.Type
-		if target.Description != "" {
-			desc += " · " + target.Description
-		}
-		items = append(items, jumphostListItem{name: target.Name, desc: desc, iamAuth: target.IAMAuth, engine: target.Engine, resourceType: target.Type})
+		items = append(items, jumphostListItem{name: target.Name, desc: target.Description, iamAuth: target.IAMAuth, engine: target.Engine, resourceType: target.Type})
 	}
 	m.targetList.ResetFilter()
 	m.targetList.SetItems(items)

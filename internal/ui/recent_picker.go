@@ -59,12 +59,15 @@ func (i recentItem) Description() string {
 	if i.conn.ProfileMissing {
 		profile += " (missing)"
 	}
-	parts := []string{i.conn.Ref.Type, profile, i.conn.Ref.Region}
+	parts := []string{profile, i.conn.Ref.Region}
 	if i.age != "" {
 		parts = append(parts, i.age)
 	}
 	return strings.Join(parts, " · ")
 }
+
+// itemType is the resource type of the entry, shown as a badge.
+func (i recentItem) itemType() string { return i.conn.Ref.Type }
 
 // key identifies the entry as the dashboard knows its sessions (see connectionKey).
 func (i recentItem) key() string {

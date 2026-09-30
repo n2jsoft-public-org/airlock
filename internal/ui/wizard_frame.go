@@ -196,9 +196,14 @@ func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		marker = d.styles.CardMarker.Render("▌ ")
 		title = d.styles.Text.Bold(true)
 	}
+	// Items mixing resource types show theirs as a badge before the title.
+	badge := ""
+	if typed, ok := item.(interface{ itemType() string }); ok && typed.itemType() != "" {
+		badge = d.styles.ResourceBadge(typed.itemType()) + " "
+	}
 
 	rows := []string{
-		marker + title.Render(truncate(entry.Title(), width-2)),
+		marker + badge + title.Render(truncate(entry.Title(), width-2-lipgloss.Width(badge))),
 		marker + d.styles.Muted.Render(truncate(entry.Description(), width-2)),
 	}
 	if selected {

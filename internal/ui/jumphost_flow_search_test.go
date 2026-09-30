@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -63,11 +64,14 @@ func TestWizardSearchListsEveryType(t *testing.T) {
 		t.Fatalf("step = %v items = %d, want the three targets", m.step, len(m.targetList.Items()))
 	}
 	item := asListItem(t, m.targetList.Items()[2])
-	if item.desc != "eks" || !strings.Contains(item.FilterValue(), "eks") {
+	if item.itemType() != "eks" || !strings.Contains(item.FilterValue(), "eks") {
 		t.Fatalf("item = %+v, the type must be shown and filterable", item)
 	}
-	if first := asListItem(t, m.targetList.Items()[0]); first.desc != "rds · postgres 16" {
-		t.Fatalf("desc = %q", first.desc)
+	if first := asListItem(t, m.targetList.Items()[0]); first.desc != "postgres 16" {
+		t.Fatalf("desc = %q, want the type in its badge only", first.desc)
+	}
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "RDS") || !strings.Contains(view, "EKS") {
+		t.Fatalf("the targets do not show their type badge:\n%s", view)
 	}
 	if !strings.Contains(m.View(), "Search a target") {
 		t.Fatal("the target step of a search must say so")
