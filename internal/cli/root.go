@@ -11,6 +11,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -47,6 +48,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, "Do not serve an MCP server giving AI assistants access to the database")
 	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data, as the database user (master user secret on SQL Server)")
 	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database user for RDS AWS IAM authentication (defaults to \"defaultDbUser\" of the config file)")
+	cmd.Flags().StringVar(&options.DBSecretARN, "db-secret", "", "Secrets Manager secret (ARN or name) holding the RDS password, as RDS JSON or plain text")
 
 	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
 	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
@@ -134,6 +136,8 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
 	tuiOptions := shared
 	tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
+	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
+	tuiOptions.Keychain = keychain.NewOSStore()
 	tuiRunner := jumphost.NewRunner(tuiOptions)
 
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.

@@ -78,3 +78,11 @@ func TestRootCommandLeavesErrorPrintingToMain(t *testing.T) {
 		t.Fatalf("cobra printed the error, main prints it again:\n%s", stderr.String())
 	}
 }
+
+func TestRootCmdHasDBSecretFlag(t *testing.T) {
+	cmd := NewRootCmd()
+	flag := cmd.Flags().Lookup("db-secret")
+	if flag == nil || !strings.Contains(flag.Usage, "Secrets Manager") {
+		t.Fatalf("--db-secret flag = %+v", flag)
+	}
+}
