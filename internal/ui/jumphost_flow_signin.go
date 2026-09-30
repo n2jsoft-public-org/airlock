@@ -118,9 +118,14 @@ func (m jumphostWizardModel) applySavedSignIn(msg jumphostDefaultPortLoadedMsg) 
 }
 
 // applySignIn validates the sign-in fields and copies them to the options; on error it returns
-// the field to focus and the message.
+// the field to focus and the message. The method is only recorded when the user could choose a
+// password or a secret: otherwise options.SignIn stays empty, so the choices saved for the target
+// (a remembered password, a secret) outlive a connection that could not offer them (--no-mcp).
 func (m jumphostWizardModel) applySignIn() (next jumphostWizardModel, field int, errMsg string) {
-	m.options.SignIn = m.signIn
+	m.options.SignIn = ""
+	if offered := m.signInOptions(); slices.Contains(offered, jumphost.SignInPassword) || slices.Contains(offered, jumphost.SignInSecret) {
+		m.options.SignIn = m.signIn
+	}
 	m.options.DBPassword, m.options.DBSecretARN, m.options.RememberPassword = "", "", false
 	user := strings.TrimSpace(m.userInput.Value())
 	if strings.ContainsAny(user, " \t") {

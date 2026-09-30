@@ -723,9 +723,23 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 		if saved, found := r.prefs.Load(target); found {
 			previous = &saved
 		}
-		keychainErr = r.syncKeychain(target, previous, prefs, &options)
+		if keepPreviousSignIn(previous, &options) {
+			prefs.SignIn, prefs.DBSecretARN, prefs.PasswordInKeychain = previous.SignIn, previous.DBSecretARN, previous.PasswordInKeychain
+			if method := previous.SignInMethod(); method == SignInPassword || method == SignInSecret {
+				prefs.DBUser = previous.DBUser
+			}
+		} else {
+			keychainErr = r.syncKeychain(target, previous, prefs, &options)
+		}
 	}
 	return errors.Join(r.prefs.Save(target, prefs), keychainErr)
+}
+
+// keepPreviousSignIn reports whether the saved sign-in choices outlive a connection that did not
+// choose one: the wizard offered neither a password nor a secret (e.g. --no-mcp) and leaves
+// options.SignIn empty. A remembered password or secret, with its user, is then kept.
+func keepPreviousSignIn(previous *ConnectionPrefs, options *Options) bool {
+	return previous != nil && options.SignIn == "" && options.DBPassword == "" && strings.TrimSpace(options.DBSecretARN) == ""
 }
 
 // prefsTarget identifies the target keying the preferences of options; false when none apply
@@ -1608,7 +1622,7 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		DBUser:             target.DBUser,
 		DBPassword:         target.DBPassword,
 		DBSecretARN:        target.DBSecretARN,
-		OnPasswordRejected: r.forgetKeychainFunc(target.KeychainAccount),
+		OnPasswordRejected: r.forgetKeychainFunc(target.KeychainAccount, target.DBPassword),
 		IAMAuth:            target.IAMAuth,
 		LocalPort:          localPort,
 		AllowWrites:        allowWrites,

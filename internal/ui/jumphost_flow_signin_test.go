@@ -206,3 +206,38 @@ func TestWizardCarriesKeychainWarning(t *testing.T) {
 		t.Fatalf("done = %+v, want the connection with a keychain warning", done)
 	}
 }
+
+func TestWizardLeavesSignInUnchosenWhenPasswordAndSecretNotOffered(t *testing.T) {
+	cases := []struct {
+		name   string
+		base   jumphost.Options
+		target jumphost.ResourceSummary
+	}{
+		{"no mcp with iam", jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true}},
+		{"mysql with iam", jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "mysql", IAMAuth: true}},
+		{"no mcp", jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"}},
+	}
+	for _, c := range cases {
+		runner := newPrefsRunner()
+		// A remembered password the review cannot offer must survive this connection.
+		runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{DBUser: "app_user", SignIn: jumphost.SignInPassword, PasswordInKeychain: true}
+		m := wizardAtReviewWithRegion(t, runner, c.base, c.target)
+		if _, cmd := wizardUpdate(t, m, key("enter")); !isQuit(cmd) {
+			t.Fatalf("%s: wizard did not connect", c.name)
+		}
+		if got := *runner.lastSave; got.SignIn != "" || got.DBPassword != "" || got.DBSecretARN != "" {
+			t.Errorf("%s: saved options = %+v, want no sign-in choice", c.name, got)
+		}
+	}
+}
+
+func TestWizardRecordsIAMChosenAmongPasswordAndSecret(t *testing.T) {
+	runner := newPrefsRunner()
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true})
+	if _, cmd := wizardUpdate(t, m, key("enter")); !isQuit(cmd) {
+		t.Fatal("wizard did not connect")
+	}
+	if got := *runner.lastSave; got.SignIn != jumphost.SignInIAM {
+		t.Fatalf("saved options = %+v, want IAM chosen", got)
+	}
+}

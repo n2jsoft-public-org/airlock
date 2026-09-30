@@ -45,11 +45,17 @@ func (r *Runner) LoadKeychainPassword(ctx context.Context, options Options) (str
 }
 
 // syncKeychain stores or deletes the password of next, deleting the entry of the previous user
-// when it changed. It sets next.PasswordInKeychain to whether the password is now remembered.
+// when it changed. It sets next.PasswordInKeychain to whether a password is now remembered: an
+// entry that could not be deleted stays flagged (with its user), so a later save or forgetting the
+// connection still removes it.
 func (r *Runner) syncKeychain(target TargetRef, previous, next *ConnectionPrefs, options *Options) error {
 	remember := options.RememberPassword && next.SignIn == SignInPassword && options.DBPassword != "" && next.DBUser != ""
 	next.PasswordInKeychain = false
+	remembered := previous != nil && previous.PasswordInKeychain
 	if !r.KeychainAvailable() {
+		if remembered {
+			next.PasswordInKeychain, next.DBUser = true, previous.DBUser
+		}
 		return nil
 	}
 
@@ -58,11 +64,10 @@ func (r *Runner) syncKeychain(target TargetRef, previous, next *ConnectionPrefs,
 	if remember {
 		newAccount = keychainAccount(target, next.DBUser)
 	}
-	if previous != nil && previous.PasswordInKeychain {
-		if old := keychainAccount(target, previous.DBUser); old != newAccount {
-			if err := r.keychain.Delete(old); err != nil {
-				errs = append(errs, fmt.Errorf("failed to forget the previous password: %w", err))
-			}
+	sameAccount := remembered && keychainAccount(target, previous.DBUser) == newAccount
+	if remembered && !sameAccount {
+		if err := r.keychain.Delete(keychainAccount(target, previous.DBUser)); err != nil {
+			errs = append(errs, fmt.Errorf("failed to forget the previous password: %w", err))
 		}
 	}
 	if !remember {
@@ -71,6 +76,8 @@ func (r *Runner) syncKeychain(target TargetRef, previous, next *ConnectionPrefs,
 	}
 	if err := r.keychain.Set(newAccount, options.DBPassword); err != nil {
 		errs = append(errs, fmt.Errorf("the password was not remembered: %w", err))
+		// The entry of the same user is still there, with the password it had.
+		next.PasswordInKeychain = sameAccount
 		return joinKeychainErrors(errs)
 	}
 	next.PasswordInKeychain = true
@@ -84,15 +91,20 @@ func joinKeychainErrors(errs []error) error {
 	return fmt.Errorf("%w: %w", ErrKeychain, errors.Join(errs...))
 }
 
-// forgetKeychainFunc deletes the keychain entry account, e.g. once the database rejected its
-// password; nil when there is nothing to forget.
-func (r *Runner) forgetKeychainFunc(account string) func() {
+// forgetKeychainFunc deletes the keychain entry account once the database rejected its password
+// rejected, unless the entry holds another password by then (saved by a later session); nil when
+// there is nothing to forget. It is best effort: an entry left behind only makes the next attempt
+// use a rejected password.
+func (r *Runner) forgetKeychainFunc(account, rejected string) func() {
 	if account == "" || r.keychain == nil {
 		return nil
 	}
 	return func() {
+		if stored, err := r.keychain.Get(account); err != nil || stored != rejected {
+			return // absent, unreadable, or replaced by a later session
+		}
 		if err := r.keychain.Delete(account); err != nil {
-			return // best effort: the entry only makes the next attempt use a rejected password
+			return // best effort, see above
 		}
 	}
 }
