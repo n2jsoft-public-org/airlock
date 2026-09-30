@@ -23,6 +23,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"golang.org/x/term"
 )
 
@@ -127,6 +128,11 @@ type RunnerOptions struct {
 	ReadOnlySecretTag awstag.Tag
 	// MCPServerPrefix starts MCP server names (dbmcp.DefaultServerPrefix when empty).
 	MCPServerPrefix string
+	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
+	KubeconfigDir string
+	// Interactive runs a command needing the user's terminal (aws sso login), purpose saying why;
+	// nil runs it on In, Out and Err.
+	Interactive func(ctx context.Context, purpose, name string, args ...string) error
 }
 
 type SessionDetails struct {
@@ -137,6 +143,8 @@ type SessionDetails struct {
 	Auth string
 	// MCP describes the session's MCP server (empty when none runs).
 	MCP string
+	// Kubeconfig is the kubeconfig written for an EKS session (empty when none).
+	Kubeconfig string
 }
 
 // Session is a prepared port-forwarding session: its local port and target are reserved
@@ -200,6 +208,11 @@ type Runner struct {
 	jumphostTag       awstag.Tag
 	readOnlySecretTag awstag.Tag
 	mcpServerPrefix   string
+	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
+	kubeconfigDir string
+	interactive   func(ctx context.Context, purpose, name string, args ...string) error
+	// loginMu serializes the SSO sign-ins of expired identities.
+	loginMu sync.Mutex
 }
 
 // ideTarget carries what is needed to register the forwarded connection in the IDE.
@@ -220,6 +233,8 @@ type ideTarget struct {
 	// KeychainAccount is the keychain entry DBPassword was remembered in; empty when not remembered.
 	KeychainAccount string
 	RDSPort         int
+	// ClusterCA is the base64 certificate authority of an EKS cluster, for its kubeconfig.
+	ClusterCA string
 	// IAMAuth reports whether the session signs in with AWS IAM: the instance accepts it (not SQL
 	// Server) and the user did not choose a password instead.
 	IAMAuth bool
@@ -262,7 +277,8 @@ func NewRunner(opts RunnerOptions) *Runner {
 		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: strings.TrimSpace(opts.DefaultDBUser),
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
-		mcpServerPrefix: opts.MCPServerPrefix,
+		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
+		interactive: opts.Interactive,
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)
@@ -397,6 +413,15 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			session.Intro = append(session.Intro, session.Details.IDEDataSource)
 		}
 	}
+	var removeKubeconfig func() string
+	if resourceType == resourceEKS {
+		var warning string
+		session.Details.Kubeconfig, removeKubeconfig, warning = r.writeKubeconfig(resolvedTargetName, host, target.ClusterCA, session.LocalPort, cfg)
+		session.Intro = append(session.Intro, eksSessionInfo(session.LocalPort, host, session.Details.Kubeconfig)...)
+		if warning != "" {
+			session.Intro = append(session.Intro, "Warning: "+warning)
+		}
+	}
 	var mcpServer *dbmcp.Handle
 	if resourceType == resourceRDS && !options.SkipMCP {
 		var mcpDisplay string
@@ -407,7 +432,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		}
 		session.mcp = mcpServer
 	}
-	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource)
+	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource, removeKubeconfig)
 
 	ready = true
 	return session, nil
@@ -981,10 +1006,29 @@ func jumphostNotFoundError(tag awstag.Tag, profile, region string) error {
 		tag, region, profile, settingHint("jumphostTag", "Key=Value", "--jumphost-tag"))
 }
 
+// ssoLogin signs profile in again with AWS IAM Identity Center, on the user's terminal.
+func (r *Runner) ssoLogin(ctx context.Context, profile string) error {
+	if r.interactive == nil {
+		return r.runAWSStreaming(ctx, nil, "sso", "login", "--profile", profile)
+	}
+	purpose := fmt.Sprintf("The AWS credentials of profile %s are missing or expired: signing in again.", profile)
+	return r.interactive(ctx, purpose, "aws", "sso", "login", "--profile", profile)
+}
+
 func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
 	fprintf(r.out, "Using AWS identity... ")
 	identity, err := r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
 	if err == nil {
+		fprintf(r.out, "%s\n", identity)
+		r.rememberAccount(cfg.Profile, identity)
+		return nil
+	}
+
+	// One sign-in at a time: checks failing together would each open the browser. A check that
+	// waited finds the identity signed in by the one before it.
+	r.loginMu.Lock()
+	defer r.loginMu.Unlock()
+	if identity, err = r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text"); err == nil {
 		fprintf(r.out, "%s\n", identity)
 		r.rememberAccount(cfg.Profile, identity)
 		return nil
@@ -1000,7 +1044,7 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig) error {
 		loginProfile = defaultAwsProfile
 	}
 
-	if authErr := r.runAWSStreaming(ctx, nil, "sso", "login", "--profile", loginProfile); authErr != nil {
+	if authErr := r.ssoLogin(ctx, loginProfile); authErr != nil {
 		return errors.New("failed to authorize. Please check your AWS CLI configuration")
 	}
 
@@ -1297,8 +1341,11 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 	}
 
 	var cluster struct {
-		Name     string `json:"name"`
-		Endpoint string `json:"endpoint"`
+		Name                 string `json:"name"`
+		Endpoint             string `json:"endpoint"`
+		CertificateAuthority struct {
+			Data string `json:"data"`
+		} `json:"certificateAuthority"`
 	}
 	if err = json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse EKS cluster details: %w", err)
@@ -1319,7 +1366,50 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return cluster.Name, displayName, nil, params, ideTarget{}, nil
+	return cluster.Name, displayName, nil, params, ideTarget{ClusterCA: strings.TrimSpace(cluster.CertificateAuthority.Data)}, nil
+}
+
+// writeKubeconfig writes the kubeconfig pointing Kubernetes clients at the tunnel of an EKS
+// cluster, signing in with aws eks get-token. It writes none without a kubeconfig directory, or
+// without the certificate authority kubectl needs to trust the cluster. A failure only warns.
+func (r *Runner) writeKubeconfig(clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (path string, remove func() string, warning string) {
+	if r.kubeconfigDir == "" || caData == "" {
+		return "", nil, ""
+	}
+	path, removeFile, err := kubeconfig.Write(r.kubeconfigDir, &kubeconfig.Cluster{
+		Name:                     strings.Join([]string{"airlock", cfg.Profile, cfg.Region, clusterName}, "-"),
+		Server:                   fmt.Sprintf("https://localhost:%d", localPort),
+		TLSServerName:            endpointHost,
+		CertificateAuthorityData: caData,
+		Command:                  "aws",
+		Args:                     append([]string{"eks", "get-token", "--cluster-name", clusterName, "--output", "json"}, cfg.Args...),
+	})
+	if err != nil {
+		return "", nil, "no kubeconfig for this session: " + err.Error()
+	}
+	return path, func() string {
+		if err := removeFile(); err != nil {
+			return fmt.Sprintf("Warning: failed to remove kubeconfig %s: %v", path, err)
+		}
+		return "kubeconfig " + path + " removed"
+	}, ""
+}
+
+// eksSessionInfo explains how Kubernetes clients reach the tunnel: the session kubeconfig when
+// one was written, else the kubectl flags overriding the user's own context of the cluster.
+func eksSessionInfo(localPort int, endpointHost, kubeconfigPath string) []string {
+	override := fmt.Sprintf("  kubectl --server https://localhost:%d --tls-server-name %s get namespaces", localPort, endpointHost)
+	if kubeconfigPath == "" {
+		return []string{"For kubectl, select your context of this cluster and point it at the tunnel:", override}
+	}
+	return []string{
+		"For kubectl, k9s and other Kubernetes clients, use the kubeconfig of this session (removed when it stops):",
+		"  export KUBECONFIG=" + kubeconfigPath,
+		"  kubectl get namespaces",
+		"",
+		"Or keep your own context of this cluster and point it at the tunnel:",
+		override,
+	}
 }
 
 func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
@@ -1571,17 +1661,21 @@ func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
 	}
 }
 
-// sessionRelease frees the port and target, then stops the MCP server and removes the IDE data source.
+// sessionRelease frees the port and target, stops the MCP server, then runs the cleanups (IDE data
+// source, kubeconfig); nil cleanups are skipped.
 // It returns the cleanup messages joined with "; ".
-func sessionRelease(releasePort func(), mcpServer *dbmcp.Handle, removeDataSource func() string) func() string {
+func sessionRelease(releasePort func(), mcpServer *dbmcp.Handle, cleanups ...func() string) func() string {
 	return func() string {
 		releasePort()
 		var messages []string
 		if mcpServer != nil {
 			messages = append(messages, mcpServer.Close())
 		}
-		if removeDataSource != nil {
-			if msg := removeDataSource(); msg != "" {
+		for _, cleanup := range cleanups {
+			if cleanup == nil {
+				continue
+			}
+			if msg := cleanup(); msg != "" {
 				messages = append(messages, msg)
 			}
 		}

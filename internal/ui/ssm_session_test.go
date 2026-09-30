@@ -392,6 +392,17 @@ func TestDetailsShowMCPServer(t *testing.T) {
 	}
 }
 
+func TestDetailsShowKubeconfig(t *testing.T) {
+	t.Setenv("HOME", "/home/dev")
+	m := newTestSSMModel(t, "platform")
+	m.sessions[0].session.Details.Kubeconfig = "/home/dev/.config/airlock/kube/airlock-dev-eu-west-3-platform.json"
+
+	// The home directory is shortened so the path fits, ready to paste in a shell.
+	if view := m.View(); !strings.Contains(view, "KUBECONFIG=~/.config/airlock/kube/airlock-dev-eu-west-3-platform.json") {
+		t.Fatalf("details do not show the session kubeconfig:\n%s", view)
+	}
+}
+
 func TestDetailsShowSignInMode(t *testing.T) {
 	m := newTestSSMModel(t, "db")
 	m.sessions[0].session.Details.Auth = "password · acme_rw"

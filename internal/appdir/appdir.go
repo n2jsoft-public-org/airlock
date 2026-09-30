@@ -61,6 +61,16 @@ func ConnectionsFile() (string, error) {
 	return filepath.Join(dir, "connections.json"), nil
 }
 
+// KubeconfigDir is the directory under ConfigDir holding the kubeconfig of each EKS session. The
+// directory is not created.
+func KubeconfigDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "kube"), nil
+}
+
 // LogsDir is the logs directory under ConfigDir. The directory is not created.
 func LogsDir() (string, error) {
 	dir, err := ConfigDir()

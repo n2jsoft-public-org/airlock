@@ -114,6 +114,11 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: MCP queries will not be logged: %v\n", err)
 	}
+	// Each EKS session gets a kubeconfig in ~/.config/airlock/kube; a lookup failure only disables it.
+	kubeconfigDir, err := appdir.KubeconfigDir()
+	if err != nil {
+		cmd.PrintErrf("Warning: EKS sessions will not get a kubeconfig: %v\n", err)
+	}
 	// The wizard's Connect step choices are remembered in ~/.config/airlock/connections.json;
 	// a lookup failure only disables it.
 	prefsPath, err := appdir.ConnectionsFile()
@@ -131,6 +136,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		JumphostTag:       cfg.JumphostTag,
 		ReadOnlySecretTag: cfg.ReadOnlySecretTag,
 		MCPServerPrefix:   cfg.MCPServerPrefix,
+		KubeconfigDir:     kubeconfigDir,
 	}
 
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
@@ -138,11 +144,14 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
 	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
 	tuiOptions.Keychain = keychain.NewOSStore()
+	// SSO sign-ins suspend the dashboard, so their browser prompt, URL and code stay readable.
+	handoff := ui.NewTerminalHandoff()
+	tuiOptions.Interactive = handoff.Run
 	tuiRunner := jumphost.NewRunner(tuiOptions)
 
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
-		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout())
+		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout(), handoff)
 	}
 
 	if len(args) > 0 {
@@ -183,7 +192,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		return err
 	}
 
-	return ui.RunJumphostSessions(cmd.Context(), tuiRunner, session, options, cmd.OutOrStdout())
+	return ui.RunJumphostSessions(cmd.Context(), tuiRunner, session, options, cmd.OutOrStdout(), handoff)
 }
 
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {

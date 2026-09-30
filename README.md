@@ -66,7 +66,9 @@ GOPRIVATE=github.com/n2jsoft \
 
 - **Go 1.27+**
 - **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)** (used by `aws ssm start-session`)
-- **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`
+- **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
+  When a profile's credentials are missing or expired, airlock runs `aws sso login` for you: the
+  dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
 - **A running jumphost**: an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
 
 ## 🛰 How it works
@@ -234,6 +236,23 @@ Secrets Manager sign-in needs `secretsmanager:ListSecrets` and `secretsmanager:G
 > `db_secret_arn` and `password_in_keychain`. A saved port that is already in use falls back to a free
 > one, and `--db-user` / `--db-secret` / `--mcp-allow-writes` still win. **`connections.json` never
 > holds a password.**
+
+### Kubernetes (EKS)
+
+Each EKS session gets its own kubeconfig, written to `~/.config/airlock/kube/`
+(`$XDG_CONFIG_HOME/airlock/kube` when set) and removed when the session stops. Its only context
+points at the tunnel, checks the certificate against the real cluster endpoint (`tls-server-name`)
+and signs in with `aws eks get-token`, with the session's profile and region. Your own
+`~/.kube/config` is never touched.
+
+```sh
+export KUBECONFIG=~/.config/airlock/kube/airlock-<profile>-<region>-<cluster>.json
+kubectl get namespaces    # k9s, Lens and other clients read it too
+```
+
+The session log shows the exact path, and the dashboard's `Kube` row the `KUBECONFIG` value. To
+keep your own context of the cluster instead, point it at the tunnel:
+`kubectl --server https://localhost:<port> --tls-server-name <endpoint host> get namespaces`.
 
 ### Parallel sessions
 

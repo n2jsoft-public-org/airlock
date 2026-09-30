@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -246,6 +248,9 @@ func (m ssmModel) renderDetails(width int) string {
 	if mcp := strings.TrimSpace(s.session.Details.MCP); mcp != "" {
 		rows = append(rows, m.field("MCP", mcp, inner))
 	}
+	if kubeconfig := strings.TrimSpace(s.session.Details.Kubeconfig); kubeconfig != "" {
+		rows = append(rows, m.field("Kube", "KUBECONFIG="+shortenHome(kubeconfig), inner))
+	}
 	if s.err != nil && !s.stopRequested {
 		rows = append(rows, m.field("Error", m.styles.Danger.Render(s.err.Error()), inner))
 	}
@@ -436,6 +441,18 @@ func spread(left, right string, width int) string {
 		gap = maxInt(1, width-lipgloss.Width(left)-lipgloss.Width(right))
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// shortenHome writes path under the home directory as ~/..., which shells expand back.
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+		return "~/" + filepath.ToSlash(rel)
+	}
+	return path
 }
 
 func truncate(value string, width int) string {

@@ -144,8 +144,9 @@ type ssmModel struct {
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
 // first is already prepared; when nil, the dashboard opens on the wizard, as if the user pressed n.
-// New sessions are prepared with runner, reusing base for their defaults.
-func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, first *jumphost.Session, base jumphost.Options, out io.Writer) error {
+// New sessions are prepared with runner, reusing base for their defaults. handoff, when not nil,
+// suspends the dashboard while it runs a command needing the terminal (the runner's sign-ins).
+func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, first *jumphost.Session, base jumphost.Options, out io.Writer, handoff *TerminalHandoff) error {
 	processes := newProcessTracker()
 	stopHangupWatch := jumphost.RunOnHangup(processes.shutdown)
 	defer stopHangupWatch()
@@ -158,6 +159,10 @@ func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, firs
 	}
 
 	program := tea.NewProgram(model, tea.WithAltScreen())
+	if handoff != nil {
+		handoff.attach(program)
+		defer handoff.attach(nil)
+	}
 	finalModel, err := program.Run()
 	// Whatever happened, never leave aws processes or IDE data sources behind.
 	processes.shutdown()
