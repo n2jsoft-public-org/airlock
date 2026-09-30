@@ -18,6 +18,10 @@ const (
 	recentPickerNew
 	recentPickerSearch
 	recentPickerForget
+	// recentPickerBack leaves the start screen (esc without any filter to clear).
+	recentPickerBack
+	// recentPickerSwitch shows the running session of a connected entry.
+	recentPickerSwitch
 )
 
 // Focus positions of the action rows under the list; recentActionNone is the list itself.
@@ -62,6 +66,11 @@ func (i recentItem) Description() string {
 	return strings.Join(parts, " · ")
 }
 
+// key identifies the entry as the dashboard knows its sessions (see connectionKey).
+func (i recentItem) key() string {
+	return connectionKey(i.conn.Prefs.Profile, i.conn.Ref.Region, i.conn.Ref.Type, i.conn.Ref.Name)
+}
+
 func (i recentItem) FilterValue() string {
 	return strings.Join([]string{i.conn.Ref.Name, i.conn.Ref.Type, i.conn.Prefs.Profile, i.conn.Ref.Region}, " ")
 }
@@ -69,8 +78,7 @@ func (i recentItem) FilterValue() string {
 // recentPicker is the start screen: the remembered connections, then the "New connection" and
 // "Search a target" actions.
 type recentPicker struct {
-	list   list.Model
-	notice string
+	list list.Model
 	// action is the focused action row, or recentActionNone while the list has the focus.
 	action int
 	// confirming waits for y to forget the selected entry.
@@ -80,12 +88,9 @@ type recentPicker struct {
 func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, now time.Time) recentPicker {
 	items := make([]list.Item, 0, len(connections))
 	for idx := range connections {
-		conn := &connections[idx]
-		items = append(items, recentItem{
-			conn:      *conn,
-			age:       relativeAge(now, conn.Prefs.UpdatedAt),
-			connected: active[connectionKey(conn.Prefs.Profile, conn.Ref.Region, conn.Ref.Type, conn.Ref.Name)],
-		})
+		item := recentItem{conn: connections[idx], age: relativeAge(now, connections[idx].Prefs.UpdatedAt)}
+		item.connected = active[item.key()]
+		items = append(items, item)
 	}
 	return recentPicker{list: newWizardList(styles, items), action: recentActionNone}
 }
@@ -120,7 +125,6 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 		return p, recentPickerOpen, nil
 	}
 	if isKey && !p.list.SettingFilter() {
-		p.notice = ""
 		switch key.String() {
 		case "n":
 			return p, recentPickerNew, nil
@@ -141,9 +145,9 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 			if !ok {
 				return p, recentPickerOpen, nil
 			}
+			// A connected entry is not opened twice: its running session is shown instead.
 			if item.connected {
-				p.notice = item.conn.Ref.Name + " is already connected"
-				return p, recentPickerOpen, nil
+				return p, recentPickerSwitch, nil
 			}
 			return p, recentPickerPicked, nil
 		case "d":
@@ -151,6 +155,11 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 				p.confirming = true
 			}
 			return p, recentPickerOpen, nil
+		case "esc":
+			// An applied filter is cleared by the list first.
+			if !p.list.IsFiltered() {
+				return p, recentPickerBack, nil
+			}
 		}
 	}
 
@@ -176,7 +185,7 @@ func (p recentPicker) updateActions(key tea.KeyMsg) (recentPicker, recentPickerO
 	return p, recentPickerOpen, nil
 }
 
-// View renders the list, the action rows and the confirmation or notice line.
+// View renders the list, the action rows and the forget confirmation line.
 func (p recentPicker) View(styles Styles, width int) string {
 	lines := []string{
 		p.list.View(),
@@ -187,8 +196,6 @@ func (p recentPicker) View(styles Styles, width int) string {
 	switch item, _ := p.selected(); {
 	case p.confirming:
 		lines = append(lines, styles.Warning.Render(truncate("Forget "+item.conn.Ref.Name+"? y/n", width)))
-	case p.notice != "":
-		lines = append(lines, styles.Muted.Render(truncate(p.notice, width)))
 	default:
 		lines = append(lines, "")
 	}

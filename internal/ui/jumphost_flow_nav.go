@@ -63,10 +63,15 @@ func (m jumphostWizardModel) previousStep(step jumphostStep) (jumphostStep, bool
 	return step, false
 }
 
-// goBack moves to the previous step of the flow.
+// goBack moves to the previous step of the flow; from its first step, an embedded wizard returns
+// to the sessions of its dashboard.
 func (m jumphostWizardModel) goBack() (tea.Model, tea.Cmd) {
 	prev, ok := m.previousStep(m.step)
 	if !ok {
+		if m.leavesToHost() {
+			m.canceled = true
+			return m, m.finish()
+		}
 		return m, nil
 	}
 	if prev == jumphostStepStart {
@@ -78,6 +83,11 @@ func (m jumphostWizardModel) goBack() (tea.Model, tea.Cmd) {
 	m.step = prev
 	m.errorMsg = ""
 	return m, nil
+}
+
+// leavesToHost reports whether going back from the first step returns to the dashboard's sessions.
+func (m jumphostWizardModel) leavesToHost() bool {
+	return m.embedded && m.hostHasSessions
 }
 
 // returnToStart shows the start screen again, with the options the wizard was opened with.

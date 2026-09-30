@@ -91,7 +91,7 @@ func (m jumphostWizardModel) stepLabel(step jumphostStep) string {
 // canGoBack reports whether esc leads somewhere from the current step.
 func (m jumphostWizardModel) canGoBack() bool {
 	_, ok := m.previousStep(m.step)
-	return ok
+	return ok || m.leavesToHost()
 }
 
 func (m jumphostWizardModel) stepHeading() string {
@@ -160,7 +160,15 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		case m.recent.typing():
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
 		}
-		return [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "reconnect"}, {"n", "new"}, {"s", "search"}, {"d", "forget"}, quit}
+		enter := "reconnect"
+		if item, ok := m.recent.selected(); ok && item.connected {
+			enter = "switch to"
+		}
+		keys := [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", enter}, {"n", "new"}, {"s", "search"}, {"d", "forget"}}
+		if m.canGoBack() {
+			keys = append(keys, [2]string{"esc", "back"})
+		}
+		return append(keys, quit)
 	case jumphostStepProfile:
 		if m.profileList.SettingFilter() {
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
@@ -377,8 +385,8 @@ func (m jumphostWizardModel) reviewInput(field int, label, input, help string, w
 }
 
 func (m jumphostWizardModel) quitLabel() string {
-	// Without active sessions, canceling an embedded wizard also quits its host.
-	if m.embedded && len(m.active) > 0 {
+	// Without any session to return to, canceling an embedded wizard also quits its host.
+	if m.embedded && m.hostHasSessions {
 		return "cancel"
 	}
 	return "quit"

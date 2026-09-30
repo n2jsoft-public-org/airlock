@@ -89,7 +89,7 @@ func newTestSSMModel(t *testing.T, labels ...string) ssmModel {
 	t.Helper()
 	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{})
 	for idx, label := range labels {
-		m = m.addSession(&jumphost.Session{Label: label, Target: label, ResourceType: "rds", Profile: "dev", Region: "eu-west-3", LocalPort: 5432 + idx})
+		m = m.addSession(&jumphost.Session{Label: label, Target: label, ResourceType: "rds", Profile: "dev", Region: "eu-west-3", LocalPort: 5432 + idx}, jumphost.Options{})
 		m.sessions[len(m.sessions)-1].state = ssmSessionRunning
 	}
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -148,8 +148,61 @@ func TestSessionEndingKeepsOtherSessionsRunning(t *testing.T) {
 	}
 
 	_, cmd = update(t, m, ssmFinishedMsg{id: m.sessions[0].id})
+	if isQuit(cmd) {
+		t.Fatal("program quit when the last session ended: its logs must stay readable")
+	}
+}
+
+func TestLastSessionEndingKeepsDashboardUntilQuit(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+
+	m, cmd := update(t, m, ssmFinishedMsg{id: m.sessions[0].id, err: errors.New("TargetNotConnected")})
+	if isQuit(cmd) || m.mode != ssmModeSessions {
+		t.Fatalf("mode = %v quit = %v, want the dashboard kept on the ended session", m.mode, isQuit(cmd))
+	}
+	if !strings.Contains(m.View(), "TargetNotConnected") {
+		t.Fatal("the dashboard does not show why the session ended")
+	}
+
+	_, cmd = update(t, m, key("q"))
 	if !isQuit(cmd) {
-		t.Fatal("program did not quit after the last session ended")
+		t.Fatal("q did not quit once no session runs")
+	}
+}
+
+func TestStoppingLastSessionKeepsDashboard(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+
+	m, _ = update(t, m, key("x"))
+	m, _ = update(t, m, key("enter"))
+	_, cmd := update(t, m, ssmFinishedMsg{id: m.sessions[0].id})
+	if isQuit(cmd) {
+		t.Fatal("stopping the last session quit airlock; only q should")
+	}
+}
+
+func TestStopAllAndQuitStillQuits(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+
+	m, _ = update(t, m, key("q"))
+	m, _ = update(t, m, key("enter"))
+	_, cmd := update(t, m, ssmFinishedMsg{id: m.sessions[0].id})
+	if !isQuit(cmd) {
+		t.Fatal("stop all & quit did not quit once the sessions ended")
+	}
+}
+
+func TestWizardCancelWithOnlyEndedSessionsReturnsToDashboard(t *testing.T) {
+	m := newTestSSMModel(t, "first")
+	m, _ = update(t, m, ssmFinishedMsg{id: m.sessions[0].id})
+
+	m, _ = update(t, m, key("n"))
+	if m.wizard.quitLabel() != "cancel" {
+		t.Fatalf("quit label = %q, want cancel: the dashboard still shows a session", m.wizard.quitLabel())
+	}
+	m, cmd := update(t, m, jumphostWizardDoneMsg{canceled: true})
+	if isQuit(cmd) || m.mode != ssmModeSessions {
+		t.Fatalf("mode = %v quit = %v, want back to the dashboard", m.mode, isQuit(cmd))
 	}
 }
 
@@ -168,7 +221,7 @@ func TestNewConnectionIsAddedNextToRunningSession(t *testing.T) {
 
 	// Simulate the preparation result without launching aws.
 	m.mode = ssmModeSessions
-	m = m.addSession(&jumphost.Session{Label: "second", LocalPort: 5433})
+	m = m.addSession(&jumphost.Session{Label: "second", LocalPort: 5433}, jumphost.Options{})
 	if len(m.sessions) != 2 || m.selected != 1 {
 		t.Fatalf("sessions = %d selected = %d, want 2 sessions with the new one selected", len(m.sessions), m.selected)
 	}
@@ -227,7 +280,7 @@ func TestStartupWizardConnectsInDashboard(t *testing.T) {
 
 func TestDashboardWizardLaterIgnoresProfileFlag(t *testing.T) {
 	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{AwsProfile: "prod"})
-	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"}, jumphost.Options{})
 	m.sessions[0].state = ssmSessionRunning
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
@@ -350,7 +403,7 @@ func TestDetailsShowSignInMode(t *testing.T) {
 
 func TestWizardKeepsMCPOptions(t *testing.T) {
 	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{SkipMCP: true, MCPAllowWrites: true})
-	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"}, jumphost.Options{})
 	m.sessions[0].state = ssmSessionRunning
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
@@ -372,10 +425,12 @@ func (savedDBRunner) ListSavedConnections(context.Context, string, string) ([]ju
 	}, nil
 }
 
-func TestDashboardWizardBlocksConnectedEntries(t *testing.T) {
+func TestDashboardWizardSwitchesToConnectedEntry(t *testing.T) {
 	m := newSSMModel(context.Background(), savedDBRunner{}, newProcessTracker(), jumphost.Options{})
-	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds", Profile: "dev", Region: "eu-west-3"})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds", Profile: "dev", Region: "eu-west-3"}, jumphost.Options{})
+	m = m.addSession(&jumphost.Session{Label: "cache", Target: "cache", ResourceType: "elasticache", Profile: "dev", Region: "eu-west-3"}, jumphost.Options{})
 	m.sessions[0].state = ssmSessionRunning
+	m.sessions[1].state = ssmSessionRunning
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	m, _ = update(t, m, key("n"))
@@ -387,9 +442,17 @@ func TestDashboardWizardBlocksConnectedEntries(t *testing.T) {
 	if !item.connected || item.conn.Ref.Name != "db" {
 		t.Fatalf("item = %+v, want db marked connected", item)
 	}
-	m, _ = update(t, m, key("enter"))
-	if m.wizard.step != jumphostStepStart || !strings.Contains(m.wizard.View(), "db is already connected") {
-		t.Fatalf("step = %v, a connected entry must not be reopened", m.wizard.step)
+	if !strings.Contains(m.View(), "switch to") {
+		t.Fatal("the key hints do not say that enter switches to the running session")
+	}
+	m, cmd := update(t, m, key("enter"))
+	done, ok := wizardDone(cmd)
+	if !ok {
+		t.Fatal("enter on a connected entry did not leave the wizard")
+	}
+	m, _ = update(t, m, done)
+	if m.mode != ssmModeSessions || m.selected != 0 || len(m.sessions) != 2 {
+		t.Fatalf("mode = %v selected = %d sessions = %d, want the db session selected and none opened", m.mode, m.selected, len(m.sessions))
 	}
 }
 
@@ -416,5 +479,166 @@ func TestStartupWizardCarriesDBSecretFlag(t *testing.T) {
 	next, _ := m.openWizard()
 	if dashboard, ok := next.(ssmModel); !ok || dashboard.wizard.base.DBSecretARN != "" {
 		t.Fatalf("new connection base = %+v, want no secret", dashboard.wizard.base)
+	}
+}
+
+// prepareRecorder is a session runner remembering the options of every Prepare call.
+type prepareRecorder struct {
+	fakeSessionRunner
+	prepared *[]jumphost.Options
+}
+
+func (r prepareRecorder) Prepare(ctx context.Context, options jumphost.Options) (*jumphost.Session, error) {
+	*r.prepared = append(*r.prepared, options)
+	return &jumphost.Session{Label: options.Name, Target: options.Name, ResourceType: options.ResourceType, Profile: options.AwsProfile, Region: options.AwsRegion, LocalPort: options.LocalPortNumber}, nil
+}
+
+// preparedMsg runs cmd, a batch of the preparation and its spinner, and returns the preparation result.
+func preparedMsg(t *testing.T, cmd tea.Cmd) ssmPreparedMsg {
+	t.Helper()
+	batch, ok := runWithTimeout(cmd).(tea.BatchMsg)
+	if !ok {
+		t.Fatal("the command is not a batch")
+	}
+	for _, inner := range batch {
+		if msg, ok := runWithTimeout(inner).(ssmPreparedMsg); ok {
+			return msg
+		}
+	}
+	t.Fatal("no preparation in the batch")
+	return ssmPreparedMsg{}
+}
+
+func newRestartModel(t *testing.T) (ssmModel, *[]jumphost.Options) {
+	t.Helper()
+	prepared := &[]jumphost.Options{}
+	m := newSSMModel(context.Background(), prepareRecorder{prepared: prepared}, newProcessTracker(), jumphost.Options{})
+	for idx, name := range []string{"archive", "cache"} {
+		session := &jumphost.Session{Label: name, Target: name, ResourceType: "rds", Profile: "dev", Region: "eu-west-3", LocalPort: 5432 + idx}
+		m = m.addSession(session, jumphost.Options{ResourceType: "rds", Name: name, DBUser: "app_ro", MCPAllowWrites: true})
+		m.sessions[len(m.sessions)-1].state = ssmSessionRunning
+	}
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	return m, prepared
+}
+
+func TestEndedSessionRestartsInPlace(t *testing.T) {
+	m, prepared := newRestartModel(t)
+	m, _ = update(t, m, ssmFinishedMsg{id: m.sessions[0].id, err: errors.New("TargetNotConnected")})
+	m = m.selectSession(0)
+	if !strings.Contains(m.View(), "restart") {
+		t.Fatal("the footer does not offer to restart the ended session")
+	}
+
+	m, cmd := update(t, m, key("r"))
+	if m.mode != ssmModePreparing {
+		t.Fatalf("mode = %v, want preparing the restart", m.mode)
+	}
+	m, _ = update(t, m, preparedMsg(t, cmd))
+
+	want := jumphost.Options{ResourceType: "rds", Name: "archive", LocalPortNumber: 5432, AwsProfile: "dev", AwsRegion: "eu-west-3", DBUser: "app_ro", MCPAllowWrites: true}
+	if len(*prepared) != 1 || (*prepared)[0] != want {
+		t.Fatalf("prepared = %+v, want %+v: the same target, port and choices", *prepared, want)
+	}
+	if len(m.sessions) != 2 || m.selected != 0 || m.sessions[0].session.Target != "archive" || m.sessions[0].state == ssmSessionEnded {
+		t.Fatalf("sessions = %d selected = %d, want archive restarted in its own slot", len(m.sessions), m.selected)
+	}
+	logs := m.renderLogLines(m.sessions[0], 200)
+	if !strings.Contains(logs, "TargetNotConnected") || !strings.Contains(logs, "Restarting session") {
+		t.Fatalf("logs = %q, want the previous run kept above the restart", logs)
+	}
+	if m.sessions[0].options != (*prepared)[0] {
+		t.Fatal("the restarted session does not keep its options for a later restart")
+	}
+}
+
+func TestRestartIgnoresRunningSession(t *testing.T) {
+	m, prepared := newRestartModel(t)
+
+	m, _ = update(t, m, key("r"))
+	if m.mode != ssmModeSessions || len(*prepared) != 0 {
+		t.Fatalf("mode = %v prepared = %d, a running session is not restarted", m.mode, len(*prepared))
+	}
+}
+
+func TestRestartRefusesTargetConnectedElsewhere(t *testing.T) {
+	m, prepared := newRestartModel(t)
+	m, _ = update(t, m, ssmFinishedMsg{id: m.sessions[0].id})
+	m = m.addSession(&jumphost.Session{Label: "archive", Target: "archive", ResourceType: "rds", Profile: "dev", Region: "eu-west-3", LocalPort: 5440}, jumphost.Options{})
+	m.sessions[2].state = ssmSessionRunning
+	m = m.selectSession(0)
+
+	m, _ = update(t, m, key("r"))
+	if m.mode != ssmModeSessions || len(*prepared) != 0 || !strings.Contains(m.errorMsg, "already connected") {
+		t.Fatalf("mode = %v prepared = %d error = %q, want the duplicate refused", m.mode, len(*prepared), m.errorMsg)
+	}
+}
+
+func TestRestartFailureKeepsEndedSession(t *testing.T) {
+	m, _ := newRestartModel(t)
+	m, _ = update(t, m, ssmFinishedMsg{id: m.sessions[0].id})
+	id := m.sessions[0].id
+	m.mode = ssmModePreparing
+
+	m, _ = update(t, m, ssmPreparedMsg{err: errors.New("port 5432 is busy"), replaces: id})
+	if m.mode != ssmModeSessions || len(m.sessions) != 2 || m.sessions[0].id != id || !strings.Contains(m.errorMsg, "Could not restart") {
+		t.Fatalf("mode = %v sessions = %d error = %q, want the ended session kept and the error shown", m.mode, len(m.sessions), m.errorMsg)
+	}
+}
+
+// wizardDone runs cmd and returns the wizard completion it leads to, if any.
+func wizardDone(cmd tea.Cmd) (jumphostWizardDoneMsg, bool) {
+	if cmd == nil {
+		return jumphostWizardDoneMsg{}, false
+	}
+	done, ok := runWithTimeout(cmd).(jumphostWizardDoneMsg)
+	return done, ok
+}
+
+// escFromDashboardWizard opens the wizard over a running session, waits for its first screen and presses esc.
+func escFromDashboardWizard(t *testing.T, runner JumphostSessionRunner) (ssmModel, tea.Cmd) {
+	t.Helper()
+	m := newSSMModel(context.Background(), runner, newProcessTracker(), jumphost.Options{})
+	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds", Profile: "dev", Region: "eu-west-3"}, jumphost.Options{})
+	m.sessions[0].state = ssmSessionRunning
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = update(t, m, key("n"))
+	m, _ = update(t, m, m.wizard.loadSavedCmd()())
+	if !strings.Contains(m.View(), "esc") {
+		t.Fatalf("the first wizard screen does not hint that esc goes back:\n%s", m.View())
+	}
+	return update(t, m, key("esc"))
+}
+
+func TestDashboardWizardEscOnStartScreenReturnsToSessions(t *testing.T) {
+	m, cmd := escFromDashboardWizard(t, savedDBRunner{})
+	done, ok := wizardDone(cmd)
+	if !ok || !done.canceled {
+		t.Fatal("esc on the start screen did not cancel the wizard")
+	}
+	m, _ = update(t, m, done)
+	if m.mode != ssmModeSessions {
+		t.Fatalf("mode = %v, want back to the dashboard", m.mode)
+	}
+}
+
+func TestDashboardWizardEscOnTypeStepWithoutHistoryReturnsToSessions(t *testing.T) {
+	m, cmd := escFromDashboardWizard(t, fakeSessionRunner{})
+	if m.wizard.step != jumphostStepType {
+		t.Fatalf("step = %v, want the Type step of a wizard without history", m.wizard.step)
+	}
+	if done, ok := wizardDone(cmd); !ok || !done.canceled {
+		t.Fatal("esc on the first step did not cancel the wizard")
+	}
+}
+
+func TestStartupWizardEscOnFirstStepStays(t *testing.T) {
+	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{}).startupWizard()
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = update(t, m, m.wizard.loadSavedCmd()())
+
+	m, cmd := update(t, m, key("esc"))
+	if _, ok := wizardDone(cmd); ok || m.wizard.step != jumphostStepType {
+		t.Fatal("esc left the startup wizard: without sessions there is nowhere to go back to")
 	}
 }

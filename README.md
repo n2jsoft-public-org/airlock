@@ -143,7 +143,7 @@ on the resource type step.
 | `s` | Search a target: choose a profile, then pick among all its RDS, EKS and ElastiCache targets in one list |
 | `d` | Forget a recent connection |
 | `r` | Switch region (on the resource type, target and search steps) |
-| `esc` | Go back one step |
+| `esc` | Go back one step (from the first step of a wizard opened with `n`, back to the sessions) |
 
 - `--profile` and `--region` filter the recent connections and skip the profile question.
 - Target types that cannot be listed during a search are named in a warning.
@@ -238,7 +238,8 @@ Secrets Manager sign-in needs `secretsmanager:ListSecrets` and `secretsmanager:G
 ### Parallel sessions
 
 While a session runs, press `n` to open another one, with any profile and any resource. Running
-sessions stay active, and the start screen marks recent connections that are already open.
+sessions stay active, and the start screen marks recent connections that are already open: `enter`
+on one of them switches to its session instead of opening a second one.
 
 | Key | Action |
 |---|---|
@@ -246,7 +247,11 @@ sessions stay active, and the start screen marks recent connections that are alr
 | `tab` · `←` `→` · `1`–`9` | Switch between sessions |
 | `m` | Switch the bottom panel between logs and MCP queries (database sessions) |
 | `x` | Stop the selected session, or close it once ended |
-| `ctrl+c` | Stop all sessions and quit |
+| `r` | Restart the selected ended session: same target, local port and sign-in |
+| `q` · `ctrl+c` | Stop all sessions and quit |
+
+A session that ends, on its own or with `x`, stays in the dashboard with its logs until you close it,
+restart it or quit.
 
 - **Ports never collide.** The suggested port skips ports used by other sessions or other local
   processes (a second `5432` RDS gets `5433`). A busy port requested explicitly is rejected.

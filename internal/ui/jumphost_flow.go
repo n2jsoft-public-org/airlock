@@ -113,6 +113,10 @@ type jumphostWizardModel struct {
 	canceled       bool
 	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
 	embedded bool
+	// switchTo is the connectionKey of the running session the dashboard shows instead of opening a new one.
+	switchTo string
+	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
+	hostHasSessions bool
 	// warning is shown in the session log once connected (e.g. the keychain failed).
 	warning string
 
@@ -215,6 +219,8 @@ type jumphostWizardDoneMsg struct {
 	options  jumphost.Options
 	canceled bool
 	warning  string
+	// switchTo, set on a canceled wizard, is the connectionKey of the running session to show.
+	switchTo string
 }
 
 func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) jumphostWizardModel {
@@ -793,7 +799,7 @@ func (m jumphostWizardModel) finish() tea.Cmd {
 	if !m.embedded {
 		return tea.Quit
 	}
-	done := jumphostWizardDoneMsg{options: m.options, canceled: m.canceled, warning: m.warning}
+	done := jumphostWizardDoneMsg{options: m.options, canceled: m.canceled, warning: m.warning, switchTo: m.switchTo}
 	return func() tea.Msg { return done }
 }
 

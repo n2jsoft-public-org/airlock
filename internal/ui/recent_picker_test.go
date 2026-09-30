@@ -103,16 +103,15 @@ func TestRecentPickerForgetAsksConfirmation(t *testing.T) {
 	}
 }
 
-func TestRecentPickerBlocksConnectedEntry(t *testing.T) {
+func TestRecentPickerSwitchesToConnectedEntry(t *testing.T) {
 	active := map[string]bool{connectionKey("dev", "eu-west-3", "rds", "archive"): true}
 	p := newTestRecentPicker(active)
 	item, _ := p.selected()
 	if !strings.Contains(item.Title(), "● connected") {
 		t.Fatalf("title = %q, want the connected badge", item.Title())
 	}
-	p, outcome := pickerKey(t, p, "enter")
-	if outcome != recentPickerOpen || !strings.Contains(p.View(NewStyles(), 100), "archive is already connected") {
-		t.Fatalf("outcome = %v, a connected entry must not be picked", outcome)
+	if _, outcome := pickerKey(t, p, "enter"); outcome != recentPickerSwitch {
+		t.Fatalf("outcome = %v, want a switch to the running session rather than a second one", outcome)
 	}
 }
 
@@ -134,3 +133,20 @@ func TestRelativeAge(t *testing.T) {
 }
 
 var _ tea.Msg = key("x")
+
+func TestRecentPickerEscGoesBack(t *testing.T) {
+	if _, outcome := pickerKey(t, newTestRecentPicker(nil), "esc"); outcome != recentPickerBack {
+		t.Fatalf("outcome = %v, want back", outcome)
+	}
+}
+
+func TestRecentPickerEscClearsFilterFirst(t *testing.T) {
+	p, _ := pickerKey(t, newTestRecentPicker(nil), "/", "a", "enter")
+	if !p.list.IsFiltered() {
+		t.Fatal("filter not applied")
+	}
+	p, outcome := pickerKey(t, p, "esc")
+	if outcome != recentPickerOpen || p.list.IsFiltered() {
+		t.Fatalf("outcome = %v filtered = %v, want the filter cleared first", outcome, p.list.IsFiltered())
+	}
+}

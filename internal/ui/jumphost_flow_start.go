@@ -78,6 +78,13 @@ func (m jumphostWizardModel) updateStartStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case recentPickerSearch:
 		return m.beginSearch()
+	case recentPickerBack:
+		return m.goBack()
+	case recentPickerSwitch:
+		item, _ := picker.selected()
+		m.canceled = true
+		m.switchTo = item.key()
+		return m, m.finish()
 	case recentPickerForget:
 		// The start screen waits for the reload: the forgotten entry must not be picked meanwhile.
 		item, _ := picker.selected()

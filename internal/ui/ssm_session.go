@@ -69,6 +69,9 @@ type ssmPreparedMsg struct {
 	session *jumphost.Session
 	err     error
 	warning string
+	options jumphost.Options
+	// replaces is the id of the ended session a restart takes the place of; 0 for a new session.
+	replaces int
 }
 
 type ssmLogLine struct {
@@ -83,6 +86,8 @@ type ssmSession struct {
 	err       error
 	session   *jumphost.Session
 	cmd       *exec.Cmd
+	// options prepared the session; a restart prepares them again.
+	options jumphost.Options
 	// mcp holds the calls made through the session's MCP server (nil when none runs).
 	mcp           *ssmMCPQueries
 	lines         []ssmLogLine
@@ -96,6 +101,11 @@ type ssmSession struct {
 
 func (s *ssmSession) active() bool {
 	return s.state != ssmSessionEnded
+}
+
+// key identifies the target of s as the wizard's recent connections do (see connectionKey).
+func (s *ssmSession) key() string {
+	return connectionKey(s.session.Profile, s.session.Region, s.session.ResourceType, s.session.Target)
 }
 
 func (s *ssmSession) appendLines(lines ...string) {
@@ -142,7 +152,7 @@ func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, firs
 
 	model := newSSMModel(ctx, runner, processes, base)
 	if first != nil {
-		model = model.addSession(first)
+		model = model.addSession(first, base)
 	} else {
 		model = model.startupWizard()
 	}
@@ -198,27 +208,39 @@ func ssmTickCmd() tea.Cmd {
 	return tea.Tick(ssmTickInterval, func(t time.Time) tea.Msg { return ssmTickMsg(t) })
 }
 
-// addSession registers a prepared session as a new tab and selects it. The process is launched separately.
-func (m ssmModel) addSession(session *jumphost.Session) ssmModel {
+// addSession registers a session prepared with options as a new tab and selects it. The process is
+// launched separately.
+func (m ssmModel) addSession(session *jumphost.Session, options jumphost.Options) ssmModel {
+	m.sessions = append(m.sessions, m.newSession(session, options, nil))
+	m.selected = len(m.sessions) - 1
+	m.refreshViewport()
+	m.viewport.GotoBottom()
+	return m
+}
+
+// newSession builds the tab of a prepared session; history holds the log lines of the ended run a
+// restart replaces.
+func (m *ssmModel) newSession(session *jumphost.Session, options jumphost.Options, history []ssmLogLine) *ssmSession {
 	s := &ssmSession{
 		id:        m.nextID,
 		session:   session,
+		options:   options,
 		state:     ssmSessionStarting,
 		startedAt: time.Now(),
+		lines:     append([]ssmLogLine{}, history...),
 	}
 	if server := session.MCPServer(); server != nil {
 		s.mcp = subscribeMCPQueries(s.id, server, m.events)
+	}
+	if len(history) > 0 {
+		s.appendLines("", "Restarting session...", "")
 	}
 	s.appendLines(session.Intro...)
 	s.appendLines("", "Starting session...")
 
 	m.nextID++
 	m.processes.track(session)
-	m.sessions = append(m.sessions, s)
-	m.selected = len(m.sessions) - 1
-	m.refreshViewport()
-	m.viewport.GotoBottom()
-	return m
+	return s
 }
 
 func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -316,6 +338,8 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "n":
 		return m.openWizard()
+	case "r":
+		return m.restartSelected()
 	case "m":
 		if s := m.selectedSession(); s != nil && s.mcp != nil {
 			m.showQueries = !m.showQueries
@@ -416,8 +440,8 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.refreshSelected(s)
 
-	// Leave once nothing runs anymore, unless the user is busy opening another connection.
-	if !m.hasActiveSessions() && (m.quitting || m.mode == ssmModeSessions || m.mode == ssmModeConfirmStop) {
+	// Only "stop all & quit" leaves on its own: an ended session stays on screen with its logs.
+	if m.quitting && !m.hasActiveSessions() {
 		return m, tea.Quit
 	}
 	return m, waitSSMEvent(m.events)
@@ -447,6 +471,7 @@ func (m ssmModel) startupWizard() ssmModel {
 func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
 	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
 	m.wizard.embedded = true
+	m.wizard.hostHasSessions = len(m.sessions) > 0
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""
@@ -466,6 +491,16 @@ func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
 	return m, initCmd
 }
 
+// activeSessionIndex returns the position of the running session of key (see connectionKey), or -1.
+func (m ssmModel) activeSessionIndex(key string) int {
+	for index, s := range m.sessions {
+		if s.active() && s.session != nil && s.key() == key {
+			return index
+		}
+	}
+	return -1
+}
+
 // activeConnectionKeys identifies the targets of the running sessions, as connectionKey builds them.
 func (m ssmModel) activeConnectionKeys() map[string]bool {
 	keys := map[string]bool{}
@@ -473,7 +508,7 @@ func (m ssmModel) activeConnectionKeys() map[string]bool {
 		if !s.active() || s.session == nil {
 			continue
 		}
-		keys[connectionKey(s.session.Profile, s.session.Region, s.session.ResourceType, s.session.Target)] = true
+		keys[s.key()] = true
 	}
 	return keys
 }
@@ -489,23 +524,55 @@ func (m ssmModel) updateWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m ssmModel) handleWizardDone(msg jumphostWizardDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.canceled {
 		m.mode = ssmModeSessions
+		if index := m.activeSessionIndex(msg.switchTo); index >= 0 {
+			m = m.selectSession(index)
+		}
 		m.refreshViewport()
-		if !m.hasActiveSessions() {
+		if len(m.sessions) == 0 {
 			return m, tea.Quit
 		}
 		return m, nil
 	}
 
+	label := fmt.Sprintf("Preparing %s %s...", strings.ToUpper(msg.options.ResourceType), msg.options.Name)
+	return m.prepare(ssmPreparedMsg{options: msg.options, warning: msg.warning}, label)
+}
+
+// restartSelected prepares the ended selected session again: same target, profile, region, local
+// port and sign-in choices, so the tools pointed at it reconnect as they were.
+func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
+	s := m.selectedSession()
+	if s == nil || s.active() {
+		return m, nil
+	}
+	session := s.session
+	if m.activeSessionIndex(s.key()) >= 0 {
+		m.errorMsg = session.Target + " is already connected in another session"
+		return m, nil
+	}
+
+	options := s.options
+	options.ResourceType = session.ResourceType
+	options.Name = session.Target
+	options.AwsProfile = session.Profile
+	options.AwsRegion = session.Region
+	options.LocalPortNumber = session.LocalPort
+	label := fmt.Sprintf("Restarting %s %s...", strings.ToUpper(session.ResourceType), session.Target)
+	return m.prepare(ssmPreparedMsg{options: options, replaces: s.id}, label)
+}
+
+// prepare prepares the session of pending.options in the background; pending carries what the
+// result needs besides the session (warning, replaced session).
+func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.Cmd) {
 	m.mode = ssmModePreparing
-	options := msg.options
-	warning := msg.warning
 	prepare := func() tea.Msg {
-		session, err := m.runner.Prepare(m.ctx, options)
-		return ssmPreparedMsg{session: session, err: err, warning: warning}
+		result := pending
+		result.session, result.err = m.runner.Prepare(m.ctx, pending.options)
+		return result
 	}
 	return m, tea.Batch(
 		prepare,
-		m.loadingUI.start(fmt.Sprintf("Preparing %s %s...", strings.ToUpper(options.ResourceType), options.Name), []string{
+		m.loadingUI.start(label, []string{
 			"Reserving a cozy local port...",
 			"Asking the jumphost for one more tunnel...",
 			"Keeping your other sessions warm...",
@@ -518,12 +585,23 @@ func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
 	m.mode = ssmModeSessions
 	if msg.err != nil {
 		m.errorMsg = "Could not open connection: " + msg.err.Error()
+		if msg.replaces != 0 {
+			m.errorMsg = "Could not restart: " + msg.err.Error()
+		}
 		m.refreshViewport()
 		return m, nil
 	}
 
 	appendWarning(msg.session, msg.warning)
-	m = m.addSession(msg.session)
+	// A restart takes the slot of the ended session, keeping its logs above the new run.
+	if index := m.sessionIndex(msg.replaces); index >= 0 {
+		s := m.newSession(msg.session, msg.options, m.sessions[index].lines)
+		m.sessions[index] = s
+		m = m.selectSession(index)
+		m.launchCommand(s)
+		return m, nil
+	}
+	m = m.addSession(msg.session, msg.options)
 	m.launchCommand(m.sessions[len(m.sessions)-1])
 	return m, nil
 }
@@ -562,12 +640,20 @@ func (m ssmModel) selectSession(index int) ssmModel {
 }
 
 func (m ssmModel) session(id int) *ssmSession {
-	for _, s := range m.sessions {
-		if s.id == id {
-			return s
-		}
+	if index := m.sessionIndex(id); index >= 0 {
+		return m.sessions[index]
 	}
 	return nil
+}
+
+// sessionIndex returns the position of the session id in the sidebar, or -1.
+func (m ssmModel) sessionIndex(id int) int {
+	for index, s := range m.sessions {
+		if s.id == id {
+			return index
+		}
+	}
+	return -1
 }
 
 func (m ssmModel) selectedSession() *ssmSession {

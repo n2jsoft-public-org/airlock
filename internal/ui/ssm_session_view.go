@@ -360,7 +360,15 @@ func (m ssmModel) renderFooter(width int) string {
 	case ssmModeConfirmQuit, ssmModeConfirmStop:
 		keys = [][2]string{{"←→", "choose"}, {"enter", "confirm"}, {"esc", "cancel"}}
 	default:
-		keys = [][2]string{{"n", "new"}, {"x", "stop/close"}, {"tab", "switch"}, {"1-9", "jump"}, {"↑↓", "scroll"}}
+		keys = [][2]string{{"n", "new"}}
+		switch s := m.selectedSession(); {
+		case s == nil:
+		case s.active():
+			keys = append(keys, [2]string{"x", "stop"})
+		default:
+			keys = append(keys, [2]string{"r", "restart"}, [2]string{"x", "close"})
+		}
+		keys = append(keys, [2]string{"tab", "switch"}, [2]string{"1-9", "jump"}, [2]string{"↑↓", "scroll"})
 		if s := m.selectedSession(); s != nil && s.mcp != nil {
 			panel := "queries"
 			if m.showQueries {
