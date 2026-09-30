@@ -60,6 +60,27 @@ type Options struct {
 	// DBPassword signs DBUser in with a password instead of an AWS IAM token. It is only kept in
 	// memory (the MCP server uses it; the IDE asks for it) and is never written to disk.
 	DBPassword string
+	// SignIn is the method chosen in the wizard (SignIn*); empty derives it from DBSecretARN and DBPassword.
+	SignIn string
+	// DBSecretARN names the Secrets Manager secret holding the password (ARN or name, from the
+	// wizard or --db-secret).
+	DBSecretARN string
+	// RememberPassword keeps DBPassword in the OS keychain for the next connections.
+	RememberPassword bool
+}
+
+// SignInMethod returns how the connection signs in to an RDS database.
+func (o *Options) SignInMethod() string {
+	switch {
+	case o.SignIn != "":
+		return o.SignIn
+	case strings.TrimSpace(o.DBSecretARN) != "":
+		return SignInSecret
+	case o.DBPassword != "":
+		return SignInPassword
+	default:
+		return SignInIAM
+	}
 }
 
 type ResourceSummary struct {
@@ -69,6 +90,8 @@ type ResourceSummary struct {
 	IAMAuth bool
 	// Type is the resource type (rds, eks, elasticache) the summary was listed as.
 	Type string
+	// Engine is the RDS engine (postgres, sqlserver-se, ...); empty for other types.
+	Engine string
 }
 
 type AWSProfileSummary struct {
@@ -509,6 +532,7 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 				Name:        name,
 				Description: formatRDSResourceDescription(instance.Engine, instance.EngineVersion, instance.Host, instance.Port, instance.SizeGiB, instance.Status),
 				IAMAuth:     instance.IAMAuth,
+				Engine:      instance.Engine,
 			})
 		}
 
@@ -667,9 +691,9 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 	}
 	if target.Type == resourceRDS {
 		prefs.DBUser = strings.TrimSpace(options.DBUser)
-		prefs.SignIn = SignInIAM
-		if options.DBPassword != "" {
-			prefs.SignIn = SignInPassword
+		prefs.SignIn = options.SignInMethod()
+		if prefs.SignIn == SignInSecret {
+			prefs.DBSecretARN = strings.TrimSpace(options.DBSecretARN)
 		}
 		prefs.MCPAllowWrites = options.MCPAllowWrites
 	}

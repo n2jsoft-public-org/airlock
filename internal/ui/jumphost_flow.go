@@ -361,7 +361,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.userInput.CursorEnd()
 		// Every connection starts from the target's saved choices, else passwordless and with the
 		// --mcp-allow-writes default. A password typed for another target is never reused.
-		m.passwordless = !msg.saved || msg.prefs.Passwordless()
+		m.passwordless = !msg.saved || msg.prefs.SignInMethod() != jumphost.SignInPassword
 		m.passwordInput.Reset()
 		m.mcpWrites = m.options.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites)
 		m.step = jumphostStepReview

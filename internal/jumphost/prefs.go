@@ -16,27 +16,40 @@ const (
 	SignInIAM = "iam"
 	// SignInPassword signs in with a password typed at every connection (never saved).
 	SignInPassword = "password"
+	// SignInSecret signs in with a password read from a Secrets Manager secret.
+	SignInSecret = "secret"
+	// SignInAuto uses the automatic SQL Server secrets: tagged read-only secrets, or the master
+	// user secret with MCP writes.
+	SignInAuto = "auto"
 
 	prefsFileVersion = 2
 )
 
 // ConnectionPrefs are the choices remembered for one target (AWS account, region, type and name).
-// Passwords are never part of them. DBUser, SignIn and MCPAllowWrites only apply to RDS.
+// Passwords are never part of them. DBUser, SignIn, DBSecretARN, PasswordInKeychain and
+// MCPAllowWrites only apply to RDS.
 type ConnectionPrefs struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Profile is the AWS profile of the last connection; ResourceType repeats the type of the key.
 	Profile      string `json:"profile,omitempty"`
 	ResourceType string `json:"resource_type,omitempty"`
 	DBUser       string `json:"db_user,omitempty"`
-	// SignIn is SignInIAM or SignInPassword; empty reads as SignInIAM.
-	SignIn         string `json:"sign_in,omitempty"`
-	LocalPort      int    `json:"local_port,omitempty"`
-	MCPAllowWrites bool   `json:"mcp_allow_writes"`
+	// SignIn is one of the SignIn* methods; empty reads as SignInIAM.
+	SignIn string `json:"sign_in,omitempty"`
+	// DBSecretARN is the secret holding the password of SignInSecret.
+	DBSecretARN string `json:"db_secret_arn,omitempty"`
+	// PasswordInKeychain reports that the SignInPassword password of DBUser is in the OS keychain.
+	PasswordInKeychain bool `json:"password_in_keychain,omitempty"`
+	LocalPort          int  `json:"local_port,omitempty"`
+	MCPAllowWrites     bool `json:"mcp_allow_writes"`
 }
 
-// Passwordless reports whether the connection signs in with AWS IAM tokens rather than a typed password.
-func (p ConnectionPrefs) Passwordless() bool {
-	return p.SignIn != SignInPassword
+// SignInMethod returns the sign-in method of the connection, SignInIAM when none is saved.
+func (p ConnectionPrefs) SignInMethod() string { //nolint:gocritic
+	if p.SignIn == "" {
+		return SignInIAM
+	}
+	return p.SignIn
 }
 
 // prefsFile is the JSON document of a PrefsStore.

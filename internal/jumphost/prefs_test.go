@@ -41,7 +41,7 @@ func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 		t.Fatalf("Load = %+v, %v; want %+v", got, ok, archive)
 	}
 	other, ok := store.Load(otherRegion)
-	if !ok || other.DBUser != "app" || other.Passwordless() {
+	if !ok || other.DBUser != "app" || other.SignInMethod() != SignInPassword {
 		t.Fatalf("the other region's entry = %+v, %v", other, ok)
 	}
 	if _, ok := store.Load(TargetRef{Account: "222222222222", Region: "eu-west-3", Type: "rds", Name: "archive"}); ok {
@@ -183,9 +183,47 @@ func TestPrefsStoreListAndDeleteRefuseUnreadableFile(t *testing.T) {
 	}
 }
 
-func TestConnectionPrefsDefaultToPasswordless(t *testing.T) {
-	if !(ConnectionPrefs{}).Passwordless() {
-		t.Fatal("preferences without sign-in method must read as passwordless")
+func TestConnectionPrefsSignInMethodDefaultsToIAM(t *testing.T) {
+	if got := (ConnectionPrefs{}).SignInMethod(); got != SignInIAM {
+		t.Fatalf("SignInMethod() = %q, want %q", got, SignInIAM)
+	}
+	if got := (ConnectionPrefs{SignIn: SignInSecret}).SignInMethod(); got != SignInSecret {
+		t.Fatalf("SignInMethod() = %q, want %q", got, SignInSecret)
+	}
+}
+
+func TestOptionsSignInMethod(t *testing.T) {
+	cases := []struct { //nolint:govet // test struct
+		options Options
+		want    string
+	}{
+		{Options{}, SignInIAM},
+		{Options{DBPassword: "s3cret"}, SignInPassword},
+		{Options{DBSecretARN: "arn:secret"}, SignInSecret},
+		{Options{SignIn: SignInAuto}, SignInAuto},
+	}
+	for _, c := range cases {
+		if got := c.options.SignInMethod(); got != c.want {
+			t.Errorf("%+v.SignInMethod() = %q, want %q", c.options, got, c.want)
+		}
+	}
+}
+
+func TestPrefsStoreRoundTripsSecretAndKeychainChoices(t *testing.T) {
+	store, path := newTestPrefsStore(t)
+	prefs := ConnectionPrefs{DBUser: "app_user", SignIn: SignInSecret, DBSecretARN: "arn:aws:secretsmanager:eu-west-3:111111111111:secret:app-AbCdEf"}
+	if err := store.Save(devArchive, &prefs); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.Load(devArchive)
+	prefs.UpdatedAt = store.now()
+	if !ok || got != prefs {
+		t.Fatalf("Load = %+v, %v", got, ok)
+	}
+	//nolint:errcheck // test file, ignoring read error
+	data, _ := os.ReadFile(path) // #nosec G304
+	if !strings.Contains(string(data), `"db_secret_arn"`) || !strings.Contains(string(data), `"version": 2`) {
+		t.Fatalf("file = %s", data)
 	}
 }
 
@@ -202,7 +240,7 @@ func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	prefs, ok := runner.LoadConnectionPrefs(context.Background(), options)
-	if !ok || prefs.DBUser != "app_user" || prefs.Passwordless() || prefs.LocalPort != 5434 || !prefs.MCPAllowWrites {
+	if !ok || prefs.DBUser != "app_user" || prefs.SignInMethod() != SignInPassword || prefs.LocalPort != 5434 || !prefs.MCPAllowWrites {
 		t.Fatalf("prefs = %+v, %v", prefs, ok)
 	}
 	data, err := os.ReadFile(path)
@@ -214,6 +252,20 @@ func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"111111111111/eu-west-3/rds/archive"`) {
 		t.Fatalf("the entry must be keyed by account, region, type and name:\n%s", data)
+	}
+}
+
+func TestRunnerSavesSecretChoice(t *testing.T) {
+	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json")})
+	runner.rememberAccount("dev", "111111111111")
+	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3",
+		DBSecretARN: "arn:secret", SignIn: SignInSecret}
+	if err := runner.SaveConnectionPrefs(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	prefs, _ := runner.LoadConnectionPrefs(context.Background(), options)
+	if prefs.SignInMethod() != SignInSecret || prefs.DBSecretARN != "arn:secret" || prefs.PasswordInKeychain {
+		t.Fatalf("prefs = %+v", prefs)
 	}
 }
 
