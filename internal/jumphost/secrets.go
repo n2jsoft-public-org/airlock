@@ -132,3 +132,10 @@ func resolveSecretSignIn(ctx context.Context, aws dbmcp.AWSRunner, secretID, typ
 	}
 	return "", fmt.Errorf("secret %s has no username: fill the User field", SecretDisplayName(secretID))
 }
+
+// MCPEngineSupported reports whether the MCP server can query the RDS engine, the only case where
+// airlock itself uses the database credentials.
+func MCPEngineSupported(engine string) bool {
+	_, ok := dbmcp.EngineFor(engine)
+	return ok
+}

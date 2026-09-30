@@ -55,7 +55,7 @@ func (busyPortRunner) CheckLocalPort(port int) error {
 	return fmt.Errorf("port %d is already in use", port)
 }
 
-// focusUserField tabs from the port over the passwordless toggle to the database user.
+// focusUserField tabs from the port over the sign-in selector to the database user.
 func focusUserField(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 	t.Helper()
 	m, _ = wizardUpdate(t, m, key("tab"))
@@ -73,7 +73,7 @@ func clearInput(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 }
 
 func TestWizardReviewPrefillsPortAndDatabaseUser(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	if !m.portInput.Focused() || m.portInput.Value() != "5433" {
 		t.Fatalf("port = %q focused = %v, want the suggested port focused", m.portInput.Value(), m.portInput.Focused())
@@ -90,7 +90,7 @@ func TestWizardReviewPrefillsPortAndDatabaseUser(t *testing.T) {
 }
 
 func TestWizardReviewConnectsWithDefaults(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	m, cmd := wizardUpdate(t, m, key("enter"))
 	if !isQuit(cmd) {
@@ -102,7 +102,7 @@ func TestWizardReviewConnectsWithDefaults(t *testing.T) {
 }
 
 func TestWizardReviewEditsBothFieldsBeforeConnecting(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	m = clearInput(t, m)
 	m, _ = wizardUpdate(t, m, key("6000"))
@@ -128,14 +128,14 @@ func TestWizardReviewEditsBothFieldsBeforeConnecting(t *testing.T) {
 }
 
 func TestWizardReviewPrefillsDatabaseUserFromOptions(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{DBUser: "app_ro"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{DBUser: "app_ro"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	if got := m.userInput.Value(); got != "app_ro" {
 		t.Fatalf("user input = %q, want app_ro", got)
 	}
 }
 
 func TestWizardReviewEmptyDatabaseUserFallsBackToDefault(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{DBUser: "app_ro"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{DBUser: "app_ro"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	m = focusUserField(t, m)
 	m = clearInput(t, m)
@@ -146,7 +146,7 @@ func TestWizardReviewEmptyDatabaseUserFallsBackToDefault(t *testing.T) {
 }
 
 func TestWizardReviewInvalidPortFocusesPort(t *testing.T) {
-	m := wizardAtReview(t, busyPortRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, busyPortRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	m, _ = wizardUpdate(t, m, key("tab"))
 	m, cmd := wizardUpdate(t, m, key("enter"))
@@ -165,7 +165,7 @@ func TestWizardReviewInvalidPortFocusesPort(t *testing.T) {
 }
 
 func TestWizardReviewRejectsDatabaseUserWithSpaces(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	m = focusUserField(t, m)
 	m = clearInput(t, m)
@@ -192,7 +192,7 @@ func TestWizardReviewWithoutIAMAuthOrMCPHasOnlyPort(t *testing.T) {
 }
 
 func TestWizardReviewGoesBackToTarget(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	if m.step != jumphostStepTarget || m.portInput.Focused() || m.userInput.Focused() {
@@ -432,7 +432,7 @@ func TestWizardViewFitsTerminal(t *testing.T) {
 }
 
 func TestWizardReviewKeepsEditableFieldsOnShortTerminals(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 60, Height: 16})
 
 	view := m.View()
@@ -443,15 +443,15 @@ func TestWizardReviewKeepsEditableFieldsOnShortTerminals(t *testing.T) {
 	}
 }
 
-func TestWizardReviewIsPasswordlessByDefault(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+func TestWizardReviewSignsInWithIAMByDefault(t *testing.T) {
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
-	if !m.passwordless || strings.Contains(m.View(), "Password") {
-		t.Fatal("an IAM target should start passwordless, without a password field")
+	if m.signIn != jumphost.SignInIAM || strings.Contains(m.View(), "Password  ") {
+		t.Fatal("an IAM target should start with the IAM token, without a password field")
 	}
 	m, _ = wizardUpdate(t, m, key("tab"))
-	if m.reviewFocus != reviewFieldPasswordless || !strings.Contains(m.View(), "password generated by airlock") {
-		t.Fatalf("focus = %d, want the passwordless toggle shown on", m.reviewFocus)
+	if m.reviewFocus != reviewFieldSignIn || !strings.Contains(m.View(), "IAM token") {
+		t.Fatalf("focus = %d, want the sign-in selector showing the IAM token", m.reviewFocus)
 	}
 	m, cmd := wizardUpdate(t, m, key("enter"))
 	if !isQuit(cmd) || m.options.DBPassword != "" || m.options.DBUser != testDefaultDBUser {
@@ -459,22 +459,22 @@ func TestWizardReviewIsPasswordlessByDefault(t *testing.T) {
 	}
 }
 
-// turnPasswordlessOff toggles passwordless sign-in off from the port field.
+// turnPasswordlessOff picks the password sign-in from the port field.
 func turnPasswordlessOff(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 	t.Helper()
-	m, _ = wizardUpdate(t, m, key("tab"))
-	m, _ = wizardUpdate(t, m, key(" "))
-	if m.passwordless {
-		t.Fatal("space on the toggle did not turn passwordless off")
+	m = focusSignIn(t, m)
+	m = selectSignIn(t, m, jumphost.SignInPassword)
+	if m.signIn != jumphost.SignInPassword {
+		t.Fatal("space on the selector did not pick the password")
 	}
 	return m
 }
 
-func TestWizardReviewAsksPasswordWhenPasswordlessIsOff(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+func TestWizardReviewAsksPasswordWithPasswordSignIn(t *testing.T) {
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m = turnPasswordlessOff(t, m)
 	if !strings.Contains(m.View(), "Password") {
-		t.Fatal("the password field should show once passwordless is off")
+		t.Fatal("the password field should show with the password sign-in")
 	}
 
 	m, _ = wizardUpdate(t, m, key("tab"))
@@ -498,8 +498,8 @@ func TestWizardReviewAsksPasswordWhenPasswordlessIsOff(t *testing.T) {
 	}
 }
 
-func TestWizardReviewRequiresPasswordAndUserWhenPasswordlessIsOff(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+func TestWizardReviewRequiresPasswordAndUserWithPasswordSignIn(t *testing.T) {
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m = turnPasswordlessOff(t, m)
 
 	m, cmd := wizardUpdate(t, m, key("enter"))
@@ -516,28 +516,16 @@ func TestWizardReviewRequiresPasswordAndUserWhenPasswordlessIsOff(t *testing.T) 
 	}
 }
 
-func TestWizardReviewTurningPasswordlessBackOnDropsPassword(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
-	m = turnPasswordlessOff(t, m)
-	m.passwordInput.SetValue("s3cret")
-
-	m, _ = wizardUpdate(t, m, key(" "))
-	m, cmd := wizardUpdate(t, m, key("enter"))
-	if !isQuit(cmd) || m.options.DBPassword != "" {
-		t.Fatalf("options = %+v, want an IAM connection without password", m.options)
-	}
-}
-
 func TestWizardReviewResetsPasswordForAnotherTarget(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m = turnPasswordlessOff(t, m)
 	m.passwordInput.SetValue("s3cret")
 
 	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m, _ = wizardUpdate(t, m, key("enter"))
 	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{port: 5433})
-	if !m.passwordless || m.passwordInput.Value() != "" {
-		t.Fatal("a new connection must start passwordless with an empty password")
+	if m.signIn != jumphost.SignInIAM || m.passwordInput.Value() != "" {
+		t.Fatal("a new connection must start with the IAM token and an empty password")
 	}
 }
 
@@ -552,7 +540,7 @@ func focusMCPWritesField(t *testing.T, m jumphostWizardModel) jumphostWizardMode
 }
 
 func TestWizardReviewMCPIsReadOnlyByDefault(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
 	if m.mcpWrites || !strings.Contains(m.View(), "read-only") {
 		t.Fatal("an RDS connection should start with a read-only MCP server")
@@ -582,7 +570,7 @@ func TestWizardReviewTogglesMCPWrites(t *testing.T) {
 }
 
 func TestWizardReviewMCPWritesKeepsIAMSignIn(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m = focusMCPWritesField(t, m)
 	m, _ = wizardUpdate(t, m, key("l"))
 
@@ -593,7 +581,7 @@ func TestWizardReviewMCPWritesKeepsIAMSignIn(t *testing.T) {
 }
 
 func TestWizardReviewMCPWritesStartsFromFlagAndResetsPerTarget(t *testing.T) {
-	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{MCPAllowWrites: true}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{MCPAllowWrites: true}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	if !m.mcpWrites {
 		t.Fatal("--mcp-allow-writes should turn the toggle on")
 	}
@@ -692,10 +680,10 @@ func TestWizardReviewPrefillsSavedChoices(t *testing.T) {
 	runner := newPrefsRunner()
 	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{DBUser: "acme_rw", SignIn: jumphost.SignInPassword, LocalPort: 6100, MCPAllowWrites: true}
 
-	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
-	if m.portInput.Value() != "6100" || m.userInput.Value() != "acme_rw" || m.passwordless || !m.mcpWrites {
-		t.Fatalf("port = %q user = %q passwordless = %v writes = %v, want the saved choices",
-			m.portInput.Value(), m.userInput.Value(), m.passwordless, m.mcpWrites)
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
+	if m.portInput.Value() != "6100" || m.userInput.Value() != "acme_rw" || m.signIn != jumphost.SignInPassword || !m.mcpWrites {
+		t.Fatalf("port = %q user = %q signIn = %q writes = %v, want the saved choices",
+			m.portInput.Value(), m.userInput.Value(), m.signIn, m.mcpWrites)
 	}
 	if m.passwordInput.Value() != "" {
 		t.Fatal("no password may be prefilled")
@@ -707,16 +695,16 @@ func TestWizardReviewSkipsBusySavedPortAndKeepsUserFlag(t *testing.T) {
 	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{DBUser: "acme_rw", LocalPort: 6100}
 	runner.busy[6100] = true
 
-	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{DBUser: "flag_user"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
-	if m.portInput.Value() != "5432" || m.userInput.Value() != "flag_user" || !m.passwordless {
-		t.Fatalf("port = %q user = %q passwordless = %v, want the suggested port and the --db-user flag",
-			m.portInput.Value(), m.userInput.Value(), m.passwordless)
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{DBUser: "flag_user"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
+	if m.portInput.Value() != "5432" || m.userInput.Value() != "flag_user" || m.signIn != jumphost.SignInIAM {
+		t.Fatalf("port = %q user = %q signIn = %q, want the suggested port and the --db-user flag",
+			m.portInput.Value(), m.userInput.Value(), m.signIn)
 	}
 }
 
 func TestWizardReviewSavesChoicesOnConnect(t *testing.T) {
 	runner := newPrefsRunner()
-	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m = focusMCPWritesField(t, m)
 	m, _ = wizardUpdate(t, m, key(" "))
 
@@ -739,7 +727,7 @@ func (noDefaultsRunner) ResolveDBUser(user string) string { return strings.TrimS
 func (noDefaultsRunner) ResolveRegion(context.Context, string) string { return "" }
 
 func TestWizardReviewRequiresUserWithoutDefault(t *testing.T) {
-	m := wizardAtReview(t, noDefaultsRunner{}, jumphost.Options{AwsRegion: "eu-west-3"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true})
+	m := wizardAtReview(t, noDefaultsRunner{}, jumphost.Options{AwsRegion: "eu-west-3"}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	if got := m.userInput.Value(); got != "" {
 		t.Fatalf("user input = %q, want empty without a default user", got)
 	}

@@ -48,6 +48,19 @@ func (fakeSessionRunner) LoadConnectionPrefs(context.Context, jumphost.Options) 
 	return jumphost.ConnectionPrefs{}, false
 }
 
+func (fakeSessionRunner) KeychainAvailable() bool { return true }
+
+func (fakeSessionRunner) LoadKeychainPassword(context.Context, jumphost.Options) (string, bool) {
+	return "", false
+}
+
+func (fakeSessionRunner) ListDBSecrets(context.Context, *jumphost.Options) ([]jumphost.SecretSummary, error) {
+	return []jumphost.SecretSummary{
+		{ARN: "arn:linked", Name: "prod/archive/app-user", Linked: true},
+		{ARN: "arn:other", Name: "team/other"},
+	}, nil
+}
+
 func (fakeSessionRunner) SaveConnectionPrefs(context.Context, jumphost.Options) error {
 	return nil
 }

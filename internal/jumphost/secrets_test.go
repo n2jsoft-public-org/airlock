@@ -92,3 +92,17 @@ func TestResolveSecretSignInExplainsUnreadableSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPEngineSupported(t *testing.T) {
+	for engine, want := range map[string]bool{
+		"postgres":          true,
+		"aurora-postgresql": true,
+		"sqlserver-se":      true,
+		"mysql":             false,
+		"":                  false,
+	} {
+		if got := MCPEngineSupported(engine); got != want {
+			t.Errorf("MCPEngineSupported(%q) = %v, want %v", engine, got, want)
+		}
+	}
+}

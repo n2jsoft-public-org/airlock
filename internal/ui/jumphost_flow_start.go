@@ -142,6 +142,7 @@ func (m jumphostWizardModel) handleLookup(msg jumphostLookupMsg) (tea.Model, tea
 		return start, cmd
 	}
 	m.targetIAMAuth = m.options.ResourceType == "rds" && msg.target.IAMAuth
+	m.targetEngine = msg.target.Engine
 	return m.startLoadingPort()
 }
 

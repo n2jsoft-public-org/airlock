@@ -31,6 +31,12 @@ type JumphostDiscovery interface {
 	ListSavedConnections(ctx context.Context, profile, region string) ([]jumphost.SavedConnection, error)
 	// ForgetConnection removes a remembered connection.
 	ForgetConnection(ctx context.Context, ref jumphost.TargetRef) error
+	// KeychainAvailable reports whether typed passwords can be remembered in the OS keychain.
+	KeychainAvailable() bool
+	// LoadKeychainPassword returns the password of options.DBUser remembered for the target of options.
+	LoadKeychainPassword(ctx context.Context, options jumphost.Options) (string, bool)
+	// ListDBSecrets lists the secrets that may hold the password of the RDS target of options, linked ones first.
+	ListDBSecrets(ctx context.Context, options *jumphost.Options) ([]jumphost.SecretSummary, error)
 	// SearchResources lists the targets of every type; failures holds the types whose listing failed.
 	SearchResources(ctx context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error)
 	// FindResource returns the target of options, or an error when it no longer exists; a
@@ -53,11 +59,15 @@ const (
 // Editable fields of the review step, in focus order.
 const (
 	reviewFieldPort = iota
-	// reviewFieldPasswordless toggles AWS IAM sign-in, where airlock generates short-lived tokens as passwords.
-	reviewFieldPasswordless
+	// reviewFieldSignIn picks the RDS sign-in method (IAM token, password, Secrets Manager, auto).
+	reviewFieldSignIn
+	// reviewFieldSecret opens the secret picker of the Secrets Manager method.
+	reviewFieldSecret
 	reviewFieldUser
-	// reviewFieldPassword is asked only when passwordless sign-in is turned off.
+	// reviewFieldPassword is asked by the password method only.
 	reviewFieldPassword
+	// reviewFieldRemember keeps the typed password in the OS keychain.
+	reviewFieldRemember
 	// reviewFieldMCPWrites toggles write access for the MCP server of RDS targets.
 	reviewFieldMCPWrites
 )
@@ -111,10 +121,16 @@ type jumphostWizardModel struct {
 	portInput     textinput.Model
 	userInput     textinput.Model
 	passwordInput textinput.Model
-	// targetIAMAuth reports whether the selected target accepts AWS IAM, which adds the sign-in fields.
+	// targetIAMAuth reports whether the selected target accepts AWS IAM; targetEngine is its RDS engine.
 	targetIAMAuth bool
-	// passwordless signs in with generated AWS IAM tokens; off, the user types the password.
-	passwordless bool
+	targetEngine  string
+	// signIn is the chosen RDS sign-in method (jumphost.SignIn*).
+	signIn string
+	// remember keeps the typed password in the OS keychain; keychainAvailable offers it.
+	remember          bool
+	keychainAvailable bool
+	// secret is the picked Secrets Manager secret; a zero ARN means none.
+	secret jumphost.SecretSummary
 	// mcpWrites lets the MCP server modify data; off, it is read-only.
 	mcpWrites     bool
 	resourceIndex int
@@ -138,6 +154,7 @@ type jumphostListItem struct {
 	name    string
 	desc    string
 	iamAuth bool
+	engine  string
 	// resourceType is set on search results, which mix types.
 	resourceType string
 }
@@ -167,6 +184,9 @@ type jumphostDefaultPortLoadedMsg struct {
 	prefs jumphost.ConnectionPrefs
 	port  int
 	saved bool
+	// keychainPassword is the remembered password of the saved user; "" when none.
+	keychainPassword  string
+	keychainAvailable bool
 }
 
 // jumphostRegionResolvedMsg carries the default region of profile.
@@ -229,7 +249,6 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 		portInput:     portInput,
 		userInput:     userInput,
 		passwordInput: passwordInput,
-		passwordless:  true,
 		recent:        newRecentPicker(styles, nil, nil, time.Now()),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
@@ -328,7 +347,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		items := make([]list.Item, 0, len(msg.targets))
 		for _, target := range msg.targets {
-			items = append(items, jumphostListItem{name: target.Name, desc: target.Description, iamAuth: target.IAMAuth})
+			items = append(items, jumphostListItem{name: target.Name, desc: target.Description, iamAuth: target.IAMAuth, engine: target.Engine})
 		}
 		m.targetList.ResetFilter()
 		m.targetList.SetItems(items)
@@ -359,10 +378,11 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.userInput.SetValue(m.runner.ResolveDBUser(user))
 		m.userInput.CursorEnd()
-		// Every connection starts from the target's saved choices, else passwordless and with the
-		// --mcp-allow-writes default. A password typed for another target is never reused.
-		m.passwordless = !msg.saved || msg.prefs.SignInMethod() != jumphost.SignInPassword
+		// Every connection starts from the target's saved choices, else the first method offered and
+		// the --mcp-allow-writes default. A password typed for another target is never reused.
 		m.passwordInput.Reset()
+		m.keychainAvailable = msg.keychainAvailable
+		m = m.applySavedSignIn(msg)
 		m.mcpWrites = m.options.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites)
 		m.step = jumphostStepReview
 		m = m.focusReviewField(reviewFieldPort)
@@ -532,6 +552,7 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 			m.options.ResourceType = selected.resourceType
 		}
 		m.targetIAMAuth = m.options.ResourceType == "rds" && selected.iamAuth
+		m.targetEngine = selected.engine
 		m.errorMsg = ""
 		return m.startLoadingPort()
 	}
@@ -604,12 +625,17 @@ func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		case "shift+tab", "up":
 			return m.moveReviewFocus(-1), nil
 		case "enter":
+			if m.reviewFocus == reviewFieldSecret {
+				return m.openSecretPicker()
+			}
 			return m.submitReview()
 		}
-		if m.reviewFocus == reviewFieldPasswordless || m.reviewFocus == reviewFieldMCPWrites {
+		if m.reviewFocus == reviewFieldSignIn || m.reviewFocus == reviewFieldRemember || m.reviewFocus == reviewFieldMCPWrites {
 			switch key.String() {
-			case " ", "left", "right", "h", "l":
-				m = m.toggleReviewField()
+			case " ", "right", "l":
+				m = m.toggleReviewField(1)
+			case "left", "h":
+				m = m.toggleReviewField(-1)
 			}
 			return m, nil
 		}
@@ -627,11 +653,13 @@ func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 	return m, cmd
 }
 
-// toggleReviewField flips the focused toggle field.
-func (m jumphostWizardModel) toggleReviewField() jumphostWizardModel {
+// toggleReviewField flips the focused toggle, or cycles the sign-in method by delta.
+func (m jumphostWizardModel) toggleReviewField(delta int) jumphostWizardModel {
 	switch m.reviewFocus {
-	case reviewFieldPasswordless:
-		m.passwordless = !m.passwordless
+	case reviewFieldSignIn:
+		m = m.cycleSignIn(delta)
+	case reviewFieldRemember:
+		m.remember = !m.remember
 	case reviewFieldMCPWrites:
 		m.mcpWrites = !m.mcpWrites
 	}
@@ -640,15 +668,13 @@ func (m jumphostWizardModel) toggleReviewField() jumphostWizardModel {
 }
 
 // reviewFields lists the editable review fields in focus order: the sign-in fields only apply to
-// targets accepting AWS IAM, the password only once passwordless sign-in is turned off, and the
-// MCP write toggle only to RDS targets getting an MCP server.
+// RDS targets offering a method, depend on it, and the MCP write toggle only to RDS targets
+// getting an MCP server.
 func (m jumphostWizardModel) reviewFields() []int {
 	fields := []int{reviewFieldPort}
-	if m.targetIAMAuth {
-		fields = append(fields, reviewFieldPasswordless, reviewFieldUser)
-		if !m.passwordless {
-			fields = append(fields, reviewFieldPassword)
-		}
+	if m.options.ResourceType == "rds" && len(m.signInOptions()) > 0 {
+		fields = append(fields, reviewFieldSignIn)
+		fields = append(fields, m.signInFields()...)
 	}
 	if m.mcpApplies() {
 		fields = append(fields, reviewFieldMCPWrites)
@@ -708,32 +734,13 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 		return m.focusReviewField(reviewFieldPort), nil
 	}
 
-	m.options.DBPassword = ""
-	if m.targetIAMAuth {
-		user := strings.TrimSpace(m.userInput.Value())
-		if strings.ContainsAny(user, " \t") {
-			m.errorMsg = "Database user must not contain spaces"
-			return m.focusReviewField(reviewFieldUser), nil
+	if m.options.ResourceType == "rds" && len(m.signInOptions()) > 0 {
+		next, field, errMsg := m.applySignIn()
+		if errMsg != "" {
+			m.errorMsg = errMsg
+			return m.focusReviewField(field), nil
 		}
-		if m.passwordless {
-			resolved := m.runner.ResolveDBUser(user)
-			if resolved == "" {
-				m.errorMsg = "Enter the database user signing in with AWS IAM"
-				return m.focusReviewField(reviewFieldUser), nil
-			}
-			m.options.DBUser = resolved
-		} else {
-			if user == "" {
-				m.errorMsg = "Enter the database user signing in with the password"
-				return m.focusReviewField(reviewFieldUser), nil
-			}
-			if m.passwordInput.Value() == "" {
-				m.errorMsg = "Enter the database password, or turn passwordless back on"
-				return m.focusReviewField(reviewFieldPassword), nil
-			}
-			m.options.DBUser = user
-			m.options.DBPassword = m.passwordInput.Value()
-		}
+		m = next
 	}
 
 	if m.mcpApplies() {
@@ -778,7 +785,16 @@ func (m jumphostWizardModel) loadDefaultPortCmd() tea.Cmd {
 		if saved && prefs.LocalPort > 0 && m.runner.CheckLocalPort(prefs.LocalPort) == nil {
 			port = prefs.LocalPort
 		}
-		return jumphostDefaultPortLoadedMsg{port: port, prefs: prefs, saved: saved}
+		msg := jumphostDefaultPortLoadedMsg{port: port, prefs: prefs, saved: saved, keychainAvailable: m.runner.KeychainAvailable()}
+		if saved && prefs.SignInMethod() == jumphost.SignInPassword && prefs.PasswordInKeychain && msg.keychainAvailable {
+			keyOpts := prefsOpts
+			// A --db-user flag wins over the saved user, as in the review.
+			if strings.TrimSpace(keyOpts.DBUser) == "" {
+				keyOpts.DBUser = prefs.DBUser
+			}
+			msg.keychainPassword, _ = m.runner.LoadKeychainPassword(m.ctx, keyOpts)
+		}
+		return msg
 	}
 }
 

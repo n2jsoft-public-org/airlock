@@ -77,7 +77,7 @@ func (m jumphostWizardModel) handleSearchLoaded(msg jumphostSearchLoadedMsg) (te
 		if target.Description != "" {
 			desc += " · " + target.Description
 		}
-		items = append(items, jumphostListItem{name: target.Name, desc: desc, iamAuth: target.IAMAuth, resourceType: target.Type})
+		items = append(items, jumphostListItem{name: target.Name, desc: desc, iamAuth: target.IAMAuth, engine: target.Engine, resourceType: target.Type})
 	}
 	m.targetList.ResetFilter()
 	m.targetList.SetItems(items)
