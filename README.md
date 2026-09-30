@@ -145,7 +145,8 @@ on the resource type step.
 | `s` | Search a target: choose a profile, then pick among all its RDS, EKS and ElastiCache targets in one list |
 | `d` | Forget a recent connection |
 | `r` | Switch region (on the resource type, target and search steps) |
-| `esc` | Go back one step (from the first step of a wizard opened with `n`, back to the sessions) |
+| `esc` | Go back one step (from the first step of a wizard opened with `n`, back to the sessions); while AWS answers, cancel |
+| `?` | List the keys of the current step |
 
 - `--profile` and `--region` filter the recent connections and skip the profile question.
 - Target types that cannot be listed during a search are named in a warning.
@@ -269,7 +270,14 @@ on one of them switches to its session instead of opening a second one.
 | `g` · `home` / `G` · `end` | Jump to the start of the logs / back to the live tail |
 | `x` | Stop the selected session, or close it once ended |
 | `r` | Restart the selected ended session: same target, local port and sign-in |
+| `c` | Copy the local address, the IAM token command, the reconnect command, the `KUBECONFIG` export or the last MCP query |
+| `esc` | Cancel a connection being prepared |
+| `?` | List every key |
 | `q` · `ctrl+c` | Stop all sessions and quit, after a confirmation (`y` / `n`, or `ctrl+c` again) |
+
+`c` copies to the system clipboard (`pbcopy`, `xclip`, `wl-copy`…). Over SSH, or without such a
+tool, it asks the terminal to copy through OSC 52, which most terminals support (iTerm2, kitty,
+WezTerm, Ghostty, Windows Terminal, tmux with `set-clipboard on`), but not macOS Terminal.
 
 A session that ends, on its own or with `x`, stays in the dashboard with its logs until you close it,
 restart it or quit.

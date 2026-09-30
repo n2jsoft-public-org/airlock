@@ -45,6 +45,10 @@ const (
 	ssmModePreparing
 	ssmModeConfirmQuit
 	ssmModeConfirmStop
+	// ssmModeHelp lists every key of the dashboard.
+	ssmModeHelp
+	// ssmModeCopy offers to copy the values of the selected session.
+	ssmModeCopy
 )
 
 type ssmOutputMsg struct {
@@ -72,6 +76,8 @@ type ssmPreparedMsg struct {
 	options jumphost.Options
 	// replaces is the id of the ended session a restart takes the place of; 0 for a new session.
 	replaces int
+	// id identifies the preparation; a canceled one carries an older id than ssmModel.prepareID.
+	id int
 }
 
 type ssmLogLine struct {
@@ -145,6 +151,13 @@ type ssmModel struct {
 	quitting    bool
 	// showQueries shows the MCP queries of the selected session instead of its logs.
 	showQueries bool
+	// notice is a neutral message shown above the key hints until the next key.
+	notice string
+	// prepareID identifies the preparation the dashboard waits for (see ssmPreparedMsg.id).
+	prepareID int
+	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
+	copier     func(text string) error
+	copyCursor int
 }
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
@@ -197,6 +210,7 @@ func newSSMModel(ctx context.Context, runner JumphostSessionRunner, processes *p
 		events:      make(chan tea.Msg, 256),
 		viewport:    viewport.New(0, 0),
 		styles:      NewStyles(),
+		copier:      copyToClipboard,
 		nextID:      1,
 	}
 }
@@ -295,6 +309,8 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleFinished(msg)
 	case ssmPreparedMsg:
 		return m.handlePrepared(msg)
+	case ssmCopiedMsg:
+		return m.handleCopied(msg)
 	case jumphostWizardDoneMsg:
 		return m.handleWizardDone(msg)
 	case loadingTickMsg:
@@ -311,9 +327,13 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ssmModeWizard:
 			return m.updateWizard(msg)
 		case ssmModePreparing:
-			return m, nil
+			return m.handlePreparingKey(msg)
 		case ssmModeConfirmQuit, ssmModeConfirmStop:
 			return m.handleConfirmKey(msg)
+		case ssmModeHelp:
+			return m.handleHelpKey(msg)
+		case ssmModeCopy:
+			return m.handleCopyKey(msg)
 		default:
 			return m.handleSessionKey(msg)
 		}
@@ -334,8 +354,8 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.errorMsg != "" {
-		m.errorMsg = ""
+	if m.errorMsg != "" || m.notice != "" {
+		m.errorMsg, m.notice = "", ""
 		m.refreshViewport()
 	}
 	switch msg.String() {
@@ -348,6 +368,11 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "n":
 		return m.openWizard()
+	case "?":
+		m.mode = ssmModeHelp
+		return m, nil
+	case "c":
+		return m.openCopyMenu()
 	case "r":
 		return m.restartSelected()
 	case "m":
@@ -393,6 +418,33 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewport.ScrollUp(1)
 	case "down":
 		m.viewport.ScrollDown(1)
+	}
+	return m, nil
+}
+
+// handlePreparingKey cancels the preparation on esc; ctrl+c cancels it too, then asks to quit. A
+// canceled preparation's session is released when it comes.
+func (m ssmModel) handlePreparingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		m.prepareID++
+		m.loadingUI.stop()
+		m.mode = ssmModeSessions
+		m.notice = "Connection canceled"
+		m.refreshViewport()
+		if msg.String() == "ctrl+c" {
+			return m.handleSessionKey(msg)
+		}
+	}
+	return m, nil
+}
+
+// handleHelpKey closes the help on any key; ctrl+c then asks to quit, as it does from the sessions.
+func (m ssmModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.mode = ssmModeSessions
+	m.refreshViewport()
+	if msg.String() == "ctrl+c" {
+		return m.handleSessionKey(msg)
 	}
 	return m, nil
 }
@@ -591,6 +643,8 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 // result needs besides the session (warning, replaced session).
 func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.Cmd) {
 	m.mode = ssmModePreparing
+	m.prepareID++
+	pending.id = m.prepareID
 	prepare := func() tea.Msg {
 		result := pending
 		result.session, result.err = m.runner.Prepare(m.ctx, pending.options)
@@ -607,6 +661,13 @@ func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.
 }
 
 func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
+	// The user canceled this preparation: free what it reserved rather than open it.
+	if msg.id != m.prepareID {
+		if msg.session != nil {
+			msg.session.Release()
+		}
+		return m, nil
+	}
 	m.loadingUI.stop()
 	m.mode = ssmModeSessions
 	if msg.err != nil {

@@ -145,6 +145,8 @@ type SessionDetails struct {
 	MCP string
 	// Kubeconfig is the kubeconfig written for an EKS session (empty when none).
 	Kubeconfig string
+	// TokenCommand prints a temporary AWS IAM database token (empty without AWS IAM sign-in).
+	TokenCommand string
 }
 
 // Session is a prepared port-forwarding session: its local port and target are reserved
@@ -392,6 +394,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			ConnectedServer: connectedServer,
 			RestartCommand:  buildRestartCommand(resourceType, resolvedTargetName, localPort, restartDBUser(&target), restartDBSecret(&target), cfg),
 			Auth:            describeAuth(&target),
+			TokenCommand:    tokenCommand(&target, cfg),
 		},
 		AwsArgs: append([]string{}, cfg.Args...),
 		CommandArgs: []string{
@@ -1824,6 +1827,16 @@ func firstValue(values map[string][]string, key string) string {
 
 // describeAuth tells how the session signs in to the database; empty when it does not (not RDS, or
 // credentials read from Secrets Manager).
+// tokenCommand prints a temporary AWS IAM token for the database user of target, valid 15
+// minutes; "" when the session does not sign in with AWS IAM.
+func tokenCommand(target *ideTarget, cfg awsConfig) string {
+	if !target.IAMAuth || target.RDSHost == "" {
+		return ""
+	}
+	args := []string{"aws", "rds", "generate-db-auth-token", "--hostname", target.RDSHost, "--port", strconv.Itoa(target.RDSPort), "--username", target.DBUser}
+	return strings.Join(append(args, cfg.Args...), " ")
+}
+
 func describeAuth(target *ideTarget) string {
 	switch {
 	case target.DBSecretARN != "":

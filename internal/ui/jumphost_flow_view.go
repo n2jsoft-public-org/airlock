@@ -30,6 +30,9 @@ func (m jumphostWizardModel) View() string {
 		frame.heading = "Working on it"
 		frame.body = m.loadingUI.Body(m.styles)
 		frame.keys = [][2]string{{"q", m.quitLabel()}}
+		if m.pending {
+			frame.keys = [][2]string{{"esc", "cancel"}, {"q", m.quitLabel()}}
+		}
 	case m.pickingRegion:
 		frame.heading = m.stepHeading()
 		frame.body = m.regionPicker.View(m.styles, bodyWidth, bodyHeight)
@@ -38,6 +41,10 @@ func (m jumphostWizardModel) View() string {
 		frame.heading = m.stepHeading()
 		frame.body = m.secretPicker.View(m.styles, bodyWidth, bodyHeight)
 		frame.keys = [][2]string{{"ctrl+c", m.quitLabel()}}
+	case m.showHelp:
+		frame.heading = m.stepHeading()
+		frame.body = m.styles.renderHelp([]helpGroup{{title: "Keys", keys: m.stepKeys()}}, bodyWidth, bodyHeight)
+		frame.keys = [][2]string{{"esc", "close"}}
 	default:
 		frame.heading = m.stepHeading()
 		frame.hint = m.stepHint()
@@ -152,6 +159,7 @@ func (m jumphostWizardModel) stepBody(width, height int) string {
 
 func (m jumphostWizardModel) stepKeys() [][2]string {
 	quit := [2]string{"q", m.quitLabel()}
+	help := [2]string{"?", "help"}
 	switch m.step {
 	case jumphostStepStart:
 		switch {
@@ -168,7 +176,7 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		if m.canGoBack() {
 			keys = append(keys, [2]string{"esc", "back"})
 		}
-		return append(keys, quit)
+		return append(keys, help, quit)
 	case jumphostStepProfile:
 		if m.profileList.SettingFilter() {
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
@@ -177,7 +185,7 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		if m.canGoBack() {
 			keys = append(keys, [2]string{"esc", "back"})
 		}
-		return append(keys, quit)
+		return append(keys, help, quit)
 	case jumphostStepType:
 		keys := [][2]string{{"↑↓", "move"}, {"1-3", "pick"}, {"enter", "select"}, {"r", "region"}}
 		if !m.hasHistory {
@@ -186,12 +194,12 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		if m.canGoBack() {
 			keys = append(keys, [2]string{"esc", "back"})
 		}
-		return append(keys, quit)
+		return append(keys, help, quit)
 	case jumphostStepTarget:
 		if m.targetList.SettingFilter() {
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
 		}
-		return [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "select"}, {"r", "region"}, {"esc", "back"}, quit}
+		return [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", "select"}, {"r", "region"}, {"esc", "back"}, help, quit}
 	case jumphostStepReview:
 		keys := [][2]string{{"enter", "connect"}}
 		if m.reviewFocus == reviewFieldSecret {

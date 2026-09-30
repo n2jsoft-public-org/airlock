@@ -171,11 +171,29 @@ func (s Styles) WritesBadge() string {
 	return s.Badge.Background(colorDanger).Render("WRITES")
 }
 
-// KeyHints renders "key description" pairs as key caps, truncated to width.
+// KeyHints renders "key description" pairs as key caps within width, always showing the last one.
 func (s Styles) KeyHints(keys [][2]string, width int) string {
+	return s.KeyHintsPinned(keys, 1, width)
+}
+
+// KeyHintsPinned renders "key description" pairs as key caps within width. When they do not fit,
+// the last pinned ones (help, quit) stay and the ones before them give way to "…".
+func (s Styles) KeyHintsPinned(keys [][2]string, pinned, width int) string {
 	hints := make([]string, 0, len(keys))
 	for _, k := range keys {
 		hints = append(hints, s.KeyCap.Render(k[0])+" "+s.KeyDesc.Render(k[1]))
 	}
-	return truncate(strings.Join(hints, "  "), width)
+	line := strings.Join(hints, "  ")
+	if lipgloss.Width(line) <= width || pinned <= 0 || pinned >= len(hints) {
+		return truncate(line, width)
+	}
+
+	tail := s.Faint.Render("…") + "  " + strings.Join(hints[len(hints)-pinned:], "  ")
+	head := hints[:len(hints)-pinned]
+	for n := len(head); n > 0; n-- {
+		if line = strings.Join(head[:n], "  ") + "  " + tail; lipgloss.Width(line) <= width {
+			return line
+		}
+	}
+	return truncate(tail, width)
 }

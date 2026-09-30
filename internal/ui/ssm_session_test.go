@@ -269,11 +269,11 @@ func TestStartupWizardConnectsInDashboard(t *testing.T) {
 	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{}).startupWizard()
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	m, _ = update(t, m, jumphostWizardDoneMsg{options: jumphost.Options{ResourceType: "rds", Name: "db", LocalPortNumber: 5432}})
+	m, cmd := update(t, m, jumphostWizardDoneMsg{options: jumphost.Options{ResourceType: "rds", Name: "db", LocalPortNumber: 5432}})
 	if m.mode != ssmModePreparing {
 		t.Fatalf("mode = %v, want preparing inside the dashboard", m.mode)
 	}
-	m, _ = update(t, m, ssmPreparedMsg{session: &jumphost.Session{Label: "db", LocalPort: 5432}})
+	m, _ = update(t, m, preparedMsg(t, cmd))
 	if m.mode != ssmModeSessions || len(m.sessions) != 1 {
 		t.Fatalf("mode = %v sessions = %d, want the first session shown", m.mode, len(m.sessions))
 	}
@@ -349,7 +349,7 @@ func TestEndedSessionCanBeClosed(t *testing.T) {
 
 func TestViewFitsTerminalInEveryMode(t *testing.T) {
 	sizes := []tea.WindowSizeMsg{{Width: 140, Height: 40}, {Width: 70, Height: 24}}
-	modes := []ssmViewMode{ssmModeSessions, ssmModeConfirmStop, ssmModeConfirmQuit}
+	modes := []ssmViewMode{ssmModeSessions, ssmModeConfirmStop, ssmModeConfirmQuit, ssmModeHelp, ssmModeCopy}
 
 	for _, size := range sizes {
 		for _, mode := range modes {

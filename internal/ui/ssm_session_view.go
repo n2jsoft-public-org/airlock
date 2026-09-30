@@ -74,7 +74,8 @@ func (m ssmModel) View() string {
 	case ssmModeWizard:
 		return m.wizard.View()
 	case ssmModePreparing:
-		return m.loadingUI.View(m.styles, "airlock")
+		keys := m.styles.KeyHints([][2]string{{"esc", "cancel"}, {"ctrl+c", "quit"}}, maxInt(m.width-4, 20))
+		return m.styles.Container.Render(m.styles.Title.Render("airlock") + "\n\n" + m.loadingUI.Body(m.styles) + "\n\n" + keys)
 	default:
 	}
 
@@ -85,10 +86,14 @@ func (m ssmModel) View() string {
 	width := maxInt(m.width-2, 20)
 	l := m.layout()
 
-	main := m.renderMain(l)
-	body := main
-	if !l.compact {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(l), " ", main)
+	var body string
+	switch {
+	case m.mode == ssmModeHelp:
+		body = m.styles.renderHelp(m.helpGroups(), width, l.bodyHeight)
+	case l.compact:
+		body = m.renderMain(l)
+	default:
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(l), " ", m.renderMain(l))
 	}
 
 	view := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(width), body, m.renderFooter(width))
@@ -204,6 +209,8 @@ func (m ssmModel) renderMain(l ssmLayout) string {
 	switch m.mode {
 	case ssmModeConfirmQuit, ssmModeConfirmStop:
 		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderDialog(l.mainWidth)))
+	case ssmModeCopy:
+		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderCopyMenu(l.mainWidth)))
 	default:
 		parts = append(parts, m.renderLogs(l.mainWidth, logHeight))
 	}
@@ -360,6 +367,9 @@ func (m ssmModel) renderFooter(width int) string {
 	if m.errorMsg != "" {
 		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Danger.Render("✗ "+m.errorMsg)))
 	}
+	if m.notice != "" {
+		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Muted.Render(m.notice)))
+	}
 	if m.quitting && m.hasActiveSessions() {
 		lines = append(lines, m.styles.Warning.Render(m.spinner()+" Stopping sessions...")+m.styles.Faint.Render("  ctrl+c again to force"))
 	}
@@ -370,6 +380,10 @@ func (m ssmModel) renderFooter(width int) string {
 		keys = [][2]string{{"y", "quit"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}, {"ctrl+c", "quit"}}
 	case ssmModeConfirmStop:
 		keys = [][2]string{{"y", "stop"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}}
+	case ssmModeHelp:
+		keys = [][2]string{{"esc", "close"}}
+	case ssmModeCopy:
+		keys = [][2]string{{"1-9", "copy"}, {"↑↓", "move"}, {"enter", "copy"}, {"esc", "close"}}
 	default:
 		keys = [][2]string{{"n", "new"}}
 		switch s := m.selectedSession(); {
@@ -379,6 +393,9 @@ func (m ssmModel) renderFooter(width int) string {
 		default:
 			keys = append(keys, [2]string{"r", "restart"}, [2]string{"x", "close"})
 		}
+		if s := m.selectedSession(); s != nil {
+			keys = append(keys, [2]string{"c", "copy"})
+		}
 		keys = append(keys, [2]string{"tab", "switch"}, [2]string{"1-9", "jump"}, [2]string{"↑↓", "scroll"})
 		if s := m.selectedSession(); s != nil && s.mcp != nil {
 			panel := "queries"
@@ -387,10 +404,34 @@ func (m ssmModel) renderFooter(width int) string {
 			}
 			keys = append(keys, [2]string{"m", panel})
 		}
-		keys = append(keys, [2]string{"q", "quit"})
+		keys = append(keys, [2]string{"?", "help"}, [2]string{"q", "quit"})
 	}
-	lines = append(lines, m.styles.KeyHints(keys, width))
+	lines = append(lines, m.styles.KeyHintsPinned(keys, 2, width))
 	return strings.Join(lines, "\n")
+}
+
+// helpGroups lists every key of the dashboard for its help.
+func (m ssmModel) helpGroups() []helpGroup {
+	return []helpGroup{
+		{title: "Sessions", keys: [][2]string{
+			{"n", "Open a new connection"},
+			{"r", "Restart an ended session"},
+			{"x", "Stop the session, or close it once ended"},
+			{"c", "Copy its address, a command or the last MCP query"},
+			{"tab ←→", "Switch session"},
+			{"1-9", "Jump to a session"},
+		}},
+		{title: "Logs", keys: [][2]string{
+			{"↑↓ pgup pgdn", "Scroll, pausing the live tail"},
+			{"g home", "Start of the logs"},
+			{"G end", "Back to the live tail"},
+			{"m", "Logs or MCP queries (database sessions)"},
+		}},
+		{title: "airlock", keys: [][2]string{
+			{"?", "This help"},
+			{"q ctrl+c", "Stop all sessions and quit"},
+		}},
+	}
 }
 
 // status returns the icon, label and style describing the session state.

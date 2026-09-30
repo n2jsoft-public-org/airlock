@@ -127,7 +127,8 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 		target, err := m.runner.FindResource(m.ctx, &opts, account)
 		return jumphostLookupMsg{target: target, err: err}
 	}
-	return m, tea.Batch(lookup, m.loadingUI.start("Checking "+opts.Name+"...", []string{
+	load := m.await(lookup, false)
+	return m, tea.Batch(load, m.loadingUI.start("Checking "+opts.Name+"...", []string{
 		"Making sure it is still there...",
 		"Knocking on the target's door...",
 	}))

@@ -660,7 +660,7 @@ func findMsg[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
 	if cmd == nil {
 		t.Fatalf("no command returning %T", zero)
 	}
-	switch msg := cmd().(type) {
+	switch msg := unwrapAwaited(cmd()).(type) {
 	case T:
 		return msg
 	case tea.BatchMsg:
@@ -668,13 +668,21 @@ func findMsg[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
 			if inner == nil {
 				continue
 			}
-			if found, ok := inner().(T); ok {
+			if found, ok := unwrapAwaited(inner()).(T); ok {
 				return found
 			}
 		}
 	}
 	t.Fatalf("no command returning %T", zero)
 	return zero
+}
+
+// unwrapAwaited returns the result a cancelable loading carries, or msg itself.
+func unwrapAwaited(msg tea.Msg) tea.Msg {
+	if awaited, ok := msg.(awaitedMsg); ok {
+		return awaited.msg
+	}
+	return msg
 }
 
 func TestWizardReviewPrefillsSavedChoices(t *testing.T) {

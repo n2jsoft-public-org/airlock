@@ -49,7 +49,8 @@ func (m jumphostWizardModel) startSearch() (tea.Model, tea.Cmd) {
 		targets, failures, err := m.runner.SearchResources(m.ctx, &opts)
 		return jumphostSearchLoadedMsg{targets: targets, failures: failures, err: err}
 	}
-	return m, tea.Batch(search, m.loadingUI.start(label, []string{
+	load := m.await(search, true)
+	return m, tea.Batch(load, m.loadingUI.start(label, []string{
 		"Opening the cloud map...",
 		"Asking every service at once...",
 		"Querying AWS with dramatic suspense...",

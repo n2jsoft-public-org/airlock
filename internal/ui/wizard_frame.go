@@ -100,7 +100,7 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 		"",
 		body,
 		strings.Join(errorLines, "\n"),
-		s.KeyHints(f.keys, inner),
+		s.KeyHintsPinned(f.keys, 2, inner),
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(lines, "\n"))
 }

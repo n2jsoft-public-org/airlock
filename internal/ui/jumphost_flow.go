@@ -111,6 +111,15 @@ type jumphostWizardModel struct {
 	loading        bool
 	loadingUI      loadingState
 	canceled       bool
+	// showHelp lists the keys of the current step in place of its body.
+	showHelp bool
+	// loadID identifies the result the loading waits for: a canceled loading's result carries an
+	// older one and is dropped. pending reports that such a result is awaited, which esc cancels.
+	loadID  int
+	pending bool
+	// loadReplacesTargets reports that the awaited result replaces the listed targets, which a
+	// canceled loading must not leave on screen (they belong to the previous region).
+	loadReplacesTargets bool
 	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
 	embedded bool
 	// switchTo is the connectionKey of the running session the dashboard shows instead of opening a new one.
@@ -214,6 +223,12 @@ type jumphostRegionResolvedMsg struct {
 	region  string
 }
 
+// awaitedMsg carries the result of a cancelable loading (see await).
+type awaitedMsg struct {
+	msg tea.Msg
+	id  int
+}
+
 // jumphostWizardDoneMsg is emitted by an embedded wizard once the user confirmed or canceled.
 type jumphostWizardDoneMsg struct {
 	options  jumphost.Options
@@ -306,6 +321,12 @@ func (m jumphostWizardModel) fitLists() jumphostWizardModel {
 
 func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case awaitedMsg:
+		if msg.id != m.loadID {
+			return m, nil
+		}
+		m.pending = false
+		return m.update(msg.msg)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -333,6 +354,10 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.canceled = true
 			return m, m.finish()
 		}
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
 		if m.pickingRegion {
 			return m.updateRegionPicker(msg)
 		}
@@ -343,7 +368,14 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.canceled = true
 			return m, m.finish()
 		}
+		if msg.String() == "?" && !m.typingText() && !m.loading {
+			m.showHelp = true
+			return m, nil
+		}
 		if m.loading {
+			if msg.String() == "esc" && m.pending {
+				return m.cancelLoading()
+			}
 			return m, nil
 		}
 	case jumphostProfilesLoadedMsg:
@@ -560,8 +592,9 @@ func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
 	if region := m.currentRegion(); region != "" {
 		label = fmt.Sprintf("Discovering %s resources in %s...", strings.ToUpper(m.options.ResourceType), region)
 	}
+	load := m.await(m.loadTargetsCmd(), true)
 	return m, tea.Batch(
-		m.loadTargetsCmd(),
+		load,
 		m.loadingUI.start(label, []string{
 			"Opening the cloud map...",
 			"Looking for targets that answer the ping...",
@@ -610,8 +643,9 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 // startLoadingPort suggests the local port and loads the saved choices of the chosen target.
 func (m jumphostWizardModel) startLoadingPort() (tea.Model, tea.Cmd) {
 	m.loading = true
+	load := m.await(m.loadDefaultPortCmd(), false)
 	return m, tea.Batch(
-		m.loadDefaultPortCmd(),
+		load,
 		m.loadingUI.start("Finding the best local port...", []string{
 			"Looking for a chill port number...",
 			"Avoiding port drama with your local apps...",
@@ -806,6 +840,34 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 		m.warning = err.Error()
 	}
 	return m, m.finish()
+}
+
+// await tags cmd as the result the loading waits for, which esc cancels; replacesTargets tells
+// that the result replaces the listed targets. A nil cmd stays nil.
+func (m *jumphostWizardModel) await(cmd tea.Cmd, replacesTargets bool) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	m.loadID++
+	m.pending = true
+	m.loadReplacesTargets = replacesTargets
+	id := m.loadID
+	return func() tea.Msg { return awaitedMsg{id: id, msg: cmd()} }
+}
+
+// cancelLoading stops waiting for the loading's result, which is dropped when it comes, and returns
+// to the step it started from; the AWS call ends in the background.
+func (m jumphostWizardModel) cancelLoading() (tea.Model, tea.Cmd) {
+	m.loadID++
+	m.pending = false
+	m.loading = false
+	m.loadingUI.stop()
+	m.awaitingRegion = false
+	// Profiles never listed leave nothing to show: back to the step before.
+	if m.step == jumphostStepProfile && !m.profilesLoaded {
+		return m.goBack()
+	}
+	return m.failDiscovery("", m.loadReplacesTargets)
 }
 
 // finish ends the wizard: standalone wizards quit the program, embedded ones notify their host.
