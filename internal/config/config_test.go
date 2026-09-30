@@ -141,3 +141,27 @@ func TestApplyRejectsEmptyJumphostTagAndPrefix(t *testing.T) {
 		t.Fatal("an empty --mcp-server-prefix must be rejected")
 	}
 }
+
+func TestLoadProductionProfiles(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"productionProfiles": " *PROD*, ,*-live "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProductionProfiles != "*PROD*,*-live" {
+		t.Fatalf("ProductionProfiles = %q, want the patterns trimmed, empty ones dropped", cfg.ProductionProfiles)
+	}
+	if got := cfg.ProductionProfilePatterns(); len(got) != 2 || got[0] != "*PROD*" || got[1] != "*-live" {
+		t.Fatalf("patterns = %q", got)
+	}
+	defaults := Defaults()
+	if got := defaults.ProductionProfilePatterns(); len(got) != 0 {
+		t.Fatalf("default patterns = %q, want none: naming conventions belong to each team", got)
+	}
+}
+
+func TestLoadRejectsInvalidProductionPattern(t *testing.T) {
+	_, err := Load(writeConfig(t, `{"productionProfiles": "*prod*,team-["}`))
+	if err == nil || !strings.Contains(err.Error(), "productionProfiles") || !strings.Contains(err.Error(), "team-[") {
+		t.Fatalf("err = %v, want the key and the pattern named", err)
+	}
+}

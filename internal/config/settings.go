@@ -23,6 +23,7 @@ var Keys = []Key{
 	{Name: "readOnlySecretTag", Description: "Tag (Key=Value) of the per-database read-only Secrets Manager secrets of SQL Server"},
 	{Name: "mcpServerPrefix", Description: "Start of the MCP server names"},
 	{Name: "defaultRegion", Description: "Region used after --region, AWS_REGION and the profile's region"},
+	{Name: "productionProfiles", Description: "Comma-separated patterns (* wildcard, any case) of the AWS profiles flagged as production, e.g. *prod*,*-live"},
 }
 
 // Source tells where the value of a setting comes from.
@@ -138,11 +139,12 @@ func WriteTemplate(path string, force bool) error {
 // values renders every setting of c as written in config.json.
 func (c *Config) values() map[string]string {
 	return map[string]string{
-		"jumphostTag":       c.JumphostTag.String(),
-		"defaultDbUser":     c.DefaultDBUser,
-		"readOnlySecretTag": c.ReadOnlySecretTag.String(),
-		"mcpServerPrefix":   c.MCPServerPrefix,
-		"defaultRegion":     c.DefaultRegion,
+		"jumphostTag":        c.JumphostTag.String(),
+		"defaultDbUser":      c.DefaultDBUser,
+		"readOnlySecretTag":  c.ReadOnlySecretTag.String(),
+		"mcpServerPrefix":    c.MCPServerPrefix,
+		"defaultRegion":      c.DefaultRegion,
+		"productionProfiles": c.ProductionProfiles,
 	}
 }
 
@@ -159,6 +161,8 @@ func (f *file) field(key string) **string {
 		return &f.MCPServerPrefix
 	case "defaultRegion":
 		return &f.DefaultRegion
+	case "productionProfiles":
+		return &f.ProductionProfiles
 	default:
 		return nil
 	}

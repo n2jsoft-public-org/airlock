@@ -374,6 +374,12 @@ unknown key or a malformed value is an error that names the file.
 | `readOnlySecretTag` | `--read-only-secret-tag` | none (SQL Server read-only MCP off) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets |
 | `mcpServerPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
 | `defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
+| `productionProfiles` | none | none | Comma-separated patterns (`*` wildcard, any case) of the AWS profiles flagged as production, e.g. `*prod*,*-live` |
+
+Profiles matching `productionProfiles` get an orange `PROD` badge everywhere they appear: the
+wizard header, profile list, recent connections and review step, and the dashboard's session
+cards, pills and details, whose borders turn orange. Naming conventions differ between teams, so
+no profile is flagged until you set it, typically in your team's shared settings.
 
 ### Commands
 
@@ -398,7 +404,8 @@ A team usually sets the same few keys, for example:
   "defaultRegion": "eu-west-1",
   "defaultDbUser": "app_ro",
   "readOnlySecretTag": "Role=read-only",
-  "mcpServerPrefix": "team"
+  "mcpServerPrefix": "team",
+  "productionProfiles": "*prod*"
 }
 ```
 

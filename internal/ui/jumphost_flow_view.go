@@ -62,7 +62,11 @@ func (m jumphostWizardModel) contextChips() []string {
 	} else if m.regionResolved {
 		region = m.styles.contextChip("region", "none") + m.styles.Faint.Render(" · press r")
 	}
-	return []string{m.styles.contextChip("profile", m.options.AwsProfile), region}
+	profile := m.styles.contextChip("profile", m.options.AwsProfile)
+	if m.production.matches(m.options.AwsProfile) {
+		profile += " " + m.styles.ProdBadge()
+	}
+	return []string{profile, region}
 }
 
 // breadcrumb lists the steps of the current flow and the index of the current one; the start
@@ -284,7 +288,7 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 		rows = append(rows,
 			m.reviewRow("Type", m.styles.ResourceBadge(m.options.ResourceType), inner),
 			m.reviewRow("Target", m.styles.Text.Bold(true).Render(m.options.Name), inner),
-			m.reviewRow("AWS", m.options.AwsProfile+m.styles.Faint.Render(" · ")+region, inner),
+			m.reviewRow("AWS", m.prodPrefix(m.options.AwsProfile)+m.options.AwsProfile+m.styles.Faint.Render(" · ")+region, inner),
 			m.styles.Rule.Render(strings.Repeat("─", inner)),
 		)
 	}
@@ -336,7 +340,19 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, "MCP", m.mcpWritesToggle(), mcpHelp, inner)...)
 	}
 
-	return m.styles.Card.Width(panelWidth - 2).Render(strings.Join(rows, "\n"))
+	card := m.styles.Card
+	if m.production.matches(m.options.AwsProfile) {
+		card = card.BorderForeground(colorWarning)
+	}
+	return card.Width(panelWidth - 2).Render(strings.Join(rows, "\n"))
+}
+
+// prodPrefix is the PROD badge and a space for a production profile, else "".
+func (m jumphostWizardModel) prodPrefix(profile string) string {
+	if !m.production.matches(profile) {
+		return ""
+	}
+	return m.styles.ProdBadge() + " "
 }
 
 // signInSelector renders the sign-in methods, the chosen one highlighted.

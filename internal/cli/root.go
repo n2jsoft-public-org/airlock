@@ -147,11 +147,12 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// SSO sign-ins suspend the dashboard, so their browser prompt, URL and code stay readable.
 	handoff := ui.NewTerminalHandoff()
 	tuiOptions.Interactive = handoff.Run
+	dashboard := ui.DashboardOptions{Handoff: handoff, ProductionProfiles: cfg.ProductionProfilePatterns()}
 	tuiRunner := jumphost.NewRunner(tuiOptions)
 
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
-		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout(), handoff)
+		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout(), dashboard)
 	}
 
 	if len(args) > 0 {
@@ -192,7 +193,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		return err
 	}
 
-	return ui.RunJumphostSessions(cmd.Context(), tuiRunner, session, options, cmd.OutOrStdout(), handoff)
+	return ui.RunJumphostSessions(cmd.Context(), tuiRunner, session, options, cmd.OutOrStdout(), dashboard)
 }
 
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {

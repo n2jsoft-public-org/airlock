@@ -50,7 +50,7 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 	m.hasHistory = len(msg.connections) > 0
 	if m.hasHistory {
 		// Update sizes it to the frame body.
-		m.recent = newRecentPicker(m.styles, msg.connections, m.active, time.Now())
+		m.recent = newRecentPicker(m.styles, msg.connections, m.active, m.production, time.Now())
 		m.flow = flowStart
 		m.step = jumphostStepStart
 	} else {

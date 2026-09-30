@@ -168,6 +168,11 @@ func (s Styles) ResourceBadge(resourceType string) string {
 	}
 }
 
+// ProdBadge flags a production AWS profile.
+func (s Styles) ProdBadge() string {
+	return s.Badge.Background(lipgloss.Color("166")).Render("PROD")
+}
+
 // WritesBadge flags a session whose MCP server lets AI assistants modify data.
 func (s Styles) WritesBadge() string {
 	return s.Badge.Background(colorDanger).Render("WRITES")

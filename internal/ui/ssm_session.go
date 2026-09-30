@@ -165,18 +165,30 @@ type ssmModel struct {
 	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
 	copier     func(text string) error
 	copyCursor int
+	// production flags the AWS profiles of the productionProfiles setting.
+	production productionMatcher
 }
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
 // first is already prepared; when nil, the dashboard opens on the wizard, as if the user pressed n.
-// New sessions are prepared with runner, reusing base for their defaults. handoff, when not nil,
-// suspends the dashboard while it runs a command needing the terminal (the runner's sign-ins).
-func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, first *jumphost.Session, base jumphost.Options, out io.Writer, handoff *TerminalHandoff) error {
+// DashboardOptions are the optional settings of RunJumphostSessions.
+type DashboardOptions struct {
+	// Handoff, when not nil, suspends the dashboard while it runs a command needing the terminal
+	// (the runner's sign-ins).
+	Handoff *TerminalHandoff
+	// ProductionProfiles are the patterns (* wildcard, any case) of the AWS profiles to flag.
+	ProductionProfiles []string
+}
+
+// New sessions are prepared with runner, reusing base for their defaults.
+func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, first *jumphost.Session, base jumphost.Options, out io.Writer, opts DashboardOptions) error {
+	handoff := opts.Handoff
 	processes := newProcessTracker()
 	stopHangupWatch := jumphost.RunOnHangup(processes.shutdown)
 	defer stopHangupWatch()
 
 	model := newSSMModel(ctx, runner, processes, base)
+	model.production = productionMatcher(opts.ProductionProfiles)
 	if first != nil {
 		model = model.addSession(first, base)
 	} else {
@@ -560,6 +572,7 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
 	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
 	m.wizard.embedded = true
 	m.wizard.hostHasSessions = len(m.sessions) > 0
+	m.wizard.production = m.production
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""

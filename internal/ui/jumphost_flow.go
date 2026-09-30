@@ -124,6 +124,8 @@ type jumphostWizardModel struct {
 	embedded bool
 	// switchTo is the connectionKey of the running session the dashboard shows instead of opening a new one.
 	switchTo string
+	// production flags the AWS profiles of the productionProfiles setting.
+	production productionMatcher
 	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
 	hostHasSessions bool
 	// warning is shown in the session log once connected (e.g. the keychain failed).
@@ -179,7 +181,11 @@ type jumphostListItem struct {
 	engine  string
 	// resourceType is set on search results, which mix types.
 	resourceType string
+	// production flags a profile of the productionProfiles setting.
+	production bool
 }
+
+func (i jumphostListItem) isProduction() bool { return i.production }
 
 func (i jumphostListItem) FilterValue() string {
 	return strings.Join(strings.Fields(strings.Join([]string{i.name, i.resourceType, i.desc}, " ")), " ")
@@ -287,7 +293,7 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 		portInput:     portInput,
 		userInput:     userInput,
 		passwordInput: passwordInput,
-		recent:        newRecentPicker(styles, nil, nil, time.Now()),
+		recent:        newRecentPicker(styles, nil, nil, nil, time.Now()),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
 	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
@@ -401,7 +407,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if currentProfile != "" && profile.Name == currentProfile {
 				selectedIndex = idx
 			}
-			items = append(items, jumphostListItem{name: profile.Name, desc: profile.Description})
+			items = append(items, jumphostListItem{name: profile.Name, desc: profile.Description, production: m.production.matches(profile.Name)})
 		}
 		m.profileList.SetItems(items)
 		m.profileList.Select(selectedIndex)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/awstag"
@@ -26,6 +27,17 @@ type Config struct {
 	MCPServerPrefix string
 	// DefaultRegion is used after --region, AWS_REGION and the profile's region; empty means none.
 	DefaultRegion string
+	// ProductionProfiles lists, comma-separated, the patterns (* wildcard, any case) of the AWS
+	// profiles flagged as production; empty flags none.
+	ProductionProfiles string
+}
+
+// ProductionProfilePatterns returns the patterns of ProductionProfiles; none when empty.
+func (c *Config) ProductionProfilePatterns() []string {
+	if c.ProductionProfiles == "" {
+		return nil
+	}
+	return strings.Split(c.ProductionProfiles, ",")
 }
 
 // Defaults are the built-in settings.
@@ -44,6 +56,8 @@ type file struct {
 	ReadOnlySecretTag *string `json:"readOnlySecretTag,omitempty"`
 	MCPServerPrefix   *string `json:"mcpServerPrefix,omitempty"`
 	DefaultRegion     *string `json:"defaultRegion,omitempty"`
+	// ProductionProfiles is last: it was added after the others.
+	ProductionProfiles *string `json:"productionProfiles,omitempty"`
 }
 
 // Load reads path over the defaults. A missing file (or an empty path) gives the defaults; invalid
@@ -108,6 +122,11 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.DefaultRegion != nil {
 		cfg.DefaultRegion = strings.TrimSpace(*f.DefaultRegion)
 	}
+	if f.ProductionProfiles != nil {
+		if cfg.ProductionProfiles, err = parseProfilePatterns(*f.ProductionProfiles); err != nil {
+			return Config{}, fmt.Errorf("productionProfiles: %w", err)
+		}
+	}
 	return cfg, nil
 }
 
@@ -149,6 +168,22 @@ func parseRequiredTag(s string) (awstag.Tag, error) {
 		return awstag.Tag{}, errors.New("must not be empty (expected Key=Value)")
 	}
 	return tag, nil
+}
+
+// parseProfilePatterns normalizes comma-separated profile patterns: trimmed, empty ones dropped,
+// each a valid path.Match pattern.
+func parseProfilePatterns(s string) (string, error) {
+	var patterns []string
+	for _, pattern := range strings.Split(s, ",") {
+		if pattern = strings.TrimSpace(pattern); pattern == "" {
+			continue
+		}
+		if _, err := path.Match(pattern, ""); err != nil {
+			return "", fmt.Errorf("invalid pattern %q (use * as wildcard, e.g. *prod*)", pattern)
+		}
+		patterns = append(patterns, pattern)
+	}
+	return strings.Join(patterns, ","), nil
 }
 
 func parsePrefix(s string) (string, error) {

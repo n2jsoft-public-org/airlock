@@ -188,6 +188,9 @@ func (m ssmModel) renderPills(width int) string {
 	for idx, s := range m.sessions {
 		icon, _, style := m.status(s)
 		pill := fmt.Sprintf("%s %s :%d", style.Render(icon), s.session.Target, s.session.LocalPort)
+		if m.production.matches(s.session.Profile) {
+			pill += " " + m.styles.Warning.Bold(true).Render("PROD")
+		}
 		if s.mcpWrites() {
 			pill += " " + m.styles.Danger.Render("WRITES")
 		}
@@ -268,7 +271,11 @@ func (m ssmModel) renderDetails(width int) string {
 		rows = append(rows, m.field("Error", m.styles.Danger.Render(s.err.Error()), inner))
 	}
 
-	return m.styles.Panel.Width(width - 2).Render(strings.Join(rows, "\n"))
+	panel := m.styles.Panel
+	if m.production.matches(s.session.Profile) {
+		panel = panel.BorderForeground(colorWarning)
+	}
+	return panel.Width(width - 2).Render(strings.Join(rows, "\n"))
 }
 
 func (m ssmModel) renderLogs(width, height int) string {
@@ -474,6 +481,9 @@ func (m ssmModel) badge(resourceType string) string {
 // badges renders the resource type of s, flagged when its MCP server may modify data.
 func (m ssmModel) badges(s *ssmSession) string {
 	badges := m.badge(s.session.ResourceType)
+	if m.production.matches(s.session.Profile) {
+		badges += " " + m.styles.ProdBadge()
+	}
 	if s.mcpWrites() {
 		badges += " " + m.styles.WritesBadge()
 	}

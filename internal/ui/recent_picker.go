@@ -45,7 +45,11 @@ type recentItem struct {
 	age       string
 	conn      jumphost.SavedConnection
 	connected bool
+	// production reports that the entry's profile is flagged as production.
+	production bool
 }
+
+func (i recentItem) isProduction() bool { return i.production }
 
 func (i recentItem) Title() string {
 	if i.connected {
@@ -88,11 +92,12 @@ type recentPicker struct {
 	confirming bool
 }
 
-func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, now time.Time) recentPicker {
+func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, production productionMatcher, now time.Time) recentPicker {
 	items := make([]list.Item, 0, len(connections))
 	for idx := range connections {
 		item := recentItem{conn: connections[idx], age: relativeAge(now, connections[idx].Prefs.UpdatedAt)}
 		item.connected = active[item.key()]
+		item.production = production.matches(item.conn.Prefs.Profile)
 		items = append(items, item)
 	}
 	return recentPicker{list: newWizardList(styles, items), action: recentActionNone}
