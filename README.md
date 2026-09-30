@@ -104,22 +104,20 @@ Every key is optional and flags win over the file. An unknown key or a malformed
 | `mcpServerPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
 | `defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
 
-### acme preset
+### Team preset
+
+A team usually sets the same few keys, for example:
 
 ```json
 {
-  "defaultRegion": "eu-west-3",
-  "defaultDbUser": "acme_ro",
-  "readOnlySecretTag": "AccessRole=ro-access",
-  "mcpServerPrefix": "acme"
+  "defaultRegion": "eu-west-1",
+  "defaultDbUser": "app_ro",
+  "readOnlySecretTag": "Role=read-only",
+  "mcpServerPrefix": "team"
 }
 ```
 
-## Migrating from `acme jumphost`
-
-- `acme jumphost <args>` becomes `airlock <args>`, with the same flags.
-- On its first run, airlock copies `connections.json` and `logs/` from `~/.config/jumphost` into `~/.config/airlock`; the old directory is left untouched.
-- With the acme preset above, MCP server names keep their `acme-` prefix, so AI client configurations keep working.
+Keep your real preset internal: set it once, then share it with `airlock config export` rather than in a public document.
 
 ## Development
 
