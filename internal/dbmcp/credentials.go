@@ -209,8 +209,9 @@ func readSecret(ctx context.Context, aws AWSRunner, secretID string) (secretPayl
 		return secretPayload{}, err
 	}
 	var payload secretPayload
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil {
-		return secretPayload{}, fmt.Errorf("secret %s is not a JSON credential: %w", secretID, err)
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload) != nil {
+		// The cause is dropped: a JSON syntax error quotes a character of the secret.
+		return secretPayload{}, fmt.Errorf("secret %s is not a JSON credential", secretID)
 	}
 	if payload.Username == "" || payload.Password == "" {
 		return secretPayload{}, fmt.Errorf("secret %s has no username/password", secretID)
@@ -244,8 +245,9 @@ func ReadPasswordSecret(ctx context.Context, aws AWSRunner, secretID string) (Pa
 		return PasswordSecret{Password: raw}, nil
 	}
 	var payload secretPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return PasswordSecret{}, fmt.Errorf("secret %s is not valid JSON: %w", secretID, err)
+	if json.Unmarshal([]byte(raw), &payload) != nil {
+		// The cause is dropped: a JSON syntax error quotes a character of the secret.
+		return PasswordSecret{}, fmt.Errorf("secret %s is not valid JSON", secretID)
 	}
 	if payload.Password == "" {
 		return PasswordSecret{}, fmt.Errorf("secret %s has no password", secretID)

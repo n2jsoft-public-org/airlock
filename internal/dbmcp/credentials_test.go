@@ -305,7 +305,9 @@ func TestSecretPasswordProviderUsesSecretUserElseTypedUser(t *testing.T) {
 	if err != nil || creds != (Credentials{User: "app_user", Password: "s3cret", Database: "app"}) {
 		t.Fatalf("credentials = %+v, %v", creds, err)
 	}
-	_, _ = provider.Credentials(context.Background(), "other")
+	if _, err := provider.Credentials(context.Background(), "other"); err != nil {
+		t.Fatalf("second read: %v", err)
+	}
 	if len(aws.calls) != 1 {
 		t.Fatalf("the secret must be read once, got %d reads", len(aws.calls))
 	}
@@ -325,7 +327,10 @@ func TestSecretPasswordProviderUsesSecretUserElseTypedUser(t *testing.T) {
 func TestSecretPasswordProviderRefreshReadsRotatedSecret(t *testing.T) {
 	aws := secretValueAWS(`{"username":"app_user","password":"old"}`, `{"username":"app_user","password":"new"}`)
 	provider := newSecretPasswordProvider(aws.run, "arn:app-password", "", "app")
-	first, _ := provider.Credentials(context.Background(), "")
+	first, err := provider.Credentials(context.Background(), "")
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
 	provider.refresh()
 	second, err := provider.Credentials(context.Background(), "")
 	if err != nil || first.Password != "old" || second.Password != "new" {
@@ -343,5 +348,20 @@ func TestSecretPasswordProviderExplainsFailures(t *testing.T) {
 	}
 	if hint := provider.authFailureHint(); !strings.Contains(hint, "arn:app-password") {
 		t.Fatalf("hint = %q, want the secret named", hint)
+	}
+}
+
+func TestReadPasswordSecretBrokenJSONQuotesNoCharacterOfTheSecret(t *testing.T) {
+	// The JSON syntax error would quote the first unexpected character: here one of the password.
+	_, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app","password":Zs3cret}`).run, "arn:app-password")
+	if err == nil || err.Error() != "secret arn:app-password is not valid JSON" {
+		t.Fatalf("broken JSON = %v", err)
+	}
+}
+
+func TestReadSecretBrokenJSONQuotesNoCharacterOfTheSecret(t *testing.T) {
+	_, err := readSecret(context.Background(), secretValueAWS(`{"username":"app","password":Zs3cret}`).run, "arn:app-password")
+	if err == nil || err.Error() != "secret arn:app-password is not a JSON credential" {
+		t.Fatalf("broken JSON = %v", err)
 	}
 }
