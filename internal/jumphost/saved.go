@@ -2,6 +2,7 @@ package jumphost
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 )
@@ -20,12 +21,16 @@ func (r *Runner) ListSavedConnections(ctx context.Context, profile, region strin
 	return filterSavedConnections(saved, profile, region, r.knownProfiles(ctx)), nil
 }
 
-// ForgetConnection removes the remembered choices of ref.
+// ForgetConnection removes the remembered choices of ref, and its password from the keychain.
 func (r *Runner) ForgetConnection(_ context.Context, ref TargetRef) error {
 	if r.prefs == nil {
 		return nil
 	}
-	return r.prefs.Delete(ref)
+	var keychainErr error
+	if prefs, ok := r.prefs.Load(ref); ok {
+		keychainErr = r.forgetKeychainPassword(ref, &prefs)
+	}
+	return errors.Join(r.prefs.Delete(ref), keychainErr)
 }
 
 // knownProfiles returns the local AWS CLI profiles; nil when they cannot be listed, so that no

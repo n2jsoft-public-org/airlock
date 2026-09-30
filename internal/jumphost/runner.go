@@ -22,6 +22,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
+	"github.com/n2jsoft/airlock/internal/keychain"
 	"golang.org/x/term"
 )
 
@@ -113,6 +114,9 @@ type RunnerOptions struct {
 	ProjectDir string
 	// PrefsPath is the file remembering the Connect step choices per region and database; empty disables it.
 	PrefsPath string
+	// Keychain remembers the passwords the user asks to keep; nil disables it. It only works
+	// together with PrefsPath, which records which targets have one.
+	Keychain keychain.Store
 	// DefaultRegion is used after AWS_REGION and the profile's region; empty means none.
 	DefaultRegion string
 	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means one is required.
@@ -180,6 +184,10 @@ type Runner struct {
 	mcpHost  *dbmcp.Host
 	// prefs is nil when connection preferences are not remembered.
 	prefs *PrefsStore
+	// keychain is nil when passwords cannot be remembered; keychainOK caches its availability.
+	keychain     keychain.Store
+	keychainOnce sync.Once
+	keychainOK   bool
 	// accounts caches the AWS account ID of each profile, learned from the identity check.
 	accounts   map[string]string
 	accountsMu sync.Mutex
@@ -254,6 +262,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)
+		runner.keychain = opts.Keychain
 	}
 	return runner
 }
@@ -678,7 +687,9 @@ func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (Conn
 }
 
 // SaveConnectionPrefs remembers the choices of options for its target: profile and local port,
-// plus user, sign-in method and MCP write access for RDS. The password itself is never saved.
+// plus user, sign-in method, secret and MCP write access for RDS. The password itself is never
+// written to the file: with RememberPassword it goes to the OS keychain. Keychain failures are
+// returned wrapped in ErrKeychain, after the choices are saved.
 func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
 	target, ok := r.prefsTarget(ctx, &options)
 	if !ok {
@@ -689,6 +700,7 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 		ResourceType: target.Type,
 		LocalPort:    options.LocalPortNumber,
 	}
+	var keychainErr error
 	if target.Type == resourceRDS {
 		prefs.DBUser = strings.TrimSpace(options.DBUser)
 		prefs.SignIn = options.SignInMethod()
@@ -696,8 +708,13 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 			prefs.DBSecretARN = strings.TrimSpace(options.DBSecretARN)
 		}
 		prefs.MCPAllowWrites = options.MCPAllowWrites
+		var previous *ConnectionPrefs
+		if saved, found := r.prefs.Load(target); found {
+			previous = &saved
+		}
+		keychainErr = r.syncKeychain(target, previous, prefs, &options)
 	}
-	return r.prefs.Save(target, prefs)
+	return errors.Join(r.prefs.Save(target, prefs), keychainErr)
 }
 
 // prefsTarget identifies the target keying the preferences of options; false when none apply
