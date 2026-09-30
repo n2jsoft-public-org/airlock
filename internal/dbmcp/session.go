@@ -43,8 +43,11 @@ type SessionConfig struct {
 	// DBSecretARN names the Secrets Manager secret holding the password (RDS JSON or plain text);
 	// it wins over DBPassword and the automatic secrets. Empty when unused.
 	DBSecretARN string
-	RDSPort     int
-	LocalPort   int
+	// OnPasswordRejected is called once when the database rejects DBPassword, e.g. to forget a
+	// password remembered in the keychain. Nil when unused.
+	OnPasswordRejected func()
+	RDSPort            int
+	LocalPort          int
 	// IAMAuth reports whether the RDS instance has AWS IAM database authentication enabled.
 	// PostgreSQL access needs it unless DBPassword is set.
 	IAMAuth bool
@@ -161,7 +164,9 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 	case cfg.DBSecretARN != "":
 		return newSecretPasswordProvider(cfg.AWS, cfg.DBSecretARN, cfg.DBUser, defaultDatabase)
 	case cfg.DBPassword != "":
-		return newPasswordProvider(cfg.DBUser, cfg.DBPassword, defaultDatabase)
+		provider := newPasswordProvider(cfg.DBUser, cfg.DBPassword, defaultDatabase)
+		provider.onRejected = cfg.OnPasswordRejected
+		return provider
 	case engine == EngineSQLServer && cfg.AllowWrites:
 		return newMasterSecretProvider(cfg.AWS, cfg.Target, cfg.MasterSecretARN, "master")
 	case engine == EngineSQLServer:

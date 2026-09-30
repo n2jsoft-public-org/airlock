@@ -281,13 +281,6 @@ func secretValueAWS(values ...string) *fakeAWS {
 	}}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func TestReadPasswordSecretJSONAndPlainText(t *testing.T) {
 	json, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app_user","password":"s3cret"}`).run, "arn:app-password")
 	if err != nil || json != (PasswordSecret{Username: "app_user", Password: "s3cret"}) {

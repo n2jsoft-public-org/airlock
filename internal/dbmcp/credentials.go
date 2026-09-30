@@ -84,9 +84,12 @@ func (p *iamTokenProvider) authFailureHint() string {
 
 // passwordProvider signs in with the user and password entered by the user.
 type passwordProvider struct {
+	// onRejected, when set, is called once when the database rejects the password.
+	onRejected      func()
 	user            string
 	password        string
 	defaultDatabase string
+	rejectedOnce    sync.Once
 }
 
 func newPasswordProvider(user, password, defaultDatabase string) *passwordProvider {
@@ -104,6 +107,13 @@ func (*passwordProvider) Databases(context.Context) ([]string, error) { return n
 
 func (p *passwordProvider) authFailureHint() string {
 	return fmt.Sprintf("the password entered for %s was rejected: connect again with the right one", p.user)
+}
+
+// rejected reports that the database refused the password.
+func (p *passwordProvider) rejected() {
+	if p.onRejected != nil {
+		p.rejectedOnce.Do(p.onRejected)
+	}
 }
 
 // secretPasswordProvider signs in with a password read from a Secrets Manager secret picked by the

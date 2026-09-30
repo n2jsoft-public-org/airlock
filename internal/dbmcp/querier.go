@@ -126,6 +126,12 @@ type credentialRefresher interface {
 	refresh()
 }
 
+// credentialRejectionListener is a CredentialProvider told when the database rejected its
+// credentials for good (after the refresh retry, if any).
+type credentialRejectionListener interface {
+	rejected()
+}
+
 // withPool runs fn on the pool of database. When the database rejects credentials read from a
 // secret, the secret may have been rotated since it was read: fn runs once more on a new pool,
 // with the secret read again. Rejected credentials fail at sign-in, before fn's statement runs.
@@ -135,16 +141,23 @@ func (q *sqlQuerier) withPool(ctx context.Context, database string, fn func(db *
 		return err
 	}
 	err = fn(db)
-	refresher, ok := q.creds.(credentialRefresher)
-	if err == nil || !ok || !isAuthFailure(err) {
+	if err == nil || !isAuthFailure(err) {
 		return err
 	}
-	refresher.refresh()
-	q.dropPool(db)
-	if db, err = q.pool(ctx, database); err != nil {
-		return err
+	if refresher, ok := q.creds.(credentialRefresher); ok {
+		refresher.refresh()
+		q.dropPool(db)
+		if db, err = q.pool(ctx, database); err != nil {
+			return err
+		}
+		if err = fn(db); err == nil || !isAuthFailure(err) {
+			return err
+		}
 	}
-	return fn(db)
+	if listener, ok := q.creds.(credentialRejectionListener); ok {
+		listener.rejected()
+	}
+	return err
 }
 
 // dropPool closes db and forgets it, so the next call opens a new pool (SQL Server pools keep the

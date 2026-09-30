@@ -246,3 +246,16 @@ func TestStartAcceptsReadOnlySQLServerWithPasswordSecret(t *testing.T) {
 		handle.Close()
 	}
 }
+
+func TestCredentialProviderWiresPasswordRejection(t *testing.T) {
+	called := false
+	cfg := &SessionConfig{Target: "archive", DBUser: "app_user", DBPassword: "s3cret", OnPasswordRejected: func() { called = true }}
+	provider, ok := credentialProvider(cfg, EnginePostgres).(*passwordProvider)
+	if !ok {
+		t.Fatalf("provider = %T", credentialProvider(cfg, EnginePostgres))
+	}
+	provider.rejected()
+	if !called {
+		t.Fatal("OnPasswordRejected was not wired to the password provider")
+	}
+}

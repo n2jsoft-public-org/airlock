@@ -382,3 +382,33 @@ func TestQueryDoesNotRetryOtherErrorsOrStaticCredentials(t *testing.T) {
 		t.Fatalf("opened = %v, want a single pool", *opened)
 	}
 }
+
+func TestQueryReportsRejectedPasswordOnce(t *testing.T) {
+	rejected := 0
+	creds := newPasswordProvider("acme_rw", "wrong", "app")
+	creds.onRejected = func() { rejected++ }
+	q, db, _ := newTestQuerier(&postgresDialect, creds)
+	db.connectErr = errLoginFailed
+
+	//nolint:errcheck // test intentionally ignores error to verify callback behavior
+	_, _ = q.Query(context.Background(), "", "SELECT 1", 1)
+	//nolint:errcheck // test intentionally ignores error to verify callback called only once
+	_, _ = q.Query(context.Background(), "", "SELECT 1", 1)
+	if rejected != 1 {
+		t.Fatalf("rejected = %d, want one notification", rejected)
+	}
+}
+
+func TestQueryDoesNotReportOtherErrorsAsRejectedPassword(t *testing.T) {
+	rejected := 0
+	creds := newPasswordProvider("acme_rw", "s3cret", "app")
+	creds.onRejected = func() { rejected++ }
+	q, db, _ := newTestQuerier(&postgresDialect, creds)
+	db.connectErr = errors.New("dial tcp 127.0.0.1:15432: connect: connection refused")
+
+	//nolint:errcheck // test intentionally ignores error to verify no callback for non-auth-failure
+	_, _ = q.Query(context.Background(), "", "SELECT 1", 1)
+	if rejected != 0 {
+		t.Fatalf("rejected = %d, want none for a refused connection", rejected)
+	}
+}
