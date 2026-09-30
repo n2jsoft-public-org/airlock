@@ -215,7 +215,11 @@ type ideTarget struct {
 	DBUser string
 	// DBPassword is the password entered by the user; empty when the session signs in with AWS IAM.
 	DBPassword string
-	RDSPort    int
+	// DBSecretARN is the secret holding the password; empty unless the user picked one.
+	DBSecretARN string
+	// KeychainAccount is the keychain entry DBPassword was remembered in; empty when not remembered.
+	KeychainAccount string
+	RDSPort         int
 	// IAMAuth reports whether the session signs in with AWS IAM: the instance accepts it (not SQL
 	// Server) and the user did not choose a password instead.
 	IAMAuth bool
@@ -333,6 +337,13 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		return nil, err
 	}
 
+	// A remembered password the database rejects is forgotten, so the next connection asks again.
+	if resourceType == resourceRDS && target.DBPassword != "" && options.RememberPassword && r.KeychainAvailable() {
+		if ref, ok := r.prefsTarget(ctx, &options); ok {
+			target.KeychainAccount = keychainAccount(ref, target.DBUser)
+		}
+	}
+
 	// The prepare step reserved the port under this label; release it if anything below fails.
 	label := sessionLabel(resourceType, resolvedTargetName, cfg)
 	ready := false
@@ -363,7 +374,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		Region:       cfg.Region,
 		Details: SessionDetails{
 			ConnectedServer: connectedServer,
-			RestartCommand:  buildRestartCommand(resourceType, resolvedTargetName, localPort, restartDBUser(&target), cfg),
+			RestartCommand:  buildRestartCommand(resourceType, resolvedTargetName, localPort, restartDBUser(&target), restartDBSecret(&target), cfg),
 			Auth:            describeAuth(&target),
 		},
 		AwsArgs: append([]string{}, cfg.Args...),
@@ -1084,14 +1095,24 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		return "", "", nil, nil, ideTarget{}, errors.New("RDS instance endpoint is missing")
 	}
 
-	if options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
+	secretID := strings.TrimSpace(options.DBSecretARN)
+	if secretID == "" && options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
 		return "", "", nil, nil, ideTarget{}, errors.New("a database user is required to sign in with a password")
 	}
-	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == ""
+	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == "" && secretID == "" && options.SignIn != SignInAuto
 	if iamAuth && r.ResolveDBUser(options.DBUser) == "" {
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf(
 			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set a default with `airlock config set defaultDbUser <user>`",
 			instance.DBInstanceIdentifier)
+	}
+	var secretUser string
+	if secretID != "" {
+		aws := func(ctx context.Context, args ...string) (string, error) {
+			return r.runAWSCapture(ctx, cfg.Args, args...)
+		}
+		if secretUser, err = resolveSecretSignIn(ctx, aws, secretID, options.DBUser); err != nil {
+			return "", "", nil, nil, ideTarget{}, err
+		}
 	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
@@ -1111,6 +1132,9 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 	var sessionInfo []string
 	var dbUser string
 	switch {
+	case secretID != "":
+		dbUser = secretUser
+		sessionInfo = rdsSecretSessionInfo(localPort, dbUser, secretID, awsArgsHint)
 	case options.DBPassword != "":
 		dbUser = strings.TrimSpace(options.DBUser)
 		sessionInfo = rdsPasswordSessionInfo(localPort, dbUser)
@@ -1127,6 +1151,11 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
+	password := options.DBPassword
+	if secretID != "" {
+		password = ""
+	}
+
 	return instance.DBInstanceIdentifier, displayName, sessionInfo, params, ideTarget{
 		Engine:          instance.Engine,
 		Database:        instance.DBName,
@@ -1136,8 +1165,20 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		MasterSecretARN: instance.MasterUserSecret.SecretArn,
 		IAMAuth:         iamAuth,
 		DBUser:          dbUser,
-		DBPassword:      options.DBPassword,
+		DBPassword:      password,
+		DBSecretARN:     secretID,
 	}, nil
+}
+
+// rdsSecretSessionInfo explains how to sign in with the password of the picked secret.
+func rdsSecretSessionInfo(localPort int, user, secretID, awsArgsHint string) []string {
+	return []string{
+		"Signs in with the password of a Secrets Manager secret:",
+		fmt.Sprintf("  host:port            = localhost:%d", localPort),
+		"  user                 = " + user,
+		"  password             = read it with:",
+		fmt.Sprintf("  aws secretsmanager get-secret-value --secret-id %s --query SecretString --output text %s", secretID, awsArgsHint),
+	}
 }
 
 // rdsIAMSessionInfo explains how to sign in with AWS IAM authentication.
@@ -1554,24 +1595,26 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 		AWS: func(ctx context.Context, args ...string) (string, error) {
 			return r.runAWSCapture(ctx, cfg.Args, args...)
 		},
-		ProjectDir:        projectDir,
-		Profile:           cfg.Profile,
-		Region:            cfg.Region,
-		Target:            targetName,
-		AWSEngine:         target.Engine,
-		RDSHost:           target.RDSHost,
-		RDSPort:           target.RDSPort,
-		DBName:            target.Database,
-		InstanceARN:       target.InstanceARN,
-		MasterSecretARN:   target.MasterSecretARN,
-		DBUser:            target.DBUser,
-		DBPassword:        target.DBPassword,
-		IAMAuth:           target.IAMAuth,
-		LocalPort:         localPort,
-		AllowWrites:       allowWrites,
-		LogDir:            r.mcpLogDir,
-		ServerPrefix:      r.mcpServerPrefix,
-		ReadOnlySecretTag: r.readOnlySecretTag,
+		ProjectDir:         projectDir,
+		Profile:            cfg.Profile,
+		Region:             cfg.Region,
+		Target:             targetName,
+		AWSEngine:          target.Engine,
+		RDSHost:            target.RDSHost,
+		RDSPort:            target.RDSPort,
+		DBName:             target.Database,
+		InstanceARN:        target.InstanceARN,
+		MasterSecretARN:    target.MasterSecretARN,
+		DBUser:             target.DBUser,
+		DBPassword:         target.DBPassword,
+		DBSecretARN:        target.DBSecretARN,
+		OnPasswordRejected: r.forgetKeychainFunc(target.KeychainAccount),
+		IAMAuth:            target.IAMAuth,
+		LocalPort:          localPort,
+		AllowWrites:        allowWrites,
+		LogDir:             r.mcpLogDir,
+		ServerPrefix:       r.mcpServerPrefix,
+		ReadOnlySecretTag:  r.readOnlySecretTag,
 	})
 	if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
 		return nil, "not started: set the tag of the read-only SQL Server secrets with `airlock config set readOnlySecretTag Key=Value` (or enable writes)"
@@ -1675,6 +1718,8 @@ func firstValue(values map[string][]string, key string) string {
 // credentials read from Secrets Manager).
 func describeAuth(target *ideTarget) string {
 	switch {
+	case target.DBSecretARN != "":
+		return "Secrets Manager · " + SecretDisplayName(target.DBSecretARN) + " · " + target.DBUser
 	case target.IAMAuth:
 		return "AWS IAM token (generated by airlock) · " + target.DBUser
 	case target.DBPassword != "":
@@ -1684,16 +1729,21 @@ func describeAuth(target *ideTarget) string {
 	}
 }
 
-// restartDBUser is the --db-user of the restart command: only AWS IAM sign-in can be restarted
-// unattended, a password session is restarted as an IAM one.
+// restartDBUser is the --db-user of the restart command: AWS IAM and Secrets Manager sessions can
+// be restarted unattended, a password session is restarted as an IAM one.
 func restartDBUser(target *ideTarget) string {
-	if !target.IAMAuth {
+	if !target.IAMAuth && target.DBSecretARN == "" {
 		return ""
 	}
 	return target.DBUser
 }
 
-func buildRestartCommand(resourceType string, targetName string, localPort string, dbUser string, cfg awsConfig) string {
+// restartDBSecret is the --db-secret of the restart command; empty unless the session reads a secret.
+func restartDBSecret(target *ideTarget) string {
+	return target.DBSecretARN
+}
+
+func buildRestartCommand(resourceType, targetName, localPort, dbUser, dbSecret string, cfg awsConfig) string {
 	parts := []string{"airlock", resourceType}
 
 	targetName = strings.TrimSpace(targetName)
@@ -1714,6 +1764,9 @@ func buildRestartCommand(resourceType string, targetName string, localPort strin
 	}
 	if dbUser != "" {
 		parts = append(parts, "--db-user", dbUser)
+	}
+	if dbSecret != "" {
+		parts = append(parts, "--db-secret", dbSecret)
 	}
 
 	return strings.Join(parts, " ")

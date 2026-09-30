@@ -9,6 +9,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/keychain"
 )
 
 var acmeSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
@@ -137,13 +138,13 @@ func TestRDSIAMSessionInfoUsesChosenUser(t *testing.T) {
 func TestBuildRestartCommandKeepsCustomDBUser(t *testing.T) {
 	cfg := awsConfig{Profile: "dev", Region: "eu-west-3"}
 
-	if got := buildRestartCommand("rds", "archive", "5433", "app_ro", cfg); got != "airlock rds archive 5433 --profile dev --region eu-west-3 --db-user app_ro" {
+	if got := buildRestartCommand("rds", "archive", "5433", "app_ro", "", cfg); got != "airlock rds archive 5433 --profile dev --region eu-west-3 --db-user app_ro" {
 		t.Fatalf("restart command = %q", got)
 	}
-	if got := buildRestartCommand("rds", "archive", "5433", "", cfg); strings.Contains(got, "--db-user") {
+	if got := buildRestartCommand("rds", "archive", "5433", "", "", cfg); strings.Contains(got, "--db-user") {
 		t.Fatalf("restart command without user = %q, want no --db-user", got)
 	}
-	if got := buildRestartCommand("rds", "archive", "5433", "acme_ro", cfg); !strings.HasSuffix(got, "--db-user acme_ro") {
+	if got := buildRestartCommand("rds", "archive", "5433", "acme_ro", "", cfg); !strings.HasSuffix(got, "--db-user acme_ro") {
 		t.Fatalf("restart command = %q, want the user kept: the config default may differ where it is rerun", got)
 	}
 }
@@ -207,5 +208,54 @@ func TestDescribeAuthNamesTheSignInMode(t *testing.T) {
 	}
 	if got := describeAuth(&ideTarget{Engine: "sqlserver-se"}); got != "" {
 		t.Fatalf("secrets auth = %q, want none", got)
+	}
+}
+
+func TestStartMCPPassesSecretAndRejectionCallback(t *testing.T) {
+	runner := testRunner(t)
+	var got *dbmcp.SessionConfig
+	previous := dbmcpStart
+	dbmcpStart = func(_ *dbmcp.Host, cfg *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
+		got = cfg
+		return nil, nil
+	}
+	t.Cleanup(func() { dbmcpStart = previous })
+
+	runner.startMCP("archive", 15432, &ideTarget{Engine: "postgres", DBUser: "app_user", DBSecretARN: "arn:secret"}, awsConfig{Profile: "dev"}, false)
+	if got == nil || got.DBSecretARN != "arn:secret" || got.DBUser != "app_user" || got.OnPasswordRejected != nil {
+		t.Fatalf("session config = %+v, want the secret and no rejection callback", got)
+	}
+
+	runner.keychain = keychain.NewMemoryStore()
+	runner.startMCP("archive", 15432, &ideTarget{Engine: "postgres", DBUser: "app_user", DBPassword: "s3cret", KeychainAccount: "acct"}, awsConfig{Profile: "dev"}, false)
+	if got.OnPasswordRejected == nil {
+		t.Fatal("a keychain password must get a rejection callback")
+	}
+}
+
+func TestSecretSessionRestartsWithTheSecret(t *testing.T) {
+	target := &ideTarget{DBUser: "app_user", DBSecretARN: "arn:secret"}
+	got := buildRestartCommand("rds", "archive", "5433", restartDBUser(target), restartDBSecret(target), awsConfig{Profile: "dev", Region: "eu-west-3"})
+	if got != "airlock rds archive 5433 --profile dev --region eu-west-3 --db-user app_user --db-secret arn:secret" {
+		t.Fatalf("restart = %q", got)
+	}
+	if restartDBSecret(&ideTarget{DBUser: "app_user", DBPassword: "s3cret"}) != "" {
+		t.Fatal("a password session has no secret to restart with")
+	}
+}
+
+func TestDescribeAuthNamesTheSecret(t *testing.T) {
+	got := describeAuth(&ideTarget{DBUser: "app_user", DBSecretARN: "arn:aws:secretsmanager:eu-west-3:111:secret:prod/app-user-AbC123"})
+	if got != "Secrets Manager · prod/app-user · app_user" {
+		t.Fatalf("auth = %q", got)
+	}
+}
+
+func TestRDSSecretSessionInfoNeverShowsThePassword(t *testing.T) {
+	info := strings.Join(rdsSecretSessionInfo(5433, "app_user", "arn:secret", "--profile dev"), "\n")
+	for _, want := range []string{"localhost:5433", "app_user", "aws secretsmanager get-secret-value --secret-id arn:secret"} {
+		if !strings.Contains(info, want) {
+			t.Fatalf("session info misses %q:\n%s", want, info)
+		}
 	}
 }

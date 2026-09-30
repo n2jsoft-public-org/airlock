@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
 // SecretSummary is one Secrets Manager secret offered to hold the password of a database.
@@ -113,4 +115,20 @@ func SecretDisplayName(secretID string) string {
 		return secretID
 	}
 	return secretARNSuffix.ReplaceAllString(name, "")
+}
+
+// resolveSecretSignIn reads the password secret once before connecting, so an unreadable secret
+// fails before the tunnel opens, and returns the user: the secret's, else typedUser.
+func resolveSecretSignIn(ctx context.Context, aws dbmcp.AWSRunner, secretID, typedUser string) (string, error) {
+	secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
+	if err != nil {
+		return "", fmt.Errorf("failed to read secret %s (needs secretsmanager:GetSecretValue, and kms:Decrypt for a customer-managed key): %w", secretID, err)
+	}
+	if secret.Username != "" {
+		return secret.Username, nil
+	}
+	if user := strings.TrimSpace(typedUser); user != "" {
+		return user, nil
+	}
+	return "", fmt.Errorf("secret %s has no username: fill the User field", SecretDisplayName(secretID))
 }

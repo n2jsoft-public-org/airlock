@@ -1,7 +1,10 @@
 package jumphost
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +54,41 @@ func TestSecretDisplayName(t *testing.T) {
 	for id, want := range cases {
 		if got := SecretDisplayName(id); got != want {
 			t.Errorf("SecretDisplayName(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+func secretAWS(value string, err error) func(context.Context, ...string) (string, error) {
+	return func(_ context.Context, args ...string) (string, error) {
+		if strings.Join(args[:2], " ") != "secretsmanager get-secret-value" {
+			return "", errors.New("unexpected call " + strings.Join(args, " "))
+		}
+		return value, err
+	}
+}
+
+func TestResolveSecretSignInPrefersSecretUser(t *testing.T) {
+	user, err := resolveSecretSignIn(context.Background(), secretAWS(`{"username":"app_user","password":"s3cret"}`, nil), "arn:secret", "typed")
+	if err != nil || user != "app_user" {
+		t.Fatalf("user = %q, err = %v", user, err)
+	}
+}
+
+func TestResolveSecretSignInPlainTextNeedsUser(t *testing.T) {
+	if user, err := resolveSecretSignIn(context.Background(), secretAWS("s3cret", nil), "arn:secret", " typed "); err != nil || user != "typed" {
+		t.Fatalf("user = %q, err = %v", user, err)
+	}
+	_, err := resolveSecretSignIn(context.Background(), secretAWS("s3cret", nil), "arn:secret", "")
+	if err == nil || !strings.Contains(err.Error(), "has no username: fill the User field") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResolveSecretSignInExplainsUnreadableSecret(t *testing.T) {
+	_, err := resolveSecretSignIn(context.Background(), secretAWS("", errors.New("ResourceNotFoundException")), "arn:secret", "typed")
+	for _, want := range []string{"arn:secret", "secretsmanager:GetSecretValue", "kms:Decrypt", "ResourceNotFoundException"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want %q", err, want)
 		}
 	}
 }
