@@ -146,7 +146,8 @@ func (q *sqlQuerier) withPool(ctx context.Context, database string, fn func(db *
 	if err == nil || !isAuthFailure(err) {
 		return err
 	}
-	if refresher, ok := q.creds.(credentialRefresher); ok {
+	creds := unwrapProvider(q.creds)
+	if refresher, ok := creds.(credentialRefresher); ok {
 		refresher.refresh()
 		q.dropPool(db)
 		if db, err = q.pool(ctx, database); err != nil {
@@ -156,7 +157,7 @@ func (q *sqlQuerier) withPool(ctx context.Context, database string, fn func(db *
 			return err
 		}
 	}
-	if listener, ok := q.creds.(credentialRejectionListener); ok && isPasswordRejected(err) {
+	if listener, ok := creds.(credentialRejectionListener); ok && isPasswordRejected(err) {
 		listener.rejected()
 	}
 	return err
@@ -278,7 +279,7 @@ func (q *sqlQuerier) connectionError(err error) error {
 	if strings.Contains(err.Error(), "connection refused") {
 		return fmt.Errorf("tunnel to localhost:%d is not accepting connections yet; retry shortly: %w", q.port, err)
 	}
-	if hinter, ok := q.creds.(authFailureHinter); ok && isAuthFailure(err) {
+	if hinter, ok := unwrapProvider(q.creds).(authFailureHinter); ok && isAuthFailure(err) {
 		return fmt.Errorf("%s: %w", hinter.authFailureHint(), err)
 	}
 	return err
@@ -444,6 +445,16 @@ func (q *sqlQuerier) Close() error {
 		delete(q.pools, name)
 	}
 	return errors.Join(errs...)
+}
+
+// reset closes every pool and forgets the default database, so the next call signs in again
+// with the current credentials.
+func (q *sqlQuerier) reset() error {
+	err := q.Close()
+	q.mu.Lock()
+	q.defaultDB = ""
+	q.mu.Unlock()
+	return err
 }
 
 // text renders a converted column value as a string.

@@ -7,8 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
 const secretsInstanceARN = "arn:aws:rds:eu-west-3:111111111111:db:archive"
@@ -133,5 +136,77 @@ func TestListDBSecretsNamesAccountAndRegionWhenEmpty(t *testing.T) {
 	_, err := runner.ListDBSecrets(context.Background(), &Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3"})
 	if err == nil || err.Error() != "no secret in 111111111111/eu-west-3" {
 		t.Fatalf("err = %v, want the account and the region named", err)
+	}
+}
+
+func TestSecretCredentialsReaderReadsThePickedSecretOnEachCall(t *testing.T) {
+	logPath := installRecordingAWS(t, `{"username":"app_rw","password":"s3cr3t-Pa55"}`)
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	read := runner.secretCredentialsReader(runner.awsRunner(awsConfig{Args: []string{"--profile", "dev", "--region", "eu-west-3"}}), "archive",
+		&ideTarget{DBUser: "app_rw", DBSecretARN: "arn:secret", InstanceARN: secretsInstanceARN})
+
+	for range 2 {
+		creds, err := read(context.Background())
+		if err != nil || len(creds) != 1 || creds[0] != (DBCredentials{User: "app_rw", Password: "s3cr3t-Pa55"}) {
+			t.Fatalf("read = %+v, %v, want the secret's credentials", creds, err)
+		}
+	}
+	calls, err := os.ReadFile(logPath) // #nosec G304 -- test file.
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "get-secret-value --secret-id arn:secret") || !strings.Contains(lines[0], "--profile dev --region eu-west-3") {
+		t.Fatalf("aws calls = %q, want get-secret-value of the secret with the session's profile, twice", lines)
+	}
+}
+
+func TestSecretCredentialsReaderReadsTheReadOnlySecretsOfEachDatabase(t *testing.T) {
+	const (
+		integ  = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/rds/read-only/archive-integ-uLQ3NB"
+		named  = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/rds/read-only/archive-app-xyKAqI"
+		broken = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/rds/read-only/archive-old-AbCdEf"
+	)
+	dir := t.TempDir()
+	// The secrets deployed name no database: only their name tells them apart.
+	script := "#!/bin/sh\ncase \"$1 $2 $4\" in\n" +
+		"'secretsmanager list-secrets '*) echo '[\"" + integ + "\",\"" + broken + "\",\"" + named + "\"]' ;;\n" +
+		"'secretsmanager get-secret-value " + integ + "') echo '{\"username\":\"app_ro\",\"password\":\"integ-Pa55\"}' ;;\n" +
+		"'secretsmanager get-secret-value " + named + "') echo '{\"username\":\"app_ro\",\"password\":\"app-Pa55\",\"dbname\":\"app_db\"}' ;;\n" +
+		"*) exit 1 ;;\nesac\n"
+	// #nosec G306 -- the fake aws must be executable.
+	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+
+	read := runner.secretCredentialsReader(runner.awsRunner(awsConfig{}), "archive", &ideTarget{InstanceARN: secretsInstanceARN, MasterSecretARN: "arn:master"})
+	if read == nil {
+		t.Fatal("no reader for a session signing in with the read-only secrets")
+	}
+	creds, err := read(context.Background())
+	want := []DBCredentials{
+		{Database: "app_db", Secret: "archive-app", User: "app_ro", Password: "app-Pa55"},
+		{Secret: "archive-integ", User: "app_ro", Password: "integ-Pa55"},
+	}
+	if err != nil || !slices.Equal(creds, want) {
+		t.Fatalf("read = %+v, %v, want every readable read-only secret by label, never the master one", creds, err)
+	}
+}
+
+func TestSecretCredentialsReaderNeedsSecrets(t *testing.T) {
+	tagged := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	for name, target := range map[string]*ideTarget{
+		"AWS IAM":        {IAMAuth: true, DBUser: "app_ro", InstanceARN: secretsInstanceARN},
+		"typed password": {DBUser: "app_rw", DBPassword: "typed", InstanceARN: secretsInstanceARN},
+	} {
+		if tagged.secretCredentialsReader(tagged.awsRunner(awsConfig{}), "archive", target) != nil {
+			t.Errorf("%s session offers to show secrets", name)
+		}
+	}
+	untagged := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	if untagged.secretCredentialsReader(untagged.awsRunner(awsConfig{}), "archive", &ideTarget{InstanceARN: secretsInstanceARN}) != nil {
+		t.Error("session offers read-only secrets without readOnlySecretTag")
 	}
 }

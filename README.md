@@ -251,6 +251,19 @@ asks for the password as before.
 airlock rds my-db 5432 --db-secret prod/app-user
 ```
 
+#### Sign-in check
+
+Once the tunnel is up, airlock checks the sign-in with `SELECT 1` and shows the result on the
+**Sign-in** row of the session. With **Auto** on SQL Server, it looks for the instance's read-only
+secrets (tag `readOnlySecretTag`), with or without a `dbname`: one is used right away, several are
+offered in a dialog (`1`–`9` or `enter`; `esc` decides later). A working secret becomes the session's
+sign-in (MCP server, IntelliJ data source, reconnect command) and is remembered in `connections.json`
+as a Secrets Manager sign-in, its ARN and user only, so the next connection skips the choice. When a
+check fails, the tunnel stays open and the other credentials are offered; if the database rejects a
+remembered secret, it is forgotten and the sign-in falls back to **Auto**. Press `a` to choose or
+check again. The master user secret is never offered; Auto with MCP writes and engines airlock does
+not query (MySQL) are not checked.
+
 #### The OS keychain
 
 With **Remember**, the password is stored under the service `airlock` in the macOS Keychain, the
@@ -313,6 +326,8 @@ on one of them switches to its session instead of opening a second one.
 | `x` | Stop the selected session, or close it once ended |
 | `r` | Restart the selected ended session: same target, local port and sign-in |
 | `c` | Copy the local address, the IAM token command, the reconnect command, the `KUBECONFIG` export or the last MCP query |
+| `a` | Choose the database credentials of the session, or check them again after a failure |
+| `p` | Show the database passwords read from Secrets Manager: the picked secret, or the read-only secret of each database (never the master one). They are read again each time; `c` or `1`–`9` copies one, `esc` hides them |
 | `esc` | Cancel a connection being prepared |
 | `?` | List every key |
 | `q` · `ctrl+c` | Stop all sessions and quit, after a confirmation (`y` / `n`, or `ctrl+c` again) |

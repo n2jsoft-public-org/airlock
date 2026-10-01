@@ -58,14 +58,27 @@ type SessionConfig struct {
 
 // Handle is a running session MCP server.
 type Handle struct {
-	release  func() string
+	release func() string
+	// creds is the provider of the server, switched by UseSecret; querier holds its pools.
+	creds    *switchableProvider
+	querier  *sqlQuerier
+	aws      AWSRunner
 	recorder *queryRecorder
 	endpoint Endpoint
 	// Display describes the server (access mode, name, URL, config files) for the dashboard MCP row.
-	Display     string
-	releaseMsg  string
-	releaseOnce sync.Once
-	allowWrites bool
+	Display    string
+	releaseMsg string
+	// defaultDatabase is the database UseSecret signs in to when none is named.
+	defaultDatabase string
+	releaseOnce     sync.Once
+	allowWrites     bool
+}
+
+// UseSecret makes the server sign in with the password of secretID from now on, as the secret's
+// username, else as user. The connections opened with the former credentials are closed.
+func (h *Handle) UseSecret(secretID, user string) error {
+	h.creds.set(newSecretPasswordProvider(h.aws, secretID, user, h.defaultDatabase))
+	return h.querier.reset()
 }
 
 // AllowsWrites reports whether the server offers the execute tool, which modifies data.
@@ -120,7 +133,9 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	if cfg.LogDir != "" {
 		recorder.log = NewAuditLog(cfg.LogDir)
 	}
-	querier := newRecordingQuerier(newQuerier(engine, credentialProvider(cfg, engine), cfg.LocalPort), &QueryEvent{
+	creds := &switchableProvider{current: credentialProvider(cfg, engine)}
+	inner := newQuerier(engine, creds, cfg.LocalPort)
+	querier := newRecordingQuerier(inner, &QueryEvent{
 		Server: name, Profile: cfg.Profile, Region: cfg.Region, Target: cfg.Target, Engine: engine, Access: access,
 	}, recorder.record)
 	server := NewServer(&ServerConfig{
@@ -145,10 +160,14 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 	}
 
 	return &Handle{
-		allowWrites: cfg.AllowWrites,
-		Display:     display,
-		recorder:    recorder,
-		endpoint:    endpoint,
+		creds:           creds,
+		querier:         inner,
+		aws:             cfg.AWS,
+		defaultDatabase: defaultDatabaseFor(engine, cfg.DBName),
+		allowWrites:     cfg.AllowWrites,
+		Display:         display,
+		recorder:        recorder,
+		endpoint:        endpoint,
 		release: func() string {
 			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, entry)
 			if err := errors.Join(unregisterErr, host.Unmount(slug), querier.Close()); err != nil {
@@ -163,10 +182,7 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 }
 
 func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
-	defaultDatabase := cfg.DBName
-	if defaultDatabase == "" && engine == EnginePostgres {
-		defaultDatabase = "postgres"
-	}
+	defaultDatabase := defaultDatabaseFor(engine, cfg.DBName)
 	switch {
 	case cfg.DBSecretARN != "":
 		return newSecretPasswordProvider(cfg.AWS, cfg.DBSecretARN, cfg.DBUser, defaultDatabase)

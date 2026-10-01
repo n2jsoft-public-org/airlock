@@ -172,7 +172,14 @@ type Session struct {
 	AwsArgs      []string
 	CommandArgs  []string
 	// Intro describes the connection (display name, connection hints, IDE data source).
-	Intro       []string
+	Intro []string
+	// ReadCredentials reads the database credentials of the session from Secrets Manager, again on
+	// each call: the picked secret, or the read-only secrets of each database; nil when the session
+	// signs in otherwise.
+	ReadCredentials func(ctx context.Context) ([]DBCredentials, error)
+	// SignIn resolves and checks the database credentials once the tunnel is up; nil when airlock
+	// cannot query the session's database.
+	SignIn      SignInChecker
 	LocalPort   int
 	releaseOnce sync.Once
 }
@@ -415,6 +422,12 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	if session.LocalPort, err = strconv.Atoi(localPort); err != nil {
 		return nil, fmt.Errorf("invalid local port %q: %w", localPort, err)
 	}
+	if resourceType == resourceRDS {
+		session.ReadCredentials = r.secretCredentialsReader(r.awsRunner(cfg), resolvedTargetName, &target)
+		if session.Details.Auth == "" && session.ReadCredentials != nil {
+			session.Details.Auth = "Secrets Manager · read-only secrets " + r.readOnlySecretTag.String()
+		}
+	}
 
 	var removeDataSource func() string
 	if !options.SkipIDEDataSource {
@@ -441,6 +454,22 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			session.Intro = append(session.Intro, "MCP "+mcpDisplay)
 		}
 		session.mcp = mcpServer
+	}
+	if resourceType == resourceRDS && signInApplies(&target, options.MCPAllowWrites) {
+		signIn := &sessionSignIn{
+			runner: r, session: session, cfg: cfg, target: target,
+			resourceType: resourceType, instance: resolvedTargetName, localPort: localPort,
+			aws: r.awsRunner(cfg),
+		}
+		if session.Details.IDEDataSource != "" {
+			signIn.updateIDE = func(user string) {
+				updated := target
+				updated.DBUser = user
+				// Same key: the entry is updated; the first remover still removes it.
+				r.registerIDEDataSource(resourceType, resolvedTargetName, localPort, updated, cfg)
+			}
+		}
+		session.SignIn = signIn
 	}
 	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource, removeKubeconfig)
 
@@ -2038,6 +2067,14 @@ func (r *Runner) selectName(title string, names []string, prompt string) (string
 		return "", fmt.Errorf("failed to read input: %w", err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// awsRunner runs AWS CLI commands with the profile and region of cfg.
+func (r *Runner) awsRunner(cfg awsConfig) dbmcp.AWSRunner {
+	args := append([]string{}, cfg.Args...)
+	return func(ctx context.Context, commandArgs ...string) (string, error) {
+		return r.runAWSCapture(ctx, args, commandArgs...)
+	}
 }
 
 func (r *Runner) runAWSCapture(ctx context.Context, awsArgs []string, commandArgs ...string) (string, error) {

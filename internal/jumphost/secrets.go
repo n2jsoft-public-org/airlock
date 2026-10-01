@@ -108,6 +108,13 @@ func rankDBSecrets(entries []secretListEntry, instance, instanceARN, masterSecre
 	return secrets
 }
 
+// secretShortName is the name of a secret without its path and random suffix, e.g.
+// example-dev-integ.
+func secretShortName(secretID string) string {
+	name := SecretDisplayName(secretID)
+	return name[strings.LastIndex(name, "/")+1:]
+}
+
 // secretARNSuffix is the "-" and 6 random characters Secrets Manager appends to a name in an ARN.
 var secretARNSuffix = regexp.MustCompile(`-[A-Za-z0-9]{6}$`)
 
@@ -136,6 +143,63 @@ func resolveSecretSignIn(ctx context.Context, aws dbmcp.AWSRunner, secretID, typ
 		return user, nil
 	}
 	return "", fmt.Errorf("secret %s has no username: fill the User field", SecretDisplayName(secretID))
+}
+
+// DBCredentials is a database sign-in read from Secrets Manager.
+type DBCredentials struct {
+	// Database is the database the credentials are for; empty when the secret names none.
+	Database string
+	// Secret is the name of the secret they come from, without its path; empty for a picked secret.
+	Secret   string
+	User     string
+	Password string
+}
+
+// Label names the credentials for display: their database, else their secret; empty for a
+// picked secret.
+func (c DBCredentials) Label() string {
+	if c.Database != "" {
+		return c.Database
+	}
+	return c.Secret
+}
+
+// secretCredentialsReader returns a function reading the credentials target signs in with from
+// Secrets Manager: its picked secret, else, when it signs in with neither AWS IAM nor a typed
+// password, the read-only secrets of each database. It reads them again on each call, so rotated
+// secrets show their current value, and never keeps them. It returns nil when neither applies.
+func (r *Runner) secretCredentialsReader(aws dbmcp.AWSRunner, instance string, target *ideTarget) func(ctx context.Context) ([]DBCredentials, error) {
+	switch secretID, user := target.DBSecretARN, target.DBUser; {
+	case secretID != "":
+		return func(ctx context.Context) ([]DBCredentials, error) {
+			secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read secret %s: %w", SecretDisplayName(secretID), err)
+			}
+			return []DBCredentials{{User: user, Password: secret.Password}}, nil
+		}
+	case !target.IAMAuth && target.DBPassword == "" && target.InstanceARN != "" && !r.readOnlySecretTag.IsZero():
+		instanceARN, tag := target.InstanceARN, r.readOnlySecretTag
+		return func(ctx context.Context) ([]DBCredentials, error) {
+			secrets, err := dbmcp.ReadReadOnlySecrets(ctx, aws, instance, instanceARN, tag)
+			if err != nil {
+				return nil, err
+			}
+			creds := make([]DBCredentials, 0, len(secrets))
+			for _, secret := range secrets {
+				creds = append(creds, DBCredentials{
+					Database: secret.Credentials.Database,
+					Secret:   secretShortName(secret.ARN),
+					User:     secret.Credentials.User,
+					Password: secret.Credentials.Password,
+				})
+			}
+			sort.SliceStable(creds, func(i, j int) bool { return creds[i].Label() < creds[j].Label() })
+			return creds, nil
+		}
+	default:
+		return nil
+	}
 }
 
 // MCPEngineSupported reports whether the MCP server can query the RDS engine, the only case where

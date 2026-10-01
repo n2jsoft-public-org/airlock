@@ -97,7 +97,7 @@ ORDER BY i.name`,
 }
 
 // newQuerier returns the Querier for engine, connecting to the tunnel on localhost:port.
-func newQuerier(engine Engine, creds CredentialProvider, port int) Querier {
+func newQuerier(engine Engine, creds CredentialProvider, port int) *sqlQuerier {
 	if engine == EngineSQLServer {
 		return newSQLQuerier(&sqlServerDialect, creds, port, sqlServerOpener(creds, port))
 	}

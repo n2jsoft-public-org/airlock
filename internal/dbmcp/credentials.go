@@ -281,21 +281,9 @@ func (p *readOnlySecretsProvider) load(ctx context.Context) error {
 	if p.byDatabase != nil {
 		return nil
 	}
-	if p.instanceARN == "" {
-		return fmt.Errorf("instance ARN of %s is unknown: cannot look up its read-only secrets", p.instance)
-	}
-
-	raw, err := p.aws(ctx, "secretsmanager", "list-secrets",
-		"--filters", "Key=tag-key,Values=DBInstanceArn", "Key=tag-value,Values="+p.instanceARN,
-		"--query", ReadOnlySecretsQuery(p.tag, p.instanceARN),
-		"--output", "json",
-	)
+	arns, err := listReadOnlySecrets(ctx, p.aws, p.instance, p.instanceARN, p.tag)
 	if err != nil {
-		return fmt.Errorf("failed to list read-only secrets of %s (missing secretsmanager:ListSecrets?): %w", p.instance, err)
-	}
-	var arns []string
-	if err := json.Unmarshal([]byte(raw), &arns); err != nil {
-		return fmt.Errorf("failed to parse read-only secrets of %s: %w", p.instance, err)
+		return err
 	}
 
 	byDatabase := map[string]Credentials{}
@@ -363,6 +351,65 @@ func (p *readOnlySecretsProvider) refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.byDatabase, p.warnings = nil, nil
+}
+
+// listReadOnlySecrets returns the ARNs of the read-only secrets of instance carrying tag.
+func listReadOnlySecrets(ctx context.Context, aws AWSRunner, instance, instanceARN string, tag awstag.Tag) ([]string, error) {
+	if instanceARN == "" {
+		return nil, fmt.Errorf("instance ARN of %s is unknown: cannot look up its read-only secrets", instance)
+	}
+	raw, err := aws(ctx, "secretsmanager", "list-secrets",
+		"--filters", "Key=tag-key,Values=DBInstanceArn", "Key=tag-value,Values="+instanceARN,
+		"--query", ReadOnlySecretsQuery(tag, instanceARN),
+		"--output", "json",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list read-only secrets of %s (missing secretsmanager:ListSecrets?): %w", instance, err)
+	}
+	var arns []string
+	if err := json.Unmarshal([]byte(raw), &arns); err != nil {
+		return nil, fmt.Errorf("failed to parse read-only secrets of %s: %w", instance, err)
+	}
+	return arns, nil
+}
+
+// ReadOnlySecret is one read-only secret of an instance, read for display.
+type ReadOnlySecret struct {
+	ARN string
+	// Credentials.Database is empty when the secret names no database.
+	Credentials Credentials
+}
+
+// ReadReadOnlySecrets discovers and reads every read-only secret of instance carrying tag, those
+// naming no database included, in the order listed; nothing is cached. Unreadable secrets are
+// skipped, and only fail the call when none is readable.
+func ReadReadOnlySecrets(ctx context.Context, aws AWSRunner, instance, instanceARN string, tag awstag.Tag) ([]ReadOnlySecret, error) {
+	arns, err := listReadOnlySecrets(ctx, aws, instance, instanceARN, tag)
+	if err != nil {
+		return nil, err
+	}
+	secrets := make([]ReadOnlySecret, 0, len(arns))
+	var failures []string
+	for _, arn := range arns {
+		payload, err := readSecret(ctx, aws, arn)
+		if err != nil {
+			failures = append(failures, err.Error())
+			continue
+		}
+		database := payload.DBName
+		if database == "" {
+			database = payload.Database
+		}
+		secrets = append(secrets, ReadOnlySecret{ARN: arn, Credentials: Credentials{User: payload.Username, Password: payload.Password, Database: database}})
+	}
+	if len(secrets) == 0 {
+		message := fmt.Sprintf("no readable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue; tag from \"readOnlySecretTag\", see `airlock config show`)", tag, instance)
+		if len(failures) > 0 {
+			message += ": " + strings.Join(failures, "; ")
+		}
+		return nil, errors.New(message)
+	}
+	return secrets, nil
 }
 
 func (p *readOnlySecretsProvider) names() []string {

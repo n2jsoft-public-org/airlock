@@ -49,6 +49,10 @@ const (
 	ssmModeHelp
 	// ssmModeCopy offers to copy the values of the selected session.
 	ssmModeCopy
+	// ssmModePassword shows the password the selected session reads from Secrets Manager.
+	ssmModePassword
+	// ssmModeSignIn asks which credentials the selected session signs in with.
+	ssmModeSignIn
 )
 
 type ssmOutputMsg struct {
@@ -97,7 +101,9 @@ type ssmSession struct {
 	// options prepared the session; a restart prepares them again.
 	options jumphost.Options
 	// mcp holds the calls made through the session's MCP server (nil when none runs).
-	mcp           *ssmMCPQueries
+	mcp *ssmMCPQueries
+	// signIn checks the database credentials once the tunnel is ready.
+	signIn        ssmSignIn
 	lines         []ssmLogLine
 	id            int
 	connections   int
@@ -179,6 +185,8 @@ type ssmModel struct {
 	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
 	copier     func(text string) error
 	copyCursor int
+	// password is the password dialog (ssmModePassword).
+	password ssmPasswordReveal
 	// production flags the AWS profiles of the productionProfiles setting.
 	production productionMatcher
 }
@@ -314,12 +322,17 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.frame++
 		return m, ssmTickCmd()
 	case ssmOutputMsg:
+		var cmd tea.Cmd
 		if s := m.session(msg.id); s != nil {
+			wasReady := s.ready
 			s.appendLines(msg.line)
 			trackPluginOutput(s, msg.line)
+			if !wasReady && s.ready {
+				cmd = m.startSignIn(s)
+			}
 			m.refreshSelected(s)
 		}
-		return m, waitSSMEvent(m.events)
+		return m, tea.Batch(waitSSMEvent(m.events), cmd)
 	case ssmMCPQueryMsg:
 		if s := m.session(msg.id); s != nil && s.mcp != nil {
 			s.mcp.add(&msg.event)
@@ -344,6 +357,14 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePrepared(msg)
 	case ssmCopiedMsg:
 		return m.handleCopied(msg)
+	case ssmPasswordMsg:
+		return m.handlePassword(msg)
+	case ssmSignInListedMsg:
+		return m.handleSignInListed(msg)
+	case ssmSignInCheckedMsg:
+		return m.handleSignInChecked(msg)
+	case ssmPrefsSavedMsg:
+		return m.handlePrefsSaved(msg)
 	case ssmReconnectMsg:
 		return m.handleReconnect(msg)
 	case jumphostWizardDoneMsg:
@@ -369,6 +390,10 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleHelpKey(msg)
 		case ssmModeCopy:
 			return m.handleCopyKey(msg)
+		case ssmModePassword:
+			return m.handlePasswordKey(msg)
+		case ssmModeSignIn:
+			return m.handleSignInKey(msg)
 		default:
 			return m.handleSessionKey(msg)
 		}
@@ -408,6 +433,10 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "c":
 		return m.openCopyMenu()
+	case "p":
+		return m.revealPassword()
+	case "a":
+		return m.retrySignIn()
 	case "r":
 		return m.restartSelected()
 	case "m":
@@ -556,6 +585,7 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 		s.appendLines(cleanup)
 	}
 	reconnect := m.scheduleReconnect(s)
+	m = m.endSignIn(s)
 	m.refreshSelected(s)
 
 	// Only "stop all & quit" leaves on its own: an ended session stays on screen with its logs.

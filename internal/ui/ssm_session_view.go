@@ -216,6 +216,10 @@ func (m ssmModel) renderMain(l ssmLayout) string {
 		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderDialog(l.mainWidth)))
 	case ssmModeCopy:
 		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderCopyMenu(l.mainWidth)))
+	case ssmModePassword:
+		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderPasswordDialog(l.mainWidth)))
+	case ssmModeSignIn:
+		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderSignInDialog(l.mainWidth)))
 	default:
 		parts = append(parts, m.renderLogs(l.mainWidth, logHeight))
 	}
@@ -256,7 +260,13 @@ func (m ssmModel) renderDetails(width int) string {
 		m.field("Uptime", uptime, inner),
 	}
 	if auth := strings.TrimSpace(s.session.Details.Auth); auth != "" {
+		if canRevealPassword(s) {
+			auth += "  " + m.styles.KeyCap.Render("p") + m.styles.Faint.Render(" show password")
+		}
 		rows = append(rows, m.field("Auth", auth, inner))
+	}
+	if status := m.signInStatus(s); status != "" {
+		rows = append(rows, m.field("Sign-in", status, inner))
 	}
 	if ide := strings.TrimSpace(s.session.Details.IDEDataSource); ide != "" {
 		rows = append(rows, m.field("IDE", ide, inner))
@@ -396,6 +406,10 @@ func (m ssmModel) renderFooter(width int) string {
 		keys = [][2]string{{"esc", "close"}}
 	case ssmModeCopy:
 		keys = [][2]string{{"1-9", "copy"}, {"↑↓", "move"}, {"enter", "copy"}, {"esc", "close"}}
+	case ssmModePassword:
+		keys = [][2]string{{"c", "copy"}, {"esc", "hide"}, {"↑↓", "move"}, {"←→", "choose"}, {"enter", "select"}}
+	case ssmModeSignIn:
+		keys = [][2]string{{"1-9", "choose"}, {"↑↓", "move"}, {"enter", "choose"}, {"esc", "later"}}
 	default:
 		keys = [][2]string{{"n", "new"}}
 		switch s := m.selectedSession(); {
@@ -407,6 +421,15 @@ func (m ssmModel) renderFooter(width int) string {
 		}
 		if s := m.selectedSession(); s != nil {
 			keys = append(keys, [2]string{"c", "copy"})
+		}
+		if s := m.selectedSession(); canRevealPassword(s) {
+			keys = append(keys, [2]string{"p", "password"})
+		}
+		if s := m.selectedSession(); canRetrySignIn(s) {
+			switch s.signIn.state {
+			case signInChoosing, signInSkipped, signInFailed:
+				keys = append(keys, [2]string{"a", "sign in"})
+			}
 		}
 		keys = append(keys, [2]string{"tab", "switch"}, [2]string{"1-9", "jump"}, [2]string{"↑↓", "scroll"})
 		if s := m.selectedSession(); s != nil && s.mcp != nil {
@@ -430,8 +453,8 @@ func (m ssmModel) helpGroups() []helpGroup {
 			{"r", "Restart an ended session"},
 			{"x", "Stop the session, or close it once ended"},
 			{"c", "Copy its address, a command or the last MCP query"},
-			{"tab ←→", "Switch session"},
-			{"1-9", "Jump to a session"},
+			{"a p", "Choose the database credentials, or show the password"},
+			{"tab ←→ 1-9", "Switch session, or jump to one"},
 		}},
 		{title: "Logs", keys: [][2]string{
 			{"↑↓ pgup pgdn", "Scroll, pausing the live tail"},
