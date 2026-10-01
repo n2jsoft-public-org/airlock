@@ -1,0 +1,62 @@
+# The pull request gate. `pr-ruleset` is the required status check of the ruleset
+# "PR review settings and checks": rename that job and pull requests wait forever.
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Same checks as release.yml, run before the merge instead of after.
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        if: runner.os != 'Windows'
+        run: |
+          go vet ./...
+          go test ./...
+
+      # The other packages may be unix-only.
+      - name: Test the self-update package
+        if: runner.os == 'Windows'
+        run: go test ./internal/selfupdate/...
+
+  # One required check for every job above, so adding a job only means adding it to `needs`.
+  pr-ruleset:
+    needs: [test]
+    # Without !cancelled() a failed need skips this job, and a skipped check reports success.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report overall status
+        # Through env, not interpolated into the script.
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key) = \(.value.result)"'
+          echo "$NEEDS" | jq -e 'length > 0 and all(.[]; .result == "success" or .result == "skipped")' >/dev/null
