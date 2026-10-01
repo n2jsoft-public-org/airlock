@@ -190,6 +190,25 @@ airlock completion fish > ~/.config/fish/completions/airlock.fish              #
 `airlock version` prints the commit the binary was built from, as `YYYYMMDD-<short sha>` (commit
 date in UTC, for example `20261001-b50fc20`). It reads `dev` when run with `go run`.
 
+### Updating
+
+`airlock update` installs the latest release in place of the running binary when it is newer than
+your build, after checking the download against the release's `checksums.txt`:
+
+```sh
+airlock update           # install the latest release when it is newer
+airlock update --check   # only tell whether a newer release exists
+airlock update --force   # install the latest release even over a newer or unreleased build
+```
+
+The repository is private, so airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token
+of the GitHub CLI (`gh auth login`). When airlock lives in a folder you cannot write, such as
+`/usr/local/bin`, re-run with `sudo` or reinstall with `make install`.
+
+Once a day, in the background, the connect command checks for a newer release; the next launch
+then shows `update available` in the wizard, or a line on stderr for a direct connection. Set
+`AIRLOCK_NO_UPDATE_CHECK=1` to turn the check off.
+
 ### The wizard
 
 The wizard opens on your **recent connections**, most recently used first. Picking one checks that

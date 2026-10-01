@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
@@ -13,6 +14,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
+	"github.com/n2jsoft/airlock/internal/selfupdate"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -101,6 +103,23 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	} else if migrated {
 		cmd.PrintErrln("Copied saved connections and MCP logs of the former jumphost config directory into airlock's.")
 	}
+	// A previous airlock update may leave the replaced binary behind (Windows); then the notice
+	// comes from the last release check, refreshed in the background once a day.
+	updates := defaultUpdateEnv()
+	if target, err := updates.executable(); err == nil {
+		if err = selfupdate.CleanupOld(target); err != nil {
+			cmd.PrintErrf("Warning: %v\n", err)
+		}
+	}
+	latestRelease, staleCheck := updateNotice(updates, time.Now())
+	if staleCheck {
+		go func() {
+			// Best effort: a failure only means the notice waits for a later launch.
+			if err := refreshUpdateCheck(cmd.Context(), updates); err != nil {
+				return
+			}
+		}()
+	}
 	cfg, _, err := loadConfig(cmd)
 	if err != nil {
 		return err
@@ -153,11 +172,18 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	handoff := ui.NewTerminalHandoff()
 	tuiOptions.Interactive = handoff.Run
 	dashboard := ui.DashboardOptions{Handoff: handoff, ProductionProfiles: cfg.ProductionProfilePatterns()}
+	if latestRelease != "" {
+		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
+	}
 	tuiRunner := jumphost.NewRunner(tuiOptions)
 
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
 		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout(), dashboard)
+	}
+
+	if latestRelease != "" {
+		cmd.PrintErrln(stderrUpdateNotice(latestRelease))
 	}
 
 	if len(args) > 0 {
