@@ -36,6 +36,9 @@
 .EXAMPLE
     .\install.ps1 -Uninstall
 #>
+
+#Requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [string]$InstallDir,
@@ -319,9 +322,6 @@ if ($Uninstall) {
     }
     return
 }
-
-# Windows PowerShell 5.1 may not offer TLS 1.2 by default, which GitHub requires.
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $token = Get-GitHubToken
 $arch = Get-Architecture

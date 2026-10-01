@@ -82,9 +82,9 @@ jobs:
           test ! -e ~/.local/bin/airlock
           ! grep -qsF '# Added by the airlock installer' ~/.zshrc ~/.bashrc ~/.bash_profile
 
-      - name: Install, run and uninstall with Windows PowerShell
+      - name: Install, run and uninstall with PowerShell 7
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           .\install.ps1
           $target = "$env:LOCALAPPDATA\Programs\airlock\airlock.exe"
@@ -96,9 +96,9 @@ jobs:
           .\install.ps1 -Uninstall
           if (Test-Path (Split-Path $target)) { throw "the install folder is still there" }
 
-      - name: Uninstall through airlock uninstall with Windows PowerShell
+      - name: Uninstall through airlock uninstall with PowerShell 7
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           .\install.ps1
           $target = "$env:LOCALAPPDATA\Programs\airlock\airlock.exe"

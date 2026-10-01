@@ -49,9 +49,9 @@ macOS and Linux:
 gh api repos/n2jsoft/airlock/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
 ```
 
-Windows (PowerShell):
+Windows (PowerShell 7+):
 
-```powershell
+```pwsh
 & ([scriptblock]::Create((gh api repos/n2jsoft/airlock/contents/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String)))
 ```
 
@@ -119,7 +119,7 @@ GOPRIVATE=github.com/n2jsoft \
 
 On Windows (PowerShell):
 
-```powershell
+```pwsh
 $env:GOPRIVATE = 'github.com/n2jsoft'
 go install github.com/n2jsoft/airlock/cmd/airlock@latest
 ```
