@@ -1,0 +1,71 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended",
+        ":dependencyDashboard",
+        ":semanticCommits",
+        ":prHourlyLimit2",
+        "helpers:pinGitHubActionDigests",
+        "schedule:weekly"
+    ],
+    "labels": [
+        "dependencies"
+    ],
+    "timezone": "Europe/Paris",
+    "ignorePaths": [
+        "**/bin/**",
+        "**/dist/**"
+    ],
+    "postUpdateOptions": [
+        "gomodTidy"
+    ],
+    "packageRules": [
+        {
+            "description": "Group Charm TUI modules (Bubble Tea, Bubbles, Lipgloss, x/*)",
+            "matchManagers": [
+                "gomod"
+            ],
+            "matchPackageNames": [
+                "github.com/charmbracelet/**"
+            ],
+            "groupName": "charmbracelet"
+        },
+        {
+            "description": "Group golang.org/x modules (released together)",
+            "matchManagers": [
+                "gomod"
+            ],
+            "matchPackageNames": [
+                "golang.org/x/**"
+            ],
+            "groupName": "golang.org/x"
+        },
+        {
+            "description": "Group Cobra and pflag",
+            "matchManagers": [
+                "gomod"
+            ],
+            "matchPackageNames": [
+                "github.com/spf13/**"
+            ],
+            "groupName": "cobra"
+        },
+        {
+            "description": "Group all GitHub Actions bumps into one PR",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "groupName": "github actions"
+        },
+        {
+            "description": "Auto-merge non-major updates once required CI checks pass (platform-native auto-merge)",
+            "matchUpdateTypes": [
+                "minor",
+                "patch",
+                "digest",
+                "pin"
+            ],
+            "automerge": true
+        }
+    ]
+}

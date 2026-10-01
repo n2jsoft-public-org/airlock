@@ -554,3 +554,5 @@ make fmt vet lint test       # format, vet, lint and test
 ```
 
 See [.claude/CLAUDE.md](.claude/CLAUDE.md) for the architecture and contribution conventions.
+
+Dependency updates are handled by Renovate (`chore(deps): …`), configured in [`renovate.json`](renovate.json).
