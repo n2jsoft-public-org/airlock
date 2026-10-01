@@ -41,9 +41,9 @@ jobs:
           go test ./...
 
       # The other packages may be unix-only.
-      - name: Test the self-update package
+      - name: Test the self-update and uninstall packages
         if: runner.os == 'Windows'
-        run: go test ./internal/selfupdate/...
+        run: go test ./internal/selfupdate/... ./internal/uninstall/...
 
   release:
     # A manual run from another branch publishes nothing.

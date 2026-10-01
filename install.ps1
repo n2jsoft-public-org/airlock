@@ -21,7 +21,11 @@
     Installs without adding the install folder to the user PATH.
 
 .PARAMETER Uninstall
-    Removes airlock.exe. When that empties the folder, the folder and its PATH entry go too.
+    Removes airlock.exe and the PATH entry added for it, through `airlock uninstall`. When that
+    empties the folder, the folder goes too.
+
+.PARAMETER Purge
+    With -Uninstall, also removes the settings, history, logs and saved passwords.
 
 .EXAMPLE
     .\install.ps1
@@ -37,7 +41,8 @@ param(
     [string]$InstallDir,
     [string]$Version,
     [switch]$SkipPath,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Purge
 )
 
 # This script also runs as a script block, inside the caller's session: it never calls exit.
@@ -241,6 +246,41 @@ function Test-Prerequisite([string]$command, [string]$hint) {
     }
 }
 
+# Test-AirlockUninstall tells whether the airlock at target has the uninstall command.
+function Test-AirlockUninstall([string]$target) {
+    if (-not (Test-Path $target)) {
+        return $false
+    }
+    # Windows PowerShell turns any stderr line of a native command into an error under 'Stop'.
+    $ErrorActionPreference = 'Continue'
+    $help = & $target uninstall --help 2>$null | Out-String
+    return $help -match '--purge'
+}
+
+# Invoke-AirlockUninstall runs airlock uninstall, then waits for the binary to go, and its folder
+# when nothing else is in it: Windows deletes them once airlock has exited.
+function Invoke-AirlockUninstall([string]$target) {
+    $arguments = @('uninstall', '--yes')
+    if ($Purge) {
+        $arguments += '--purge'
+    }
+    & $target @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "airlock uninstall failed with exit code $LASTEXITCODE"
+    }
+    $dir = Split-Path $target
+    for ($i = 0; $i -lt 40; $i++) {
+        $emptyDir = (Test-Path $dir) -and -not (Get-ChildItem -Force $dir)
+        if (-not (Test-Path $target) -and -not $emptyDir) {
+            break
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    if (Test-Path $target) {
+        Write-Warning "$target is still there: delete it once no airlock runs."
+    }
+}
+
 if ($env:OS -ne 'Windows_NT') {
     throw 'install.ps1 installs airlock on Windows: on macOS and Linux, use install.sh.'
 }
@@ -258,6 +298,11 @@ $InstallDir = $InstallDir.TrimEnd('\', '/')
 $target = Join-Path $InstallDir $binary
 
 if ($Uninstall) {
+    if (Test-AirlockUninstall $target) {
+        Invoke-AirlockUninstall $target
+        return
+    }
+    # An airlock too old to uninstall itself, or none at all.
     if (Test-Path $target) {
         Remove-Item -Force $target
         Write-Host "Removed $target"
@@ -268,6 +313,9 @@ if ($Uninstall) {
     if ((Test-Path $InstallDir) -and -not (Get-ChildItem -Force $InstallDir)) {
         Remove-Item $InstallDir
         Remove-FromUserPath $InstallDir
+    }
+    if ($Purge) {
+        Write-Warning "This airlock cannot purge its data: remove $env:APPDATA\airlock and the airlock entries of the Credential Manager by hand."
     }
     return
 }

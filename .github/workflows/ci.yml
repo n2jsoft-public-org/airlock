@@ -42,9 +42,9 @@ jobs:
           go test ./...
 
       # The other packages may be unix-only.
-      - name: Test the self-update package
+      - name: Test the self-update and uninstall packages
         if: runner.os == 'Windows'
-        run: go test ./internal/selfupdate/...
+        run: go test ./internal/selfupdate/... ./internal/uninstall/...
 
   # Installs the latest release with the installers of the branch, as a developer without Go would.
   install:
@@ -59,6 +59,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Builds the airlock uninstall of the branch: the released airlock may not have it yet.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: Install, run and uninstall with install.sh
         if: runner.os != 'Windows'
         run: |
@@ -66,6 +72,15 @@ jobs:
           ~/.local/bin/airlock version
           sh install.sh --uninstall
           test ! -e ~/.local/bin/airlock
+
+      - name: Uninstall through airlock uninstall with install.sh
+        if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          go build -o ~/.local/bin/airlock ./cmd/airlock
+          sh install.sh --uninstall
+          test ! -e ~/.local/bin/airlock
+          ! grep -qsF '# Added by the airlock installer' ~/.zshrc ~/.bashrc ~/.bash_profile
 
       - name: Install, run and uninstall with Windows PowerShell
         if: runner.os == 'Windows'
@@ -80,6 +95,25 @@ jobs:
           if (Test-Path "$target.old") { throw "the previous airlock.exe was left behind" }
           .\install.ps1 -Uninstall
           if (Test-Path (Split-Path $target)) { throw "the install folder is still there" }
+
+      - name: Uninstall through airlock uninstall with Windows PowerShell
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\install.ps1
+          $target = "$env:LOCALAPPDATA\Programs\airlock\airlock.exe"
+          $dir = Split-Path $target
+          go build -o $target ./cmd/airlock
+          if ($LASTEXITCODE) { throw "go build failed" }
+          # The hidden PowerShell that deletes airlock.exe records what it does there.
+          $env:AIRLOCK_UNINSTALL_LOG = Join-Path $env:RUNNER_TEMP 'uninstall.log'
+          .\install.ps1 -Uninstall
+          if (Test-Path $dir) {
+            Get-Content $env:AIRLOCK_UNINSTALL_LOG -ErrorAction SilentlyContinue
+            throw "the install folder is still there"
+          }
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (($userPath -split ';') -contains $dir) { throw "$dir is still in the user PATH" }
 
       - name: Install as a script block with PowerShell 7
         if: runner.os == 'Windows'

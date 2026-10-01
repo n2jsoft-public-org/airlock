@@ -43,6 +43,29 @@ func TestAvailable(t *testing.T) {
 	}
 }
 
+func TestDeleteAll(t *testing.T) {
+	keyring.MockInit()
+	stores := map[string]Store{"os": NewOSStore(), "memory": NewMemoryStore()}
+	for name, store := range stores {
+		t.Run(name, func(t *testing.T) {
+			for _, account := range []string{"111/eu-west-3/rds/archive/app", "222/eu-west-1/rds/billing/ro"} {
+				if err := store.Set(account, "s3cret"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := store.DeleteAll(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Get("222/eu-west-1/rds/billing/ro"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Get after DeleteAll = %v, want ErrNotFound", err)
+			}
+			if err := store.DeleteAll(); err != nil {
+				t.Fatalf("DeleteAll of an empty keychain = %v, want no error", err)
+			}
+		})
+	}
+}
+
 func TestMemoryStore(t *testing.T) {
 	store := NewMemoryStore()
 	if _, err := store.Get("a"); !errors.Is(err, ErrNotFound) {

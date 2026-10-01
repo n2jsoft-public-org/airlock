@@ -78,7 +78,7 @@ archive against the release's `checksums.txt`, then installs `airlock` to a fold
 | Other folder | `--dir <path>` or `AIRLOCK_INSTALL_DIR` | `-InstallDir <path>` or `AIRLOCK_INSTALL_DIR` |
 | Given release | `--version <tag>` or `AIRLOCK_VERSION` | `-Version <tag>` or `AIRLOCK_VERSION` |
 | Leave PATH alone | `--skip-path` | `-SkipPath` |
-| Uninstall | `--uninstall` | `-Uninstall` |
+| Uninstall ([details](#uninstalling)) | `--uninstall`, with `--purge` for your data | `-Uninstall`, with `-Purge` for your data |
 
 When piped, pass the options after `sh -s --`, for example `… | sh -s -- --dir /opt/bin`. In
 PowerShell, add them after the script block: `& ([scriptblock]::Create(…)) -Uninstall`. From a
@@ -234,6 +234,29 @@ it from an administrator terminal or reinstall with `install.ps1`.
 Once a day, in the background, the connect command checks for a newer release; the next launch
 then shows `update available` in the wizard, or a line on stderr for a direct connection. Set
 `AIRLOCK_NO_UPDATE_CHECK` to any non-empty value (`AIRLOCK_NO_UPDATE_CHECK=1`) to turn the check off.
+
+### Uninstalling
+
+`airlock uninstall` removes airlock however it was installed (installer, `make install` or
+`go install`). It lists what it removes and what it keeps, then asks before changing anything:
+
+```sh
+airlock uninstall           # remove the binary and the PATH entry its installer added
+airlock uninstall --purge   # also remove your settings, history, logs and saved passwords
+airlock uninstall --yes     # do not ask (required without a terminal)
+```
+
+| | Removed | With `--purge` |
+|---|---|---|
+| The airlock binary | ✅ | ✅ |
+| The installer's PATH entry: the block in your shell profile, or the Windows user PATH entry and folder | ✅ when the folder holds nothing else | ✅ |
+| `~/.config/airlock` (`%AppData%\airlock`): settings, recent connections, MCP query logs, kubeconfigs | | ✅ |
+| Database passwords saved in the OS keychain | | ✅ |
+
+The IntelliJ data sources airlock added to your projects' `.idea/dataSources.xml` stay. On
+Windows, `airlock.exe` is deleted right after airlock exits, since Windows cannot delete a running
+program; quit any other airlock first. The installers' `--uninstall` / `-Uninstall` (and `--purge`
+/ `-Purge`) run the same command, and still remove an airlock too old to have it.
 
 ### The wizard
 

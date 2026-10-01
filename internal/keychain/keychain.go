@@ -26,6 +26,8 @@ type Store interface {
 	Set(account, secret string) error
 	// Delete removes the secret of account; a missing one is not an error.
 	Delete(account string) error
+	// DeleteAll removes every secret airlock stored; none is not an error.
+	DeleteAll() error
 }
 
 type osStore struct{}
@@ -47,6 +49,13 @@ func (osStore) Set(account, secret string) error {
 
 func (osStore) Delete(account string) error {
 	if err := keyring.Delete(service, account); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return err
+	}
+	return nil
+}
+
+func (osStore) DeleteAll() error {
+	if err := keyring.DeleteAll(service); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return err
 	}
 	return nil
@@ -103,5 +112,15 @@ func (m *MemoryStore) Delete(account string) error {
 		return m.Err
 	}
 	delete(m.secrets, account)
+	return nil
+}
+
+func (m *MemoryStore) DeleteAll() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Err != nil {
+		return m.Err
+	}
+	clear(m.secrets)
 	return nil
 }

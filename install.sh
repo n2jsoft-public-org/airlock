@@ -32,7 +32,8 @@ Options:
   --dir <path>      install folder (default: $AIRLOCK_INSTALL_DIR, else ~/.local/bin)
   --version <tag>   install this release, e.g. 20261001-758f7ea (default: $AIRLOCK_VERSION, else latest)
   --skip-path       do not add the install folder to the shell profile
-  --uninstall       remove the installed binary
+  --uninstall       remove airlock and the PATH entry added for it (runs airlock uninstall)
+  --purge           with --uninstall, also remove settings, history, logs and saved passwords
 
 The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login).
 EOF
@@ -237,11 +238,67 @@ check_prerequisites() {
 	fi
 }
 
+# uninstall_airlock hands over to `airlock uninstall`, which also knows the data and the keychain.
+# An airlock too old to have it, or none at all, gets the binary and PATH block removed here.
+uninstall_airlock() {
+	if [ -x "$target" ] && "$target" uninstall --help 2>/dev/null | grep -q -- '--purge'; then
+		if [ "$purge" = 1 ]; then
+			"$target" uninstall --yes --purge
+		else
+			"$target" uninstall --yes
+		fi
+		return
+	fi
+	if [ -e "$target" ]; then
+		rm -f "$target"
+		say "Removed $target"
+	else
+		say "Nothing to remove: $target does not exist"
+	fi
+	for profile in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" \
+		"${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/airlock.fish"; do
+		remove_profile_block "$profile"
+	done
+	if [ "$purge" = 1 ]; then
+		warn "this airlock cannot purge its data: remove ~/.config/airlock and the airlock entries of your keychain by hand"
+	fi
+}
+
+# remove_profile_block drops the PATH block add_to_path wrote to profile, with the blank line
+# before it; the fish file, which only holds that block, goes entirely.
+remove_profile_block() {
+	grep -qsF '# Added by the airlock installer' "$1" || return 0
+	awk -v dir="$install_dir" '
+		{ line[NR] = $0 }
+		END {
+			for (i = 1; i < NR; i++) {
+				if (line[i] == "# Added by the airlock installer" &&
+					(index(line[i + 1], "\"" dir ":$PATH\"") || index(line[i + 1], "\"" dir "\""))) {
+					skip[i] = skip[i + 1] = 1
+					if (i > 1 && line[i - 1] == "") skip[i - 1] = 1
+				}
+			}
+			for (i = 1; i <= NR; i++) if (!skip[i]) print line[i]
+		}' "$1" >"$1.airlock-tmp" || return 0
+	if cmp -s "$1" "$1.airlock-tmp"; then
+		rm -f "$1.airlock-tmp"
+		return
+	fi
+	if [ "$(basename "$1")" = airlock.fish ] && ! grep -q '[^[:space:]]' "$1.airlock-tmp"; then
+		rm -f "$1" "$1.airlock-tmp"
+	else
+		# cat keeps the profile's owner and mode, which a mv would replace.
+		cat "$1.airlock-tmp" >"$1" && rm -f "$1.airlock-tmp"
+	fi
+	say "Removed the PATH entry in $1"
+}
+
 main() {
 	install_dir="${AIRLOCK_INSTALL_DIR:-$HOME/.local/bin}"
 	version="${AIRLOCK_VERSION:-}"
 	skip_path=0
 	uninstall=0
+	purge=0
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--dir)
@@ -256,6 +313,7 @@ main() {
 			;;
 		--skip-path) skip_path=1 ;;
 		--uninstall) uninstall=1 ;;
+		--purge) purge=1 ;;
 		-h | --help)
 			usage
 			return
@@ -268,12 +326,7 @@ main() {
 	target="$install_dir/airlock"
 
 	if [ "$uninstall" = 1 ]; then
-		if [ -e "$target" ]; then
-			rm -f "$target"
-			say "Removed $target"
-		else
-			say "Nothing to remove: $target does not exist"
-		fi
+		uninstall_airlock
 		return
 	fi
 
