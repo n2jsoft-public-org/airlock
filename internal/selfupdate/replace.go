@@ -48,9 +48,10 @@ func Replace(target string, binary []byte) (err error) {
 	}()
 
 	_, writeErr := tmp.Write(binary)
+	syncErr := tmp.Sync()
 	closeErr := tmp.Close()
 	chmodErr := os.Chmod(tmp.Name(), info.Mode().Perm()) // #nosec G302 -- the new binary keeps the mode of the one it replaces.
-	if err = errors.Join(writeErr, closeErr, chmodErr); err != nil {
+	if err = errors.Join(writeErr, syncErr, closeErr, chmodErr); err != nil {
 		return replaceError(target, err)
 	}
 	if err = swap(tmp.Name(), target); err != nil {
@@ -61,7 +62,7 @@ func Replace(target string, binary []byte) (err error) {
 
 func replaceError(target string, err error) error {
 	if errors.Is(err, fs.ErrPermission) {
-		return fmt.Errorf("cannot replace %s: permission denied (re-run with sudo, or reinstall with make install)", target)
+		return fmt.Errorf("cannot replace %s: permission denied (%s)", target, permissionHint)
 	}
 	return fmt.Errorf("cannot replace %s: %w", target, err)
 }

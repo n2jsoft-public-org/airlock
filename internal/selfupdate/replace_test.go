@@ -82,9 +82,12 @@ func TestReplaceInReadOnlyFolderSaysPermissionDenied(t *testing.T) {
 	})
 
 	err := Replace(target, []byte("new"))
-	want := "cannot replace " + target + ": permission denied (re-run with sudo, or reinstall with make install)"
+	want := "cannot replace " + target + ": permission denied (" + permissionHint + ")"
 	if err == nil || err.Error() != want {
 		t.Fatalf("error = %v, want %q", err, want)
+	}
+	if !strings.Contains(err.Error(), `sudo GH_TOKEN="$(gh auth token)" airlock update`) {
+		t.Fatalf("the hint must carry the token through sudo: %v", err)
 	}
 	if got, readErr := os.ReadFile(target); readErr != nil || string(got) != "old" { // #nosec G304
 		t.Fatalf("target changed: %q, %v", got, readErr)

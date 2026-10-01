@@ -80,7 +80,7 @@ the GitHub CLI, for example on an Apple silicon Mac:
 
 ```sh
 gh release download -R n2jsoft/airlock -p '*darwin_arm64.tar.gz'
-tar -xzf airlock_*_darwin_arm64.tar.gz airlock && mv airlock /usr/local/bin/
+tar -xzf airlock_*_darwin_arm64.tar.gz airlock && sudo mv airlock /usr/local/bin/
 ```
 
 </details>
@@ -203,11 +203,13 @@ airlock update --force   # install the latest release even over a newer or unrel
 
 The repository is private, so airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token
 of the GitHub CLI (`gh auth login`). When airlock lives in a folder you cannot write, such as
-`/usr/local/bin`, re-run with `sudo` or reinstall with `make install`.
+`/usr/local/bin`, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or
+reinstall with `make install`; on Windows, run it from an administrator terminal or reinstall with
+`install.ps1`.
 
 Once a day, in the background, the connect command checks for a newer release; the next launch
 then shows `update available` in the wizard, or a line on stderr for a direct connection. Set
-`AIRLOCK_NO_UPDATE_CHECK=1` to turn the check off.
+`AIRLOCK_NO_UPDATE_CHECK` to any non-empty value (`AIRLOCK_NO_UPDATE_CHECK=1`) to turn the check off.
 
 ### The wizard
 
