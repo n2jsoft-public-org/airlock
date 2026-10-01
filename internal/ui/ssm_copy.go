@@ -36,7 +36,7 @@ func copyItems(s *ssmSession) []copyItem {
 		add("KUBECONFIG export", "export KUBECONFIG="+kubeconfig)
 	}
 	if s.mcp != nil && len(s.mcp.events) > 0 {
-		add("Last MCP query", s.mcp.events[len(s.mcp.events)-1].SQL)
+		add("Last MCP call", s.mcp.events[len(s.mcp.events)-1].Detail())
 	}
 	return items
 }

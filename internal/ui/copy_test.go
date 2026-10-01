@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // newCopyTestModel returns a dashboard whose copies land in *copied instead of the clipboard.
@@ -51,7 +52,7 @@ func TestCopyMenuListsWhatCanBeCopied(t *testing.T) {
 			t.Fatalf("copy menu lacks %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "KUBECONFIG") || strings.Contains(view, "Last MCP query") {
+	if strings.Contains(view, "KUBECONFIG") || strings.Contains(view, "Last MCP call") {
 		t.Fatalf("copy menu offers values this session does not have:\n%s", view)
 	}
 }
@@ -82,16 +83,31 @@ func TestCopyMenuOffersKubeconfigAndLastQuery(t *testing.T) {
 
 	m = copyChosen(t, m, "c")
 	view := plainView(m)
-	if !strings.Contains(view, "KUBECONFIG") || !strings.Contains(view, "Last MCP query") {
+	if !strings.Contains(view, "KUBECONFIG") || !strings.Contains(view, "Last MCP call") {
 		t.Fatalf("copy menu lacks the kubeconfig or the last query:\n%s", view)
 	}
 	m = copyChosen(t, m, "5")
 	if (*copied)[0] != "SELECT id FROM users" {
-		t.Fatalf("copied = %q, want the last MCP query", *copied)
+		t.Fatalf("copied = %q, want the last MCP call", *copied)
 	}
 	m = copyChosen(t, m, "c", "4")
 	if (*copied)[1] != "export KUBECONFIG=/home/dev/.config/airlock/kube/platform.json" {
 		t.Fatalf("copied = %q, want the KUBECONFIG export", *copied)
+	}
+}
+
+func TestCopyMenuOffersTheLastNonSQLCall(t *testing.T) {
+	m, copied := newCopyTestModel(t)
+	m.sessions[0].mcp = &ssmMCPQueries{}
+	m.sessions[0].mcp.add(&mcpserve.ToolEvent{Tool: "command", Engine: "redis", Command: "HGETALL user:1"})
+
+	m = copyChosen(t, m, "c")
+	if !strings.Contains(plainView(m), "Last MCP call") {
+		t.Fatalf("copy menu lacks the last call:\n%s", plainView(m))
+	}
+	copyChosen(t, m, "4")
+	if len(*copied) != 1 || (*copied)[0] != "HGETALL user:1" {
+		t.Fatalf("copied = %q, want the cache command", *copied)
 	}
 }
 

@@ -31,8 +31,8 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 | 🧭 **Guided wizard** | Pick a recent connection, or go resource type → profile → target → review. Search every target of a profile in one list. |
 | 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password and AWS Secrets Manager sign-in are available too, with an optional OS keychain. |
 | 🪟 **Parallel sessions** | Open as many tunnels as you need, switch between them with a keystroke. Local ports never collide. |
-| 🤖 **AI-ready** | Each PostgreSQL or SQL Server session serves a read-only MCP server and registers it for Claude Code and VS Code. |
-| 🧾 **Audited** | Every MCP query is shown live in the dashboard and written to a daily JSONL audit log. |
+| 🤖 **AI-ready** | Each database, EKS and cache session serves a guarded MCP server and registers it for Claude Code and VS Code. |
+| 🧾 **Audited** | Every MCP call is shown live in the dashboard and written to a daily JSONL audit log. |
 | 🧩 **IDE integration** | Registers the tunnel as an IntelliJ data source in `.idea/dataSources.xml`. |
 | 🌍 **Region aware** | Switch region at any time from a searchable list (`paris`, `eu-west`, `japan`…). |
 | 👥 **Team settings** | Share one config string with `airlock config export` / `import`. |
@@ -185,11 +185,11 @@ airlock rds my-db 5432 --db-user app_ro
 |---|---|
 | `-p`, `--profile` | AWS profile to use (the wizard asks when omitted). `--aws-profile` is an alias. |
 | `--region` | AWS region (defaults to `AWS_REGION`, then the profile's region) |
-| `--db-user` | Database user for RDS AWS IAM authentication |
-| `--db-secret` | Secrets Manager secret (ARN or name) holding the RDS password |
+| `--db-user` | Database or cache user for AWS IAM authentication |
+| `--db-secret` | Secrets Manager secret (ARN or name) holding the database or cache password |
 | `--no-ide-datasource` | Do not register the connection in `./.idea/dataSources.xml` |
-| `--no-mcp` | Do not serve the database MCP server |
-| `--mcp-allow-writes` | Let the MCP server modify data |
+| `--no-mcp` | Do not serve the MCP server |
+| `--mcp-allow-writes` | Let the MCP server modify data (databases and caches) |
 | `--jumphost-tag` | Tag of the jumphost instance, as `Key=Value` |
 | `--read-only-secret-tag` | Tag of the read-only SQL Server secrets, as `Key=Value` |
 | `--mcp-server-prefix` | Prefix of the MCP server names |
@@ -405,12 +405,12 @@ on one of them switches to its session instead of opening a second one.
 |---|---|
 | `n` | Open another connection |
 | `tab` · `←` `→` · `1`–`9` | Switch between sessions |
-| `m` | Switch the bottom panel between logs and MCP queries (database sessions) |
+| `m` | Switch the bottom panel between logs and MCP calls (sessions with an MCP server) |
 | `↑` `↓` · `pgup` `pgdn` | Scroll the logs; scrolling up pauses them |
 | `g` · `home` / `G` · `end` | Jump to the start of the logs / back to the live tail |
 | `x` | Stop the selected session, or close it once ended |
 | `r` | Restart the selected ended session: same target, local port and sign-in |
-| `c` | Copy the local address, the IAM token command, the reconnect command, the `KUBECONFIG` export or the last MCP query |
+| `c` | Copy the local address, the IAM token command, the reconnect command, the `KUBECONFIG` export or the last MCP call |
 | `a` | Choose the database credentials of the session, or check them again after a failure |
 | `p` | Show the database passwords read from Secrets Manager: the picked secret, or the read-only secret of each database (never the master one). They are read again each time; `c` or `1`–`9` copies one, `esc` hides them |
 | `esc` | Cancel a connection being prepared |
@@ -443,10 +443,11 @@ session instead.
 
 ## 🤖 AI access with MCP
 
-For **RDS PostgreSQL** and **SQL Server** sessions, airlock serves an MCP server on `127.0.0.1` for
-as long as the session runs, so AI assistants can explore and query the database through the tunnel.
+For **RDS PostgreSQL** and **SQL Server** sessions, **EKS** clusters and **Redis / Valkey ElastiCache**
+caches, airlock serves an MCP server on `127.0.0.1` for as long as the session runs, so AI assistants
+can explore them through the tunnel.
 
-**Tools**
+**Database tools**
 
 | Tool | Description |
 |---|---|
@@ -456,7 +457,57 @@ as long as the session runs, so AI assistants can explore and query the database
 | `query` | Run a single read-only `SELECT` / `WITH` (max 1000 rows, 30 s timeout) |
 | `execute` | Run a statement that modifies data. **Only with `--mcp-allow-writes`.** |
 
-**Registration.** The server is registered as `<prefix>-<profile>-<instance>` in:
+**Kubernetes tools (EKS, always read-only)**
+
+| Tool | Description |
+|---|---|
+| `list_namespaces` | List the namespaces and their phase |
+| `list_resource_types` | List the resource types of the cluster, custom resources included |
+| `list_resources` | List objects of one type, summarized (status, ready, restarts, age…), with label and field selectors (max 500) |
+| `get_resource` | Show one object as JSON |
+| `pod_logs` | Read the last lines of a container's logs (max 2000 lines) |
+| `list_events` | List recent events, newest first, optionally of one object (max 500) |
+
+Lists and logs are cut at 256 KiB, with a `truncated` flag. `list_events` sorts the first 5000
+events the API returns (it does not sort them); on busier clusters its reply carries a `note`
+saying so: narrow with a namespace, kind or name.
+
+The server signs in with `aws eks get-token`, as your IAM identity: what it can read is what the
+cluster's RBAC grants you (EKS access entry or `aws-auth`). **Secret values are never returned**:
+names, types and keys are, every value reads `<redacted>`. `--mcp-allow-writes` does not apply.
+
+**Cache tools (Redis OSS and Valkey ElastiCache)**
+
+| Tool | Description |
+|---|---|
+| `info` | Show `INFO` sections (server, memory, keyspace, stats, replication by default) and the number of keys |
+| `scan_keys` | Find keys with `SCAN` (never `KEYS`), with their type and TTL (max 1000 per call) |
+| `get_key` | Read a key of any type (string, hash, list, set, sorted set, stream), with TTL and memory usage |
+| `command` | Run one read command (`GET`, `HGET`, `LRANGE`, `ZRANGE`, `TTL`, `XRANGE`, `SLOWLOG GET`…) |
+| `execute` | Run one command that modifies data. **Only with `--mcp-allow-writes`.** `FLUSHALL`, `FLUSHDB`, `KEYS`, `CONFIG`, scripts, blocking, Pub/Sub, replication and connection-state commands stay refused. |
+
+Replies of `get_key`, `command` and `execute` are capped: strings and the items of collections are
+cut at 64 KiB, arrays at 1000 items, and items stop being added once a reply reaches 256 KiB, with
+a `truncated` flag.
+
+The server signs in the way the cache asks, detected from the ElastiCache API:
+
+| Cache | Sign-in |
+|---|---|
+| No AUTH token, no user group | none |
+| AUTH token | password (user `default`), typed in the wizard or read from Secrets Manager (`--db-secret`) |
+| RBAC user group | AWS IAM (`--db-user <user id>`, the wizard suggests the IAM users), a password, or Secrets Manager |
+
+AWS IAM tokens are signed by airlock with your profile's credentials (it needs
+`elasticache:Connect` on the cache and the user; the wizard's suggestions also use
+`elasticache:DescribeUserGroups` and `elasticache:DescribeUsers`). TLS is used when the cache
+encrypts in transit, always for serverless caches. With cluster mode enabled, only the shard behind
+the tunnel is reachable: keys of other shards answer `MOVED`. Memcached sessions stay plain tunnels.
+
+**Registration.** The server is registered as `<prefix>-<profile>-<instance>` for a database,
+`<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
+cache (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
+name never share one, in:
 
 - `.mcp.json` for **Claude Code**, written when `.mcp.json` or `.claude/` exists
 - `.vscode/mcp.json` for **VS Code**, written when `.vscode/` exists
@@ -486,8 +537,8 @@ master user secret (administrators only). `--no-mcp` disables the server entirel
 
 ### Audit trail
 
-Every MCP tool call is recorded. In the dashboard, press `m` on a database session to see its MCP
-queries: time, tool, database, rows, duration, full SQL and errors, including statements the read-only
+Every MCP tool call is recorded. In the dashboard, press `m` on a session with an MCP server to see its MCP
+calls: time, tool, database, namespace or cache db, items, duration, the SQL, Kubernetes request or cache command, and errors, including statements the read-only
 guard rejected (the last 500 per session).
 
 The calls of every session are also appended to a daily audit log, one JSON object per line:
@@ -498,6 +549,7 @@ The calls of every session are also appended to a daily audit log, one JSON obje
 
 ```sh
 jq -r 'select(.sql) | "\(.time) \(.server) \(.sql)"' ~/.config/airlock/logs/mcp-queries-*.jsonl
+jq -r 'select(.command) | "\(.time) \(.server) db\(.db) \(.command)"' ~/.config/airlock/logs/mcp-queries-*.jsonl
 ```
 
 Result rows are never logged. The files are readable by your user only, since statements may

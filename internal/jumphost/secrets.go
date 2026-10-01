@@ -43,6 +43,9 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 	if err != nil {
 		return nil, err
 	}
+	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceElastiCache) {
+		return r.listSecrets(ctx, cfg, "", "", "")
+	}
 	instance := strings.TrimSpace(options.Name)
 	rawInstance, err := r.runAWSCapture(ctx, cfg.Args,
 		"rds", "describe-db-instances",
@@ -61,6 +64,11 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 		return nil, fmt.Errorf("failed to parse RDS instance details: %w", e)
 	}
 
+	return r.listSecrets(ctx, cfg, instance, described.ARN, described.MasterSecret)
+}
+
+// listSecrets lists every secret of cfg, those linked to instance first (see rankDBSecrets).
+func (r *Runner) listSecrets(ctx context.Context, cfg awsConfig, instance, instanceARN, masterSecret string) ([]SecretSummary, error) {
 	// The AWS CLI fetches every page of list-secrets before applying --query.
 	raw, err := r.runAWSCapture(ctx, cfg.Args,
 		"secretsmanager", "list-secrets",
@@ -82,7 +90,7 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 		}
 		return nil, errors.New("no secret in " + where)
 	}
-	return rankDBSecrets(entries, instance, described.ARN, described.MasterSecret), nil
+	return rankDBSecrets(entries, instance, instanceARN, masterSecret), nil
 }
 
 // rankDBSecrets summarizes entries, linked to the instance first, then by name.

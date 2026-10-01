@@ -15,7 +15,16 @@ var ErrKeychain = errors.New("keychain")
 
 // keychainAccount names the keychain entry of the password of user on target.
 func keychainAccount(target TargetRef, user string) string {
-	return target.key() + "/" + strings.TrimSpace(user)
+	return target.key() + "/" + keychainUser(target.Type, user)
+}
+
+// keychainUser is the user keying a password: caches sign an empty user in as the default user
+// (AUTH token), so their password is remembered under it.
+func keychainUser(resourceType, user string) string {
+	if resourceType == resourceElastiCache {
+		return orCacheDefaultUser(user)
+	}
+	return strings.TrimSpace(user)
 }
 
 // KeychainAvailable reports whether passwords can be remembered in the OS keychain; the keychain
@@ -30,11 +39,11 @@ func (r *Runner) KeychainAvailable() bool {
 
 // LoadKeychainPassword returns the password of options.DBUser remembered for the target of options.
 func (r *Runner) LoadKeychainPassword(ctx context.Context, options Options) (string, bool) { //nolint:gocritic // same by-value Options as LoadConnectionPrefs, its sibling
-	if !r.KeychainAvailable() || strings.TrimSpace(options.DBUser) == "" {
+	if !r.KeychainAvailable() {
 		return "", false
 	}
 	target, ok := r.prefsTarget(ctx, &options)
-	if !ok {
+	if !ok || keychainUser(target.Type, options.DBUser) == "" {
 		return "", false
 	}
 	password, err := r.keychain.Get(keychainAccount(target, options.DBUser))
@@ -49,7 +58,7 @@ func (r *Runner) LoadKeychainPassword(ctx context.Context, options Options) (str
 // entry that could not be deleted stays flagged (with its user), so a later save or forgetting the
 // connection still removes it.
 func (r *Runner) syncKeychain(target TargetRef, previous, next *ConnectionPrefs, options *Options) error {
-	remember := options.RememberPassword && next.SignIn == SignInPassword && options.DBPassword != "" && next.DBUser != ""
+	remember := options.RememberPassword && next.SignIn == SignInPassword && options.DBPassword != "" && keychainUser(target.Type, next.DBUser) != ""
 	next.PasswordInKeychain = false
 	remembered := previous != nil && previous.PasswordInKeychain
 	if !r.KeychainAvailable() {

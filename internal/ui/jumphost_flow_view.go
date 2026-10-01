@@ -315,11 +315,21 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 	passwordHelp := "Kept in memory for the MCP server, unless remembered. The IDE asks for it."
 	rememberHelp := "Space toggles. On, the OS keychain keeps it for the next connections."
 	secretHelp := "Enter searches the secrets of this account and region."
+	if m.options.ResourceType == "elasticache" {
+		mcpHelp = "Space toggles. On, AI assistants can run write commands as the user above."
+		passwordHelp = "Kept in memory for the MCP server, unless remembered."
+		switch m.signIn {
+		case jumphost.SignInIAM:
+			userHelp = "The RBAC user (its user id) signing in with AWS IAM."
+		case jumphost.SignInPassword:
+			userHelp = "The RBAC user; leave empty for default (AUTH token)."
+		}
+	}
 	if compact {
 		portHelp, signInHelp, userHelp, passwordHelp, rememberHelp, secretHelp, mcpHelp = "", "", "", "", "", "", ""
 	}
 	rows = append(rows, m.reviewInput(reviewFieldPort, "Port", m.portInput.View(), portHelp, inner)...)
-	if m.options.ResourceType == "rds" && len(m.signInOptions()) > 0 {
+	if len(m.signInOptions()) > 0 {
 		rows = append(rows, m.reviewInput(reviewFieldSignIn, "Sign-in", m.signInSelector(), signInHelp, inner)...)
 		for _, field := range m.signInFields() {
 			switch field {
@@ -337,8 +347,11 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 			rows = append(rows, m.reviewRow("Remember", m.styles.Faint.Render("No OS keychain available: asked at every connection"), inner))
 		}
 	}
-	if m.mcpApplies() {
+	switch {
+	case m.mcpWritesApply():
 		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, "MCP", m.mcpWritesToggle(), mcpHelp, inner)...)
+	case m.mcpApplies():
+		rows = append(rows, m.reviewRow("MCP", m.styles.Muted.Render("○ read-only")+m.styles.Faint.Render("  AI assistants can only read the cluster"), inner))
 	}
 
 	card := m.styles.Card

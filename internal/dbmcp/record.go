@@ -2,90 +2,25 @@ package dbmcp
 
 import (
 	"context"
-	"sync"
-	"time"
+
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
-
-// QueryEvent is one MCP tool call made against a session's database.
-type QueryEvent struct {
-	Time time.Time `json:"time"`
-	// Rows is the number of rows returned (read tools) or affected (execute); nil on error.
-	Rows     *int64 `json:"rows,omitempty"`
-	Server   string `json:"server"`
-	Profile  string `json:"profile"`
-	Region   string `json:"region"`
-	Target   string `json:"target"`
-	Engine   Engine `json:"engine"`
-	Access   string `json:"access"`
-	Tool     string `json:"tool"`
-	Database string `json:"database,omitempty"`
-	Schema   string `json:"schema,omitempty"`
-	Table    string `json:"table,omitempty"`
-	// SQL is the statement sent by the AI assistant (query and execute tools only).
-	SQL   string `json:"sql,omitempty"`
-	Error string `json:"error,omitempty"`
-	// LogError explains why the event could not be written to the audit log (empty when it was).
-	LogError  string        `json:"-"`
-	Duration  time.Duration `json:"-"`
-	MaxRows   int           `json:"max_rows,omitempty"`
-	Truncated bool          `json:"truncated,omitempty"`
-}
-
-// queryRecorder writes events to the audit log and hands them to subscribers.
-type queryRecorder struct {
-	// log is nil when events are not written to disk.
-	log         *AuditLog
-	subscribers []func(QueryEvent)
-	mu          sync.Mutex
-}
-
-func (r *queryRecorder) subscribe(fn func(QueryEvent)) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.subscribers = append(r.subscribers, fn)
-}
-
-// record never fails: an audit log error is reported to subscribers on the event.
-func (r *queryRecorder) record(e *QueryEvent) {
-	if r.log != nil {
-		if err := r.log.Write(e); err != nil {
-			e.LogError = err.Error()
-		}
-	}
-	r.mu.Lock()
-	subscribers := append([]func(QueryEvent){}, r.subscribers...)
-	r.mu.Unlock()
-	for _, fn := range subscribers {
-		fn(*e)
-	}
-}
 
 // recordingQuerier records every call made to its inner Querier, one event per MCP tool call.
 type recordingQuerier struct {
 	inner  Querier
-	record func(*QueryEvent)
-	base   QueryEvent
+	record func(*mcpserve.ToolEvent)
+	base   mcpserve.ToolEvent
 }
 
 // newRecordingQuerier wraps inner; base carries the session fields copied into every event.
-func newRecordingQuerier(inner Querier, base *QueryEvent, record func(*QueryEvent)) Querier {
+func newRecordingQuerier(inner Querier, base *mcpserve.ToolEvent, record func(*mcpserve.ToolEvent)) Querier {
 	return &recordingQuerier{inner: inner, base: *base, record: record}
 }
 
 // start returns an event for tool and a function completing and recording it.
-func (q *recordingQuerier) start(tool string) (e *QueryEvent, done func(rows int64, err error)) {
-	event := q.base
-	event.Tool = tool
-	event.Time = time.Now()
-	return &event, func(rows int64, err error) {
-		event.Duration = time.Since(event.Time)
-		if err != nil {
-			event.Error = err.Error()
-		} else {
-			event.Rows = &rows
-		}
-		q.record(&event)
-	}
+func (q *recordingQuerier) start(tool string) (e *mcpserve.ToolEvent, done func(rows int64, err error)) {
+	return mcpserve.StartEvent(&q.base, tool, q.record)
 }
 
 func (q *recordingQuerier) Databases(ctx context.Context) ([]string, error) {

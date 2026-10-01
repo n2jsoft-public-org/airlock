@@ -3,24 +3,24 @@ package dbmcp
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
-func testBaseEvent() QueryEvent {
-	return QueryEvent{Server: "acme-dev-app", Profile: "dev", Region: "eu-west-3", Target: "app", Engine: EnginePostgres, Access: "read-only"}
+func testBaseEvent() mcpserve.ToolEvent {
+	return mcpserve.ToolEvent{Server: "acme-dev-app", Profile: "dev", Region: "eu-west-3", Target: "app", Engine: "postgres", Access: "read-only"}
 }
 
 // recorded wraps inner with a recorder collecting its events.
-func recorded(inner Querier) (Querier, *[]QueryEvent) {
-	var events []QueryEvent
+func recorded(inner Querier) (Querier, *[]mcpserve.ToolEvent) {
+	var events []mcpserve.ToolEvent
 	base := testBaseEvent()
-	return newRecordingQuerier(inner, &base, func(e *QueryEvent) { events = append(events, *e) }), &events
+	return newRecordingQuerier(inner, &base, func(e *mcpserve.ToolEvent) { events = append(events, *e) }), &events
 }
 
-func onlyEvent(t *testing.T, events []QueryEvent) QueryEvent {
+func onlyEvent(t *testing.T, events []mcpserve.ToolEvent) mcpserve.ToolEvent {
 	t.Helper()
 	if len(events) != 1 {
 		t.Fatalf("recorded %d events, want 1: %+v", len(events), events)
@@ -29,7 +29,7 @@ func onlyEvent(t *testing.T, events []QueryEvent) QueryEvent {
 	if e.Time.IsZero() || e.Duration < 0 {
 		t.Fatalf("event time = %v, duration = %v", e.Time, e.Duration)
 	}
-	if e.Server != "acme-dev-app" || e.Profile != "dev" || e.Region != "eu-west-3" || e.Target != "app" || e.Engine != EnginePostgres || e.Access != "read-only" {
+	if e.Server != "acme-dev-app" || e.Profile != "dev" || e.Region != "eu-west-3" || e.Target != "app" || e.Engine != "postgres" || e.Access != "read-only" {
 		t.Fatalf("session fields not copied: %+v", e)
 	}
 	return e
@@ -105,26 +105,5 @@ func TestRecordingQuerierRecordsMetadataTools(t *testing.T) {
 	want := []string{"list_databases|||", "list_tables|archive|public|", "describe_table|archive|public|users"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("events = %q, want %q", got, want)
-	}
-}
-
-func TestQueryRecorderNotifiesSubscribersAndReportsLogFailures(t *testing.T) {
-	// A file where the logs directory should be makes every audit log write fail.
-	blocked := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	recorder := &queryRecorder{log: NewAuditLog(blocked)}
-
-	var first, second []QueryEvent
-	recorder.subscribe(func(e QueryEvent) { first = append(first, e) })
-	recorder.subscribe(func(e QueryEvent) { second = append(second, e) })
-	recorder.record(&QueryEvent{Tool: "query", SQL: "SELECT 1"})
-
-	if len(first) != 1 || len(second) != 1 {
-		t.Fatalf("subscribers got %d and %d events, want 1 each", len(first), len(second))
-	}
-	if first[0].LogError == "" {
-		t.Fatal("a failed audit log write must be reported on the event")
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"reflect"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // userCreds signs in as user, recording nothing else.
@@ -57,9 +59,12 @@ func TestSwitchableProviderKeepsTheRefreshOfItsCurrentProvider(t *testing.T) {
 
 func TestHandleUseSecretSwitchesTheServerCredentials(t *testing.T) {
 	useIsolatedLocks(t)
-	handle, err := Start(NewHost(), testSessionConfig(t, "postgres"))
+	handle, err := Start(mcpserve.NewHost(), testSessionConfig(t, "postgres"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if handle == nil {
+		t.Fatal("no MCP server started for postgres")
 	}
 	defer handle.Close()
 

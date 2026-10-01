@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -925,5 +926,49 @@ func TestErrorLinesAreCapped(t *testing.T) {
 	last := ansi.Strip(lines[len(lines)-1])
 	if !strings.HasSuffix(last, "…") || lipgloss.Width(last) > 40 {
 		t.Fatalf("last line = %q, want it cut with … within 40 cells", last)
+	}
+}
+
+// wizardAtReviewOfType walks the wizard to the review of target, a resource of resourceType.
+func wizardAtReviewOfType(t *testing.T, base jumphost.Options, resourceType string, target jumphost.ResourceSummary) jumphostWizardModel {
+	t.Helper()
+	base.AwsProfile = "dev"
+	m := newJumphostWizardModel(context.Background(), fakeSessionRunner{}, base)
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
+	for _, option := range resourceTypeOptions {
+		if option.name == resourceType {
+			break
+		}
+		m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	m, _ = wizardUpdate(t, m, key("enter"))
+	if m.awaitingRegion {
+		m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: "eu-west-3"})
+	}
+	m, _ = wizardUpdate(t, m, jumphostTargetsLoadedMsg{targets: []jumphost.ResourceSummary{target}})
+	m, _ = wizardUpdate(t, m, key("enter"))
+	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{port: 15443})
+	if m.step != jumphostStepReview || m.options.ResourceType != resourceType {
+		t.Fatalf("step = %v type = %q, want the review of a %s target", m.step, m.options.ResourceType, resourceType)
+	}
+	return m
+}
+
+func TestWizardEKSReviewShowsReadOnlyMCP(t *testing.T) {
+	m := wizardAtReviewOfType(t, jumphost.Options{MCPAllowWrites: true}, "eks", jumphost.ResourceSummary{Name: "platform"})
+	if slices.Contains(m.reviewFields(), reviewFieldMCPWrites) {
+		t.Fatal("EKS must not offer the MCP write toggle")
+	}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "MCP") || !strings.Contains(view, "AI assistants can only read the cluster") {
+		t.Fatalf("review lacks the read-only MCP row:\n%s", view)
+	}
+}
+
+func TestWizardEKSReviewWithoutMCP(t *testing.T) {
+	m := wizardAtReviewOfType(t, jumphost.Options{SkipMCP: true}, "eks", jumphost.ResourceSummary{Name: "platform"})
+	if strings.Contains(ansi.Strip(m.View()), "can only read the cluster") {
+		t.Fatal("--no-mcp must hide the MCP row")
 	}
 }

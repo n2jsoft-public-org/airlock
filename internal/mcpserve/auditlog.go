@@ -1,4 +1,4 @@
-package dbmcp
+package mcpserve
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ type AuditLog struct {
 
 // auditLine is the on-disk form of an event.
 type auditLine struct {
-	*QueryEvent
+	*ToolEvent
 	DurationMS float64 `json:"duration_ms"`
 }
 
@@ -34,8 +34,8 @@ func (l *AuditLog) Dir() string {
 }
 
 // Write appends e to the file of the day of e.Time (local time).
-func (l *AuditLog) Write(e *QueryEvent) error {
-	line, err := json.Marshal(auditLine{QueryEvent: e, DurationMS: float64(e.Duration.Microseconds()) / 1000})
+func (l *AuditLog) Write(e *ToolEvent) error {
+	line, err := json.Marshal(auditLine{ToolEvent: e, DurationMS: float64(e.Duration.Microseconds()) / 1000})
 	if err != nil {
 		return fmt.Errorf("failed to encode MCP audit log entry: %w", err)
 	}

@@ -10,10 +10,10 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
@@ -48,10 +48,10 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&options.AwsProfile, "aws-profile", "", "Alias of --profile")
 	cmd.Flags().StringVar(&options.AwsRegion, "region", "", "AWS region to use (defaults to AWS_REGION, then the profile region)")
 	cmd.Flags().BoolVar(&options.SkipIDEDataSource, "no-ide-datasource", false, "Do not register the connection in ./.idea/dataSources.xml")
-	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, "Do not serve an MCP server giving AI assistants access to the database")
-	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data, as the database user (master user secret on SQL Server)")
-	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database user for RDS AWS IAM authentication (defaults to \"defaultDbUser\" of the config file)")
-	cmd.Flags().StringVar(&options.DBSecretARN, "db-secret", "", "Secrets Manager secret (ARN or name) holding the RDS password, as RDS JSON or plain text")
+	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, "Do not serve an MCP server giving AI assistants access to the database, cluster or cache")
+	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data of databases and caches (EKS stays read-only)")
+	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database or cache user signing in with AWS IAM (RDS: defaults to \"defaultDbUser\" of the config file)")
+	cmd.Flags().StringVar(&options.DBSecretARN, "db-secret", "", "Secrets Manager secret (ARN or name) holding the database or cache password, as JSON or plain text")
 
 	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
 	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
@@ -128,7 +128,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// Runners share the registry so parallel sessions never reuse a local port or target,
 	// and the MCP host so all database sessions are served on one localhost listener.
 	registry := jumphost.NewSessionRegistry()
-	mcpHost := dbmcp.NewHost()
+	mcpHost := mcpserve.NewHost()
 	interactive := isInteractiveInput(cmd.InOrStdin())
 	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()

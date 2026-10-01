@@ -37,8 +37,10 @@ type JumphostDiscovery interface {
 	KeychainAvailable() bool
 	// LoadKeychainPassword returns the password of options.DBUser remembered for the target of options.
 	LoadKeychainPassword(ctx context.Context, options jumphost.Options) (string, bool)
-	// ListDBSecrets lists the secrets that may hold the password of the RDS target of options, linked ones first.
+	// ListDBSecrets lists the secrets that may hold the password of the RDS or cache target of options, linked ones first.
 	ListDBSecrets(ctx context.Context, options *jumphost.Options) ([]jumphost.SecretSummary, error)
+	// ListCacheIAMUsers lists the users of the cache of options signing in with AWS IAM.
+	ListCacheIAMUsers(ctx context.Context, options *jumphost.Options) ([]string, error)
 	// SearchResources lists the targets of every type; failures holds the types whose listing failed.
 	SearchResources(ctx context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error)
 	// FindResource returns the target of options, or an error when it no longer exists; a
@@ -83,8 +85,8 @@ type resourceTypeOption struct {
 
 var resourceTypeOptions = []resourceTypeOption{
 	{name: "rds", title: "Relational Database Service", desc: "Tunnel to a database, with IDE data source and MCP server"},
-	{name: "eks", title: "Elastic Kubernetes Service", desc: "Reach a private cluster API endpoint"},
-	{name: "elasticache", title: "ElastiCache", desc: "Tunnel to a Redis / Valkey cache cluster"},
+	{name: "eks", title: "Elastic Kubernetes Service", desc: "Reach a private cluster API endpoint, with kubeconfig and MCP server"},
+	{name: "elasticache", title: "ElastiCache", desc: "Tunnel to a Redis / Valkey cache, with MCP server"},
 }
 
 type jumphostWizardModel struct {
@@ -147,6 +149,8 @@ type jumphostWizardModel struct {
 	// targetIAMAuth reports whether the selected target accepts AWS IAM; targetEngine is its RDS engine.
 	targetIAMAuth bool
 	targetEngine  string
+	// targetCacheAuth is how the selected ElastiCache target signs clients in.
+	targetCacheAuth string
 	// signIn is the chosen RDS sign-in method (jumphost.SignIn*).
 	signIn string
 	// remember keeps the typed password in the OS keychain; keychainAvailable offers it.
@@ -183,6 +187,8 @@ type jumphostListItem struct {
 	desc    string
 	iamAuth bool
 	engine  string
+	// cacheAuth is how an ElastiCache target signs clients in (jumphost.CacheAuth*).
+	cacheAuth string
 	// resourceType is set on search results, which mix types.
 	resourceType string
 	// production flags a profile of the productionProfiles setting.
@@ -429,7 +435,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		items := make([]list.Item, 0, len(msg.targets))
 		for _, target := range msg.targets {
-			items = append(items, jumphostListItem{name: target.Name, desc: target.Description, iamAuth: target.IAMAuth, engine: target.Engine})
+			items = append(items, jumphostListItem{name: target.Name, desc: target.Description, iamAuth: target.IAMAuth, engine: target.Engine, cacheAuth: target.CacheAuth})
 		}
 		m.targetList.ResetFilter()
 		m.targetList.SetItems(items)
@@ -461,7 +467,10 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.TrimSpace(user) == "" && msg.saved {
 			user = msg.prefs.DBUser
 		}
-		m.userInput.SetValue(m.runner.ResolveDBUser(user))
+		if m.options.ResourceType == "rds" {
+			user = m.runner.ResolveDBUser(user)
+		}
+		m.userInput.SetValue(user)
 		m.userInput.CursorEnd()
 		// Every connection starts from the target's saved choices, else the first method offered and
 		// the --mcp-allow-writes default. A password typed for another target is never reused.
@@ -471,7 +480,24 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mcpWrites = m.options.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites)
 		m.step = jumphostStepReview
 		m = m.focusReviewField(reviewFieldPort)
+		m.userInput.SetSuggestions(nil)
+		m.userInput.ShowSuggestions = false
+		if m.options.ResourceType == "elasticache" && m.targetCacheAuth == jumphost.CacheAuthRBAC {
+			return m, tea.Batch(textinput.Blink, m.cacheUsersCmd())
+		}
 		return m, textinput.Blink
+	case jumphostCacheUsersMsg:
+		// A list requested for another target, or after leaving the review, is stale.
+		if m.step != jumphostStepReview || msg.target != cacheTargetKey(&m.options) {
+			return m, nil
+		}
+		m.userInput.SetSuggestions(msg.users)
+		m.userInput.ShowSuggestions = len(msg.users) > 0
+		if strings.TrimSpace(m.userInput.Value()) == "" && len(msg.users) == 1 {
+			m.userInput.SetValue(msg.users[0])
+			m.userInput.CursorEnd()
+		}
+		return m, nil
 	}
 
 	// Non-key messages such as cursor blinks reach the picker's search input while it is open.
@@ -642,6 +668,7 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		}
 		m.targetIAMAuth = m.options.ResourceType == "rds" && selected.iamAuth
 		m.targetEngine = selected.engine
+		m.targetCacheAuth = selected.cacheAuth
 		m.errorMsg = ""
 		return m.startLoadingPort()
 	}
@@ -763,23 +790,63 @@ func (m jumphostWizardModel) toggleReviewField(delta int) jumphostWizardModel {
 }
 
 // reviewFields lists the editable review fields in focus order: the sign-in fields only apply to
-// RDS targets offering a method, depend on it, and the MCP write toggle only to RDS targets
-// getting an MCP server.
+// RDS targets offering a method, depend on it, and the MCP write toggle only to targets whose MCP
+// server can write.
 func (m jumphostWizardModel) reviewFields() []int {
 	fields := []int{reviewFieldPort}
-	if m.options.ResourceType == "rds" && len(m.signInOptions()) > 0 {
+	if len(m.signInOptions()) > 0 {
 		fields = append(fields, reviewFieldSignIn)
 		fields = append(fields, m.signInFields()...)
 	}
-	if m.mcpApplies() {
+	if m.mcpWritesApply() {
 		fields = append(fields, reviewFieldMCPWrites)
 	}
 	return fields
 }
 
-// mcpApplies reports whether the connection starts an MCP server, which only RDS targets get.
+// mcpApplies reports whether the connection starts an MCP server: RDS targets, EKS clusters and
+// Redis / Valkey caches.
 func (m jumphostWizardModel) mcpApplies() bool {
-	return m.options.ResourceType == "rds" && !m.options.SkipMCP
+	if m.options.SkipMCP {
+		return false
+	}
+	switch m.options.ResourceType {
+	case "rds", "eks":
+		return true
+	case "elasticache":
+		return jumphost.CacheEngineSupported(m.targetEngine)
+	default:
+		return false
+	}
+}
+
+type jumphostCacheUsersMsg struct {
+	// target identifies the cache the users were listed for (see cacheTargetKey).
+	target string
+	users  []string
+}
+
+// cacheTargetKey identifies the target of options: resource type, name, profile and region.
+func cacheTargetKey(o *jumphost.Options) string {
+	return strings.Join([]string{o.ResourceType, o.Name, o.AwsProfile, o.AwsRegion}, "\x00")
+}
+
+// cacheUsersCmd lists the IAM users of the selected cache, suggested in the User field.
+// A failure only leaves the field without suggestions.
+func (m jumphostWizardModel) cacheUsersCmd() tea.Cmd {
+	opts := m.options
+	return func() tea.Msg {
+		users, err := m.runner.ListCacheIAMUsers(m.ctx, &opts)
+		if err != nil {
+			users = nil
+		}
+		return jumphostCacheUsersMsg{target: cacheTargetKey(&opts), users: users}
+	}
+}
+
+// mcpWritesApply reports whether the review offers the MCP write toggle: EKS is always read-only.
+func (m jumphostWizardModel) mcpWritesApply() bool {
+	return m.mcpApplies() && m.options.ResourceType != "eks"
 }
 
 // moveReviewFocus focuses the field delta positions away from the current one, wrapping around.
@@ -829,7 +896,7 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 		return m.focusReviewField(reviewFieldPort), nil
 	}
 
-	if m.options.ResourceType == "rds" && len(m.signInOptions()) > 0 {
+	if len(m.signInOptions()) > 0 {
 		next, field, errMsg := m.applySignIn()
 		if errMsg != "" {
 			m.errorMsg = errMsg
@@ -838,7 +905,7 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 		m = next
 	}
 
-	if m.mcpApplies() {
+	if m.mcpWritesApply() {
 		m.options.MCPAllowWrites = m.mcpWrites
 	}
 	m.options.LocalPortNumber = port

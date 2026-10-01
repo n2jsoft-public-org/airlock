@@ -3,7 +3,9 @@ module github.com/n2jsoft/airlock
 go 1.27.1
 
 require (
+	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/atotto/clipboard v0.1.4
+	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1
 	github.com/beevik/etree v1.8.1
 	github.com/charmbracelet/bubbles v1.0.0
@@ -13,6 +15,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/redis/go-redis/v9 v9.22.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	github.com/zalando/go-keyring v0.2.8
@@ -21,6 +24,8 @@ require (
 )
 
 require (
+	github.com/aws/smithy-go v1.28.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -52,6 +57,8 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect

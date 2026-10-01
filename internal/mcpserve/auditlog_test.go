@@ -1,4 +1,4 @@
-package dbmcp
+package mcpserve
 
 import (
 	"encoding/json"
@@ -22,7 +22,7 @@ func TestAuditLogAppendsJSONLinesPerDay(t *testing.T) {
 	second := testBaseEvent()
 	second.Time, second.Tool, second.SQL, second.Error = at.Add(time.Minute), "query", "DELETE FROM users", "rejected"
 
-	for _, e := range []QueryEvent{first, second} {
+	for _, e := range []ToolEvent{first, second} {
 		if err := log.Write(&e); err != nil {
 			t.Fatal(err)
 		}

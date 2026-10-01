@@ -2,16 +2,10 @@ package dbmcp
 
 import (
 	"errors"
-	"fmt"
-	"path/filepath"
-	"strings"
-	"sync"
 
 	"github.com/n2jsoft/airlock/internal/awstag"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
-
-// DefaultServerPrefix starts server names when SessionConfig.ServerPrefix is empty.
-const DefaultServerPrefix = "airlock"
 
 // ErrReadOnlySecretTagUnset reports a read-only SQL Server session without a read-only secret tag
 // configured: its credentials cannot be found.
@@ -29,7 +23,7 @@ type SessionConfig struct {
 	DBName          string
 	InstanceARN     string
 	MasterSecretARN string
-	// ServerPrefix starts the client-facing server name (DefaultServerPrefix when empty).
+	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
 	ServerPrefix string
 	// ReadOnlySecretTag marks the read-only per-database secrets of SQL Server instances; zero
 	// disables read-only SQL Server access.
@@ -56,22 +50,15 @@ type SessionConfig struct {
 	AllowWrites bool
 }
 
-// Handle is a running session MCP server.
+// Handle is a running database MCP server.
 type Handle struct {
-	release func() string
+	*mcpserve.Handle
 	// creds is the provider of the server, switched by UseSecret; querier holds its pools.
-	creds    *switchableProvider
-	querier  *sqlQuerier
-	aws      AWSRunner
-	recorder *queryRecorder
-	endpoint Endpoint
-	// Display describes the server (access mode, name, URL, config files) for the dashboard MCP row.
-	Display    string
-	releaseMsg string
+	creds   *switchableProvider
+	querier *sqlQuerier
+	aws     AWSRunner
 	// defaultDatabase is the database UseSecret signs in to when none is named.
 	defaultDatabase string
-	releaseOnce     sync.Once
-	allowWrites     bool
 }
 
 // UseSecret makes the server sign in with the password of secretID from now on, as the secret's
@@ -81,35 +68,9 @@ func (h *Handle) UseSecret(secretID, user string) error {
 	return h.querier.reset()
 }
 
-// AllowsWrites reports whether the server offers the execute tool, which modifies data.
-func (h *Handle) AllowsWrites() bool {
-	return h.allowWrites
-}
-
-// Subscribe calls fn with every tool call made through the server, from the goroutine serving it:
-// fn must not block.
-func (h *Handle) Subscribe(fn func(QueryEvent)) {
-	h.recorder.subscribe(fn)
-}
-
-// QueryLogDir is where the tool calls are logged (empty when they are not).
-func (h *Handle) QueryLogDir() string {
-	if h.recorder.log == nil {
-		return ""
-	}
-	return h.recorder.log.Dir()
-}
-
-// Close stops the server, closes its database connections and removes its client entries.
-// It returns a message describing the cleanup. Safe to call repeatedly.
-func (h *Handle) Close() string {
-	h.releaseOnce.Do(func() { h.releaseMsg = h.release() })
-	return h.releaseMsg
-}
-
 // Start mounts the MCP server of a session on host and registers it in the project's AI clients.
 // It returns nil, nil when the engine is not supported.
-func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
+func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	engine, ok := EngineFor(cfg.AWSEngine)
 	if !ok {
 		return nil, nil
@@ -118,66 +79,31 @@ func Start(host *Host, cfg *SessionConfig) (*Handle, error) {
 		return nil, ErrReadOnlySecretTagUnset
 	}
 
-	name := serverName(cfg.ServerPrefix, cfg.Profile, cfg.Target)
-	suffix, err := randomHex(3)
-	if err != nil {
-		return nil, err
-	}
-	slug := name + "-" + suffix
-
-	access, accessLabel := "read-only", "read-only"
+	name := mcpserve.ServerName(cfg.ServerPrefix, cfg.Profile, cfg.Target)
+	access := "read-only"
 	if cfg.AllowWrites {
-		access, accessLabel = "read-write", "WRITES ENABLED"
+		access = "read-write"
 	}
-	recorder := &queryRecorder{}
-	if cfg.LogDir != "" {
-		recorder.log = NewAuditLog(cfg.LogDir)
-	}
+	recorder := mcpserve.NewRecorder(cfg.LogDir)
 	creds := &switchableProvider{current: credentialProvider(cfg, engine)}
 	inner := newQuerier(engine, creds, cfg.LocalPort)
-	querier := newRecordingQuerier(inner, &QueryEvent{
-		Server: name, Profile: cfg.Profile, Region: cfg.Region, Target: cfg.Target, Engine: engine, Access: access,
-	}, recorder.record)
+	querier := newRecordingQuerier(inner, &mcpserve.ToolEvent{
+		Server: name, Profile: cfg.Profile, Region: cfg.Region, Target: cfg.Target, Engine: string(engine), Access: access,
+	}, recorder.Record)
 	server := NewServer(&ServerConfig{
 		Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region,
 		Engine: engine, AllowWrites: cfg.AllowWrites,
 	}, querier)
-	endpoint, err := host.Mount(slug, server)
+	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
+		Server: server, Recorder: recorder, Cleanup: querier.Close,
+		Name: name, ProjectDir: cfg.ProjectDir, AllowWrites: cfg.AllowWrites,
+	})
 	if err != nil {
-		return nil, errors.Join(err, querier.Close())
+		return nil, err
 	}
-
-	entry := ClientEntry{Name: name, URL: endpoint.URL, Token: endpoint.Token}
-	written, registerErr := RegisterClients(cfg.ProjectDir, entry)
-
-	where := "no AI client config found; header Authorization: Bearer " + endpoint.Token
-	if len(written) > 0 {
-		where = relativeTo(cfg.ProjectDir, written)
-	}
-	display := fmt.Sprintf("%s · %s -> %s (%s)", accessLabel, name, endpoint.URL, where)
-	if registerErr != nil {
-		display += fmt.Sprintf(" [warning: %v]", registerErr)
-	}
-
 	return &Handle{
-		creds:           creds,
-		querier:         inner,
-		aws:             cfg.AWS,
+		Handle: shared, creds: creds, querier: inner, aws: cfg.AWS,
 		defaultDatabase: defaultDatabaseFor(engine, cfg.DBName),
-		allowWrites:     cfg.AllowWrites,
-		Display:         display,
-		recorder:        recorder,
-		endpoint:        endpoint,
-		release: func() string {
-			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, entry)
-			if err := errors.Join(unregisterErr, host.Unmount(slug), querier.Close()); err != nil {
-				return fmt.Sprintf("Warning: MCP server %q stopped with errors: %v", name, err)
-			}
-			if len(removed) == 0 {
-				return fmt.Sprintf("MCP server %q stopped", name)
-			}
-			return fmt.Sprintf("MCP server %q stopped and removed from %s", name, relativeTo(cfg.ProjectDir, removed))
-		},
 	}, nil
 }
 
@@ -199,46 +125,4 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 	default:
 		return newIAMTokenProvider(cfg.AWS, cfg.RDSHost, cfg.RDSPort, cfg.DBUser, defaultDatabase)
 	}
-}
-
-// serverName is the stable client-facing name of a session's server, e.g. airlock-dev-archive-db.
-// The prefix is not repeated when the profile already carries it (e.g. prefix team, profile team-prod).
-func serverName(prefix, profile, target string) string {
-	prefix = slugify(prefix)
-	if prefix == "" {
-		prefix = DefaultServerPrefix
-	}
-	name := slugify(profile)
-	if name != prefix && !strings.HasPrefix(name, prefix+"-") {
-		name = prefix + "-" + name
-	}
-	return name + "-" + slugify(target)
-}
-
-func slugify(value string) string {
-	var b strings.Builder
-	dash := false
-	for _, r := range strings.ToLower(value) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			dash = false
-			continue
-		}
-		if !dash && b.Len() > 0 {
-			b.WriteByte('-')
-			dash = true
-		}
-	}
-	return strings.TrimSuffix(b.String(), "-")
-}
-
-func relativeTo(base string, paths []string) string {
-	relative := make([]string, 0, len(paths))
-	for _, path := range paths {
-		if rel, err := filepath.Rel(base, path); err == nil {
-			path = rel
-		}
-		relative = append(relative, path)
-	}
-	return strings.Join(relative, ", ")
 }

@@ -10,13 +10,15 @@ import (
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft/airlock/internal/kubemcp"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 var acmeSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
 
 func testRunner(t *testing.T) *Runner {
 	t.Helper()
-	return NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost(),
+	return NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(),
 		MCPServerPrefix: "acme", ReadOnlySecretTag: acmeSecretTag})
 }
 
@@ -29,11 +31,11 @@ func TestStartMCPForPostgres(t *testing.T) {
 		t.Fatal("expected an MCP server for postgres")
 	}
 	defer handle.Close()
-	if !strings.HasPrefix(handle.Display, "read-only · acme-dev-archive -> http://127.0.0.1:") {
-		t.Fatalf("display = %q", handle.Display)
+	if !strings.HasPrefix(handle.Display(), "read-only · acme-dev-archive -> http://127.0.0.1:") {
+		t.Fatalf("display = %q", handle.Display())
 	}
-	if display != handle.Display {
-		t.Fatalf("returned display = %q, want the handle's display %q", display, handle.Display)
+	if display != handle.Display() {
+		t.Fatalf("returned display = %q, want the handle's display %q", display, handle.Display())
 	}
 }
 
@@ -49,7 +51,7 @@ func TestStartMCPSkipsUnsupportedEngine(t *testing.T) {
 func TestStartMCPReportsFailureThroughTheDisplayNotStderr(t *testing.T) {
 	runner := testRunner(t)
 	previous := dbmcpStart
-	dbmcpStart = func(*dbmcp.Host, *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
+	dbmcpStart = func(*mcpserve.Host, *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
 		return nil, errors.New("route already mounted")
 	}
 	t.Cleanup(func() { dbmcpStart = previous })
@@ -151,7 +153,7 @@ func TestBuildRestartCommandKeepsCustomDBUser(t *testing.T) {
 
 func TestStartMCPLogsQueriesToTheRunnerLogDir(t *testing.T) {
 	logDir := filepath.Join(t.TempDir(), "logs")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: dbmcp.NewHost(), MCPLogDir: logDir,
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(), MCPLogDir: logDir,
 		ReadOnlySecretTag: acmeSecretTag})
 
 	handle, _ := runner.startMCP("archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
@@ -168,7 +170,7 @@ func TestStartMCPPassesTheEnteredPassword(t *testing.T) {
 	runner := testRunner(t)
 	var got *dbmcp.SessionConfig
 	previous := dbmcpStart
-	dbmcpStart = func(_ *dbmcp.Host, cfg *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
+	dbmcpStart = func(_ *mcpserve.Host, cfg *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
 		got = cfg
 		return nil, nil
 	}
@@ -215,7 +217,7 @@ func TestStartMCPPassesSecretAndRejectionCallback(t *testing.T) {
 	runner := testRunner(t)
 	var got *dbmcp.SessionConfig
 	previous := dbmcpStart
-	dbmcpStart = func(_ *dbmcp.Host, cfg *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
+	dbmcpStart = func(_ *mcpserve.Host, cfg *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
 		got = cfg
 		return nil, nil
 	}
@@ -257,5 +259,40 @@ func TestRDSSecretSessionInfoNeverShowsThePassword(t *testing.T) {
 		if !strings.Contains(info, want) {
 			t.Fatalf("session info misses %q:\n%s", want, info)
 		}
+	}
+}
+
+func TestSessionMCPServerIsNilInterfaceWithoutServer(t *testing.T) {
+	runner := testRunner(t)
+	session := &Session{}
+	var none *dbmcp.Handle
+	runner.attachMCP(session, none, "")
+	if server := session.MCPServer(); server != nil {
+		t.Fatalf("MCPServer() = %#v, want a nil interface", server)
+	}
+}
+
+func TestAttachMCPShowsDisplayAndKeepsServer(t *testing.T) {
+	runner := testRunner(t)
+	handle, display := runner.startMCP("archive", 15432, &ideTarget{Engine: "postgres", IAMAuth: true, DBUser: "ro"}, awsConfig{Profile: "dev"}, false)
+	defer handle.Close()
+	session := &Session{}
+	runner.attachMCP(session, handle, display)
+	if session.MCPServer() == nil || session.Details.MCP != display || session.Intro[len(session.Intro)-1] != "MCP "+display {
+		t.Fatalf("session = %+v", session)
+	}
+}
+
+func TestStartKubeMCPReportsFailureThroughTheDisplay(t *testing.T) {
+	runner := testRunner(t)
+	previous := kubemcpStart
+	kubemcpStart = func(*mcpserve.Host, *kubemcp.SessionConfig) (*mcpserve.Handle, error) {
+		return nil, errors.New("invalid cluster certificate authority")
+	}
+	t.Cleanup(func() { kubemcpStart = previous })
+
+	handle, display := runner.startKubeMCP("platform", "ABCD.eks.amazonaws.com", "ca", 15443, awsConfig{Profile: "dev"})
+	if handle != nil || display != "not started: invalid cluster certificate authority" {
+		t.Fatalf("handle = %v, display = %q", handle, display)
 	}
 }

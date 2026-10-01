@@ -1,4 +1,4 @@
-package dbmcp
+package mcpserve
 
 import (
 	"bytes"

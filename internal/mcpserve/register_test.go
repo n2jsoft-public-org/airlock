@@ -1,6 +1,7 @@
-package dbmcp
+package mcpserve
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,23 +12,11 @@ import (
 // useIsolatedLocks keeps config locks of the test in its own directory.
 func useIsolatedLocks(t *testing.T) {
 	t.Helper()
-	root := t.TempDir()
-	previous := lockRoot
-	lockRoot = func() (string, error) { return root, nil }
-	t.Cleanup(func() { lockRoot = previous })
+	t.Cleanup(IsolateLocks(t.TempDir()))
 }
 
 func sampleEntry(url string) ClientEntry {
 	return ClientEntry{Name: "acme-dev-app", URL: url, Token: "tok"}
-}
-
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
 }
 
 func TestRegisterClientsSkipsProjectsWithoutClients(t *testing.T) {
@@ -173,7 +162,7 @@ func TestRegisterClientsConcurrentSessionsKeepBothEntries(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			entry := ClientEntry{Name: "acme-" + string(rune('a'+i)), URL: "http://127.0.0.1:1/mcp/x", Token: "t"}
+			entry := ClientEntry{Name: fmt.Sprintf("acme-%c", 'a'+i), URL: "http://127.0.0.1:1/mcp/x", Token: "t"}
 			if _, err := RegisterClients(dir, entry); err != nil {
 				t.Error(err)
 			}
@@ -183,7 +172,7 @@ func TestRegisterClientsConcurrentSessionsKeepBothEntries(t *testing.T) {
 
 	content := readFile(t, filepath.Join(dir, ".mcp.json"))
 	for i := range 10 {
-		if name := "acme-" + string(rune('a'+i)); !strings.Contains(content, `"`+name+`"`) {
+		if name := fmt.Sprintf("acme-%c", 'a'+i); !strings.Contains(content, `"`+name+`"`) {
 			t.Fatalf("entry %s lost:\n%s", name, content)
 		}
 	}

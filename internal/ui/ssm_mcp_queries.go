@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // maxMCPQueries caps the MCP tool calls kept per session; the audit log keeps them all.
@@ -15,13 +15,13 @@ const maxMCPQueries = 500
 
 // mcpQuerySource is the part of a session MCP server the dashboard listens to.
 type mcpQuerySource interface {
-	Subscribe(fn func(dbmcp.QueryEvent))
+	Subscribe(fn func(mcpserve.ToolEvent))
 	QueryLogDir() string
 	AllowsWrites() bool
 }
 
 type ssmMCPQueryMsg struct {
-	event dbmcp.QueryEvent
+	event mcpserve.ToolEvent
 	id    int
 }
 
@@ -31,11 +31,11 @@ type ssmMCPQueries struct {
 	logDir string
 	// writes reports that the server may modify data (the execute tool is offered).
 	writes bool
-	events []dbmcp.QueryEvent
+	events []mcpserve.ToolEvent
 	total  int
 }
 
-func (q *ssmMCPQueries) add(e *dbmcp.QueryEvent) {
+func (q *ssmMCPQueries) add(e *mcpserve.ToolEvent) {
 	q.events = append(q.events, *e)
 	q.total++
 	if len(q.events) > maxMCPQueries {
@@ -46,7 +46,7 @@ func (q *ssmMCPQueries) add(e *dbmcp.QueryEvent) {
 // subscribeMCPQueries forwards the tool calls of source to the dashboard as messages for session id.
 // Events are dropped rather than blocking the MCP server when the dashboard lags behind.
 func subscribeMCPQueries(id int, source mcpQuerySource, events chan<- tea.Msg) *ssmMCPQueries {
-	source.Subscribe(func(e dbmcp.QueryEvent) {
+	source.Subscribe(func(e mcpserve.ToolEvent) {
 		select {
 		case events <- ssmMCPQueryMsg{id: id, event: e}:
 		default:
@@ -63,7 +63,7 @@ func (m ssmModel) queriesShown(s *ssmSession) bool {
 func (m ssmModel) renderQueryLines(s *ssmSession, width int) string {
 	queries := s.mcp
 	if len(queries.events) == 0 {
-		text := m.styles.Muted.Render("No MCP queries yet. SQL run by AI assistants through this session's MCP server shows up here.")
+		text := m.styles.Muted.Render("No MCP calls yet. What AI assistants run through this session's MCP server shows up here.")
 		if queries.logDir != "" {
 			text += "\n\n" + m.styles.Faint.Render("Every call is also logged to "+queries.logDir)
 		}
@@ -86,7 +86,7 @@ func (m ssmModel) renderQueryLines(s *ssmSession, width int) string {
 			style lipgloss.Style
 			text  string
 		}{
-			{m.styles.Text, e.SQL},
+			{m.styles.Text, e.Detail()},
 			{m.styles.Danger, e.Error},
 			{m.styles.Warning, prefixed("not saved to the audit log: ", e.LogError)},
 		}
@@ -103,22 +103,13 @@ func (m ssmModel) renderQueryLines(s *ssmSession, width int) string {
 }
 
 // queryHeadline is e.g. "query · archive  42 rows · 18ms".
-func (m ssmModel) queryHeadline(e *dbmcp.QueryEvent) string {
+func (m ssmModel) queryHeadline(e *mcpserve.ToolEvent) string {
 	tool := m.styles.Title.Render(e.Tool)
 	if e.Tool == "execute" {
 		tool = m.styles.Warning.Bold(true).Render(e.Tool)
 	}
 
-	subject := e.Database
-	if subject == "" {
-		subject = "default database"
-	}
-	switch {
-	case e.Table != "":
-		subject += " " + strings.TrimPrefix(e.Schema+"."+e.Table, ".")
-	case e.Schema != "":
-		subject += " " + e.Schema
-	}
+	subject := querySubject(e)
 
 	var summary string
 	if e.Error != "" {
@@ -133,10 +124,45 @@ func (m ssmModel) queryHeadline(e *dbmcp.QueryEvent) string {
 	return tool + m.styles.Faint.Render(" · ") + m.styles.Text.Render(subject) + "  " + summary
 }
 
-func queryCount(e *dbmcp.QueryEvent) string {
+// querySubject names what a call was about: the database objects, the Kubernetes resources or the
+// cache database.
+func querySubject(e *mcpserve.ToolEvent) string {
+	switch {
+	case e.DB != nil:
+		return fmt.Sprintf("db %d", *e.DB)
+	case e.Engine == "kubernetes":
+		subject := e.Resource
+		if subject == "" {
+			subject = "cluster"
+		}
+		if e.Namespace != "" {
+			subject += " in " + e.Namespace
+		}
+		return subject
+	}
+	subject := e.Database
+	if subject == "" {
+		subject = "default database"
+	}
+	switch {
+	case e.Table != "":
+		subject += " " + strings.TrimPrefix(e.Schema+"."+e.Table, ".")
+	case e.Schema != "":
+		subject += " " + e.Schema
+	}
+	return subject
+}
+
+func queryCount(e *mcpserve.ToolEvent) string {
 	var n int
 	if e.Rows != nil {
 		n = int(*e.Rows)
+	}
+	if e.Engine == "kubernetes" || e.DB != nil {
+		if e.Tool == "execute" {
+			return "done"
+		}
+		return countLabel(n, "item")
 	}
 	switch e.Tool {
 	case "execute":

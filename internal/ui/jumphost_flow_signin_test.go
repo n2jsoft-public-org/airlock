@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -278,5 +279,81 @@ func TestWizardKeepsKeychainPasswordWhileUserUnchanged(t *testing.T) {
 	}
 	if got := *runner.lastSave; got.DBUser != "app_user" || got.DBPassword != "from-keychain" || !got.RememberPassword {
 		t.Fatalf("saved options: user = %q remember = %v, password kept = %v", got.DBUser, got.RememberPassword, got.DBPassword == "from-keychain")
+	}
+}
+
+func TestWizardCacheSignInOptionsPerAuthMode(t *testing.T) {
+	cases := []struct {
+		auth string
+		want []string
+	}{
+		{jumphost.CacheAuthRBAC, []string{jumphost.SignInIAM, jumphost.SignInPassword, jumphost.SignInSecret}},
+		{jumphost.CacheAuthToken, []string{jumphost.SignInPassword, jumphost.SignInSecret}},
+		{jumphost.CacheAuthNone, nil},
+	}
+	for _, c := range cases {
+		m := wizardAtReviewOfType(t, jumphost.Options{}, "elasticache", jumphost.ResourceSummary{Name: "sessions", Engine: "redis", CacheAuth: c.auth})
+		if got := m.signInOptions(); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: options = %v, want %v", c.auth, got, c.want)
+		}
+		if !slices.Contains(m.reviewFields(), reviewFieldMCPWrites) {
+			t.Errorf("%s: caches offer the MCP write toggle", c.auth)
+		}
+	}
+}
+
+func TestWizardMemcachedHasNoSignInNorMCP(t *testing.T) {
+	m := wizardAtReviewOfType(t, jumphost.Options{}, "elasticache", jumphost.ResourceSummary{Name: "legacy", Engine: "memcached", CacheAuth: jumphost.CacheAuthNone})
+	if len(m.signInOptions()) != 0 || m.mcpApplies() || slices.Contains(m.reviewFields(), reviewFieldMCPWrites) {
+		t.Fatalf("options = %v, mcp = %v", m.signInOptions(), m.mcpApplies())
+	}
+}
+
+func TestWizardCacheIAMSuggestsAndRequiresTheUser(t *testing.T) {
+	m := wizardAtReviewOfType(t, jumphost.Options{}, "elasticache", jumphost.ResourceSummary{Name: "sessions", Engine: "valkey", CacheAuth: jumphost.CacheAuthRBAC})
+	m, _ = wizardUpdate(t, m, jumphostCacheUsersMsg{target: cacheTargetKey(&m.options), users: []string{"app-iam"}})
+	if m.signIn != jumphost.SignInIAM || m.userInput.Value() != "app-iam" {
+		t.Fatalf("signIn = %q, user = %q; want IAM prefilled with the only IAM user", m.signIn, m.userInput.Value())
+	}
+	m.userInput.SetValue("")
+	if _, field, errMsg := m.applySignIn(); field != reviewFieldUser || !strings.Contains(errMsg, "RBAC user") {
+		t.Fatalf("applySignIn = %v %q", field, errMsg)
+	}
+}
+
+func TestWizardCacheIgnoresTheDefaultDatabaseUser(t *testing.T) {
+	// fakeSessionRunner resolves an empty user to testDefaultDBUser, as a configured defaultDbUser does.
+	m := wizardAtReviewOfType(t, jumphost.Options{}, "elasticache", jumphost.ResourceSummary{Name: "sessions", Engine: "redis", CacheAuth: jumphost.CacheAuthToken})
+	if m.userInput.Value() != "" {
+		t.Fatalf("user = %q, the RDS default user must not prefill caches", m.userInput.Value())
+	}
+}
+
+func TestWizardStaleCacheUsersAreDropped(t *testing.T) {
+	m := wizardAtReviewOfType(t, jumphost.Options{}, "elasticache", jumphost.ResourceSummary{Name: "sessions", Engine: "valkey", CacheAuth: jumphost.CacheAuthRBAC})
+	other := m.options
+	other.Name = "another"
+	stale, _ := wizardUpdate(t, m, jumphostCacheUsersMsg{target: cacheTargetKey(&other), users: []string{"old-iam"}})
+	if stale.userInput.Value() != "" || stale.userInput.ShowSuggestions {
+		t.Fatalf("other target: user = %q, suggestions = %v", stale.userInput.Value(), stale.userInput.ShowSuggestions)
+	}
+	left := m
+	left.step = jumphostStepTarget
+	left, _ = wizardUpdate(t, left, jumphostCacheUsersMsg{target: cacheTargetKey(&m.options), users: []string{"old-iam"}})
+	if left.userInput.Value() != "" || left.userInput.ShowSuggestions {
+		t.Fatalf("outside the review: user = %q, suggestions = %v", left.userInput.Value(), left.userInput.ShowSuggestions)
+	}
+}
+
+func TestWizardCacheSuggestionsDoNotOutliveTheirTarget(t *testing.T) {
+	m := wizardAtReviewOfType(t, jumphost.Options{}, "elasticache", jumphost.ResourceSummary{Name: "sessions", Engine: "valkey", CacheAuth: jumphost.CacheAuthRBAC})
+	m, _ = wizardUpdate(t, m, jumphostCacheUsersMsg{target: cacheTargetKey(&m.options), users: []string{"a", "b"}})
+	if !m.userInput.ShowSuggestions {
+		t.Fatal("suggestions should show for the RBAC cache")
+	}
+	m.options.ResourceType = "rds"
+	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{port: 15443})
+	if m.userInput.ShowSuggestions || len(m.userInput.AvailableSuggestions()) != 0 {
+		t.Fatalf("suggestions left behind: %v", m.userInput.AvailableSuggestions())
 	}
 }

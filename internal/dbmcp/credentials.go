@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/awstag"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // iamTokenMaxAge is how long an RDS IAM token is reused; AWS accepts it for 15 minutes.
 const iamTokenMaxAge = 10 * time.Minute
 
 // AWSRunner runs an AWS CLI command (profile and region already applied) and returns its stdout.
-type AWSRunner func(ctx context.Context, args ...string) (string, error)
+type AWSRunner = mcpserve.AWSRunner
 
 // Credentials authenticate one database connection.
 type Credentials struct {

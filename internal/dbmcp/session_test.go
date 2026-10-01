@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/n2jsoft/airlock/internal/awstag"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 func testSessionConfig(t *testing.T, engine string) *SessionConfig {
@@ -27,7 +28,7 @@ func testSessionConfig(t *testing.T, engine string) *SessionConfig {
 }
 
 func TestStartSkipsUnsupportedEngine(t *testing.T) {
-	handle, err := Start(NewHost(), testSessionConfig(t, "mysql"))
+	handle, err := Start(mcpserve.NewHost(), testSessionConfig(t, "mysql"))
 	if err != nil || handle != nil {
 		t.Fatalf("handle = %v, err = %v; want nil, nil", handle, err)
 	}
@@ -37,14 +38,14 @@ func TestStartRegistersAndCloseCleansUp(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testSessionConfig(t, "postgres")
 	_ = os.Mkdir(filepath.Join(cfg.ProjectDir, ".claude"), 0o750)
-	host := NewHost()
+	host := mcpserve.NewHost()
 
 	handle, err := Start(host, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(handle.Display, "read-only · acme-dev-archive-db -> http://127.0.0.1:") || !strings.HasSuffix(handle.Display, "(.mcp.json)") {
-		t.Fatalf("display = %q", handle.Display)
+	if !strings.HasPrefix(handle.Display(), "read-only · acme-dev-archive-db -> http://127.0.0.1:") || !strings.HasSuffix(handle.Display(), "(.mcp.json)") {
+		t.Fatalf("display = %q", handle.Display())
 	}
 	config := readFile(t, filepath.Join(cfg.ProjectDir, ".mcp.json"))
 	if !strings.Contains(config, `"acme-dev-archive-db"`) {
@@ -68,7 +69,7 @@ func TestHandleReportsWriteAccess(t *testing.T) {
 	for _, writes := range []bool{false, true} {
 		cfg := testSessionConfig(t, "postgres")
 		cfg.AllowWrites = writes
-		handle, err := Start(NewHost(), cfg)
+		handle, err := Start(mcpserve.NewHost(), cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,13 +82,13 @@ func TestHandleReportsWriteAccess(t *testing.T) {
 
 func TestStartWithoutClientConfigPrintsToken(t *testing.T) {
 	useIsolatedLocks(t)
-	handle, err := Start(NewHost(), testSessionConfig(t, "sqlserver-se"))
+	handle, err := Start(mcpserve.NewHost(), testSessionConfig(t, "sqlserver-se"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer handle.Close()
-	if !strings.Contains(handle.Display, "no AI client config found; header Authorization: Bearer ") {
-		t.Fatalf("display = %q", handle.Display)
+	if !strings.Contains(handle.Display(), "no AI client config found; header Authorization: Bearer ") {
+		t.Fatalf("display = %q", handle.Display())
 	}
 }
 
@@ -95,13 +96,13 @@ func TestStartFlagsWrites(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testSessionConfig(t, "postgres")
 	cfg.AllowWrites = true
-	handle, err := Start(NewHost(), cfg)
+	handle, err := Start(mcpserve.NewHost(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer handle.Close()
-	if !strings.HasPrefix(handle.Display, "WRITES ENABLED · acme-dev-archive-db -> ") {
-		t.Fatalf("display = %q", handle.Display)
+	if !strings.HasPrefix(handle.Display(), "WRITES ENABLED · acme-dev-archive-db -> ") {
+		t.Fatalf("display = %q", handle.Display())
 	}
 }
 
@@ -149,44 +150,25 @@ func TestCredentialProviderPostgresWithoutIAMAuthIsDisabled(t *testing.T) {
 	}
 }
 
-func TestServerName(t *testing.T) {
-	cases := map[[3]string]string{
-		{"acme", "dev", "archive-db"}:         "acme-dev-archive-db",
-		{"acme", "ACME Prod", "Sales_DB.v2"}:  "acme-prod-sales-db-v2",
-		{"acme", "acme-prod-eu", "orders-db"}: "acme-prod-eu-orders-db",
-		{"acme", "acme", "orders-db"}:         "acme-orders-db",
-		{"acme", "acmedemo", "orders-db"}:     "acme-acmedemo-orders-db",
-		{"acme", "dev", "--weird--name--"}:    "acme-dev-weird-name",
-		{"", "dev", "archive-db"}:             "airlock-dev-archive-db",
-		{"Team X", "team-x-prod", "db"}:       "team-x-prod-db",
-		{"airlock", "airlock", "db"}:          "airlock-db",
-	}
-	for in, want := range cases {
-		if got := serverName(in[0], in[1], in[2]); got != want {
-			t.Fatalf("serverName(%q, %q, %q) = %q, want %q", in[0], in[1], in[2], got, want)
-		}
-	}
-}
-
 func TestStartRefusesReadOnlySQLServerWithoutSecretTag(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testSessionConfig(t, "sqlserver-se")
 	cfg.ReadOnlySecretTag = awstag.Tag{}
-	handle, err := Start(NewHost(), cfg)
+	handle, err := Start(mcpserve.NewHost(), cfg)
 	if !errors.Is(err, ErrReadOnlySecretTagUnset) || handle != nil {
 		t.Fatalf("Start = %v, %v; want ErrReadOnlySecretTagUnset", handle, err)
 	}
 
 	cfg.AllowWrites = true
 	cfg.MasterSecretARN = "arn:aws:secretsmanager:eu-west-3:1:secret:master"
-	handle, err = Start(NewHost(), cfg)
+	handle, err = Start(mcpserve.NewHost(), cfg)
 	if err != nil || handle == nil {
 		t.Fatalf("writes mode does not need the read-only tag: %v, %v", handle, err)
 	}
 	handle.Close()
 }
 
-func connectEndpoint(t *testing.T, endpoint Endpoint) *mcp.ClientSession {
+func connectEndpoint(t *testing.T, endpoint mcpserve.Endpoint) *mcp.ClientSession {
 	t.Helper()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
@@ -204,7 +186,7 @@ func TestStartRecordsToolCallsForSubscribersAndAuditLog(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testSessionConfig(t, "postgres")
 	cfg.LogDir = filepath.Join(t.TempDir(), "logs")
-	handle, err := Start(NewHost(), cfg)
+	handle, err := Start(mcpserve.NewHost(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,14 +195,14 @@ func TestStartRecordsToolCallsForSubscribersAndAuditLog(t *testing.T) {
 		t.Fatalf("QueryLogDir() = %q, want %q", handle.QueryLogDir(), cfg.LogDir)
 	}
 
-	events := make(chan QueryEvent, 1)
-	handle.Subscribe(func(e QueryEvent) { events <- e })
+	events := make(chan mcpserve.ToolEvent, 1)
+	handle.Subscribe(func(e mcpserve.ToolEvent) { events <- e })
 	// The read-only guard rejects the statement before any connection is attempted.
-	if result := call(t, connectEndpoint(t, handle.endpoint), "query", map[string]any{"sql": "DELETE FROM users"}); !result.IsError {
+	if result := call(t, connectEndpoint(t, handle.Endpoint()), "query", map[string]any{"sql": "DELETE FROM users"}); !result.IsError {
 		t.Fatalf("DELETE must be rejected, got %s", resultText(result))
 	}
 
-	var e QueryEvent
+	var e mcpserve.ToolEvent
 	select {
 	case e = <-events:
 	case <-time.After(5 * time.Second):
@@ -254,7 +236,7 @@ func TestStartAcceptsReadOnlySQLServerWithPasswordSecret(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testSessionConfig(t, "sqlserver-se")
 	cfg.ReadOnlySecretTag, cfg.DBSecretARN = awstag.Tag{}, "arn:app-password"
-	handle, err := Start(NewHost(), cfg)
+	handle, err := Start(mcpserve.NewHost(), cfg)
 	if err != nil {
 		t.Fatalf("Start = %v, want the password secret accepted without the read-only tag", err)
 	}

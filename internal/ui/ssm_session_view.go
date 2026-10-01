@@ -296,7 +296,7 @@ func (m ssmModel) renderLogs(width, height int) string {
 		if m.showQueries {
 			logs, queries = m.styles.Faint, m.styles.PanelTitle
 		}
-		title = logs.Render("Logs") + "   " + queries.Render("MCP queries") + m.styles.Faint.Render(fmt.Sprintf(" %d", s.mcp.total))
+		title = logs.Render("Logs") + "   " + queries.Render("MCP calls") + m.styles.Faint.Render(fmt.Sprintf(" %d", s.mcp.total))
 	}
 	follow := m.styles.Success.Render("● live")
 	if !m.viewport.AtBottom() {
@@ -452,7 +452,7 @@ func (m ssmModel) helpGroups() []helpGroup {
 			{"n", "Open a new connection"},
 			{"r", "Restart an ended session"},
 			{"x", "Stop the session, or close it once ended"},
-			{"c", "Copy its address, a command or the last MCP query"},
+			{"c", "Copy its address, a command or the last MCP call"},
 			{"a p", "Choose the database credentials, or show the password"},
 			{"tab ←→ 1-9", "Switch session, or jump to one"},
 		}},
@@ -460,7 +460,7 @@ func (m ssmModel) helpGroups() []helpGroup {
 			{"↑↓ pgup pgdn", "Scroll, pausing the live tail"},
 			{"g home", "Start of the logs"},
 			{"G end", "Back to the live tail"},
-			{"m", "Logs or MCP queries (database sessions)"},
+			{"m", "Logs or MCP calls (sessions with an MCP server)"},
 		}},
 		{title: "airlock", keys: [][2]string{
 			{"?", "This help"},

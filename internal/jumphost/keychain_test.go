@@ -265,3 +265,58 @@ func TestSaveConnectionPrefsRecordsIAMWhenSignInNotOffered(t *testing.T) {
 		t.Fatalf("prefs = %+v, want IAM with the new user", prefs)
 	}
 }
+
+func cachePasswordOptions(user string) Options {
+	return Options{ResourceType: "elasticache", Name: "sessions", AwsProfile: "dev", AwsRegion: "eu-west-3",
+		SignIn: SignInPassword, DBUser: user, DBPassword: "t0ken", RememberPassword: true, MCPAllowWrites: true}
+}
+
+func TestSaveConnectionPrefsRemembersCachePasswordAsTheDefaultUser(t *testing.T) {
+	runner, store := keychainRunner(t)
+	mustSave(t, runner, ptr(cachePasswordOptions("")))
+	if got, err := store.Get("111111111111/eu-west-3/elasticache/sessions/default"); err != nil || got != "t0ken" {
+		t.Fatalf("keychain = %q, %v; want the AUTH token under the default user", got, err)
+	}
+	reload := Options{ResourceType: "elasticache", Name: "sessions", AwsProfile: "dev", AwsRegion: "eu-west-3"}
+	prefs, ok := runner.LoadConnectionPrefs(context.Background(), reload)
+	if !ok || prefs.SignInMethod() != SignInPassword || prefs.DBUser != "default" || !prefs.PasswordInKeychain || !prefs.MCPAllowWrites {
+		t.Fatalf("prefs = %+v, %v; want the password method, the default user, remembered, with writes", prefs, ok)
+	}
+	// The wizard asks for the password of the saved user; an empty user also means "default".
+	for _, user := range []string{"", "default"} {
+		reload.DBUser = user
+		if got, ok := runner.LoadKeychainPassword(context.Background(), reload); !ok || got != "t0ken" {
+			t.Fatalf("LoadKeychainPassword(user %q) = %q, %v", user, got, ok)
+		}
+	}
+}
+
+func TestSaveConnectionPrefsRemembersCacheRBACPassword(t *testing.T) {
+	runner, store := keychainRunner(t)
+	mustSave(t, runner, ptr(cachePasswordOptions("app")))
+	if got, err := store.Get("111111111111/eu-west-3/elasticache/sessions/app"); err != nil || got != "t0ken" {
+		t.Fatalf("keychain = %q, %v", got, err)
+	}
+	prefs, _ := runner.LoadConnectionPrefs(context.Background(), cachePasswordOptions("app"))
+	if prefs.DBUser != "app" || !prefs.PasswordInKeychain {
+		t.Fatalf("prefs = %+v", prefs)
+	}
+}
+
+func TestSaveConnectionPrefsRemembersCacheSecret(t *testing.T) {
+	runner, _ := keychainRunner(t)
+	options := Options{ResourceType: "elasticache", Name: "sessions", AwsProfile: "dev", AwsRegion: "eu-west-3",
+		SignIn: SignInSecret, DBSecretARN: "arn:aws:secretsmanager:eu-west-3:111111111111:secret:sessions-auth"}
+	mustSave(t, runner, &options)
+	prefs, ok := runner.LoadConnectionPrefs(context.Background(), options)
+	if !ok || prefs.SignInMethod() != SignInSecret || prefs.DBSecretARN != options.DBSecretARN {
+		t.Fatalf("prefs = %+v, %v; want the secret method and ARN", prefs, ok)
+	}
+}
+
+func TestKeychainAccountOfAnEmptyCacheUserIsTheDefaultUser(t *testing.T) {
+	ref := TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "elasticache", Name: "sessions"}
+	if got := keychainAccount(ref, " "); got != "111111111111/eu-west-3/elasticache/sessions/default" {
+		t.Fatalf("keychainAccount = %q", got)
+	}
+}

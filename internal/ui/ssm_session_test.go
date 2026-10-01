@@ -62,6 +62,10 @@ func (fakeSessionRunner) ListDBSecrets(context.Context, *jumphost.Options) ([]ju
 	}, nil
 }
 
+func (fakeSessionRunner) ListCacheIAMUsers(context.Context, *jumphost.Options) ([]string, error) {
+	return []string{"app-iam"}, nil
+}
+
 func (fakeSessionRunner) SaveConnectionPrefs(context.Context, jumphost.Options) error {
 	return nil
 }

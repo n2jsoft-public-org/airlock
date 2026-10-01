@@ -26,6 +26,9 @@ func (m jumphostWizardModel) targetSQLServer() bool {
 // instance accepts it; the other methods only where airlock uses the credentials, that is when an
 // MCP server is started for an engine it supports, the automatic secrets only on SQL Server.
 func (m jumphostWizardModel) signInOptions() []string {
+	if m.options.ResourceType == "elasticache" {
+		return m.cacheSignInOptions()
+	}
 	var methods []string
 	if m.targetIAMAuth {
 		methods = append(methods, jumphost.SignInIAM)
@@ -37,6 +40,22 @@ func (m jumphostWizardModel) signInOptions() []string {
 		methods = append(methods, jumphost.SignInPassword, jumphost.SignInSecret)
 	}
 	return methods
+}
+
+// cacheSignInOptions lists the sign-in methods of a cache, the default first: AWS IAM only with an
+// RBAC user group; none without auth, or when no MCP server uses the credentials.
+func (m jumphostWizardModel) cacheSignInOptions() []string {
+	if !m.mcpApplies() {
+		return nil
+	}
+	switch m.targetCacheAuth {
+	case jumphost.CacheAuthRBAC:
+		return []string{jumphost.SignInIAM, jumphost.SignInPassword, jumphost.SignInSecret}
+	case jumphost.CacheAuthToken:
+		return []string{jumphost.SignInPassword, jumphost.SignInSecret}
+	default:
+		return nil
+	}
 }
 
 // signInFields are the review fields of the chosen method, after the selector.
@@ -146,13 +165,19 @@ func (m jumphostWizardModel) applySignIn() (next jumphostWizardModel, field int,
 	}
 	switch m.signIn {
 	case jumphost.SignInIAM:
-		resolved := m.runner.ResolveDBUser(user)
+		resolved := user
+		if m.options.ResourceType == "rds" {
+			resolved = m.runner.ResolveDBUser(user)
+		}
 		if resolved == "" {
+			if m.options.ResourceType == "elasticache" {
+				return m, reviewFieldUser, "Enter the RBAC user signing in with AWS IAM"
+			}
 			return m, reviewFieldUser, "Enter the database user signing in with AWS IAM"
 		}
 		m.options.DBUser = resolved
 	case jumphost.SignInPassword:
-		if user == "" {
+		if user == "" && m.options.ResourceType != "elasticache" {
 			return m, reviewFieldUser, "Enter the database user signing in with the password"
 		}
 		if m.passwordInput.Value() == "" {

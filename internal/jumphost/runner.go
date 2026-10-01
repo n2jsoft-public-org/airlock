@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,8 @@ import (
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
+	"github.com/n2jsoft/airlock/internal/kubemcp"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/platform"
 	"golang.org/x/term"
 )
@@ -53,9 +56,9 @@ type Options struct {
 	AwsRegion       string
 	// SkipIDEDataSource disables registering the connection in ./.idea/dataSources.xml.
 	SkipIDEDataSource bool
-	// SkipMCP disables the MCP server giving AI assistants access to tunneled databases.
+	// SkipMCP disables the MCP server giving AI assistants access to the tunneled database, cluster or cache.
 	SkipMCP bool
-	// MCPAllowWrites exposes the MCP execute tool. PostgreSQL writes as DBUser; SQL Server, without
+	// MCPAllowWrites exposes the MCP tools modifying data (databases and caches; EKS is always read-only). PostgreSQL writes as DBUser; SQL Server, without
 	// AWS IAM sign-in, uses the master user secret.
 	MCPAllowWrites bool
 	// DBUser is the database user signing in with AWS IAM on RDS (defaults to RunnerOptions.DefaultDBUser).
@@ -99,8 +102,10 @@ type ResourceSummary struct {
 	IAMAuth bool
 	// Type is the resource type (rds, eks, elasticache) the summary was listed as.
 	Type string
-	// Engine is the RDS engine (postgres, sqlserver-se, ...); empty for other types.
+	// Engine is the RDS engine (postgres, sqlserver-se, ...) or the ElastiCache engine (redis, valkey, memcached); empty for EKS.
 	Engine string
+	// CacheAuth is how an ElastiCache target signs clients in (CacheAuth*); empty for other types.
+	CacheAuth string
 }
 
 type AWSProfileSummary struct {
@@ -115,7 +120,7 @@ type RunnerOptions struct {
 	// Registry tracks ports and targets of parallel sessions; share it between runners of one process.
 	Registry *SessionRegistry
 	// MCPHost serves the MCP servers of database sessions; share it between runners of one process.
-	MCPHost *dbmcp.Host
+	MCPHost *mcpserve.Host
 	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
@@ -133,7 +138,7 @@ type RunnerOptions struct {
 	JumphostTag awstag.Tag
 	// ReadOnlySecretTag marks the read-only secrets of SQL Server instances; zero disables them.
 	ReadOnlySecretTag awstag.Tag
-	// MCPServerPrefix starts MCP server names (dbmcp.DefaultServerPrefix when empty).
+	// MCPServerPrefix starts MCP server names (mcpserve.DefaultServerPrefix when empty).
 	MCPServerPrefix string
 	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
 	KubeconfigDir string
@@ -160,7 +165,7 @@ type SessionDetails struct {
 // in the registry until Release is called.
 type Session struct {
 	release    func() string
-	mcp        *dbmcp.Handle
+	mcp        mcpserve.Session
 	releaseMsg string
 	Label      string
 	// ResourceType (eks, rds, elasticache), Target, Profile and Region describe the connection for display.
@@ -185,8 +190,21 @@ type Session struct {
 }
 
 // MCPServer is the session's running MCP server, nil when none runs.
-func (s *Session) MCPServer() *dbmcp.Handle {
+func (s *Session) MCPServer() mcpserve.Session {
 	return s.mcp
+}
+
+// attachMCP records the MCP server of session and its display line; a server that did not start
+// (nil, typed or not) only leaves its display, so MCPServer stays a nil interface.
+func (r *Runner) attachMCP(session *Session, server mcpserve.Session, display string) {
+	if display != "" {
+		session.Details.MCP = display
+		session.Intro = append(session.Intro, "MCP "+display)
+	}
+	if v := reflect.ValueOf(server); server == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
+		return
+	}
+	session.mcp = server
 }
 
 // Release frees the session's port and target and removes its IDE data source.
@@ -205,7 +223,7 @@ type Runner struct {
 	out      io.Writer
 	err      io.Writer
 	registry *SessionRegistry
-	mcpHost  *dbmcp.Host
+	mcpHost  *mcpserve.Host
 	// prefs is nil when connection preferences are not remembered.
 	prefs *PrefsStore
 	// keychain is nil when passwords cannot be remembered; keychainOK caches its availability.
@@ -251,6 +269,18 @@ type ideTarget struct {
 	RDSPort         int
 	// ClusterCA is the base64 certificate authority of an EKS cluster, for its kubeconfig.
 	ClusterCA string
+	// CacheEndpoint is the real cache host, the TLS server name of an ElastiCache session.
+	CacheEndpoint string
+	// CacheAuth is how the cache signs clients in (CacheAuth*); empty for other types.
+	CacheAuth string
+	// CacheReplicationGroup is the replication group of a cache node reached by its node id, which
+	// IAM tokens are signed for; empty otherwise.
+	CacheReplicationGroup string
+	// CacheTLS reports in-transit encryption; CacheServerless a serverless cache; CacheClusterMode a
+	// cluster-mode-enabled replication group, whose other shards the tunnel cannot reach.
+	CacheTLS         bool
+	CacheServerless  bool
+	CacheClusterMode bool
 	// IAMAuth reports whether the session signs in with AWS IAM: the instance accepts it (not SQL
 	// Server) and the user did not choose a password instead.
 	IAMAuth bool
@@ -281,7 +311,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 	}
 	mcpHost := opts.MCPHost
 	if mcpHost == nil {
-		mcpHost = dbmcp.NewHost()
+		mcpHost = mcpserve.NewHost()
 	}
 
 	jumphostTag := opts.JumphostTag
@@ -370,9 +400,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	}
 
 	// A remembered password the database rejects is forgotten, so the next connection asks again.
-	if resourceType == resourceRDS && target.DBPassword != "" && options.RememberPassword && r.KeychainAvailable() {
+	if (resourceType == resourceRDS || resourceType == resourceElastiCache) && target.DBPassword != "" && options.RememberPassword && r.KeychainAvailable() {
 		if ref, ok := r.prefsTarget(ctx, &options); ok {
-			target.KeychainAccount = keychainAccount(ref, target.DBUser)
+			target.KeychainAccount = keychainAccount(ref, target.DBUser) // the default user for an empty cache user
 		}
 	}
 
@@ -445,17 +475,20 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			session.Intro = append(session.Intro, "Warning: "+warning)
 		}
 	}
-	var mcpServer *dbmcp.Handle
-	if resourceType == resourceRDS && !options.SkipMCP {
-		var mcpDisplay string
-		mcpServer, mcpDisplay = r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
-		if mcpDisplay != "" {
-			session.Details.MCP = mcpDisplay
-			session.Intro = append(session.Intro, "MCP "+mcpDisplay)
-		}
-		session.mcp = mcpServer
+	if resourceType == resourceEKS && !options.SkipMCP {
+		handle, display := r.startKubeMCP(resolvedTargetName, host, target.ClusterCA, session.LocalPort, cfg)
+		r.attachMCP(session, handle, display)
 	}
-	if resourceType == resourceRDS && signInApplies(&target, options.MCPAllowWrites) {
+	if resourceType == resourceRDS && !options.SkipMCP {
+		handle, display := r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		r.attachMCP(session, handle, display)
+	}
+	if resourceType == resourceElastiCache && !options.SkipMCP {
+		handle, display := r.startCacheMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		r.attachMCP(session, handle, display)
+	}
+	if (resourceType == resourceRDS && signInApplies(&target, options.MCPAllowWrites)) ||
+		(resourceType == resourceElastiCache && cacheSignInApplies(&target)) {
 		signIn := &sessionSignIn{
 			runner: r, session: session, cfg: cfg, target: target,
 			resourceType: resourceType, instance: resolvedTargetName, localPort: localPort,
@@ -471,7 +504,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		}
 		session.SignIn = signIn
 	}
-	session.release = sessionRelease(func() { r.registry.release(label) }, mcpServer, removeDataSource, removeKubeconfig)
+	session.release = sessionRelease(func() { r.registry.release(label) }, session.mcp, removeDataSource, removeKubeconfig)
 
 	ready = true
 	return session, nil
@@ -768,7 +801,7 @@ func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (Conn
 }
 
 // SaveConnectionPrefs remembers the choices of options for its target: profile and local port,
-// plus user, sign-in method, secret and MCP write access for RDS. The password itself is never
+// plus user, sign-in method, secret and MCP write access for RDS and ElastiCache. The password itself is never
 // written to the file: with RememberPassword it goes to the OS keychain. Keychain failures are
 // returned wrapped in ErrKeychain, after the choices are saved.
 func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
@@ -782,9 +815,13 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 		LocalPort:    options.LocalPortNumber,
 	}
 	var keychainErr error
-	if target.Type == resourceRDS {
+	if target.Type == resourceRDS || target.Type == resourceElastiCache {
 		prefs.DBUser = strings.TrimSpace(options.DBUser)
 		prefs.SignIn = options.SignInMethod()
+		if target.Type == resourceElastiCache && prefs.SignIn == SignInPassword {
+			// The keychain entry and the session sign the empty user in as the default user.
+			prefs.DBUser = keychainUser(target.Type, prefs.DBUser)
+		}
 		if prefs.SignIn == SignInSecret {
 			prefs.DBSecretARN = strings.TrimSpace(options.DBSecretARN)
 		}
@@ -793,7 +830,7 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 		if saved, found := r.prefs.Load(target); found {
 			previous = &saved
 		}
-		if keepPreviousSignIn(previous, &options) {
+		if previous != nil && keepPreviousSignIn(previous, &options) {
 			prefs.SignIn, prefs.DBSecretARN, prefs.PasswordInKeychain = previous.SignIn, previous.DBSecretARN, previous.PasswordInKeychain
 			if method := previous.SignInMethod(); method == SignInPassword || method == SignInSecret {
 				prefs.DBUser = previous.DBUser
@@ -1499,35 +1536,40 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 	)
 	if err == nil && strings.TrimSpace(rawGroup) != "" && !strings.EqualFold(strings.TrimSpace(rawGroup), "null") {
 		var group struct {
-			ReplicationGroupId string `json:"ReplicationGroupId"`
-			Engine             string `json:"Engine"`
-			Status             string `json:"Status"`
+			ReplicationGroupId string   `json:"ReplicationGroupId"`
+			Engine             string   `json:"Engine"`
+			Status             string   `json:"Status"`
+			UserGroupIDs       []string `json:"UserGroupIds"`
 			NodeGroups         []struct {
 				PrimaryEndpoint struct {
 					Address string `json:"Address"`
 					Port    int    `json:"Port"`
 				} `json:"PrimaryEndpoint"`
 			} `json:"NodeGroups"`
+			ConfigurationEndpoint struct {
+				Address string `json:"Address"`
+				Port    int    `json:"Port"`
+			} `json:"ConfigurationEndpoint"`
+			TransitEncryptionEnabled bool `json:"TransitEncryptionEnabled"`
+			AuthTokenEnabled         bool `json:"AuthTokenEnabled"`
+			ClusterEnabled           bool `json:"ClusterEnabled"`
 		}
-		if jsonErr := json.Unmarshal([]byte(rawGroup), &group); jsonErr == nil &&
-			len(group.NodeGroups) > 0 && group.NodeGroups[0].PrimaryEndpoint.Address != "" {
-			endpoint := group.NodeGroups[0].PrimaryEndpoint
-			localPort, reserveErr := r.reservePort(sessionLabel(resourceElastiCache, group.ReplicationGroupId, cfg), options.LocalPortNumber, endpoint.Port, defaultRedisPort)
-			if reserveErr != nil {
-				return "", "", nil, nil, ideTarget{}, reserveErr
+		if jsonErr := json.Unmarshal([]byte(rawGroup), &group); jsonErr == nil {
+			// Cluster-mode groups have no primary endpoint: their configuration endpoint reaches one shard.
+			endpoint := group.ConfigurationEndpoint
+			if len(group.NodeGroups) > 0 && group.NodeGroups[0].PrimaryEndpoint.Address != "" {
+				endpoint = group.NodeGroups[0].PrimaryEndpoint
 			}
-			displayName := fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d",
-				group.ReplicationGroupId, endpoint.Address, endpoint.Port, localPort)
-			sessionInfo := []string{
-				fmt.Sprintf("host:port  = localhost:%d", localPort),
-				fmt.Sprintf("remote     = %s:%d", endpoint.Address, endpoint.Port),
+			if endpoint.Address != "" {
+				return r.prepareCacheTarget(ctx, cfg, &options, group.ReplicationGroupId, endpoint.Address, endpoint.Port, &ideTarget{
+					Engine:           elastiCacheEngine(group.Engine),
+					CacheAuth:        cacheAuthMode(group.AuthTokenEnabled, group.UserGroupIDs),
+					CacheTLS:         group.TransitEncryptionEnabled,
+					CacheClusterMode: group.ClusterEnabled,
+				}, func(localPort int) string {
+					return fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d", group.ReplicationGroupId, endpoint.Address, endpoint.Port, localPort)
+				})
 			}
-			params := map[string][]string{
-				"host":            {endpoint.Address},
-				"portNumber":      {fmt.Sprintf("%d", endpoint.Port)},
-				"localPortNumber": {fmt.Sprintf("%d", localPort)},
-			}
-			return group.ReplicationGroupId, displayName, sessionInfo, params, ideTarget{Engine: elastiCacheEngine(group.Engine)}, nil
 		}
 	}
 
@@ -1542,6 +1584,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 	if err == nil {
 		var cluster struct {
 			CacheClusterId     string `json:"CacheClusterId"`
+			ReplicationGroupId string `json:"ReplicationGroupId"`
 			Engine             string `json:"Engine"`
 			EngineVersion      string `json:"EngineVersion"`
 			CacheClusterStatus string `json:"CacheClusterStatus"`
@@ -1551,27 +1594,27 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 					Port    int    `json:"Port"`
 				} `json:"Endpoint"`
 			} `json:"CacheNodes"`
+			TransitEncryptionEnabled bool `json:"TransitEncryptionEnabled"`
+			AuthTokenEnabled         bool `json:"AuthTokenEnabled"`
 		}
 		if json.Unmarshal([]byte(rawCluster), &cluster) == nil &&
 			len(cluster.CacheNodes) > 0 && cluster.CacheNodes[0].Endpoint.Address != "" {
 			endpoint := cluster.CacheNodes[0].Endpoint
-			localPort, reserveErr := r.reservePort(sessionLabel(resourceElastiCache, cluster.CacheClusterId, cfg), options.LocalPortNumber, endpoint.Port, defaultRedisPort)
-			if reserveErr != nil {
-				return "", "", nil, nil, ideTarget{}, reserveErr
+			target := &ideTarget{
+				Engine:    elastiCacheEngine(cluster.Engine),
+				CacheAuth: cacheAuthMode(cluster.AuthTokenEnabled, nil),
+				CacheTLS:  cluster.TransitEncryptionEnabled,
 			}
-			displayName := fmt.Sprintf("ElastiCache %s (%s %s) %s:%d -> localhost:%d",
-				cluster.CacheClusterId, cluster.Engine, cluster.EngineVersion,
-				endpoint.Address, endpoint.Port, localPort)
-			sessionInfo := []string{
-				fmt.Sprintf("host:port  = localhost:%d", localPort),
-				fmt.Sprintf("remote     = %s:%d", endpoint.Address, endpoint.Port),
+			if cluster.ReplicationGroupId != "" {
+				// A node of a replication group signs in as its group does.
+				if groupErr := r.applyNodeReplicationGroup(ctx, cfg, cluster.ReplicationGroupId, target); groupErr != nil {
+					return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to describe the replication group %s of cache node %s: %w", cluster.ReplicationGroupId, cluster.CacheClusterId, groupErr)
+				}
 			}
-			params := map[string][]string{
-				"host":            {endpoint.Address},
-				"portNumber":      {fmt.Sprintf("%d", endpoint.Port)},
-				"localPortNumber": {fmt.Sprintf("%d", localPort)},
-			}
-			return cluster.CacheClusterId, displayName, sessionInfo, params, ideTarget{Engine: elastiCacheEngine(cluster.Engine)}, nil
+			return r.prepareCacheTarget(ctx, cfg, &options, cluster.CacheClusterId, endpoint.Address, endpoint.Port, target, func(localPort int) string {
+				return fmt.Sprintf("ElastiCache %s (%s %s) %s:%d -> localhost:%d",
+					cluster.CacheClusterId, cluster.Engine, cluster.EngineVersion, endpoint.Address, endpoint.Port, localPort)
+			})
 		}
 	}
 
@@ -1591,6 +1634,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		Engine              string `json:"Engine"`
 		EngineVersion       string `json:"MajorEngineVersion"`
 		Status              string `json:"Status"`
+		UserGroupID         string `json:"UserGroupId"`
 		Endpoint            struct {
 			Address string `json:"Address"`
 			Port    int    `json:"Port"`
@@ -1603,25 +1647,19 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		return "", "", nil, nil, ideTarget{}, fmt.Errorf("serverless cache %q endpoint is missing", name)
 	}
 
-	localPort, err := r.reservePort(sessionLabel(resourceElastiCache, sc.ServerlessCacheName, cfg), options.LocalPortNumber, sc.Endpoint.Port, defaultRedisPort)
-	if err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+	var userGroups []string
+	if sc.UserGroupID != "" {
+		userGroups = []string{sc.UserGroupID}
 	}
-
-	displayName := fmt.Sprintf("ElastiCache serverless %s (%s %s) %s:%d -> localhost:%d",
-		sc.ServerlessCacheName, sc.Engine, sc.EngineVersion,
-		sc.Endpoint.Address, sc.Endpoint.Port, localPort)
-	sessionInfo := []string{
-		fmt.Sprintf("host:port  = localhost:%d", localPort),
-		fmt.Sprintf("remote     = %s:%d", sc.Endpoint.Address, sc.Endpoint.Port),
-	}
-	params := map[string][]string{
-		"host":            {sc.Endpoint.Address},
-		"portNumber":      {fmt.Sprintf("%d", sc.Endpoint.Port)},
-		"localPortNumber": {fmt.Sprintf("%d", localPort)},
-	}
-
-	return sc.ServerlessCacheName, displayName, sessionInfo, params, ideTarget{Engine: elastiCacheEngine(sc.Engine)}, nil
+	return r.prepareCacheTarget(ctx, cfg, &options, sc.ServerlessCacheName, sc.Endpoint.Address, sc.Endpoint.Port, &ideTarget{
+		Engine:          elastiCacheEngine(sc.Engine),
+		CacheAuth:       cacheAuthMode(false, userGroups),
+		CacheTLS:        true,
+		CacheServerless: true,
+	}, func(localPort int) string {
+		return fmt.Sprintf("ElastiCache serverless %s (%s %s) %s:%d -> localhost:%d",
+			sc.ServerlessCacheName, sc.Engine, sc.EngineVersion, sc.Endpoint.Address, sc.Endpoint.Port, localPort)
+	})
 }
 
 // registerIDEDataSource adds the forwarded connection to the IntelliJ project in the working directory.
@@ -1714,7 +1752,7 @@ func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
 // sessionRelease frees the port and target, stops the MCP server, then runs the cleanups (IDE data
 // source, kubeconfig); nil cleanups are skipped.
 // It returns the cleanup messages joined with "; ".
-func sessionRelease(releasePort func(), mcpServer *dbmcp.Handle, cleanups ...func() string) func() string {
+func sessionRelease(releasePort func(), mcpServer mcpserve.Session, cleanups ...func() string) func() string {
 	return func() string {
 		releasePort()
 		var messages []string
@@ -1733,6 +1771,39 @@ func sessionRelease(releasePort func(), mcpServer *dbmcp.Handle, cleanups ...fun
 	}
 }
 
+// mcpProjectDir is where MCP servers are registered: the project directory, else the working directory.
+func (r *Runner) mcpProjectDir() (string, error) {
+	if r.projectDir != "" {
+		return r.projectDir, nil
+	}
+	return os.Getwd()
+}
+
+// kubemcpStart starts an EKS session's MCP server; a package variable so tests can force a failure.
+var kubemcpStart = kubemcp.Start
+
+// startKubeMCP serves the read-only MCP server of an EKS session and returns its display line:
+// empty when no server applies (no certificate authority), "not started: …" on failure.
+func (r *Runner) startKubeMCP(clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (handle *mcpserve.Handle, display string) {
+	projectDir, err := r.mcpProjectDir()
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
+	}
+	handle, err = kubemcpStart(r.mcpHost, &kubemcp.SessionConfig{
+		AWS: r.awsRunner(cfg), ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+		Target: clusterName, EndpointHost: endpointHost, ClusterCA: caData, LocalPort: localPort,
+		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
+	})
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
+	}
+	if handle == nil {
+		return nil, ""
+	}
+	display = handle.Display()
+	return handle, display
+}
+
 // dbmcpStart starts a session's MCP server; a package variable so tests can force a failure.
 var dbmcpStart = dbmcp.Start
 
@@ -1741,15 +1812,11 @@ var dbmcpStart = dbmcp.Start
 // to start is reported through the returned display rather than r.err, which is discarded in TUI
 // mode.
 func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
-	projectDir := r.projectDir
-	if projectDir == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Sprintf("not started: %v", err)
-		}
-		projectDir = wd
+	projectDir, err := r.mcpProjectDir()
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
 	}
-	handle, err := dbmcpStart(r.mcpHost, &dbmcp.SessionConfig{
+	handle, err = dbmcpStart(r.mcpHost, &dbmcp.SessionConfig{
 		AWS: func(ctx context.Context, args ...string) (string, error) {
 			return r.runAWSCapture(ctx, cfg.Args, args...)
 		},
@@ -1783,7 +1850,8 @@ func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, c
 	if handle == nil {
 		return nil, ""
 	}
-	return handle, handle.Display
+	display = handle.Display()
+	return handle, display
 }
 
 func relativePaths(base string, paths []string) string {
@@ -1955,15 +2023,21 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	// Replication groups (Redis/Valkey with replication).
 	rgOutput, err := r.runAWSCapture(ctx, cfg.Args,
 		"elasticache", "describe-replication-groups",
-		"--query", "ReplicationGroups[*].{name:ReplicationGroupId,status:Status,host:NodeGroups[0].PrimaryEndpoint.Address,port:NodeGroups[0].PrimaryEndpoint.Port}",
+		"--query", "ReplicationGroups[*].{name:ReplicationGroupId,status:Status,engine:Engine,authToken:AuthTokenEnabled,userGroups:UserGroupIds,"+
+			"host:NodeGroups[0].PrimaryEndpoint.Address,port:NodeGroups[0].PrimaryEndpoint.Port,cfgHost:ConfigurationEndpoint.Address,cfgPort:ConfigurationEndpoint.Port}",
 		"--output", "json",
 	)
 	if err == nil {
 		var groups []struct {
-			Name   string `json:"name"`
-			Status string `json:"status"`
-			Host   string `json:"host"`
-			Port   int    `json:"port"`
+			Name       string   `json:"name"`
+			Status     string   `json:"status"`
+			Engine     string   `json:"engine"`
+			Host       string   `json:"host"`
+			CfgHost    string   `json:"cfgHost"`
+			UserGroups []string `json:"userGroups"`
+			Port       int      `json:"port"`
+			CfgPort    int      `json:"cfgPort"`
+			AuthToken  bool     `json:"authToken"`
 		}
 		if json.Unmarshal([]byte(rgOutput), &groups) == nil {
 			for _, g := range groups {
@@ -1971,9 +2045,15 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 				if name == "" {
 					continue
 				}
+				host, port := g.Host, g.Port
+				if host == "" {
+					host, port = g.CfgHost, g.CfgPort
+				}
 				resources = append(resources, ResourceSummary{
 					Name:        name,
-					Description: formatElastiCacheResourceDescription(g.Host, g.Port, g.Status),
+					Description: formatElastiCacheResourceDescription(host, port, g.Status),
+					Engine:      elastiCacheEngine(g.Engine),
+					CacheAuth:   cacheAuthMode(g.AuthToken, g.UserGroups),
 				})
 			}
 		}
@@ -1983,16 +2063,17 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	clOutput, err := r.runAWSCapture(ctx, cfg.Args,
 		"elasticache", "describe-cache-clusters",
 		"--show-cache-node-info",
-		"--query", "CacheClusters[?!ReplicationGroupId].{name:CacheClusterId,status:CacheClusterStatus,engine:Engine,host:CacheNodes[0].Endpoint.Address,port:CacheNodes[0].Endpoint.Port}",
+		"--query", "CacheClusters[?!ReplicationGroupId].{name:CacheClusterId,status:CacheClusterStatus,engine:Engine,authToken:AuthTokenEnabled,host:CacheNodes[0].Endpoint.Address,port:CacheNodes[0].Endpoint.Port}",
 		"--output", "json",
 	)
 	if err == nil {
 		var clusters []struct {
-			Name   string `json:"name"`
-			Status string `json:"status"`
-			Engine string `json:"engine"`
-			Host   string `json:"host"`
-			Port   int    `json:"port"`
+			Name      string `json:"name"`
+			Status    string `json:"status"`
+			Engine    string `json:"engine"`
+			Host      string `json:"host"`
+			Port      int    `json:"port"`
+			AuthToken bool   `json:"authToken"`
 		}
 		if json.Unmarshal([]byte(clOutput), &clusters) == nil {
 			for _, c := range clusters {
@@ -2003,6 +2084,8 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 				resources = append(resources, ResourceSummary{
 					Name:        name,
 					Description: formatElastiCacheResourceDescription(c.Host, c.Port, c.Status),
+					Engine:      elastiCacheEngine(c.Engine),
+					CacheAuth:   cacheAuthMode(c.AuthToken, nil),
 				})
 			}
 		}
@@ -2011,16 +2094,17 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	// Serverless caches (Valkey/Redis serverless — different API entirely).
 	scOutput, err := r.runAWSCapture(ctx, cfg.Args,
 		"elasticache", "describe-serverless-caches",
-		"--query", "ServerlessCaches[*].{name:ServerlessCacheName,status:Status,engine:Engine,host:Endpoint.Address,port:Endpoint.Port}",
+		"--query", "ServerlessCaches[*].{name:ServerlessCacheName,status:Status,engine:Engine,userGroup:UserGroupId,host:Endpoint.Address,port:Endpoint.Port}",
 		"--output", "json",
 	)
 	if err == nil {
 		var serverless []struct {
-			Name   string `json:"name"`
-			Status string `json:"status"`
-			Engine string `json:"engine"`
-			Host   string `json:"host"`
-			Port   int    `json:"port"`
+			Name      string `json:"name"`
+			Status    string `json:"status"`
+			Engine    string `json:"engine"`
+			Host      string `json:"host"`
+			UserGroup string `json:"userGroup"`
+			Port      int    `json:"port"`
 		}
 		if json.Unmarshal([]byte(scOutput), &serverless) == nil {
 			for _, s := range serverless {
@@ -2028,9 +2112,13 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 				if name == "" {
 					continue
 				}
+				var userGroups []string
+				if s.UserGroup != "" {
+					userGroups = []string{s.UserGroup}
+				}
 				resources = append(resources, ResourceSummary{
-					Name:        name,
-					Description: formatElastiCacheResourceDescription(s.Host, s.Port, s.Status),
+					Name: name, Description: formatElastiCacheResourceDescription(s.Host, s.Port, s.Status),
+					Engine: elastiCacheEngine(s.Engine), CacheAuth: cacheAuthMode(false, userGroups),
 				})
 			}
 		}

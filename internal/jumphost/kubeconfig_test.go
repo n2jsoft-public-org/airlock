@@ -2,8 +2,12 @@ package jumphost
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +35,7 @@ func installEKSAWS(t *testing.T, caData string) {
 
 func prepareEKS(t *testing.T, kubeconfigDir string) *Session {
 	t.Helper()
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, KubeconfigDir: kubeconfigDir})
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, KubeconfigDir: kubeconfigDir, ProjectDir: t.TempDir()})
 	session, err := runner.Prepare(context.Background(), Options{ResourceType: "eks", Name: "platform", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 15443, SkipIDEDataSource: true})
 	if err != nil {
 		t.Fatal(err)
@@ -94,5 +98,40 @@ func TestPrepareEKSWithoutCertificateAuthoritySkipsKubeconfig(t *testing.T) {
 
 	if session.Details.Kubeconfig != "" {
 		t.Fatalf("kubeconfig = %q, want none: kubectl could not trust the cluster", session.Details.Kubeconfig)
+	}
+}
+
+// testCA is a valid base64 PEM certificate authority, as describe-cluster prints one.
+func testCA(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+	return base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+}
+
+func TestPrepareEKSStartsReadOnlyMCPServer(t *testing.T) {
+	installEKSAWS(t, testCA(t))
+	project := t.TempDir()
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})
+	session, err := runner.Prepare(context.Background(), Options{ResourceType: "eks", Name: "platform", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 15443, SkipIDEDataSource: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Release()
+	if session.MCPServer() == nil || session.MCPServer().AllowsWrites() || !strings.HasPrefix(session.Details.MCP, "read-only · acme-dev-platform-eks ") {
+		t.Fatalf("MCP = %q, server = %v", session.Details.MCP, session.MCPServer())
+	}
+}
+
+func TestPrepareEKSWithoutMCP(t *testing.T) {
+	installEKSAWS(t, testCA(t))
+	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
+	session, err := runner.Prepare(context.Background(), Options{ResourceType: "eks", Name: "platform", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 15443, SkipIDEDataSource: true, SkipMCP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Release()
+	if session.MCPServer() != nil || session.Details.MCP != "" {
+		t.Fatalf("MCP = %q", session.Details.MCP)
 	}
 }

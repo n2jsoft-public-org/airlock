@@ -3,10 +3,12 @@ package jumphost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
@@ -105,6 +107,9 @@ func (s *sessionSignIn) Check(ctx context.Context, c SignInCandidate) error {
 	if err != nil {
 		return err
 	}
+	if s.resourceType == resourceElastiCache {
+		return s.checkCache(ctx, c, port)
+	}
 	target := &s.target
 	database := dbmcp.DefaultDatabase(target.Engine, target.Database)
 	var creds dbmcp.CredentialProvider
@@ -119,6 +124,23 @@ func (s *sessionSignIn) Check(ctx context.Context, c SignInCandidate) error {
 	return checkSignIn(ctx, target.Engine, creds, port)
 }
 
+// checkCache signs in to the cache through the tunnel with c and runs PING.
+func (s *sessionSignIn) checkCache(ctx context.Context, c SignInCandidate, port int) error {
+	target := s.target
+	if c.SecretARN != "" {
+		target.DBSecretARN, target.DBUser = c.SecretARN, c.User
+	}
+	creds, err := s.runner.cacheCredentials(s.instance, &target, s.cfg)
+	if err != nil {
+		return err
+	}
+	err = checkCacheSignIn(ctx, cachemcp.ConnConfig{Credentials: creds, ServerName: target.CacheEndpoint, LocalPort: port, TLS: target.CacheTLS})
+	if errors.Is(err, cachemcp.ErrSignInRejected) {
+		return fmt.Errorf("%w: %w", ErrSignInRejected, err)
+	}
+	return err
+}
+
 func (s *sessionSignIn) Use(c SignInCandidate, options *Options) {
 	if c.SecretARN == "" || c.SecretARN == s.target.DBSecretARN {
 		return
@@ -129,8 +151,9 @@ func (s *sessionSignIn) Use(c SignInCandidate, options *Options) {
 	session.Details.Auth = describeAuth(&s.target)
 	session.Details.RestartCommand = buildRestartCommand(s.resourceType, s.instance, s.localPort, restartDBUser(&s.target), restartDBSecret(&s.target), s.cfg)
 	session.ReadCredentials = s.runner.secretCredentialsReader(s.aws, s.instance, &s.target)
-	if session.mcp != nil {
-		_ = session.mcp.UseSecret(c.SecretARN, c.User) //nolint:errcheck // closing the former connections may fail; the next queries open new ones
+	// No *cachemcp.Handle case: a cache session's only candidate is its current sign-in, so Use returned above.
+	if handle, ok := session.mcp.(*dbmcp.Handle); ok {
+		_ = handle.UseSecret(c.SecretARN, c.User) //nolint:errcheck // closing the former connections may fail; the next queries open new ones
 	}
 	if s.updateIDE != nil {
 		s.updateIDE(c.User)

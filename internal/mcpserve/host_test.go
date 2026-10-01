@@ -1,4 +1,4 @@
-package dbmcp
+package mcpserve
 
 import (
 	"context"
@@ -18,15 +18,6 @@ func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	r.Header.Set("Authorization", "Bearer "+b.token)
 	return http.DefaultTransport.RoundTrip(r)
-}
-
-func mountTestServer(t *testing.T, host *Host, slug string) Endpoint {
-	t.Helper()
-	endpoint, err := host.Mount(slug, NewServer(testServerConfig(false), &fakeQuerier{}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return endpoint
 }
 
 func post(t *testing.T, url, authorization string) int {
@@ -67,7 +58,7 @@ func TestHostServesMountedServerToAuthorizedClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = session.Close() }()
-	if names := toolNames(t, session); len(names) != 4 {
+	if names := toolNames(t, session); len(names) != 1 {
 		t.Fatalf("tools = %v", names)
 	}
 }
@@ -118,7 +109,7 @@ func TestHostRejectsDuplicateSlug(t *testing.T) {
 	mountTestServer(t, host, "a")
 	t.Cleanup(func() { _ = host.Unmount("a") })
 
-	if _, err := host.Mount("a", NewServer(testServerConfig(false), &fakeQuerier{})); err == nil {
+	if _, err := host.Mount("a", testServer()); err == nil {
 		t.Fatal("expected duplicate slug error")
 	}
 }

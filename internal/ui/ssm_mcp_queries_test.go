@@ -8,22 +8,22 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 type fakeQuerySource struct {
-	subscriber func(dbmcp.QueryEvent)
+	subscriber func(mcpserve.ToolEvent)
 	logDir     string
 	writes     bool
 }
 
-func (f *fakeQuerySource) Subscribe(fn func(dbmcp.QueryEvent)) { f.subscriber = fn }
-func (f *fakeQuerySource) QueryLogDir() string                 { return f.logDir }
-func (f *fakeQuerySource) AllowsWrites() bool                  { return f.writes }
+func (f *fakeQuerySource) Subscribe(fn func(mcpserve.ToolEvent)) { f.subscriber = fn }
+func (f *fakeQuerySource) QueryLogDir() string                   { return f.logDir }
+func (f *fakeQuerySource) AllowsWrites() bool                    { return f.writes }
 
-func queryEvent(tool, sql string) dbmcp.QueryEvent {
+func queryEvent(tool, sql string) mcpserve.ToolEvent {
 	rows := int64(3)
-	return dbmcp.QueryEvent{
+	return mcpserve.ToolEvent{
 		Time: time.Date(2026, 9, 29, 14, 5, 7, 0, time.Local), Tool: tool, Database: "archive", SQL: sql,
 		Rows: &rows, Duration: 18 * time.Millisecond,
 	}
@@ -112,7 +112,7 @@ func TestMKeyTogglesTheQueriesPanel(t *testing.T) {
 	}
 	m, _ = update(t, m, key("m"))
 	view := plainView(m)
-	for _, want := range []string{"MCP queries 1", "14:05:07  query · archive", "3 rows · 18ms", "SELECT id, name FROM users"} {
+	for _, want := range []string{"MCP calls 1", "14:05:07  query · archive", "3 rows · 18ms", "SELECT id, name FROM users"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("queries panel misses %q:\n%s", want, view)
 		}
@@ -131,8 +131,8 @@ func TestMKeyIgnoredWithoutMCPServer(t *testing.T) {
 	if m.showQueries {
 		t.Fatal("m must not switch to queries for a session without MCP server")
 	}
-	if strings.Contains(plainView(m), "MCP queries") {
-		t.Fatal("sessions without MCP server must not mention MCP queries")
+	if strings.Contains(plainView(m), "MCP calls") {
+		t.Fatal("sessions without MCP server must not mention MCP calls")
 	}
 }
 
@@ -141,7 +141,7 @@ func TestQueriesPanelEmptyStateShowsLogDir(t *testing.T) {
 	m, _ = update(t, m, key("m"))
 
 	view := plainView(m)
-	for _, want := range []string{"No MCP queries yet", "/home/me/.config/jumphost/logs"} {
+	for _, want := range []string{"No MCP calls yet", "/home/me/.config/jumphost/logs"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("empty queries panel misses %q:\n%s", want, view)
 		}
@@ -179,5 +179,23 @@ func TestFooterHintsQueriesKeyForMCPSessions(t *testing.T) {
 	m, _ = update(t, m, key("m"))
 	if !strings.Contains(plainView(m), "m  logs") {
 		t.Fatalf("footer misses the logs key:\n%s", plainView(m))
+	}
+}
+
+func TestQueriesPanelShowsKubernetesAndCacheCalls(t *testing.T) {
+	m := newMCPTestModel(t)
+	id := m.sessions[0].id
+	five, two := int64(5), int64(2)
+	db := 0
+	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.Local)
+	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: mcpserve.ToolEvent{Time: at, Tool: "list_resources", Engine: "kubernetes", Namespace: "web", Resource: "pods", Rows: &five}})
+	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: mcpserve.ToolEvent{Time: at, Tool: "command", Engine: "redis", DB: &db, Command: "HGETALL user:1", Rows: &two}})
+	m, _ = update(t, m, key("m"))
+
+	view := plainView(m)
+	for _, want := range []string{"MCP calls 2", "list_resources · pods in web", "5 items", "list pods -n web", "command · db 0", "2 items", "HGETALL user:1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("calls panel misses %q:\n%s", want, view)
+		}
 	}
 }
