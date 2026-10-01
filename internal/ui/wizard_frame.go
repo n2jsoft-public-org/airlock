@@ -37,6 +37,8 @@ type wizardFrame struct {
 	keys  [][2]string
 	// current is the index of the active step in steps.
 	current int
+	// notice, when not empty, takes the blank line under the breadcrumb, so the chrome keeps its height.
+	notice string
 }
 
 // frameBodySize returns the size left to the body of a frame showing errorMsg, which takes up
@@ -95,7 +97,7 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 		spread(left, right, inner),
 		s.Rule.Render(strings.Repeat("─", inner)),
 		truncate(s.breadcrumb(f.steps, f.current), inner),
-		"",
+		s.noticeLine(f.notice, inner),
 		truncate(heading, inner),
 		"",
 		body,
@@ -103,6 +105,14 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 		s.KeyHintsPinned(f.keys, 2, inner),
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(lines, "\n"))
+}
+
+// noticeLine renders notice on one line of width cells, or an empty line without one.
+func (s Styles) noticeLine(notice string, width int) string {
+	if notice == "" {
+		return ""
+	}
+	return truncate(s.Warning.Render("↑ "+notice), width)
 }
 
 // maxErrorLines caps the lines of a frame error; a longer one is cut with "…".

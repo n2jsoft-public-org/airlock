@@ -128,6 +128,8 @@ type jumphostWizardModel struct {
 	switchTo string
 	// production flags the AWS profiles of the productionProfiles setting.
 	production productionMatcher
+	// updateNotice, when not empty, is shown under the breadcrumb: a newer airlock release exists.
+	updateNotice string
 	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
 	hostHasSessions bool
 	// warning is shown in the session log once connected (e.g. the keychain failed).

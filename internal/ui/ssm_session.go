@@ -189,6 +189,8 @@ type ssmModel struct {
 	password ssmPasswordReveal
 	// production flags the AWS profiles of the productionProfiles setting.
 	production productionMatcher
+	// updateNotice, when not empty, tells the wizard a newer airlock release exists.
+	updateNotice string
 }
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
@@ -200,6 +202,8 @@ type DashboardOptions struct {
 	Handoff *TerminalHandoff
 	// ProductionProfiles are the patterns (* wildcard, any case) of the AWS profiles to flag.
 	ProductionProfiles []string
+	// UpdateNotice, when not empty, is shown in the wizard: a newer airlock release exists.
+	UpdateNotice string
 }
 
 // New sessions are prepared with runner, reusing base for their defaults.
@@ -211,6 +215,7 @@ func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, firs
 
 	model := newSSMModel(ctx, runner, processes, base)
 	model.production = productionMatcher(opts.ProductionProfiles)
+	model.updateNotice = opts.UpdateNotice
 	if first != nil {
 		model = model.addSession(first, base)
 	} else {
@@ -621,6 +626,7 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
 	m.wizard.embedded = true
 	m.wizard.hostHasSessions = len(m.sessions) > 0
 	m.wizard.production = m.production
+	m.wizard.updateNotice = m.updateNotice
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""

@@ -22,6 +22,7 @@ func (m jumphostWizardModel) View() string {
 		tagline:  "SSM port forwarding",
 		chips:    m.contextChips(),
 		errorMsg: m.errorMsg,
+		notice:   m.updateNotice,
 	}
 	frame.steps, frame.current = m.breadcrumb()
 
