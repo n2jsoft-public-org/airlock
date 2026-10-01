@@ -72,6 +72,20 @@ without changing your execution policy.
 </details>
 
 <details>
+<summary><b>Install a prebuilt binary</b></summary>
+
+Every push to `main` publishes a [GitHub release](https://github.com/n2jsoft/airlock/releases)
+named after its version (`YYYYMMDD-<short sha>`), with archives for macOS, Linux and Windows. With
+the GitHub CLI, for example on an Apple silicon Mac:
+
+```sh
+gh release download -R n2jsoft/airlock -p '*darwin_arm64.tar.gz'
+tar -xzf airlock_*_darwin_arm64.tar.gz airlock && mv airlock /usr/local/bin/
+```
+
+</details>
+
+<details>
 <summary><b>Install with <code>go install</code></b></summary>
 
 ```sh
@@ -172,6 +186,9 @@ airlock completion fish > ~/.config/fish/completions/airlock.fish              #
 ```
 
 </details>
+
+`airlock version` prints the commit the binary was built from, as `YYYYMMDD-<short sha>` (commit
+date in UTC, for example `20261001-b50fc20`). It reads `dev` when run with `go run`.
 
 ### The wizard
 
@@ -486,6 +503,7 @@ skips the question. Keys in your file that the string does not set are kept, unl
 ```sh
 make run                     # run the CLI
 make build                   # build to bin/airlock
+make dist                    # build macOS, Linux and Windows archives to dist/ (needs GoReleaser)
 make install                 # install to GOBIN (make uninstall to remove)
 .\install.ps1                # install on Windows (-Uninstall to remove)
 make fmt vet lint test       # format, vet, lint and test

@@ -56,7 +56,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newConfigCmd(), newVersionCmd())
 
 	return cmd
 }

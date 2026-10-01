@@ -1,0 +1,49 @@
+# Builds airlock for every supported platform into dist/: run `make dist`.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: airlock
+
+builds:
+  - id: airlock
+    main: ./cmd/airlock
+    binary: airlock
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    # Same commit, same binary. `airlock version` reads the commit Go records in the binary.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# Names the archives after the version `airlock version` prints: YYYYMMDD-<7-char sha>.
+# GoReleaser only releases semver tags, so CI publishes this snapshot with gh (.github/workflows/release.yml).
+snapshot:
+  version_template: '{{ replace (slice .CommitDate 0 10) "-" "" }}-{{ slice .FullCommit 0 7 }}'
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  disable: true

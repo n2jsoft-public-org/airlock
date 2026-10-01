@@ -1,0 +1,61 @@
+# Publishes a GitHub release for every push to main, named after `airlock version`: YYYYMMDD-<sha>.
+name: release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Releases go out one at a time, in push order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # GoReleaser needs the full history.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test ./...
+
+      # GoReleaser only releases semver tags, so it builds a snapshot named YYYYMMDD-<sha>
+      # and gh publishes it below.
+      - name: Build archives
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(jq -r .version dist/metadata.json)"
+          # A re-run of the same commit keeps the release already published.
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "Release $version already exists"
+            exit 0
+          fi
+          gh release create "$version" \
+            --target "$GITHUB_SHA" \
+            --title "$version" \
+            --generate-notes \
+            dist/*.tar.gz dist/*.zip dist/checksums.txt
