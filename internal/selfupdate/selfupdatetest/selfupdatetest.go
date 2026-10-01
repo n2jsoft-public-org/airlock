@@ -9,6 +9,11 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -92,4 +97,77 @@ func NewRelease(t *testing.T, tag, goos, goarch string, binary []byte) Release {
 		name:            archive,
 		"checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  " + name + "\n"),
 	}}
+}
+
+// Repository and Token are the repository the fake server serves and the token it accepts.
+const (
+	Repository = "acme/airlock"
+	Token      = "test-token"
+)
+
+// Server is a fake GitHub API serving Repository. A nil Release means the repository has no
+// release yet.
+type Server struct {
+	*httptest.Server
+	Release  *Release
+	requests []string
+	mu       sync.Mutex
+}
+
+// NewServer starts a fake GitHub API serving release; it stops with the test.
+func NewServer(t *testing.T, release *Release) *Server {
+	t.Helper()
+	s := &Server{Release: release}
+	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// Paths returns the paths requested so far, in order.
+func (s *Server) Paths() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.requests...)
+}
+
+func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.requests = append(s.requests, r.URL.Path)
+	s.mu.Unlock()
+
+	if r.Header.Get("Authorization") != "Bearer "+Token {
+		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
+		return
+	}
+	repo := "/repos/" + Repository
+	switch {
+	case r.URL.Path == repo:
+		writeJSON(w, map[string]string{"full_name": Repository})
+	case r.URL.Path == repo+"/releases/latest" && s.Release != nil:
+		assets := make([]map[string]string, 0, len(s.Release.Assets))
+		for name := range s.Release.Assets {
+			assets = append(assets, map[string]string{"name": name, "url": s.URL + "/assets/" + name})
+		}
+		writeJSON(w, map[string]any{"tag_name": s.Release.Tag, "assets": assets})
+	case strings.HasPrefix(r.URL.Path, repo+"/compare/") && s.Release != nil && s.Release.Compare != "":
+		writeJSON(w, map[string]string{"status": s.Release.Compare})
+	case strings.HasPrefix(r.URL.Path, "/assets/") && s.Release != nil && r.Header.Get("Accept") == "application/octet-stream":
+		data, ok := s.Release.Assets[strings.TrimPrefix(r.URL.Path, "/assets/")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		if _, err := w.Write(data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
