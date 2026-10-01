@@ -46,9 +46,53 @@ jobs:
         if: runner.os == 'Windows'
         run: go test ./internal/selfupdate/...
 
+  # Installs the latest release with the installers of the branch, as a developer without Go would.
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install, run and uninstall with install.sh
+        if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          ~/.local/bin/airlock version
+          sh install.sh --uninstall
+          test ! -e ~/.local/bin/airlock
+
+      - name: Install, run and uninstall with Windows PowerShell
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\install.ps1
+          $target = "$env:LOCALAPPDATA\Programs\airlock\airlock.exe"
+          & $target version
+          if ($LASTEXITCODE) { throw "airlock version failed" }
+          # A second install replaces the first one.
+          .\install.ps1
+          if (Test-Path "$target.old") { throw "the previous airlock.exe was left behind" }
+          .\install.ps1 -Uninstall
+          if (Test-Path (Split-Path $target)) { throw "the install folder is still there" }
+
+      - name: Install as a script block with PowerShell 7
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'airlock'
+          & ([scriptblock]::Create((Get-Content -Raw install.ps1))) -InstallDir $dir -SkipPath
+          & (Join-Path $dir 'airlock.exe') version
+          if ($LASTEXITCODE) { throw "airlock version failed" }
+
   # One required check for every job above, so adding a job only means adding it to `needs`.
   pr-ruleset:
-    needs: [test]
+    needs: [test, install]
     # Without !cancelled() a failed need skips this job, and a skipped check reports success.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest

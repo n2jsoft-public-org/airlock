@@ -39,40 +39,61 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 
 ## 🚀 Quick start
 
+**1. Install.** No Go needed: the installer downloads the latest release for your machine. The
+repository is private, so sign in to GitHub once with the [GitHub CLI](https://cli.github.com)
+(`brew install gh` or `winget install GitHub.cli`, then `gh auth login`).
+
+macOS and Linux:
+
 ```sh
-# 1. Install
-make install          # from a checkout, to GOBIN (or GOPATH/bin)
-.\install.ps1         # same on Windows, from PowerShell (no make needed)
-
-# 2. Launch the wizard
-airlock
-
-# …or connect directly
-airlock rds my-db 5432
+gh api repos/n2jsoft/airlock/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
 ```
 
-Then point your tools at `localhost:5432`. That's it.
-
-<details>
-<summary><b>Install on Windows</b></summary>
-
-Windows has no `make`, so the checkout ships `install.ps1`. From PowerShell, at the root of the
-checkout:
+Windows (PowerShell):
 
 ```powershell
-.\install.ps1              # build and install airlock.exe to GOBIN (or GOPATH\bin)
-.\install.ps1 -Uninstall   # remove it
+& ([scriptblock]::Create((gh api repos/n2jsoft/airlock/contents/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String)))
 ```
 
-It adds the install folder to your user PATH when it is missing (`-SkipPath` to opt out), then
-warns if the AWS CLI or the Session Manager plugin is not found. If PowerShell refuses to run
-scripts, run `install.cmd` instead (from `cmd` or by double-clicking it): it starts the same script
-without changing your execution policy.
+**2. Connect.** Open a new terminal, then:
+
+```sh
+airlock                      # launch the wizard
+airlock rds my-db 5432       # …or connect directly
+```
+
+Then point your tools at `localhost:5432`. That's it. Later, `airlock update` keeps it current.
+
+<details>
+<summary><b>What the installer does, and its options</b></summary>
+
+It reads the release with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI, checks the
+archive against the release's `checksums.txt`, then installs `airlock` to a folder you own, so
+`airlock update` never needs `sudo` or an administrator terminal:
+
+| | macOS and Linux (`install.sh`) | Windows (`install.ps1`) |
+|---|---|---|
+| Install folder | `~/.local/bin` | `%LOCALAPPDATA%\Programs\airlock` |
+| PATH | Added to your shell profile (`.zshrc`, `.bashrc`, `.bash_profile` or fish `conf.d`) | Added to your user PATH |
+| Other folder | `--dir <path>` or `AIRLOCK_INSTALL_DIR` | `-InstallDir <path>` or `AIRLOCK_INSTALL_DIR` |
+| Given release | `--version <tag>` or `AIRLOCK_VERSION` | `-Version <tag>` or `AIRLOCK_VERSION` |
+| Leave PATH alone | `--skip-path` | `-SkipPath` |
+| Uninstall | `--uninstall` | `-Uninstall` |
+
+When piped, pass the options after `sh -s --`, for example `… | sh -s -- --dir /opt/bin`. In
+PowerShell, add them after the script block: `& ([scriptblock]::Create(…)) -Uninstall`. From a
+checkout, run `./install.sh` or `.\install.ps1` directly; if PowerShell refuses to run scripts,
+run `install.cmd` instead (from `cmd` or by double-clicking it): it starts the same script without
+changing your execution policy.
+
+The installer then warns about another `airlock` left on your PATH, such as one from an earlier
+`make install` or `go install` in `GOPATH/bin`, and about a missing AWS CLI or Session Manager
+plugin.
 
 </details>
 
 <details>
-<summary><b>Install a prebuilt binary</b></summary>
+<summary><b>Install a release by hand</b></summary>
 
 Every push to `main` publishes a [GitHub release](https://github.com/n2jsoft/airlock/releases)
 named after its version (`YYYYMMDD-<short sha>`), with archives for macOS, Linux and Windows. With
@@ -80,13 +101,16 @@ the GitHub CLI, for example on an Apple silicon Mac:
 
 ```sh
 gh release download -R n2jsoft/airlock -p '*darwin_arm64.tar.gz'
-tar -xzf airlock_*_darwin_arm64.tar.gz airlock && sudo mv airlock /usr/local/bin/
+tar -xzf airlock_*_darwin_arm64.tar.gz airlock && mkdir -p ~/.local/bin && mv airlock ~/.local/bin/
 ```
 
 </details>
 
 <details>
-<summary><b>Install with <code>go install</code></b></summary>
+<summary><b>Build from source (needs Go 1.27+)</b></summary>
+
+From a checkout, `make install` builds to `GOBIN` (or `GOPATH/bin`); on Windows, without `make`,
+run `go install ./cmd/airlock`. Without a checkout:
 
 ```sh
 GOPRIVATE=github.com/n2jsoft \
@@ -104,7 +128,7 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 
 ### Prerequisites
 
-- **Go 1.27+**
+- **GitHub access** to `n2jsoft/airlock`, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
 - **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)** (used by `aws ssm start-session`)
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
   When a profile's credentials are missing or expired, airlock runs `aws sso login` for you: the
@@ -204,8 +228,8 @@ airlock update --force   # install the latest release even over a newer or unrel
 The repository is private, so airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token
 of the GitHub CLI (`gh auth login`). When airlock lives in a folder you cannot write, such as
 `/usr/local/bin`, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or
-reinstall with `make install`; on Windows, run it from an administrator terminal or reinstall with
-`install.ps1`.
+reinstall with the [installer](#-quick-start), which installs to a folder you own; on Windows, run
+it from an administrator terminal or reinstall with `install.ps1`.
 
 Once a day, in the background, the connect command checks for a newer release; the next launch
 then shows `update available` in the wizard, or a line on stderr for a direct connection. Set
@@ -525,8 +549,7 @@ skips the question. Keys in your file that the string does not set are kept, unl
 make run                     # run the CLI
 make build                   # build to bin/airlock
 make dist                    # build macOS, Linux and Windows archives to dist/ (needs GoReleaser)
-make install                 # install to GOBIN (make uninstall to remove)
-.\install.ps1                # install on Windows (-Uninstall to remove)
+make install                 # build and install to GOBIN (make uninstall to remove)
 make fmt vet lint test       # format, vet, lint and test
 ```
 
