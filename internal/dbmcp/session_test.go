@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
 func testSessionConfig(t *testing.T, engine string) *SessionConfig {

@@ -56,7 +56,7 @@ func runUpdateCmd(t *testing.T, env updateEnv, args ...string) (string, error) {
 
 func readTarget(t *testing.T, target string) string {
 	t.Helper()
-	data, err := os.ReadFile(target)
+	data, err := os.ReadFile(filepath.Clean(target))
 	if err != nil {
 		t.Fatal(err)
 	}
