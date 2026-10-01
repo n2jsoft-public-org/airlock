@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 # Releases go out one at a time, in push order.
 concurrency:
@@ -16,8 +16,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The Windows runner exercises the code that replaces a running airlock.exe.
+  test:
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        if: runner.os != 'Windows'
+        run: |
+          go vet ./...
+          go test ./...
+
+      # The other packages may be unix-only.
+      - name: Test the self-update package
+        if: runner.os == 'Windows'
+        run: go test ./internal/selfupdate/...
+
   release:
+    # A manual run from another branch publishes nothing.
+    if: github.ref == 'refs/heads/main'
+    needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -29,11 +63,6 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-
-      - name: Vet and test
-        run: |
-          go vet ./...
-          go test ./...
 
       # GoReleaser only releases semver tags, so it builds a snapshot named YYYYMMDD-<sha>
       # and gh publishes it below.
@@ -48,6 +77,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # A re-run of an older commit must not become the latest release.
+          git fetch origin main
+          if [ "$GITHUB_SHA" != "$(git rev-parse origin/main)" ]; then
+            echo "Skipping: $GITHUB_SHA is not the tip of main"
+            exit 0
+          fi
           version="$(jq -r .version dist/metadata.json)"
           # A re-run of the same commit keeps the release already published.
           if gh release view "$version" >/dev/null 2>&1; then
