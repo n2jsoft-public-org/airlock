@@ -79,3 +79,12 @@ func LogsDir() (string, error) {
 	}
 	return filepath.Join(dir, "logs"), nil
 }
+
+// UpdateCheckFile is the file under ConfigDir keeping the last check of the latest airlock release.
+func UpdateCheckFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "update-check.json"), nil
+}

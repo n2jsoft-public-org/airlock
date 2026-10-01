@@ -91,3 +91,16 @@ func TestConfigFileIsConfigJSON(t *testing.T) {
 		t.Fatalf("ConfigFile() = %q, want %q", path, want)
 	}
 }
+
+func TestUpdateCheckFileIsInConfigDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+
+	path, err := UpdateCheckFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "airlock", "update-check.json"); path != want {
+		t.Fatalf("UpdateCheckFile() = %q, want %q", path, want)
+	}
+}
