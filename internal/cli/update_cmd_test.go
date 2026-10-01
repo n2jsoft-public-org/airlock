@@ -56,7 +56,6 @@ func runUpdateCmd(t *testing.T, env updateEnv, args ...string) (string, error) {
 
 func readTarget(t *testing.T, target string) string {
 	t.Helper()
-	// nolint:gosec // target is a file path created by testUpdateEnv in t.TempDir(), not user-controlled
 	data, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)

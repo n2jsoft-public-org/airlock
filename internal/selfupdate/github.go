@@ -69,13 +69,21 @@ func (c *Client) repoURL(path string) string {
 	return c.BaseURL + "/repos/" + c.Repository + path
 }
 
+// sameHostAsAPI tells whether target is served by the GitHub API host: any other host gets no token.
+func (c *Client) sameHostAsAPI(target *url.URL) bool {
+	base, err := url.Parse(c.BaseURL)
+	return err == nil && target.Host == base.Host
+}
+
 func (c *Client) get(ctx context.Context, target, accept string) (body []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", accept)
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.sameHostAsAPI(req.URL) {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
 	resp, err := c.HTTP.Do(req)

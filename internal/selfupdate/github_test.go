@@ -124,3 +124,24 @@ func TestDownloadDoesNotSendTheTokenToTheRedirectHost(t *testing.T) {
 		t.Fatalf("the storage host received the token: %q", storageAuth)
 	}
 }
+
+func TestDownloadFromAnotherHostSendsNoToken(t *testing.T) {
+	var foreignAuth string
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		foreignAuth = r.Header.Get("Authorization")
+		if _, err := w.Write([]byte("archive")); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer foreign.Close()
+	api := httptest.NewServer(http.NotFoundHandler())
+	defer api.Close()
+
+	got, err := NewClient(api.URL, "acme/airlock", "secret").Download(context.Background(), Asset{Name: "a.tar.gz", URL: foreign.URL + "/assets/1"})
+	if err != nil || string(got) != "archive" {
+		t.Fatalf("Download = %q, %v", got, err)
+	}
+	if foreignAuth != "" {
+		t.Fatalf("a foreign host received an Authorization header: %q", foreignAuth)
+	}
+}
