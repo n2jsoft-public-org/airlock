@@ -42,9 +42,9 @@ func TestCacheStale(t *testing.T) {
 		current string
 		want    bool
 	}{
-		"fresh":         {checkTime.Add(23 * time.Hour), "20261001-b50fc20", false},
-		"a day old":     {checkTime.Add(24 * time.Hour), "20261001-b50fc20", true},
-		"other build":   {checkTime.Add(time.Hour), testLatest, true},
+		"fresh":           {checkTime.Add(23 * time.Hour), "20261001-b50fc20", false},
+		"a day old":       {checkTime.Add(24 * time.Hour), "20261001-b50fc20", true},
+		"other build":     {checkTime.Add(time.Hour), testLatest, true},
 		"clock went back": {checkTime.Add(-time.Hour), "20261001-b50fc20", true},
 	} {
 		if got := c.Stale(tt.current, tt.now); got != tt.want {
