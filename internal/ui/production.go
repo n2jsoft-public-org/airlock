@@ -22,3 +22,9 @@ func (p productionMatcher) matches(profile string) bool {
 	}
 	return false
 }
+
+// isProduction reports whether s reaches production: a direct database flagged so, or an AWS
+// profile of the productionProfiles setting.
+func (m ssmModel) isProduction(s *ssmSession) bool {
+	return s.session.Production || m.production.matches(s.session.Profile)
+}

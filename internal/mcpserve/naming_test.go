@@ -20,3 +20,19 @@ func TestServerName(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectServerName(t *testing.T) {
+	cases := map[[2]string]string{
+		{"acme", "legacy-billing"}: "acme-legacy-billing",
+		{"", "legacy-billing"}:     "airlock-legacy-billing",
+		{"acme", "acme-billing"}:   "acme-billing",
+		{"acme", "acme"}:           "acme",
+		{"acme", "acmedemo"}:       "acme-acmedemo",
+		{"Team X", "billing"}:      "team-x-billing",
+	}
+	for in, want := range cases {
+		if got := DirectServerName(in[0], in[1]); got != want {
+			t.Fatalf("DirectServerName(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+}

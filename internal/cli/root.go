@@ -11,7 +11,6 @@ import (
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
@@ -31,9 +30,10 @@ func NewRootCmd() *cobra.Command {
 	options := jumphost.Options{}
 
 	cmd := &cobra.Command{
-		Use:   "airlock [eks|rds|elasticache] [name] [local-port]",
-		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost",
-		Long: "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding. " +
+		Use:   "airlock [eks|rds|elasticache|direct] [name] [local-port]",
+		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct database",
+		Long: "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, " +
+			"or to a direct database declared with `airlock db add` (`airlock direct <name>`). " +
 			"When values are omitted in an interactive shell, a wizard asks for them.",
 		Args:         cobra.MaximumNArgs(3),
 		SilenceUsage: true,
@@ -58,7 +58,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd())
+	cmd.AddCommand(newConfigCmd(), newDBCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd())
 
 	return cmd
 }
@@ -149,6 +149,16 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: connection choices will not be remembered: %v\n", err)
 	}
+	// Direct databases live in ~/.config/airlock/databases.json; a lookup failure only disables them.
+	databaseStore, err := openDatabaseStore()
+	if err != nil {
+		cmd.PrintErrf("Warning: direct databases are unavailable: %v\n", err)
+	}
+	// A nil store must stay a nil interface: the runner and the dashboard test for nil.
+	var databases jumphost.DirectDatabases
+	if databaseStore != nil {
+		databases = databaseStore
+	}
 
 	shared := jumphost.RunnerOptions{
 		In:                cmd.InOrStdin(),
@@ -161,17 +171,21 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		ReadOnlySecretTag: cfg.ReadOnlySecretTag,
 		MCPServerPrefix:   cfg.MCPServerPrefix,
 		KubeconfigDir:     kubeconfigDir,
+		Databases:         databases,
 	}
 
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
 	tuiOptions := shared
 	tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
 	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
-	tuiOptions.Keychain = keychain.NewOSStore()
+	tuiOptions.Keychain = newKeychain()
 	// SSO sign-ins suspend the dashboard, so their browser prompt, URL and code stay readable.
 	handoff := ui.NewTerminalHandoff()
 	tuiOptions.Interactive = handoff.Run
 	dashboard := ui.DashboardOptions{Handoff: handoff, ProductionProfiles: cfg.ProductionProfilePatterns()}
+	if databaseStore != nil {
+		dashboard.Databases = databaseStore
+	}
 	if latestRelease != "" {
 		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
 	}
@@ -188,6 +202,14 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 
 	if len(args) > 0 {
 		options.ResourceType = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	if options.ResourceType == directResourceType {
+		if options.Name, err = checkDirectTarget(cmd, args, databases); err != nil {
+			return err
+		}
+		return openDirect(cmd, &options, interactive, &directEnv{
+			tuiRunner: tuiRunner, dashboard: &dashboard, shared: &shared, prefsPath: prefsPath,
+		})
 	}
 	if len(args) > 1 {
 		options.Name = strings.TrimSpace(args[1])

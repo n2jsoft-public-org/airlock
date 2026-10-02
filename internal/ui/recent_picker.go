@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -41,16 +42,29 @@ func connectionKey(profile, region, resourceType, name string) string {
 	return strings.Join([]string{profile, region, resourceType, name}, "/")
 }
 
+// directConnectionKey identifies a direct database connection, which has no profile or region.
+func directConnectionKey(name string) string {
+	return connectionKey("", "", directResourceType, name)
+}
+
 // recentItem is one remembered connection of the start screen.
 type recentItem struct {
-	age       string
-	conn      jumphost.SavedConnection
+	age  string
+	conn jumphost.SavedConnection
+	// db is the definition of a direct entry, when its store could be read.
+	db        directdb.Database
 	connected bool
-	// production reports that the entry's profile is flagged as production.
+	// production reports that the entry's profile, or its direct database, is flagged as production.
 	production bool
 }
 
 func (i recentItem) isProduction() bool { return i.production }
+
+// direct reports whether the entry is a direct database, which has no profile nor region.
+func (i recentItem) direct() bool { return i.conn.Ref.Type == directResourceType }
+
+// isDimmed fades a direct entry whose definition was removed.
+func (i recentItem) isDimmed() bool { return i.conn.TargetMissing }
 
 func (i recentItem) Title() string {
 	if i.connected {
@@ -60,11 +74,21 @@ func (i recentItem) Title() string {
 }
 
 func (i recentItem) Description() string {
-	profile := i.conn.Prefs.Profile
-	if i.conn.ProfileMissing {
-		profile += " (missing)"
+	var parts []string
+	switch {
+	case i.direct() && i.conn.TargetMissing:
+		parts = []string{directResourceType, "definition removed"}
+	case i.direct() && i.db.Host != "":
+		parts = []string{directResourceType, i.db.Address()}
+	case i.direct():
+		parts = []string{directResourceType}
+	default:
+		profile := i.conn.Prefs.Profile
+		if i.conn.ProfileMissing {
+			profile += " (missing)"
+		}
+		parts = []string{profile, i.conn.Ref.Region}
 	}
-	parts := []string{profile, i.conn.Ref.Region}
 	if i.age != "" {
 		parts = append(parts, i.age)
 	}
@@ -76,10 +100,16 @@ func (i recentItem) itemType() string { return i.conn.Ref.Type }
 
 // key identifies the entry as the dashboard knows its sessions (see connectionKey).
 func (i recentItem) key() string {
+	if i.direct() {
+		return directConnectionKey(i.conn.Ref.Name)
+	}
 	return connectionKey(i.conn.Prefs.Profile, i.conn.Ref.Region, i.conn.Ref.Type, i.conn.Ref.Name)
 }
 
 func (i recentItem) FilterValue() string {
+	if i.direct() {
+		return strings.Join(strings.Fields(strings.Join([]string{i.conn.Ref.Name, i.conn.Ref.Type, i.db.Host}, " ")), " ")
+	}
 	return strings.Join([]string{i.conn.Ref.Name, i.conn.Ref.Type, i.conn.Prefs.Profile, i.conn.Ref.Region}, " ")
 }
 
@@ -93,12 +123,20 @@ type recentPicker struct {
 	confirming bool
 }
 
-func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, production productionMatcher, now time.Time) recentPicker {
+// newRecentPicker lists connections; direct holds the definitions of the direct databases by name
+// (nil when unknown), which give their address and production flag.
+func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, production productionMatcher, direct map[string]directdb.Database, now time.Time) recentPicker {
 	items := make([]list.Item, 0, len(connections))
 	for idx := range connections {
 		item := recentItem{conn: connections[idx], age: relativeAge(now, connections[idx].Prefs.UpdatedAt)}
 		item.connected = active[item.key()]
-		item.production = production.matches(item.conn.Prefs.Profile)
+		if item.direct() {
+			// Profile patterns never apply to a database outside AWS.
+			item.db = direct[item.conn.Ref.Name]
+			item.production = item.db.Production
+		} else {
+			item.production = production.matches(item.conn.Prefs.Profile)
+		}
 		items = append(items, item)
 	}
 	l := newWizardList(styles, items)

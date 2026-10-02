@@ -30,7 +30,7 @@ func (s staticCreds) Databases(context.Context) ([]string, error) { return s.dat
 func newTestQuerier(d *dialect, creds CredentialProvider) (*sqlQuerier, *fakeDB, *[]string) {
 	db := newFakeDB()
 	opened := &[]string{}
-	return newSQLQuerier(d, creds, 15432, db.opener(opened)), db, opened
+	return newSQLQuerier(d, creds, TunnelAddress(15432), db.opener(opened)), db, opened
 }
 
 func TestQueryRunsInRolledBackReadOnlyTransaction(t *testing.T) {
@@ -295,13 +295,13 @@ func TestDescribeUnknownTable(t *testing.T) {
 func TestConnectionErrorExplainsRejectedCredentials(t *testing.T) {
 	rejected := errors.New(`failed to connect to user=acme_rw: failed SASL auth: FATAL: password authentication failed for user "acme_rw" (SQLSTATE 28P01)`)
 
-	iam := newSQLQuerier(&postgresDialect, newIAMTokenProvider(nil, "db", 5432, "acme_rw", "app"), 15432, nil)
+	iam := newSQLQuerier(&postgresDialect, newIAMTokenProvider(nil, "db", 5432, "acme_rw", "app"), TunnelAddress(15432), nil)
 	err := iam.connectionError(rejected)
 	if !strings.Contains(err.Error(), "GRANT rds_iam TO acme_rw") || !strings.Contains(err.Error(), "IAM auth turned off") || !errors.Is(err, rejected) {
 		t.Fatalf("IAM error = %v", err)
 	}
 
-	password := newSQLQuerier(&postgresDialect, newPasswordProvider("acme_rw", "wrong", "app"), 15432, nil)
+	password := newSQLQuerier(&postgresDialect, newPasswordProvider("acme_rw", "wrong", "app"), TunnelAddress(15432), nil)
 	if err := password.connectionError(rejected); !strings.Contains(err.Error(), "password entered for acme_rw was rejected") {
 		t.Fatalf("password error = %v", err)
 	}
@@ -470,5 +470,51 @@ func TestQueryReportsSQLServerRejectedPassword(t *testing.T) {
 				t.Fatalf("rejected = %d, want one notification", rejected)
 			}
 		})
+	}
+}
+
+// newDirectTestQuerier is newTestQuerier for a database reached directly at billing.db.internal:1433.
+func newDirectTestQuerier(mode TLSMode) (*sqlQuerier, *fakeDB) {
+	db := newFakeDB()
+	opened := &[]string{}
+	addr := Address{Host: "billing.db.internal", Port: 1433, TLS: mode}
+	return newSQLQuerier(&sqlServerDialect, staticCreds{fallback: "Billing"}, addr, db.opener(opened)), db
+}
+
+func TestQueryExplainsUnreachableDirectDatabase(t *testing.T) {
+	for _, cause := range []string{
+		"dial tcp 10.0.0.5:1433: connect: connection refused",
+		"dial tcp 10.0.0.5:1433: i/o timeout",
+		"dial tcp: lookup billing.db.internal: no such host",
+	} {
+		t.Run(cause, func(t *testing.T) {
+			q, db := newDirectTestQuerier(TLSRequire)
+			db.connectErr = errors.New(cause)
+			_, err := q.Query(context.Background(), "", "SELECT 1", 1)
+			if err == nil || !strings.HasPrefix(err.Error(), "billing.db.internal:1433 is not reachable (VPN or firewall?): ") || !strings.Contains(err.Error(), cause) {
+				t.Fatalf("err = %v", err)
+			}
+			if strings.Contains(err.Error(), "tunnel") {
+				t.Fatalf("a direct database has no tunnel: %v", err)
+			}
+		})
+	}
+}
+
+func TestQueryExplainsUntrustedCertificateOnlyWhenVerifying(t *testing.T) {
+	const cause = "tls: failed to verify certificate: x509: certificate signed by unknown authority"
+
+	q, db := newDirectTestQuerier(TLSVerify)
+	db.connectErr = errors.New(cause)
+	_, err := q.Query(context.Background(), "", "SELECT 1", 1)
+	if err == nil || err.Error() != "certificate of billing.db.internal is not trusted: use tls require, or install its CA: "+cause {
+		t.Fatalf("verify err = %v", err)
+	}
+
+	q, db = newDirectTestQuerier(TLSRequire)
+	db.connectErr = errors.New(cause)
+	_, err = q.Query(context.Background(), "", "SELECT 1", 1)
+	if err == nil || err.Error() != cause {
+		t.Fatalf("require err = %v, want the driver error unchanged", err)
 	}
 }

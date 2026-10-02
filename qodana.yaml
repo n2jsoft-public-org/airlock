@@ -1,3 +1,14 @@
 version: "1.0"
 # The Go linter needs an Ultimate or Ultimate Plus Qodana license.
 linter: jetbrains/qodana-go:2026.1
+
+exclude:
+  # Bubble Tea models and their components update a value receiver and return it (Update, View,
+  # with* helpers), while a few methods that must change the model in place (SetSize, refreshing
+  # the viewport) take a pointer: both inspections flag that idiom on every method of internal/ui.
+  - name: GoMixedReceiverTypes
+    paths:
+      - internal/ui
+  - name: GoAssignmentToReceiver
+    paths:
+      - internal/ui

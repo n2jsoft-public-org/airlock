@@ -79,6 +79,19 @@ func TestKubeconfigDirIsUnderConfigDir(t *testing.T) {
 	}
 }
 
+func TestDatabasesFileIsUnderConfigDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+
+	path, err := DatabasesFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "airlock", "databases.json"); path != want {
+		t.Fatalf("DatabasesFile() = %q, want %q", path, want)
+	}
+}
+
 func TestConfigFileIsConfigJSON(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", root)

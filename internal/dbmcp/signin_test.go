@@ -14,7 +14,7 @@ func TestCheckSignInRunsSelectOneOnTheDefaultDatabase(t *testing.T) {
 	q, db, opened := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
 	db.answer("SELECT 1", []string{"?column?"}, []driver.Value{int64(1)})
 
-	if err := checkSignIn(context.Background(), q); err != nil {
+	if err := checkSignIn(context.Background(), func() Querier { return q }); err != nil {
 		t.Fatal(err)
 	}
 	if len(*opened) != 1 || (*opened)[0] != "app" {
@@ -41,7 +41,7 @@ func TestCheckSignInTellsARejectedPasswordFromOtherFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			q, db, _ := newTestQuerier(&sqlServerDialect, staticCreds{})
 			db.connectErr = tc.err
-			err := checkSignIn(context.Background(), q)
+			err := checkSignIn(context.Background(), func() Querier { return q })
 			if err == nil || errors.Is(err, ErrSignInRejected) != tc.rejected {
 				t.Fatalf("err = %v, rejected = %v, want rejected = %v", err, errors.Is(err, ErrSignInRejected), tc.rejected)
 			}
@@ -66,5 +66,21 @@ func TestDefaultDatabase(t *testing.T) {
 		if got := DefaultDatabase(tc.engine, tc.dbName); got != tc.want {
 			t.Errorf("DefaultDatabase(%q, %q) = %q, want %q", tc.engine, tc.dbName, got, tc.want)
 		}
+	}
+}
+
+func TestCheckDirectSignInRefusesUnsupportedEngines(t *testing.T) {
+	err := CheckDirectSignIn(context.Background(), "mysql", PasswordCredentials("u", "p", ""), Address{Host: "db", Port: 3306})
+	if !errors.Is(err, ErrEngineUnsupported) {
+		t.Fatalf("err = %v, want ErrEngineUnsupported", err)
+	}
+}
+
+func TestReadOnlyRestsOnGrants(t *testing.T) {
+	if ReadOnlyRestsOnGrants(EnginePostgres) {
+		t.Fatal("PostgreSQL reads run in read-only transactions")
+	}
+	if !ReadOnlyRestsOnGrants(EngineSQLServer) {
+		t.Fatal("SQL Server has no read-only transaction: its read-only access rests on grants")
 	}
 }

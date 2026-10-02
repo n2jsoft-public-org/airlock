@@ -142,6 +142,8 @@ type RunnerOptions struct {
 	MCPServerPrefix string
 	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
 	KubeconfigDir string
+	// Databases finds the direct databases; nil disables them.
+	Databases DirectDatabases
 	// Interactive runs a command needing the user's terminal (aws sso login), purpose saying why;
 	// nil runs it on In, Out and Err.
 	Interactive func(ctx context.Context, purpose, name string, args ...string) error
@@ -184,8 +186,11 @@ type Session struct {
 	ReadCredentials func(ctx context.Context) ([]DBCredentials, error)
 	// SignIn resolves and checks the database credentials once the tunnel is up; nil when airlock
 	// cannot query the session's database.
-	SignIn      SignInChecker
-	LocalPort   int
+	SignIn    SignInChecker
+	LocalPort int
+	// Production is the production flag of a direct database's definition (AWS sessions are
+	// flagged by profile in the dashboard).
+	Production  bool
 	releaseOnce sync.Once
 }
 
@@ -244,7 +249,9 @@ type Runner struct {
 	mcpServerPrefix   string
 	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
 	kubeconfigDir string
-	interactive   func(ctx context.Context, purpose, name string, args ...string) error
+	// databases finds the direct databases; nil when they are disabled.
+	databases   DirectDatabases
+	interactive func(ctx context.Context, purpose, name string, args ...string) error
 	// loginMu serializes the SSO sign-ins of expired identities.
 	loginMu sync.Mutex
 }
@@ -324,6 +331,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: strings.TrimSpace(opts.DefaultDBUser),
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
+		databases:   opts.Databases,
 		interactive: opts.Interactive,
 	}
 	if opts.PrefsPath != "" {
@@ -350,6 +358,10 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 		release()
 	}()
 
+	if session.ResourceType == resourceDirect {
+		return r.serveDirect(ctx, session)
+	}
+
 	fprintf(r.out, "Starting SSM session...\n")
 	for _, line := range session.Intro {
 		fprintf(r.out, "> %s\n", line)
@@ -360,8 +372,12 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 }
 
 // Prepare resolves the target, reserves a free local port and registers the IDE data source.
-// The caller starts the returned session (aws CommandArgs + AwsArgs) and must Release it once finished.
+// The caller starts the returned session (aws CommandArgs + AwsArgs; none for a direct database) and must Release it once finished.
 func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error) {
+	// A direct database is reached without AWS: no CLI, identity, jumphost nor local port.
+	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDirect) {
+		return r.prepareDirect(ctx, &options)
+	}
 	if _, err := exec.LookPath("aws"); err != nil {
 		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
 	}
@@ -801,7 +817,7 @@ func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (Conn
 }
 
 // SaveConnectionPrefs remembers the choices of options for its target: profile and local port,
-// plus user, sign-in method, secret and MCP write access for RDS and ElastiCache. The password itself is never
+// plus user, sign-in method, secret and MCP write access for RDS, ElastiCache and direct databases. The password itself is never
 // written to the file: with RememberPassword it goes to the OS keychain. Keychain failures are
 // returned wrapped in ErrKeychain, after the choices are saved.
 func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
@@ -814,10 +830,18 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 		ResourceType: target.Type,
 		LocalPort:    options.LocalPortNumber,
 	}
+	if target.Type == resourceDirect {
+		// A direct database has neither AWS profile nor local port.
+		prefs.Profile, prefs.LocalPort = "", 0
+	}
 	var keychainErr error
-	if target.Type == resourceRDS || target.Type == resourceElastiCache {
+	if target.Type == resourceRDS || target.Type == resourceElastiCache || target.Type == resourceDirect {
 		prefs.DBUser = strings.TrimSpace(options.DBUser)
 		prefs.SignIn = options.SignInMethod()
+		if target.Type == resourceDirect {
+			// A direct database always signs in with its password.
+			prefs.SignIn = SignInPassword
+		}
 		if target.Type == resourceElastiCache && prefs.SignIn == SignInPassword {
 			// The keychain entry and the session sign the empty user in as the default user.
 			prefs.DBUser = keychainUser(target.Type, prefs.DBUser)
@@ -853,6 +877,13 @@ func keepPreviousSignIn(previous *ConnectionPrefs, options *Options) bool {
 // (unsupported type, disabled, or the AWS account is unknown).
 func (r *Runner) prefsTarget(ctx context.Context, options *Options) (TargetRef, bool) {
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
+	if resourceType == resourceDirect {
+		// A direct database belongs to no AWS account: no lookup is needed.
+		if r.prefs == nil || strings.TrimSpace(options.Name) == "" {
+			return TargetRef{}, false
+		}
+		return DirectTargetRef(options.Name), true
+	}
 	if r.prefs == nil || !supportedResourceType(resourceType) || strings.TrimSpace(options.Name) == "" {
 		return TargetRef{}, false
 	}
@@ -1676,17 +1707,8 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		return "", nil
 	}
 
-	projectDir := r.projectDir
-	if projectDir == "" {
-		projectDir, err = os.Getwd()
-		if err != nil {
-			return "", nil
-		}
-	}
-
-	key := strings.Join([]string{resourceType, cfg.Profile, cfg.Region, targetName}, "|")
 	dataSource := &ideadatasource.DataSource{
-		Key:        key,
+		Key:        strings.Join([]string{resourceType, cfg.Profile, cfg.Region, targetName}, "|"),
 		Name:       fmt.Sprintf("airlock %s %s", cfg.Profile, targetName),
 		Engine:     target.Engine,
 		Host:       "localhost",
@@ -1698,6 +1720,22 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 	if target.IAMAuth {
 		dataSource.AuthProvider = awsIAMAuthProvider
 	}
+	return r.registerDataSource(dataSource, fmt.Sprintf("localhost:%d", port))
+}
+
+// registerDataSource adds dataSource to the IntelliJ project in the working directory; endpoint is
+// where it connects, for display. It returns a display message and a function removing the entry
+// again (nil when nothing was registered). Failures are reported as a warning and never abort the
+// session.
+func (r *Runner) registerDataSource(dataSource *ideadatasource.DataSource, endpoint string) (message string, remove func() string) {
+	projectDir := r.projectDir
+	if projectDir == "" {
+		var err error
+		if projectDir, err = os.Getwd(); err != nil {
+			return "", nil
+		}
+	}
+
 	result, err := ideadatasource.Register(projectDir, dataSource)
 	if err != nil {
 		fprintf(r.err, "Warning: failed to register IntelliJ data source: %v\n", err)
@@ -1707,6 +1745,7 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		return "", nil
 	}
 
+	key := dataSource.Key
 	remove = func() string {
 		unregistered, err := ideadatasource.Unregister(projectDir, key)
 		switch {
@@ -1721,7 +1760,7 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		}
 	}
 
-	return fmt.Sprintf("IntelliJ data source %q -> localhost:%d (%s)", result.Name, port, relativePaths(projectDir, result.Paths)), remove
+	return fmt.Sprintf("IntelliJ data source %q -> %s (%s)", result.Name, endpoint, relativePaths(projectDir, result.Paths)), remove
 }
 
 // awsIAMAuthProvider is the IntelliJ authentication method "AWS IAM".

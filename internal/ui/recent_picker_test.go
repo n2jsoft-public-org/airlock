@@ -21,7 +21,7 @@ func recentFixture() []jumphost.SavedConnection {
 }
 
 func newTestRecentPicker(active map[string]bool) recentPicker {
-	p := newRecentPicker(NewStyles(), recentFixture(), active, nil, pickerNow)
+	p := newRecentPicker(NewStyles(), recentFixture(), active, nil, nil, pickerNow)
 	p.SetSize(100, 20)
 	return p
 }

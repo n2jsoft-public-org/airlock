@@ -8,8 +8,9 @@ import (
 )
 
 // ListSavedConnections returns the remembered connections, most recently used first, keeping
-// those of profile and region when they are set. Entries whose profile no longer exists in the
-// AWS CLI configuration are flagged ProfileMissing.
+// those of profile and region when they are set; direct databases, outside AWS, are always kept.
+// Entries whose profile no longer exists in the AWS CLI configuration are flagged ProfileMissing,
+// direct databases whose definition is gone TargetMissing.
 func (r *Runner) ListSavedConnections(ctx context.Context, profile, region string) ([]SavedConnection, error) {
 	if r.prefs == nil {
 		return nil, nil
@@ -18,7 +19,25 @@ func (r *Runner) ListSavedConnections(ctx context.Context, profile, region strin
 	if err != nil {
 		return nil, err
 	}
-	return filterSavedConnections(saved, profile, region, r.knownProfiles(ctx)), nil
+	kept := filterSavedConnections(saved, profile, region, r.knownProfiles(ctx))
+	r.flagMissingDirectDatabases(kept)
+	return kept, nil
+}
+
+// flagMissingDirectDatabases sets TargetMissing on the direct entries whose definition is gone. An
+// unreadable definitions file flags none: it does not prove a database is gone.
+func (r *Runner) flagMissingDirectDatabases(saved []SavedConnection) {
+	if r.databases == nil {
+		return
+	}
+	for idx := range saved {
+		if saved[idx].Ref.Type != resourceDirect {
+			continue
+		}
+		if _, found, err := r.databases.Get(saved[idx].Ref.Name); err == nil && !found {
+			saved[idx].TargetMissing = true
+		}
+	}
 }
 
 // ForgetConnection removes the remembered choices of ref, and its password from the keychain.
@@ -51,13 +70,18 @@ func (r *Runner) knownProfiles(ctx context.Context) map[string]bool {
 }
 
 // filterSavedConnections keeps the entries of profile and region (empty keeps all) and flags
-// those whose profile is not in known; a nil known flags none.
+// those whose profile is not in known; a nil known flags none. Direct databases have no profile
+// nor region: they are always kept and never flagged.
 func filterSavedConnections(saved []SavedConnection, profile, region string, known map[string]bool) []SavedConnection {
 	profile = strings.TrimSpace(profile)
 	region = strings.TrimSpace(region)
 	kept := make([]SavedConnection, 0, len(saved))
 	for idx := range saved {
 		conn := saved[idx]
+		if conn.Ref.Type == resourceDirect {
+			kept = append(kept, conn)
+			continue
+		}
 		if profile != "" && conn.Prefs.Profile != profile {
 			continue
 		}

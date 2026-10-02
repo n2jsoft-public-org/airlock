@@ -184,6 +184,9 @@ func (m ssmModel) handleSignInChecked(msg ssmSignInCheckedMsg) (tea.Model, tea.C
 	s.signIn.failed[candidateKey(&c)] = msg.err
 	s.signIn.err = msg.err
 	s.appendLines("Could not sign in as " + c.User + ": " + msg.err.Error())
+	if errors.Is(msg.err, jumphost.ErrSignInRejected) && s.direct() {
+		return m.askDirectPasswordAgain(s, c.User, msg.err)
+	}
 	if errors.Is(msg.err, jumphost.ErrSignInRejected) && checker.Forget(c, &s.options) {
 		s.appendLines("Forgot the saved secret " + c.Label + ".")
 		save := m.saveSignIn(s)
@@ -205,6 +208,27 @@ func (m ssmModel) failSignIn(s *ssmSession, err error, prefix string) (tea.Model
 	s.appendLines("The tunnel stays open: press a to sign in again.")
 	m.refreshSelected(s)
 	return m, nil
+}
+
+// askDirectPasswordAgain ends the direct session s, whose password of user the database rejected
+// with err (the keychain no longer keeps it): there is no tunnel to keep, and its MCP server must
+// not hold a wrong password. The wizard then opens on the review of that database, its password
+// field empty, to type it again. A wizard already open is kept: the log says how to reopen it.
+func (m ssmModel) askDirectPasswordAgain(s *ssmSession, user string, err error) (tea.Model, tea.Cmd) {
+	name := s.options.Name
+	s.signIn.state = signInFailed
+	m = m.endSession(s, err)
+	// The review only takes over the sessions list: a wizard, a preparation or a dialog stays, and
+	// the log tells how to enter the password again.
+	if m.mode != ssmModeSessions {
+		s.appendLines("Press n and open " + name + " to enter the password of " + user + " again.")
+		m.refreshSelected(s)
+		return m, nil
+	}
+	m = m.showWizard(m.wizardDefaults())
+	m.wizard.openDirect = name
+	m.wizard.openDirectError = "The database rejected the password of " + user + ": enter it again."
+	return m.startWizard()
 }
 
 // saveSignIn remembers the sign-in options of s for its target.
@@ -244,7 +268,7 @@ func canRetrySignIn(s *ssmSession) bool {
 // retrySignIn (a) reopens the choice of the selected session, or finds its credentials again.
 func (m ssmModel) retrySignIn() (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
-	if !canRetrySignIn(s) {
+	if s == nil || !canRetrySignIn(s) {
 		return m, nil
 	}
 	switch s.signIn.state {

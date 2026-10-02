@@ -189,3 +189,23 @@ func TestDescribeAndListTools(t *testing.T) {
 		t.Fatalf("list_databases = %s", resultText(result))
 	}
 }
+
+func TestInstructionsKeepTheTunnelText(t *testing.T) {
+	want := "Database app (PostgreSQL dialect), reached through an airlock SSM tunnel. AWS profile dev, region eu-west-3. " +
+		"Access is read-only. Explore with list_databases, list_tables and describe_table before writing queries. " +
+		"The query tool runs one SELECT/WITH statement and returns at most 1000 rows."
+	if got := instructions(testServerConfig(false)); got != want {
+		t.Fatalf("instructions = %q\nwant %q", got, want)
+	}
+}
+
+func TestInstructionsOfADirectDatabase(t *testing.T) {
+	cfg := &ServerConfig{Name: "acme-legacy-billing", Target: "legacy-billing", Engine: EngineSQLServer, Via: "reached directly at billing.db.internal:1433."}
+	got := instructions(cfg)
+	if !strings.HasPrefix(got, "Database legacy-billing (T-SQL (SQL Server) dialect), reached directly at billing.db.internal:1433. Access is read-only. ") {
+		t.Fatalf("instructions = %q", got)
+	}
+	if strings.Contains(got, "SSM") || strings.Contains(got, "AWS profile") {
+		t.Fatalf("a direct database has no tunnel nor AWS profile: %q", got)
+	}
+}

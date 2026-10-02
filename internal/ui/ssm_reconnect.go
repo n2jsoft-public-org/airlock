@@ -34,7 +34,8 @@ func (s *ssmSession) reconnectPending() bool {
 // reconnection opened, is reconnected: one stopped by the user, or that never listened (its
 // settings are likely wrong), is left for r.
 func (m ssmModel) scheduleReconnect(s *ssmSession) tea.Cmd {
-	if s.stopRequested || m.quitting || (!s.ready && s.reconnects == 0) {
+	// A direct session has no tunnel that drops: it only ends when stopped.
+	if s.direct() || s.stopRequested || m.quitting || (!s.ready && s.reconnects == 0) {
 		return nil
 	}
 	if time.Since(s.startedAt) >= reconnectResetAfter {
@@ -122,8 +123,8 @@ func (m ssmModel) handleReconnected(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		m.viewport.GotoBottom()
 	}
-	m.launchCommand(s)
-	return m, nil
+	cmd := m.startSession(s)
+	return m, cmd
 }
 
 // reconnectStatus is the status label of an ended session waiting for its reconnection, short

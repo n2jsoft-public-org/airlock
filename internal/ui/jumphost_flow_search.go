@@ -25,6 +25,8 @@ type jumphostSearchLoadedMsg struct {
 // beginSearch starts the Search flow: the profile first, unless --profile gave it.
 func (m jumphostWizardModel) beginSearch() (tea.Model, tea.Cmd) {
 	m.flow = flowSearch
+	// A type picked earlier (the Type step is left with esc) must not leak into the search.
+	m.options.ResourceType = ""
 	m.errorMsg = ""
 	if m.askProfile {
 		return m.enterProfileStep()

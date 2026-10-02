@@ -51,18 +51,39 @@ func CheckSignIn(ctx context.Context, awsEngine string, creds CredentialProvider
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrEngineUnsupported, awsEngine)
 	}
-	return checkSignIn(ctx, newQuerier(engine, creds, port))
+	return checkSignIn(ctx, func() Querier { return newQuerier(engine, creds, TunnelAddress(port)) })
 }
 
-// checkSignIn runs the test query on q and closes it.
-func checkSignIn(ctx context.Context, q Querier) error {
-	_, err := q.Query(ctx, "", signInCheckQuery, 1)
-	closeErr := q.Close()
-	if err != nil {
-		if isPasswordRejected(err) {
-			return fmt.Errorf("%w: %w", ErrSignInRejected, err)
-		}
-		return err
+// CheckDirectSignIn signs in to the database reached directly at addr with creds and runs SELECT 1
+// on the default database. A refused password comes back wrapped in ErrSignInRejected.
+func CheckDirectSignIn(ctx context.Context, engine Engine, creds CredentialProvider, addr Address) error {
+	if engine != EnginePostgres && engine != EngineSQLServer {
+		return fmt.Errorf("%w: %s", ErrEngineUnsupported, engine)
 	}
-	return closeErr
+	return checkSignIn(ctx, func() Querier { return newQuerier(engine, creds, addr) })
+}
+
+// ReadOnlyRestsOnGrants reports whether read-only access to engine relies on the SQL guard and the
+// user's grants only: SQL Server has no read-only transaction.
+func ReadOnlyRestsOnGrants(engine Engine) bool {
+	d := &postgresDialect
+	if engine == EngineSQLServer {
+		d = &sqlServerDialect
+	}
+	return !d.readOnlyTx
+}
+
+// checkSignIn runs the test query on the querier open returns and closes it; an error of the query
+// wins over one of the close.
+func checkSignIn(ctx context.Context, open func() Querier) (err error) {
+	q := open()
+	defer func() {
+		if closeErr := q.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	if _, err = q.Query(ctx, "", signInCheckQuery, 1); err != nil && isPasswordRejected(err) {
+		return fmt.Errorf("%w: %w", ErrSignInRejected, err)
+	}
+	return err
 }

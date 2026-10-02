@@ -16,10 +16,13 @@ const (
 
 // ServerConfig describes the session an MCP server gives access to.
 type ServerConfig struct {
-	Name        string
-	Target      string
-	Profile     string
-	Region      string
+	Name    string
+	Target  string
+	Profile string
+	Region  string
+	// Via tells how the database is reached, ending with a period (e.g. "reached directly at
+	// db:5432."); empty means the SSM tunnel of Profile and Region.
+	Via         string
 	Engine      Engine
 	AllowWrites bool
 }
@@ -140,10 +143,14 @@ func instructions(cfg *ServerConfig) string {
 	if cfg.AllowWrites {
 		access = "WRITES ARE ENABLED through the execute tool: always confirm with the user before modifying data or schema."
 	}
+	via := cfg.Via
+	if via == "" {
+		via = fmt.Sprintf("reached through an airlock SSM tunnel. AWS profile %s, region %s.", cfg.Profile, cfg.Region)
+	}
 	return fmt.Sprintf(
-		"Database %s (%s dialect), reached through an airlock SSM tunnel. AWS profile %s, region %s. %s "+
+		"Database %s (%s dialect), %s %s "+
 			"Explore with list_databases, list_tables and describe_table before writing queries. "+
 			"The query tool runs one SELECT/WITH statement and returns at most %d rows.",
-		cfg.Target, cfg.Engine.Dialect(), cfg.Profile, cfg.Region, access, maxRowsLimit,
+		cfg.Target, cfg.Engine.Dialect(), via, access, maxRowsLimit,
 	)
 }

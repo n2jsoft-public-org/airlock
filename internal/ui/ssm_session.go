@@ -22,6 +22,10 @@ const (
 	ssmTickInterval    = 150 * time.Millisecond
 )
 
+// directResourceType is the type of direct database sessions: they run no aws process and stay
+// open from their preparation until they are stopped.
+const directResourceType = "direct"
+
 // JumphostSessionRunner discovers targets and prepares sessions for the multi-session TUI.
 type JumphostSessionRunner interface {
 	JumphostDiscovery
@@ -139,8 +143,16 @@ func (s *ssmSession) mcpWrites() bool {
 	return s.mcp != nil && s.mcp.writes
 }
 
+// direct reports whether s is a direct database session, which runs no aws process.
+func (s *ssmSession) direct() bool {
+	return s.session.ResourceType == directResourceType
+}
+
 // key identifies the target of s as the wizard's recent connections do (see connectionKey).
 func (s *ssmSession) key() string {
+	if s.direct() {
+		return directConnectionKey(s.session.Target)
+	}
 	return connectionKey(s.session.Profile, s.session.Region, s.session.ResourceType, s.session.Target)
 }
 
@@ -191,6 +203,10 @@ type ssmModel struct {
 	production productionMatcher
 	// updateNotice, when not empty, tells the wizard a newer airlock release exists.
 	updateNotice string
+	// databases holds the direct database definitions (DashboardOptions.Databases).
+	databases DirectDatabaseStore
+	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
+	openDirect string
 }
 
 // RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
@@ -204,6 +220,12 @@ type DashboardOptions struct {
 	ProductionProfiles []string
 	// UpdateNotice, when not empty, is shown in the wizard: a newer airlock release exists.
 	UpdateNotice string
+	// Databases holds the direct database definitions the wizard lists and edits; nil hides the
+	// Direct database card.
+	Databases DirectDatabaseStore
+	// OpenDirect, when not empty, opens the startup wizard on the review step of that direct
+	// database (`airlock direct <name>`).
+	OpenDirect string
 }
 
 // New sessions are prepared with runner, reusing base for their defaults.
@@ -216,6 +238,8 @@ func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, firs
 	model := newSSMModel(ctx, runner, processes, base)
 	model.production = productionMatcher(opts.ProductionProfiles)
 	model.updateNotice = opts.UpdateNotice
+	model.databases = opts.Databases
+	model.openDirect = opts.OpenDirect
 	if first != nil {
 		model = model.addSession(first, base)
 	} else {
@@ -262,12 +286,12 @@ func newSSMModel(ctx context.Context, runner JumphostSessionRunner, processes *p
 }
 
 func (m ssmModel) Init() tea.Cmd {
+	cmds := []tea.Cmd{waitSSMEvent(m.events), ssmTickCmd()}
 	for _, s := range m.sessions {
 		if s.state == ssmSessionStarting {
-			m.launchCommand(s)
+			cmds = append(cmds, m.startSession(s))
 		}
 	}
-	cmds := []tea.Cmd{waitSSMEvent(m.events), ssmTickCmd()}
 	if m.mode == ssmModeWizard {
 		cmds = append(cmds, m.wizard.Init())
 	}
@@ -575,22 +599,8 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, waitSSMEvent(m.events)
 	}
 
-	s.state = ssmSessionEnded
-	s.endedAt = time.Now()
-	s.err = msg.err
-	switch {
-	case s.stopRequested:
-		s.appendLines("", "Session stopped.")
-	case msg.err != nil:
-		s.appendLines("", "Session ended with error: "+msg.err.Error())
-	default:
-		s.appendLines("", "Session ended.")
-	}
-	if cleanup := s.session.Release(); cleanup != "" {
-		s.appendLines(cleanup)
-	}
+	m = m.endSession(s, msg.err)
 	reconnect := m.scheduleReconnect(s)
-	m = m.endSignIn(s)
 	m.refreshSelected(s)
 
 	// Only "stop all & quit" leaves on its own: an ended session stays on screen with its logs.
@@ -598,6 +608,28 @@ func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, tea.Batch(waitSSMEvent(m.events), reconnect)
+}
+
+// endSession marks s ended on err, releases what its preparation reserved (port, MCP server, IDE
+// data source) and stops its sign-in.
+func (m ssmModel) endSession(s *ssmSession, err error) ssmModel {
+	s.state = ssmSessionEnded
+	s.endedAt = time.Now()
+	s.err = err
+	switch {
+	case s.stopRequested:
+		s.appendLines("", "Session stopped.")
+	case err != nil:
+		s.appendLines("", "Session ended with error: "+err.Error())
+	default:
+		s.appendLines("", "Session ended.")
+	}
+	if cleanup := s.session.Release(); cleanup != "" {
+		s.appendLines(cleanup)
+	}
+	m = m.endSignIn(s)
+	m.refreshSelected(s)
+	return m
 }
 
 // wizardDefaults are the options every new connection inherits from the command line.
@@ -618,7 +650,10 @@ func (m ssmModel) startupWizard() ssmModel {
 	base.AwsProfile = m.baseOptions.AwsProfile
 	base.AwsRegion = m.baseOptions.AwsRegion
 	base.DBSecretARN = m.baseOptions.DBSecretARN
-	return m.showWizard(base)
+	m = m.showWizard(base)
+	// `airlock direct <name>` opens on that database's review; later wizards (n) start as usual.
+	m.wizard.openDirect = m.openDirect
+	return m
 }
 
 func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
@@ -627,6 +662,7 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
 	m.wizard.hostHasSessions = len(m.sessions) > 0
 	m.wizard.production = m.production
 	m.wizard.updateNotice = m.updateNotice
+	m.wizard.databases = m.databases
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""
@@ -634,8 +670,11 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
 }
 
 func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
-	m = m.showWizard(m.wizardDefaults())
+	return m.showWizard(m.wizardDefaults()).startWizard()
+}
 
+// startWizard starts the wizard showWizard set up, sized to the dashboard.
+func (m ssmModel) startWizard() (tea.Model, tea.Cmd) {
 	initCmd := m.wizard.Init()
 	if m.width > 0 && m.height > 0 {
 		updated, _ := m.wizard.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
@@ -738,14 +777,24 @@ func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.
 		result.session, result.err = m.runner.Prepare(ctx, pending.options)
 		return result
 	}
-	return m, tea.Batch(
-		prepare,
-		m.loadingUI.start(label, []string{
-			"Reserving a cozy local port...",
-			"Asking the jumphost for one more tunnel...",
+	return m, tea.Batch(prepare, m.loadingUI.start(label, prepareLines(pending.options.ResourceType)))
+}
+
+// prepareLines entertain while a session of resourceType is prepared: a direct database has no
+// local port, jumphost or tunnel.
+func prepareLines(resourceType string) []string {
+	if resourceType == directResourceType {
+		return []string{
+			"Looking up the database's address...",
+			"Setting up a seat for your AI assistant...",
 			"Keeping your other sessions warm...",
-		}),
-	)
+		}
+	}
+	return []string{
+		"Reserving a cozy local port...",
+		"Asking the jumphost for one more tunnel...",
+		"Keeping your other sessions warm...",
+	}
 }
 
 func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
@@ -776,12 +825,12 @@ func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
 		s := m.newSession(msg.session, msg.options, m.sessions[index].lines, "Restarting session...")
 		m.sessions[index] = s
 		m = m.selectSession(index)
-		m.launchCommand(s)
-		return m, nil
+		cmd := m.startSession(s)
+		return m, cmd
 	}
 	m = m.addSession(msg.session, msg.options)
-	m.launchCommand(m.sessions[len(m.sessions)-1])
-	return m, nil
+	cmd := m.startSession(m.sessions[len(m.sessions)-1])
+	return m, cmd
 }
 
 func (m *ssmModel) stopSession(s *ssmSession) {
@@ -790,7 +839,11 @@ func (m *ssmModel) stopSession(s *ssmSession) {
 	}
 	s.stopRequested = true
 	s.appendLines("", "Stopping session...")
-	if s.cmd != nil {
+	switch {
+	case s.direct():
+		// No process to wait for: the session ends here.
+		*m = m.endSession(s, nil)
+	case s.cmd != nil:
 		s.state = ssmSessionStopping
 		terminateProcessGroup(s.cmd)
 	}
@@ -872,6 +925,19 @@ func (m *ssmModel) refreshSelected(s *ssmSession) {
 	if atBottom {
 		m.viewport.GotoBottom()
 	}
+}
+
+// startSession launches the aws process of s. A direct database session has none: it runs at once,
+// and its sign-in check starts right away. Like startSignIn, call it before returning m.
+func (m *ssmModel) startSession(s *ssmSession) tea.Cmd {
+	if !s.direct() {
+		m.launchCommand(s)
+		return nil
+	}
+	s.state, s.ready = ssmSessionRunning, true
+	s.appendLines("Connected directly to " + s.session.Details.ConnectedServer + ": no tunnel to wait for.")
+	m.refreshSelected(s)
+	return m.startSignIn(s)
 }
 
 // launchCommand starts the aws process of s and streams its output as tea messages.
@@ -978,7 +1044,7 @@ func (m ssmModel) printSessionSummary(out io.Writer) {
 			server = "n/a"
 		}
 
-		_, _ = fmt.Fprintf(out, "- %s -> localhost:%d\n", s.session.Label, s.session.LocalPort)
+		_, _ = fmt.Fprintf(out, "- %s -> %s\n", s.session.Label, s.address()) //nolint:errcheck // best-effort terminal output
 		_, _ = fmt.Fprintf(out, "  duration: %s\n  server connected: %s\n", duration, server)
 		if s.err != nil && !s.stopRequested {
 			_, _ = fmt.Fprintf(out, "  ended with error: %v\n", s.err)

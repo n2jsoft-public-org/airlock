@@ -87,12 +87,12 @@ type sqlQuerier struct {
 	pools     map[string]*sql.DB
 	dialect   *dialect
 	defaultDB string
-	port      int
+	addr      Address
 	mu        sync.Mutex
 }
 
-func newSQLQuerier(d *dialect, creds CredentialProvider, port int, open opener) *sqlQuerier {
-	return &sqlQuerier{dialect: d, creds: creds, port: port, open: open, pools: map[string]*sql.DB{}}
+func newSQLQuerier(d *dialect, creds CredentialProvider, addr Address, open opener) *sqlQuerier {
+	return &sqlQuerier{dialect: d, creds: creds, addr: addr, open: open, pools: map[string]*sql.DB{}}
 }
 
 func (q *sqlQuerier) pool(ctx context.Context, database string) (*sql.DB, error) {
@@ -274,10 +274,16 @@ func guidColumns(rows *sql.Rows, n int) []bool {
 	return isGUID
 }
 
-// connectionError explains the usual cause of a refused connection: the tunnel is not up yet.
+// connectionError explains the usual causes of a failed connection: the tunnel is not up yet, the
+// database reached directly cannot be reached or its certificate is not trusted, or the database
+// rejected the credentials.
 func (q *sqlQuerier) connectionError(err error) error {
-	if strings.Contains(err.Error(), "connection refused") {
-		return fmt.Errorf("tunnel to localhost:%d is not accepting connections yet; retry shortly: %w", q.port, err)
+	if q.addr.tunnel {
+		if strings.Contains(err.Error(), "connection refused") {
+			return fmt.Errorf("tunnel to localhost:%d is not accepting connections yet; retry shortly: %w", q.addr.Port, err)
+		}
+	} else if hint := directConnectionHint(q.addr, err); hint != "" {
+		return fmt.Errorf("%s: %w", hint, err)
 	}
 	if hinter, ok := unwrapProvider(q.creds).(authFailureHinter); ok && isAuthFailure(err) {
 		return fmt.Errorf("%s: %w", hinter.authFailureHint(), err)

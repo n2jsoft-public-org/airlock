@@ -2,21 +2,16 @@ package config
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/n2jsoft/airlock/internal/sharecode"
 )
 
 // sharePrefix starts every config string; its number is the format version.
 const sharePrefix = "airlock1:"
-
-// shareChecksumSize is the length of the checksum heading the encoded JSON. It only detects
-// strings damaged by a copy and paste: anyone can build a valid string, so an import always shows
-// its changes before applying them.
-const shareChecksumSize = 4
 
 // ErrInvalidShare refuses a string that is not an intact config string.
 var ErrInvalidShare = errors.New("not a valid airlock config string (damaged or incomplete)")
@@ -149,23 +144,13 @@ func ApplyImport(plan *Plan) error {
 
 // encodeShare wraps the JSON of a config in a checksummed, prefixed base64url string.
 func encodeShare(data []byte) string {
-	sum := sha256.Sum256(data)
-	payload := append(sum[:shareChecksumSize:shareChecksumSize], data...)
-	return sharePrefix + base64.RawURLEncoding.EncodeToString(payload)
+	return sharecode.Encode(sharePrefix, data)
 }
 
 // decodeShare reads a string of encodeShare; its keys must be known and valid.
 func decodeShare(shared string) (file, error) {
-	encoded, ok := strings.CutPrefix(strings.TrimSpace(shared), sharePrefix)
-	if !ok {
-		return file{}, ErrInvalidShare
-	}
-	payload, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
-	if err != nil || len(payload) <= shareChecksumSize {
-		return file{}, ErrInvalidShare
-	}
-	checksum, data := payload[:shareChecksumSize], payload[shareChecksumSize:]
-	if sum := sha256.Sum256(data); !bytes.Equal(checksum, sum[:shareChecksumSize]) {
+	data, err := sharecode.Decode(sharePrefix, shared)
+	if err != nil {
 		return file{}, ErrInvalidShare
 	}
 

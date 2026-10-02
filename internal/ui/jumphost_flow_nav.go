@@ -24,7 +24,8 @@ func (m jumphostWizardModel) flowSteps() []jumphostStep {
 	switch m.flow {
 	case flowNew:
 		steps := []jumphostStep{jumphostStepType}
-		if m.askProfile {
+		// A direct database has no AWS profile.
+		if m.askProfile && m.options.ResourceType != directResourceType {
 			steps = append(steps, jumphostStepProfile)
 		}
 		return append(steps, jumphostStepTarget, jumphostStepReview)

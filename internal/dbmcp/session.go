@@ -80,31 +80,52 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	}
 
 	name := mcpserve.ServerName(cfg.ServerPrefix, cfg.Profile, cfg.Target)
-	access := "read-only"
-	if cfg.AllowWrites {
-		access = "read-write"
-	}
-	recorder := mcpserve.NewRecorder(cfg.LogDir)
 	creds := &switchableProvider{current: credentialProvider(cfg, engine)}
-	inner := newQuerier(engine, creds, cfg.LocalPort)
-	querier := newRecordingQuerier(inner, &mcpserve.ToolEvent{
-		Server: name, Profile: cfg.Profile, Region: cfg.Region, Target: cfg.Target, Engine: string(engine), Access: access,
-	}, recorder.Record)
-	server := NewServer(&ServerConfig{
-		Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region,
-		Engine: engine, AllowWrites: cfg.AllowWrites,
-	}, querier)
-	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
-		Server: server, Recorder: recorder, Cleanup: querier.Close,
-		Name: name, ProjectDir: cfg.ProjectDir, AllowWrites: cfg.AllowWrites,
+	handle, err := serveDatabase(host, &served{
+		creds: creds, addr: TunnelAddress(cfg.LocalPort), server: ServerConfig{
+			Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region,
+			Engine: engine, AllowWrites: cfg.AllowWrites,
+		},
+		projectDir: cfg.ProjectDir, logDir: cfg.LogDir,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Handle{
-		Handle: shared, creds: creds, querier: inner, aws: cfg.AWS,
-		defaultDatabase: defaultDatabaseFor(engine, cfg.DBName),
-	}, nil
+	handle.aws = cfg.AWS
+	handle.defaultDatabase = defaultDatabaseFor(engine, cfg.DBName)
+	return handle, nil
+}
+
+// served is what serveDatabase needs to mount the MCP server of one database.
+type served struct {
+	creds      *switchableProvider
+	projectDir string
+	logDir     string
+	server     ServerConfig
+	addr       Address
+}
+
+// serveDatabase mounts the MCP server of a database on host: audit recording, querier and server.
+// The AWS-only fields of the Handle are left for the caller.
+func serveDatabase(host *mcpserve.Host, s *served) (*Handle, error) {
+	access := "read-only"
+	if s.server.AllowWrites {
+		access = "read-write"
+	}
+	recorder := mcpserve.NewRecorder(s.logDir)
+	inner := newQuerier(s.server.Engine, s.creds, s.addr)
+	querier := newRecordingQuerier(inner, &mcpserve.ToolEvent{
+		Server: s.server.Name, Profile: s.server.Profile, Region: s.server.Region,
+		Target: s.server.Target, Engine: string(s.server.Engine), Access: access,
+	}, recorder.Record)
+	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
+		Server: NewServer(&s.server, querier), Recorder: recorder, Cleanup: querier.Close,
+		Name: s.server.Name, ProjectDir: s.projectDir, AllowWrites: s.server.AllowWrites,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Handle{Handle: shared, creds: s.creds, querier: inner}, nil
 }
 
 func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {

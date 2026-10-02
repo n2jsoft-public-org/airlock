@@ -145,3 +145,17 @@ func localPortFree(port int) bool {
 	}
 	return listener.Close() == nil
 }
+
+// claim records that the session identified by target runs without local port (a direct
+// database). It fails when target is already connected, naming it display. release frees it.
+func (s *SessionRegistry) claim(target, display string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.targets[target]; ok {
+		return fmt.Errorf("%s is already connected", display)
+	}
+	// No port: release deletes ports[0], which no reservation ever holds.
+	s.targets[target] = 0
+	return nil
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -48,6 +49,15 @@ type JumphostDiscovery interface {
 	FindResource(ctx context.Context, options *jumphost.Options, account string) (jumphost.ResourceSummary, error)
 }
 
+// DirectDatabaseStore holds the direct database definitions (databases.json), which the wizard
+// lists, adds, edits and deletes.
+type DirectDatabaseStore interface {
+	List() ([]directdb.Database, error)
+	Get(name string) (directdb.Database, bool, error)
+	Put(previousName string, db directdb.Database) error
+	Delete(name string) error
+}
+
 type jumphostStep int
 
 const (
@@ -58,6 +68,8 @@ const (
 	jumphostStepReview
 	// jumphostStepStart lists the recent connections next to "New connection" and "Search a target".
 	jumphostStepStart
+	// jumphostStepDirectForm adds or edits a direct database, opened from the direct database list.
+	jumphostStepDirectForm
 )
 
 // Editable fields of the review step, in focus order.
@@ -87,6 +99,13 @@ var resourceTypeOptions = []resourceTypeOption{
 	{name: "rds", title: "Relational Database Service", desc: "Tunnel to a database, with IDE data source and MCP server"},
 	{name: "eks", title: "Elastic Kubernetes Service", desc: "Reach a private cluster API endpoint, with kubeconfig and MCP server"},
 	{name: "elasticache", title: "ElastiCache", desc: "Tunnel to a Redis / Valkey cache, with MCP server"},
+}
+
+// directCard is the Type step card of direct databases, offered when the dashboard has a store.
+var directCard = resourceTypeOption{
+	name:  directResourceType,
+	title: "Direct database",
+	desc:  "PostgreSQL or SQL Server reached without jumphost, with IDE data source and MCP server",
 }
 
 type jumphostWizardModel struct {
@@ -132,6 +151,21 @@ type jumphostWizardModel struct {
 	production productionMatcher
 	// updateNotice, when not empty, is shown under the breadcrumb: a newer airlock release exists.
 	updateNotice string
+	// databases holds the direct database definitions; nil hides the Direct database card.
+	databases DirectDatabaseStore
+	// directList is the target step of a direct database; directDB the database the review
+	// step connects to.
+	directList directList
+	directDB   directdb.Database
+	// directForm adds or edits a direct database (jumphostStepDirectForm).
+	directForm directForm
+	// openDirect is the direct database whose review the wizard opens on once the history is
+	// loaded (`airlock direct <name>`); "" otherwise.
+	openDirect string
+	// openDirectError is shown on the review openDirect opens: why it asks the password again.
+	openDirectError string
+	// directChoicesLoaded reports that the choices remembered for directDB are known.
+	directChoicesLoaded bool
 	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
 	hostHasSessions bool
 	// warning is shown in the session log once connected (e.g. the keychain failed).
@@ -303,11 +337,30 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 		portInput:     portInput,
 		userInput:     userInput,
 		passwordInput: passwordInput,
-		recent:        newRecentPicker(styles, nil, nil, nil, time.Now()),
+		recent:        newRecentPicker(styles, nil, nil, nil, nil, time.Now()),
+		// fitLists sizes it on every update: a zero-value list has no delegate and would panic.
+		directList: newDirectList(styles, nil, nil, nil),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
 	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
 	return m
+}
+
+// typeOptions are the cards of the Type step: the AWS types, and direct databases when the
+// dashboard has their store.
+func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
+	if m.databases == nil {
+		return resourceTypeOptions
+	}
+	return append(append([]resourceTypeOption{}, resourceTypeOptions...), directCard)
+}
+
+// isDirect reports whether the flow works on a direct database: its type is chosen and the Type
+// step is behind, in a new connection or a recent direct entry reopened. A search never does, even
+// when a direct list left its type behind.
+func (m jumphostWizardModel) isDirect() bool {
+	return (m.flow == flowNew || m.flow == flowRecent) && m.options.ResourceType == directResourceType &&
+		m.step != jumphostStepType && m.step != jumphostStepStart
 }
 
 func (m jumphostWizardModel) Init() tea.Cmd {
@@ -333,6 +386,7 @@ func (m jumphostWizardModel) fitLists() jumphostWizardModel {
 	m.profileList.SetSize(bodyWidth, bodyHeight)
 	m.targetList.SetSize(bodyWidth, bodyHeight)
 	m.recent.SetSize(bodyWidth, bodyHeight)
+	m.directList.SetSize(bodyWidth, bodyHeight)
 	return m
 }
 
@@ -450,6 +504,12 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLookup(msg)
 	case jumphostForgotMsg:
 		return m.handleForgot(msg)
+	case directDeletedMsg:
+		return m.handleDirectDeleted(msg)
+	case directSavedMsg:
+		return m.handleDirectSaved(msg)
+	case directChoicesLoadedMsg:
+		return m.handleDirectChoicesLoaded(msg)
 	case jumphostSecretsLoadedMsg:
 		m.secretPicker = m.secretPicker.loaded(msg.secrets, msg.err)
 		return m, nil
@@ -511,6 +571,8 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.step {
 	case jumphostStepStart:
 		return m.updateStartStep(msg)
+	case jumphostStepDirectForm:
+		return m.updateDirectFormStep(msg)
 	case jumphostStepProfile:
 		return m.updateProfileStep(msg)
 	case jumphostStepType:
@@ -531,9 +593,14 @@ func (m jumphostWizardModel) typingText() bool {
 		return m.recent.typing() || m.recent.confirmingForget()
 	case jumphostStepReview:
 		return true
+	case jumphostStepDirectForm:
+		return true
 	case jumphostStepProfile:
 		return m.profileList.SettingFilter()
 	case jumphostStepTarget:
+		if m.isDirect() {
+			return m.directList.typing() || m.directList.confirmingDelete()
+		}
 		return m.targetList.SettingFilter()
 	default:
 		return false
@@ -578,14 +645,15 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	options := m.typeOptions()
 	switch key.String() {
 	case "esc":
 		return m.goBack()
 	case "up", "k", "shift+tab":
-		m.resourceIndex = (m.resourceIndex - 1 + len(resourceTypeOptions)) % len(resourceTypeOptions)
+		m.resourceIndex = (m.resourceIndex - 1 + len(options)) % len(options)
 		return m, nil
 	case "down", "j", "tab":
-		m.resourceIndex = (m.resourceIndex + 1) % len(resourceTypeOptions)
+		m.resourceIndex = (m.resourceIndex + 1) % len(options)
 		return m, nil
 	case "r":
 		return m.openRegionPicker()
@@ -600,17 +668,22 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Digits pick a card directly.
-	if index, err := strconv.Atoi(key.String()); err == nil && index >= 1 && index <= len(resourceTypeOptions) {
+	if index, err := strconv.Atoi(key.String()); err == nil && index >= 1 && index <= len(options) {
 		return m.pickResourceType(index - 1)
 	}
 	return m, nil
 }
 
-// pickResourceType chooses the type of a new connection, then asks the profile unless --profile gave it.
+// pickResourceType chooses the type of a new connection, then asks the profile unless --profile
+// gave it. A direct database needs neither profile nor region: its list shows at once.
 func (m jumphostWizardModel) pickResourceType(index int) (tea.Model, tea.Cmd) {
 	m.resourceIndex = index
-	m.options.ResourceType = resourceTypeOptions[index].name
+	m = m.clearDirectOptions()
+	m.options.ResourceType = m.typeOptions()[index].name
 	m.errorMsg = ""
+	if m.options.ResourceType == directResourceType {
+		return m.enterDirectList()
+	}
 	if m.askProfile {
 		return m.enterProfileStep()
 	}
@@ -642,6 +715,9 @@ func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
 }
 
 func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.isDirect() {
+		return m.updateDirectListStep(msg)
+	}
 	if key, ok := msg.(tea.KeyMsg); ok && !m.targetList.SettingFilter() {
 		switch key.String() {
 		case "esc":
@@ -793,6 +869,9 @@ func (m jumphostWizardModel) toggleReviewField(delta int) jumphostWizardModel {
 // RDS targets offering a method, depend on it, and the MCP write toggle only to targets whose MCP
 // server can write.
 func (m jumphostWizardModel) reviewFields() []int {
+	if m.isDirect() {
+		return m.directReviewFields()
+	}
 	fields := []int{reviewFieldPort}
 	if len(m.signInOptions()) > 0 {
 		fields = append(fields, reviewFieldSignIn)
@@ -804,14 +883,14 @@ func (m jumphostWizardModel) reviewFields() []int {
 	return fields
 }
 
-// mcpApplies reports whether the connection starts an MCP server: RDS targets, EKS clusters and
-// Redis / Valkey caches.
+// mcpApplies reports whether the connection starts an MCP server: RDS targets, EKS clusters,
+// Redis / Valkey caches and direct databases.
 func (m jumphostWizardModel) mcpApplies() bool {
 	if m.options.SkipMCP {
 		return false
 	}
 	switch m.options.ResourceType {
-	case "rds", "eks":
+	case "rds", "eks", directResourceType:
 		return true
 	case "elasticache":
 		return jumphost.CacheEngineSupported(m.targetEngine)
@@ -886,6 +965,9 @@ func (m jumphostWizardModel) blurReviewInputs() jumphostWizardModel {
 
 // submitReview validates every field, focusing the first invalid one, and connects when all are valid.
 func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
+	if m.isDirect() {
+		return m.submitDirectReview()
+	}
 	port, err := strconv.Atoi(strings.TrimSpace(m.portInput.Value()))
 	if err != nil || port <= 0 {
 		m.errorMsg = "Port must be a positive number"
@@ -905,10 +987,16 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 		m = next
 	}
 
+	m.options.LocalPortNumber = port
+	return m.connectReviewed()
+}
+
+// connectReviewed connects with the validated review: it applies the MCP write toggle, remembers
+// the choices and ends the wizard.
+func (m jumphostWizardModel) connectReviewed() (tea.Model, tea.Cmd) {
 	if m.mcpWritesApply() {
 		m.options.MCPAllowWrites = m.mcpWrites
 	}
-	m.options.LocalPortNumber = port
 	m.errorMsg = ""
 	m = m.blurReviewInputs()
 	// Remembering the choices is a convenience: a failure to save never blocks the connection.

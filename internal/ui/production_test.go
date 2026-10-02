@@ -79,7 +79,7 @@ func TestWizardProfileListFlagsProductionProfiles(t *testing.T) {
 }
 
 func TestRecentConnectionsFlagProductionProfiles(t *testing.T) {
-	p := newRecentPicker(NewStyles(), recentFixture(), nil, productionMatcher{"dev"}, time.Now())
+	p := newRecentPicker(NewStyles(), recentFixture(), nil, productionMatcher{"dev"}, nil, time.Now())
 	p.SetSize(100, 20)
 	if got := strings.Count(ansi.Strip(p.View(NewStyles(), 100)), "PROD"); got != 2 {
 		t.Fatalf("%d PROD badges, want both dev connections flagged", got)

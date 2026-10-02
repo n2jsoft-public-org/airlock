@@ -9,6 +9,13 @@ import (
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
+// Help lines of the review's password fields, shared by every target signing in with a password.
+const (
+	reviewPasswordHelp = "Kept in memory for the MCP server, unless remembered. The IDE asks for it."
+	reviewRememberHelp = "Space toggles. On, the OS keychain keeps it for the next connections."
+	reviewNoKeychain   = "No OS keychain available: asked at every connection"
+)
+
 const (
 	resourceCardHeight = 4
 	resourceCardWidth  = 72
@@ -57,6 +64,13 @@ func (m jumphostWizardModel) View() string {
 }
 
 func (m jumphostWizardModel) contextChips() []string {
+	// A direct database has no AWS context; its review shows the server it connects to.
+	if m.isDirect() {
+		if m.step != jumphostStepReview {
+			return nil
+		}
+		return []string{m.styles.contextChip("server", m.directDB.Address())}
+	}
 	region := m.styles.contextChip("region", "…") + m.styles.Faint.Render(" resolving")
 	if code := m.currentRegion(); code != "" {
 		region = m.styles.regionChip(code)
@@ -78,7 +92,8 @@ func (m jumphostWizardModel) breadcrumb() (steps []string, current int) {
 	}
 	for idx, step := range m.flowSteps() {
 		steps = append(steps, m.stepLabel(step))
-		if step == m.step {
+		// The form belongs to the Target step: it adds to or edits the direct database list.
+		if step == m.step || (m.step == jumphostStepDirectForm && step == jumphostStepTarget) {
 			current = idx
 		}
 	}
@@ -115,12 +130,20 @@ func (m jumphostWizardModel) stepHeading() string {
 	case jumphostStepType:
 		return "What do you want to reach?"
 	case jumphostStepTarget:
-		if m.flow == flowSearch {
+		switch {
+		case m.flow == flowSearch:
 			return "Search a target"
+		case m.isDirect():
+			return "Choose a direct database"
 		}
 		return fmt.Sprintf("Choose the %s target", strings.ToUpper(m.options.ResourceType))
 	case jumphostStepReview:
 		return "Review and connect"
+	case jumphostStepDirectForm:
+		if m.directForm.previousName != "" {
+			return "Edit " + m.directForm.previousName
+		}
+		return "Add a direct database"
 	default:
 		return ""
 	}
@@ -133,6 +156,12 @@ func (m jumphostWizardModel) stepHint() string {
 	case jumphostStepProfile:
 		return plural(len(m.profileList.Items()), "profile")
 	case jumphostStepTarget:
+		if m.isDirect() {
+			if m.directList.err != nil {
+				return ""
+			}
+			return plural(m.directList.count(), "database")
+		}
 		hint := plural(len(m.targetList.Items()), "target") + " in " + m.currentRegion()
 		if m.searchWarnings != "" {
 			hint += " · ⚠ " + m.searchWarnings
@@ -140,6 +169,8 @@ func (m jumphostWizardModel) stepHint() string {
 		return hint
 	case jumphostStepReview:
 		return "edit any field, then connect"
+	case jumphostStepDirectForm:
+		return "saved to databases.json · passwords never are"
 	default:
 		return ""
 	}
@@ -154,9 +185,14 @@ func (m jumphostWizardModel) stepBody(width, height int) string {
 	case jumphostStepType:
 		return m.renderResourceCards(width, height)
 	case jumphostStepTarget:
+		if m.isDirect() {
+			return m.directList.View(m.styles, width)
+		}
 		return m.targetList.View()
 	case jumphostStepReview:
 		return m.renderReview(width, height)
+	case jumphostStepDirectForm:
+		return m.directForm.View(m.styles, width)
 	default:
 		return ""
 	}
@@ -192,7 +228,7 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		}
 		return append(keys, help, quit)
 	case jumphostStepType:
-		keys := [][2]string{{"↑↓", "move"}, {"1-3", "pick"}, {"enter", "select"}, {"r", "region"}}
+		keys := [][2]string{{"↑↓", "move"}, {"1-" + strconv.Itoa(len(m.typeOptions())), "pick"}, {"enter", "select"}, {"r", "region"}}
 		if !m.hasHistory {
 			keys = append(keys, [2]string{"s", "search"})
 		}
@@ -201,6 +237,9 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		}
 		return append(keys, help, quit)
 	case jumphostStepTarget:
+		if m.isDirect() {
+			return m.directListKeys(help, quit)
+		}
 		if m.targetList.SettingFilter() {
 			return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
 		}
@@ -217,18 +256,45 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 			keys = append(keys, [2]string{"space", "toggle"})
 		}
 		return append(keys, [2]string{"esc", "back"}, [2]string{"ctrl+c", m.quitLabel()})
+	case jumphostStepDirectForm:
+		keys := [][2]string{{"tab", "next field"}, {"ctrl+s", "save"}}
+		if m.directForm.toggleFocused() {
+			keys = append(keys, [2]string{"space", "change"})
+		}
+		return append(keys, [2]string{"esc", "cancel"}, [2]string{"ctrl+c", m.quitLabel()})
 	default:
 		return [][2]string{quit}
 	}
 }
 
+// directListKeys are the keys of the direct database list.
+func (m jumphostWizardModel) directListKeys(help, quit [2]string) [][2]string {
+	switch {
+	case m.directList.confirmingDelete():
+		return [][2]string{{"y", "delete"}, {"any key", "keep"}}
+	case m.directList.typing():
+		return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
+	}
+	keys := [][2]string{{"↑↓", "move"}, {"/", "filter"}}
+	if item, ok := m.directList.selectedItem(); ok {
+		enter := "select"
+		if item.connected {
+			enter = "switch to"
+		}
+		keys = append(keys, [2]string{"enter", enter}, [2]string{"e", "edit"}, [2]string{"x", "delete"})
+	}
+	keys = append(keys, [2]string{"a", "add"})
+	return append(keys, [2]string{"esc", "back"}, help, quit)
+}
+
 // renderResourceCards draws one bordered card per resource type, or single lines when height is short.
 func (m jumphostWizardModel) renderResourceCards(width, height int) string {
-	compact := height < len(resourceTypeOptions)*resourceCardHeight
+	options := m.typeOptions()
+	compact := height < len(options)*resourceCardHeight
 	cardWidth := min(width, resourceCardWidth)
 
-	rows := make([]string, 0, len(resourceTypeOptions))
-	for idx, option := range resourceTypeOptions {
+	rows := make([]string, 0, len(options))
+	for idx, option := range options {
 		selected := idx == m.resourceIndex
 		title := m.styles.Text.Render(option.title)
 		if selected {
@@ -274,6 +340,9 @@ func (m jumphostWizardModel) renderReview(width, height int) string {
 }
 
 func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
+	if m.isDirect() {
+		return m.renderDirectReviewPanel(width, compact)
+	}
 	panelWidth := min(width, reviewPanelWidth)
 	// Border (2) and padding (2) around the panel content.
 	inner := panelWidth - 4
@@ -312,8 +381,7 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 	if m.targetSQLServer() && m.signIn == jumphost.SignInAuto {
 		mcpHelp = "Space toggles. On, SQL Server uses the master user secret."
 	}
-	passwordHelp := "Kept in memory for the MCP server, unless remembered. The IDE asks for it."
-	rememberHelp := "Space toggles. On, the OS keychain keeps it for the next connections."
+	passwordHelp, rememberHelp := reviewPasswordHelp, reviewRememberHelp
 	secretHelp := "Enter searches the secrets of this account and region."
 	if m.options.ResourceType == "elasticache" {
 		mcpHelp = "Space toggles. On, AI assistants can run write commands as the user above."
@@ -344,7 +412,7 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 			}
 		}
 		if m.signIn == jumphost.SignInPassword && !m.keychainAvailable {
-			rows = append(rows, m.reviewRow("Remember", m.styles.Faint.Render("No OS keychain available: asked at every connection"), inner))
+			rows = append(rows, m.reviewRow("Remember", m.styles.Faint.Render(reviewNoKeychain), inner))
 		}
 	}
 	switch {
@@ -371,15 +439,15 @@ func (m jumphostWizardModel) prodPrefix(profile string) string {
 
 // signInSelector renders the sign-in methods, the chosen one highlighted.
 func (m jumphostWizardModel) signInSelector() string {
-	parts := make([]string, 0, len(m.signInOptions()))
+	labels := make([]string, 0, len(m.signInOptions()))
+	chosen := ""
 	for _, method := range m.signInOptions() {
+		labels = append(labels, signInLabels[method])
 		if method == m.signIn {
-			parts = append(parts, m.styles.Success.Render("● "+signInLabels[method]))
-			continue
+			chosen = signInLabels[method]
 		}
-		parts = append(parts, m.styles.Muted.Render(signInLabels[method]))
 	}
-	return strings.Join(parts, m.styles.Faint.Render(" │ "))
+	return choiceSelector(m.styles, labels, chosen)
 }
 
 // rememberToggle renders whether the password is kept in the OS keychain.

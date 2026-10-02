@@ -4,9 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net"
-	"net/url"
-	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -96,19 +93,18 @@ GROUP BY i.name, i.is_unique, i.type_desc
 ORDER BY i.name`,
 }
 
-// newQuerier returns the Querier for engine, connecting to the tunnel on localhost:port.
-func newQuerier(engine Engine, creds CredentialProvider, port int) *sqlQuerier {
+// newQuerier returns the Querier for engine, connecting to addr: the tunnel, or a database reached directly.
+func newQuerier(engine Engine, creds CredentialProvider, addr Address) *sqlQuerier {
 	if engine == EngineSQLServer {
-		return newSQLQuerier(&sqlServerDialect, creds, port, sqlServerOpener(creds, port))
+		return newSQLQuerier(&sqlServerDialect, creds, addr, sqlServerOpener(creds, addr))
 	}
-	return newSQLQuerier(&postgresDialect, creds, port, postgresOpener(creds, port))
+	return newSQLQuerier(&postgresDialect, creds, addr, postgresOpener(creds, addr))
 }
 
 // postgresOpener fetches credentials for every new connection, so rotating IAM tokens keep working.
-func postgresOpener(creds CredentialProvider, port int) opener {
+func postgresOpener(creds CredentialProvider, addr Address) opener {
 	return func(_ context.Context, database string) (*sql.DB, error) {
-		// RDS IAM authentication requires TLS; the certificate names the RDS host, not localhost.
-		config, err := pgx.ParseConfig(fmt.Sprintf("host=127.0.0.1 port=%d sslmode=require application_name=%s", port, applicationName))
+		config, err := pgx.ParseConfig(postgresConnString(addr))
 		if err != nil {
 			return nil, err
 		}
@@ -124,24 +120,13 @@ func postgresOpener(creds CredentialProvider, port int) opener {
 	}
 }
 
-func sqlServerOpener(creds CredentialProvider, port int) opener {
+func sqlServerOpener(creds CredentialProvider, addr Address) opener {
 	return func(ctx context.Context, database string) (*sql.DB, error) {
 		c, err := creds.Credentials(ctx, database)
 		if err != nil {
 			return nil, err
 		}
-		dsn := url.URL{
-			Scheme: "sqlserver",
-			User:   url.UserPassword(c.User, c.Password),
-			Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
-			RawQuery: url.Values{
-				"database":               {c.Database},
-				"encrypt":                {"true"},
-				"TrustServerCertificate": {"true"},
-				"app name":               {applicationName},
-			}.Encode(),
-		}
-		connector, err := mssql.NewConnector(dsn.String())
+		connector, err := mssql.NewConnector(sqlServerDSN(addr, c))
 		if err != nil {
 			return nil, fmt.Errorf("invalid SQL Server connection settings: %w", err)
 		}

@@ -2,6 +2,7 @@ package ideadatasource
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -22,7 +23,8 @@ var (
 		Ref:       "postgresql",
 		ClassName: "org.postgresql.Driver",
 		urlFormat: func(host string, port int, database string) string {
-			return fmt.Sprintf("jdbc:postgresql://%s:%d/%s", host, port, database)
+			// pgjdbc URL-decodes the database: reserved characters and spaces must be encoded.
+			return fmt.Sprintf("jdbc:postgresql://%s:%d/%s", host, port, url.QueryEscape(database))
 		},
 	}
 	mysqlDriver = Driver{
@@ -45,7 +47,7 @@ var (
 		urlFormat: func(host string, port int, database string) string {
 			url := fmt.Sprintf("jdbc:sqlserver://%s:%d", host, port)
 			if database != "" {
-				url += ";databaseName=" + database
+				url += ";databaseName=" + sqlServerValue(database)
 			}
 			return url
 		},
@@ -88,4 +90,15 @@ func DriverForEngine(engine string) (Driver, bool) {
 	default:
 		return Driver{}, false
 	}
+}
+
+// sqlServerValue writes a connection string value for mssql-jdbc: a value with characters other
+// than letters, digits and underscores goes between braces, a closing brace doubled.
+func sqlServerValue(value string) string {
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return "{" + strings.ReplaceAll(value, "}", "}}") + "}"
+		}
+	}
+	return value
 }

@@ -32,6 +32,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 | 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password and AWS Secrets Manager sign-in are available too, with an optional OS keychain. |
 | 🪟 **Parallel sessions** | Open as many tunnels as you need, switch between them with a keystroke. Local ports never collide. |
 | 🤖 **AI-ready** | Each database, EKS and cache session serves a guarded MCP server and registers it for Claude Code and VS Code. |
+| 🗄 **Direct databases** | Declare the PostgreSQL and SQL Server databases you reach without jumphost, and get the same MCP server, audit log and IDE data source. |
 | 🧾 **Audited** | Every MCP call is shown live in the dashboard and written to a daily JSONL audit log. |
 | 🧩 **IDE integration** | Registers the tunnel as an IntelliJ data source in `.idea/dataSources.xml`. |
 | 🌍 **Region aware** | Switch region at any time from a searchable list (`paris`, `eu-west`, `japan`…). |
@@ -175,6 +176,7 @@ airlock                              # interactive wizard
 airlock rds my-db 5432               # tunnel to an RDS instance on localhost:5432
 airlock eks my-cluster 15432         # tunnel to a private EKS API endpoint
 airlock elasticache my-cache 6379    # tunnel to an ElastiCache cluster
+airlock direct legacy-billing        # a direct database declared with airlock db add
 airlock rds my-db 5432 --db-user app_ro
 ```
 
@@ -250,7 +252,7 @@ airlock uninstall --yes     # do not ask (required without a terminal)
 |---|---|---|
 | The airlock binary | ✅ | ✅ |
 | The installer's PATH entry: the block in your shell profile, or the Windows user PATH entry and folder | ✅ when the folder holds nothing else | ✅ |
-| `~/.config/airlock` (`%AppData%\airlock`): settings, recent connections, MCP query logs, kubeconfigs | | ✅ |
+| `~/.config/airlock` (`%AppData%\airlock`): settings, direct databases, recent connections, MCP query logs, kubeconfigs | | ✅ |
 | Database passwords saved in the OS keychain | | ✅ |
 
 The IntelliJ data sources airlock added to your projects' `.idea/dataSources.xml` stay. On
@@ -395,6 +397,57 @@ The session log shows the exact path, and the dashboard's `Kube` row the `KUBECO
 keep your own context of the cluster instead, point it at the tunnel:
 `kubectl --server https://localhost:<port> --tls-server-name <endpoint host> get namespaces`.
 
+### Direct databases
+
+Some PostgreSQL and SQL Server databases need no jumphost: you reach them directly (VPN, peering
+or a public endpoint) with a user and a password. Declare them once, and airlock opens them like
+any other connection, without tunnel nor AWS profile: same MCP server (`airlock-<name>`), audit
+log, IntelliJ data source, sign-in check and `PROD` badge.
+
+```sh
+airlock db add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --production
+airlock db add analytics --engine postgres --host 10.0.4.12 --database events --user reader --tls verify
+airlock db list                      # name, engine, address, database, user, TLS, production
+airlock db edit analytics --port 6432
+airlock db test legacy-billing       # signs in and runs SELECT 1
+airlock direct legacy-billing        # opens it in the dashboard
+airlock db remove analytics          # also forgets its saved choices and keychain password
+```
+
+The dashboard does the same: pick **Direct database** (`4`) on the Type step, then `a` adds a
+database, `e` edits the selected one and `x` deletes it. Opened direct databases show up in the
+recent connections as `direct · host:port`; `d` forgets one.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--engine` | required | `postgres` or `sqlserver` |
+| `--host` | required | Host name or IP address, without scheme or port |
+| `--port` | 5432 / 1433 | Port of the database |
+| `--database` | `postgres` / the login's default | Database opened when none is named |
+| `--user` | required | User signing in with its password |
+| `--tls` | `require` | `require` encrypts without checking the certificate; `verify` also checks it, against the host name, with your system's trusted CAs; `disable` sends everything in clear text, for local databases only |
+| `--production` | off | Flags the database `PROD` in the wizard and the dashboard |
+
+`airlock db edit` changes only the flags you give; any change but `--production` (renaming it with
+`--name`, or another engine, host, port, database, user or TLS mode) forgets the password remembered
+before, so that it never reaches another server or user. The dashboard's form and `airlock db
+import` do the same.
+
+Definitions live in `~/.config/airlock/databases.json`, next to `config.json`. Passwords never do:
+you type the password on the review step, and **Remember** keeps it in the OS keychain.
+`airlock direct <name>` without a terminal needs it there.
+
+**Sharing.** `airlock db export [name…]` prints the definitions as one `airlockdb1:` string, without
+any password. `airlock db import <string>` lists every database it adds (`+`), changes (`~`, field
+by field) or keeps (`=`), then asks before writing; `--yes` skips the question. A database whose
+connection changes is marked `(remembered password will be forgotten)`: its password is forgotten
+once the import is applied. An import never removes a database.
+
+> [!WARNING]
+> Read-only access to a direct **SQL Server** database rests on the permissions of its user: there
+> are no read-only secrets as on RDS, and SQL Server has no read-only transaction to fall back on.
+> Declare a user that can only read, unless you mean to allow writes.
+
 ### Parallel sessions
 
 While a session runs, press `n` to open another one, with any profile and any resource. Running
@@ -443,9 +496,10 @@ session instead.
 
 ## 🤖 AI access with MCP
 
-For **RDS PostgreSQL** and **SQL Server** sessions, **EKS** clusters and **Redis / Valkey ElastiCache**
-caches, airlock serves an MCP server on `127.0.0.1` for as long as the session runs, so AI assistants
-can explore them through the tunnel.
+For **RDS PostgreSQL** and **SQL Server** sessions, **direct databases**, **EKS** clusters and
+**Redis / Valkey ElastiCache** caches, airlock serves an MCP server on `127.0.0.1` for as long as the
+session runs, so AI assistants can explore them, through the tunnel or, for direct databases, straight
+at their server.
 
 **Database tools**
 

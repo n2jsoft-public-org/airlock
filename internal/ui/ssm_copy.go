@@ -22,13 +22,20 @@ type ssmCopiedMsg struct {
 }
 
 // copyItems lists what the copy menu offers for s, always in the same order so numbers stay stable.
+// A direct session offers its server and user, never its password.
 func copyItems(s *ssmSession) []copyItem {
 	details := s.session.Details
-	items := []copyItem{{label: "Local address", value: fmt.Sprintf("localhost:%d", s.session.LocalPort)}}
+	var items []copyItem
 	add := func(label, value string) {
 		if value = strings.TrimSpace(value); value != "" {
 			items = append(items, copyItem{label: label, value: value})
 		}
+	}
+	if s.direct() {
+		add("Server address", details.ConnectedServer)
+		add("User", directUser(s))
+	} else {
+		add("Local address", fmt.Sprintf("localhost:%d", s.session.LocalPort))
 	}
 	add("IAM token command", details.TokenCommand)
 	add("Reconnect command", details.RestartCommand)
@@ -41,9 +48,19 @@ func copyItems(s *ssmSession) []copyItem {
 	return items
 }
 
+// directUser is the user a direct database session signs in as: the one it was opened with, else
+// the one its sign-in check used.
+func directUser(s *ssmSession) string {
+	if user := strings.TrimSpace(s.options.DBUser); user != "" {
+		return user
+	}
+	return s.signIn.user
+}
+
 // openCopyMenu shows what can be copied from the selected session.
 func (m ssmModel) openCopyMenu() (tea.Model, tea.Cmd) {
-	if m.selectedSession() == nil {
+	// A menu without item would index nothing on enter.
+	if s := m.selectedSession(); s == nil || len(copyItems(s)) == 0 {
 		return m, nil
 	}
 	m.mode = ssmModeCopy

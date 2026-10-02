@@ -41,7 +41,8 @@ type jumphostForgotMsg struct {
 
 // handleSavedLoaded opens the start screen on a history, else the Type step of a new connection.
 // An unreadable history never blocks a connection: it only warns. A history arriving once a flow
-// started is ignored, so a late reload never changes an active flow.
+// started is ignored, so a late reload never changes an active flow. `airlock direct <name>` then
+// opens that database's review, once.
 func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.Model, tea.Cmd) {
 	if m.flow != flowStart {
 		return m, nil
@@ -51,7 +52,7 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 	m.hasHistory = len(msg.connections) > 0
 	if m.hasHistory {
 		// Update sizes it to the frame body.
-		m.recent = newRecentPicker(m.styles, msg.connections, m.active, m.production, time.Now())
+		m.recent = newRecentPicker(m.styles, msg.connections, m.active, m.production, m.directDefinitions(), time.Now())
 		m.flow = flowStart
 		m.step = jumphostStepStart
 	} else {
@@ -60,6 +61,10 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 	}
 	if msg.err != nil {
 		m.errorMsg = "connections.json unreadable: " + msg.err.Error()
+	}
+	if name := m.openDirect; name != "" {
+		m.openDirect = ""
+		return m.openDirectAtStart(name)
 	}
 	return m, nil
 }
@@ -101,6 +106,9 @@ func (m jumphostWizardModel) updateStartStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 // openRecent reconnects to a remembered target: its region, type and name, and its profile
 // unless --profile gave one; a profile that no longer exists is asked again.
 func (m jumphostWizardModel) openRecent(conn jumphost.SavedConnection) (tea.Model, tea.Cmd) {
+	if conn.Ref.Type == directResourceType {
+		return m.openRecentDirect(conn)
+	}
 	m.flow = flowRecent
 	m.errorMsg = ""
 	m.options = m.base

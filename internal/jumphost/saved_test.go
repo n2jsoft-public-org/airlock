@@ -2,6 +2,7 @@ package jumphost
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -75,5 +76,49 @@ func TestRunnerForgetConnection(t *testing.T) {
 	}
 	if _, ok := runner.LoadConnectionPrefs(context.Background(), options); ok {
 		t.Fatal("the forgotten connection is still remembered")
+	}
+}
+
+func TestFilterSavedConnectionsKeepsDirectDatabases(t *testing.T) {
+	saved := append(savedFixture(), SavedConnection{Ref: DirectTargetRef("legacy-billing"), Prefs: ConnectionPrefs{ResourceType: "direct"}})
+	got := filterSavedConnections(saved, "dev", "eu-west-3", map[string]bool{"dev": true})
+	last := got[len(got)-1]
+	if len(got) != 2 || last.Ref.Name != "legacy-billing" || last.ProfileMissing {
+		t.Fatalf("got = %+v, want archive and the direct database, which has no profile to miss", got)
+	}
+}
+
+func TestListSavedConnectionsFlagsRemovedDirectDatabases(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	path := filepath.Join(t.TempDir(), "connections.json")
+	store := NewPrefsStore(path)
+	for _, name := range []string{"legacy-billing", "gone-db"} {
+		if err := store.Save(DirectTargetRef(name), &ConnectionPrefs{ResourceType: "direct", DBUser: "mcp_ro"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	missing := func(databases DirectDatabases) map[string]bool {
+		t.Helper()
+		runner := NewRunner(RunnerOptions{PrefsPath: path, Databases: databases})
+		saved, err := runner.ListSavedConnections(context.Background(), "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		flags := map[string]bool{}
+		for _, conn := range saved {
+			flags[conn.Ref.Name] = conn.TargetMissing
+		}
+		return flags
+	}
+
+	if got := missing(directDatabases(billingDatabase())); got["legacy-billing"] || !got["gone-db"] {
+		t.Fatalf("TargetMissing = %v, want only gone-db", got)
+	}
+	if got := missing(nil); got["legacy-billing"] || got["gone-db"] {
+		t.Fatalf("without databases nothing can be missing: %v", got)
+	}
+	unreadable := fakeDirectDatabases{err: errors.New("databases.json unreadable")}
+	if got := missing(unreadable); got["legacy-billing"] || got["gone-db"] {
+		t.Fatalf("an unreadable file proves nothing missing: %v", got)
 	}
 }

@@ -106,6 +106,9 @@ type SavedConnection struct {
 	// ProfileMissing reports that Prefs.Profile no longer exists locally. The store leaves it
 	// false; the runner sets it.
 	ProfileMissing bool
+	// TargetMissing reports that the definition of a direct database is gone (removed or renamed).
+	// The store leaves it false; the runner sets it.
+	TargetMissing bool
 }
 
 // Load returns the preferences saved for ref. A missing or unreadable file reads as no

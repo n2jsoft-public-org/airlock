@@ -61,6 +61,15 @@ func ConnectionsFile() (string, error) {
 	return filepath.Join(dir, "connections.json"), nil
 }
 
+// DatabasesFile is the file under ConfigDir holding the databases airlock reaches directly.
+func DatabasesFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "databases.json"), nil
+}
+
 // KubeconfigDir is the directory under ConfigDir holding the kubeconfig of each EKS session. The
 // directory is not created.
 func KubeconfigDir() (string, error) {

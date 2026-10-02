@@ -201,10 +201,14 @@ func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	selected := index == m.Index()
 
 	marker := "  "
-	title := d.styles.Text
+	title, desc := d.styles.Text, d.styles.Muted
 	if selected {
 		marker = d.styles.CardMarker.Render("▌ ")
 		title = d.styles.Text.Bold(true)
+	}
+	// A faded item stays listed, greyed out: a direct database whose definition was removed.
+	if faded, ok := item.(interface{ isDimmed() bool }); ok && faded.isDimmed() {
+		title, desc = d.styles.Faint, d.styles.Faint
 	}
 	// Items mixing resource types show theirs as a badge before the title, and items of a
 	// production profile a PROD badge.
@@ -218,7 +222,7 @@ func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	rows := []string{
 		marker + badge + title.Render(truncate(entry.Title(), width-2-lipgloss.Width(badge))),
-		marker + d.styles.Muted.Render(truncate(entry.Description(), width-2)),
+		marker + desc.Render(truncate(entry.Description(), width-2)),
 	}
 	if selected {
 		for idx, row := range rows {

@@ -148,3 +148,20 @@ func TestLocalPortFreeDetectsListener(t *testing.T) {
 		t.Fatalf("localPortFree(%d) = true while a listener is bound", addr.Port)
 	}
 }
+
+func TestClaimRefusesATargetTwiceUntilReleased(t *testing.T) {
+	registry := newTestRegistry()
+	if err := registry.claim("DIRECT legacy-billing", "legacy-billing"); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.claim("DIRECT legacy-billing", "legacy-billing"); err == nil || err.Error() != "legacy-billing is already connected" {
+		t.Fatalf("second claim = %v", err)
+	}
+	if port, err := registry.reserve("RDS a (dev/eu-west-3)", 0, 5432); err != nil || port != 5432 {
+		t.Fatalf("a claim holds no port: %d, %v", port, err)
+	}
+	registry.release("DIRECT legacy-billing")
+	if err := registry.claim("DIRECT legacy-billing", "legacy-billing"); err != nil {
+		t.Fatalf("claim after release = %v", err)
+	}
+}

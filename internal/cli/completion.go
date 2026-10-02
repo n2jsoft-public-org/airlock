@@ -28,8 +28,14 @@ func registerCompletions(cmd *cobra.Command) {
 func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 	switch len(args) {
 	case 0:
-		return []string{"rds\tRDS database", "eks\tEKS cluster API endpoint", "elasticache\tElastiCache cluster"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{
+			"rds\tRDS database", "eks\tEKS cluster API endpoint", "elasticache\tElastiCache cluster",
+			"direct\tDirect database (airlock db add)",
+		}, cobra.ShellCompDirectiveNoFileComp
 	case 1:
+		if strings.EqualFold(args[0], directResourceType) {
+			return directDatabaseCompletions(), cobra.ShellCompDirectiveNoFileComp
+		}
 		var names []string
 		seen := map[string]bool{}
 		recent := recentConnections(cmd, args[0])
@@ -41,6 +47,9 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 		}
 		return names, cobra.ShellCompDirectiveNoFileComp
 	case 2:
+		if strings.EqualFold(args[0], directResourceType) {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
 		recent := recentConnections(cmd, args[0])
 		for idx := range recent {
 			if conn := &recent[idx]; conn.Ref.Name == args[1] && conn.Prefs.LocalPort > 0 {
@@ -92,4 +101,46 @@ func completeProfiles(cmd *cobra.Command, _ []string, _ string) ([]string, cobra
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return profiles, cobra.ShellCompDirectiveNoFileComp
+}
+
+// directDatabaseCompletions lists the direct databases with their engine and address; none when
+// databases.json cannot be read.
+func directDatabaseCompletions() []string {
+	store, err := openDatabaseStore()
+	if err != nil {
+		return nil
+	}
+	dbs, err := store.List()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(dbs))
+	for idx := range dbs {
+		db := &dbs[idx]
+		names = append(names, db.Name+"\t"+string(db.Engine)+" · "+db.Address())
+	}
+	return names
+}
+
+// completeDirectDatabase completes the only argument of a command with a direct database name.
+func completeDirectDatabase(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return directDatabaseCompletions(), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeDirectDatabases completes every argument with a direct database name not given yet.
+func completeDirectDatabases(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	given := make(map[string]bool, len(args))
+	for _, arg := range args {
+		given[arg] = true
+	}
+	var names []string
+	for _, candidate := range directDatabaseCompletions() {
+		if name, _, _ := strings.Cut(candidate, "\t"); !given[name] {
+			names = append(names, candidate)
+		}
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
 }

@@ -165,8 +165,8 @@ func (m ssmModel) renderCard(s *ssmSession, selected bool, width int) []string {
 	badges := m.badges(s)
 	rows := []string{
 		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.session.Target, contentWidth-lipgloss.Width(badges)-1)),
-		spread(style.Render(icon+" "+label), m.styles.Text.Render(fmt.Sprintf("localhost:%d", s.session.LocalPort)), contentWidth),
-		m.styles.Muted.Render(truncate(fmt.Sprintf("%s · %s · %s", s.session.Profile, s.session.Region, formatUptime(s)), contentWidth)),
+		spread(style.Render(icon+" "+label), m.styles.Text.Render(s.address()), contentWidth),
+		m.styles.Muted.Render(truncate(s.origin()+" · "+formatUptime(s), contentWidth)),
 	}
 
 	marker := "  "
@@ -187,8 +187,11 @@ func (m ssmModel) renderPills(width int) string {
 	pills := make([]string, 0, len(m.sessions))
 	for idx, s := range m.sessions {
 		icon, _, style := m.status(s)
-		pill := fmt.Sprintf("%s %s :%d", style.Render(icon), s.session.Target, s.session.LocalPort)
-		if m.production.matches(s.session.Profile) {
+		pill := style.Render(icon) + " " + s.session.Target
+		if !s.direct() {
+			pill += fmt.Sprintf(" :%d", s.session.LocalPort)
+		}
+		if m.isProduction(s) {
 			pill += " " + m.styles.Warning.Bold(true).Render("PROD")
 		}
 		if s.mcpWrites() {
@@ -251,14 +254,17 @@ func (m ssmModel) renderDetails(width int) string {
 		uptime += m.styles.Muted.Render("  ·  " + plural(s.connections, "connection"))
 	}
 
-	rows := []string{
-		title,
-		"",
-		m.field("Local", m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.session.LocalPort)), inner),
-		m.field("Remote", remote, inner),
-		m.field("AWS", s.session.Profile+m.styles.Faint.Render(" · ")+s.session.Region, inner),
-		m.field("Uptime", uptime, inner),
+	rows := []string{title, ""}
+	if s.direct() {
+		rows = append(rows, m.field("Server", m.styles.Title.Render(remote), inner))
+	} else {
+		rows = append(rows,
+			m.field("Local", m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.session.LocalPort)), inner),
+			m.field("Remote", remote, inner),
+			m.field("AWS", s.session.Profile+m.styles.Faint.Render(" · ")+s.session.Region, inner),
+		)
 	}
+	rows = append(rows, m.field("Uptime", uptime, inner))
 	if auth := strings.TrimSpace(s.session.Details.Auth); auth != "" {
 		if canRevealPassword(s) {
 			auth += "  " + m.styles.KeyCap.Render("p") + m.styles.Faint.Render(" show password")
@@ -282,7 +288,7 @@ func (m ssmModel) renderDetails(width int) string {
 	}
 
 	panel := m.styles.Panel
-	if m.production.matches(s.session.Profile) {
+	if m.isProduction(s) {
 		panel = panel.BorderForeground(colorWarning)
 	}
 	return panel.Width(width - 2).Render(strings.Join(rows, "\n"))
@@ -347,16 +353,29 @@ func (m ssmModel) logStyle(text string) lipgloss.Style {
 	}
 }
 
+// quitDialogBody says what stopping every active session does: a direct session has no local
+// port to free, only the tunnels do.
+func (m ssmModel) quitDialogBody() string {
+	active := m.countSessions(func(s *ssmSession) bool { return s.active() })
+	tunnels := m.countSessions(func(s *ssmSession) bool { return s.active() && !s.direct() })
+	switch {
+	case tunnels == 0:
+		return fmt.Sprintf("This stops %s.", plural(active, "active session"))
+	case active == 1:
+		return "This stops 1 active session and frees its local port."
+	case tunnels == active:
+		return fmt.Sprintf("This stops %s and frees their local ports.", plural(active, "active session"))
+	default:
+		return fmt.Sprintf("This stops %s and frees the local ports of their tunnels.", plural(active, "active session"))
+	}
+}
+
 func (m ssmModel) renderDialog(width int) string {
 	var title, body, confirm string
 	switch m.mode {
 	case ssmModeConfirmQuit:
-		active := m.countSessions(func(s *ssmSession) bool { return s.active() })
 		title = "Quit airlock?"
-		body = fmt.Sprintf("This stops %s and frees their local ports.", plural(active, "active session"))
-		if active == 1 {
-			body = "This stops 1 active session and frees its local port."
-		}
+		body = m.quitDialogBody()
 		confirm = "Stop all & quit"
 	default:
 		s := m.selectedSession()
@@ -364,7 +383,7 @@ func (m ssmModel) renderDialog(width int) string {
 			return ""
 		}
 		title = "Stop this session?"
-		body = m.badge(s.session.ResourceType) + " " + s.session.Target + m.styles.Muted.Render(fmt.Sprintf(" on localhost:%d", s.session.LocalPort))
+		body = m.badge(s.session.ResourceType) + " " + s.session.Target + m.styles.Muted.Render(" on "+s.address())
 		if cmd := strings.TrimSpace(s.session.Details.RestartCommand); cmd != "" {
 			body += "\n\n" + m.styles.Faint.Render("Reconnect later with:") + "\n" + m.styles.Muted.Render(cmd)
 		}
@@ -504,7 +523,7 @@ func (m ssmModel) badge(resourceType string) string {
 // badges renders the resource type of s, flagged when its MCP server may modify data.
 func (m ssmModel) badges(s *ssmSession) string {
 	badges := m.badge(s.session.ResourceType)
-	if m.production.matches(s.session.Profile) {
+	if m.isProduction(s) {
 		badges += " " + m.styles.ProdBadge()
 	}
 	if s.mcpWrites() {
@@ -572,4 +591,20 @@ func formatUptime(s *ssmSession) string {
 	default:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
+}
+
+// address is where tools reach s: the tunnel's local port, or the server of a direct database.
+func (s *ssmSession) address() string {
+	if s.direct() {
+		return s.session.Details.ConnectedServer
+	}
+	return fmt.Sprintf("localhost:%d", s.session.LocalPort)
+}
+
+// origin says how s is reached: its AWS profile and region, or "direct".
+func (s *ssmSession) origin() string {
+	if s.direct() {
+		return directResourceType
+	}
+	return s.session.Profile + " · " + s.session.Region
 }

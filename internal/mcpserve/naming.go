@@ -50,3 +50,17 @@ func RelativeTo(base string, paths []string) string {
 	}
 	return strings.Join(relative, ", ")
 }
+
+// DirectServerName is the stable client-facing name of a direct database's server, e.g.
+// airlock-legacy-billing. The prefix is not repeated when the name already carries it.
+func DirectServerName(prefix, name string) string {
+	prefix = slugify(prefix)
+	if prefix == "" {
+		prefix = DefaultServerPrefix
+	}
+	name = slugify(name)
+	if name == prefix || strings.HasPrefix(name, prefix+"-") {
+		return name
+	}
+	return prefix + "-" + name
+}

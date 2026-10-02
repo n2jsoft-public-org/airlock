@@ -107,3 +107,32 @@ func TestCompletesProfiles(t *testing.T) {
 		t.Fatalf("candidates = %q, want the AWS profiles", got)
 	}
 }
+
+func TestCompletesTheDirectType(t *testing.T) {
+	testDatabases(t)
+	if got := strings.Join(complete(t, ""), "\n"); !strings.Contains(got, "direct\tDirect database") {
+		t.Fatalf("candidates = %q, want the direct type", got)
+	}
+}
+
+func TestCompletesDirectDatabaseNames(t *testing.T) {
+	store, _ := testDatabases(t)
+	putDatabase(t, store, &billing)
+	putDatabase(t, store, &archive)
+	want := "legacy-billing\tsqlserver · billing.db.internal:1433"
+
+	for _, args := range [][]string{{"direct", ""}, {"db", "edit", ""}, {"db", "remove", ""}, {"db", "test", ""}, {"db", "export", ""}} {
+		if got := strings.Join(complete(t, args...), "\n"); !strings.Contains(got, want) || !strings.Contains(got, "archive\tpostgres · archive.internal:5432") {
+			t.Fatalf("%v: candidates = %q", args, got)
+		}
+	}
+	if got := complete(t, "direct", "legacy-billing", ""); len(got) != 0 {
+		t.Fatalf("candidates after the name = %q, want none (no local port)", got)
+	}
+	if got := complete(t, "db", "edit", "legacy-billing", ""); len(got) != 0 {
+		t.Fatalf("db edit takes one name: candidates = %q", got)
+	}
+	if got := strings.Join(complete(t, "db", "export", "legacy-billing", ""), "\n"); strings.Contains(got, "legacy-billing") || !strings.Contains(got, "archive") {
+		t.Fatalf("db export candidates = %q, want the names not given yet", got)
+	}
+}
