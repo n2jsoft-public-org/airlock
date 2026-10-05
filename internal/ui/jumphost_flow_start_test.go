@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -91,7 +91,7 @@ func TestWizardOpensOnRecentConnections(t *testing.T) {
 	if m.step != jumphostStepStart || m.flow != flowStart || !m.hasHistory {
 		t.Fatalf("step = %v flow = %v, want the start screen", m.step, m.flow)
 	}
-	view := m.View()
+	view := m.render()
 	for _, want := range []string{"Recent connections", "archive", "New connection", "Search a target"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view lacks %q:\n%s", want, view)

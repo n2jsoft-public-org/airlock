@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -31,34 +30,34 @@ func TestSecretPickerLoadsFiltersAndPicks(t *testing.T) {
 	if _, ok := p.choice(); ok {
 		t.Fatal("nothing can be picked while loading")
 	}
-	if !strings.Contains(p.View(NewStyles(), 100, 30), "Loading") {
+	if !strings.Contains(p.View(NewStyles(true), 100, 30), "Loading") {
 		t.Fatal("the picker must show it is loading")
 	}
 	p = p.loaded(pickerSecrets, nil)
-	view := p.View(NewStyles(), 100, 30)
+	view := p.View(NewStyles(true), 100, 30)
 	if !strings.Contains(view, "prod/archive/app-user") || !strings.Contains(view, "linked") {
 		t.Fatalf("view misses the linked secret:\n%s", view)
 	}
 
-	p, _, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("other")})
-	p, outcome, _ := p.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	p, _, _ = p.Update(key("other"))
+	p, outcome, _ := p.Update(key("enter"))
 	if outcome != secretPickerChosen {
 		t.Fatalf("outcome = %v, want chosen", outcome)
 	}
 	if got, ok := p.choice(); !ok || got.ARN != "arn:other" {
 		t.Fatalf("choice = %+v, %v", got, ok)
 	}
-	if _, outcome, _ = p.Update(tea.KeyMsg{Type: tea.KeyEsc}); outcome != secretPickerCanceled {
+	if _, outcome, _ = p.Update(key("esc")); outcome != secretPickerCanceled {
 		t.Fatalf("esc outcome = %v", outcome)
 	}
 }
 
 func TestSecretPickerShowsErrors(t *testing.T) {
 	p := newSecretPicker("eu-west-3").loaded(nil, errors.New("failed to list the secrets (missing secretsmanager:ListSecrets?)"))
-	if view := p.View(NewStyles(), 100, 30); !strings.Contains(view, "secretsmanager:ListSecrets") {
+	if view := p.View(NewStyles(true), 100, 30); !strings.Contains(view, "secretsmanager:ListSecrets") {
 		t.Fatalf("view misses the error:\n%s", view)
 	}
-	if _, outcome, _ := p.Update(tea.KeyMsg{Type: tea.KeyEnter}); outcome != secretPickerOpen {
+	if _, outcome, _ := p.Update(key("enter")); outcome != secretPickerOpen {
 		t.Fatalf("enter on an error = %v, want the picker kept open", outcome)
 	}
 }
@@ -105,7 +104,7 @@ func TestWizardPrefillsSavedSecret(t *testing.T) {
 	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{SignIn: jumphost.SignInSecret,
 		DBSecretARN: "arn:aws:secretsmanager:eu-west-3:111:secret:prod/app-user-AbC123"}
 	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"})
-	if m.signIn != jumphost.SignInSecret || m.secret.Name != "prod/app-user" || !strings.Contains(m.View(), "prod/app-user") {
+	if m.signIn != jumphost.SignInSecret || m.secret.Name != "prod/app-user" || !strings.Contains(m.render(), "prod/app-user") {
 		t.Fatalf("signIn = %q secret = %+v", m.signIn, m.secret)
 	}
 }
@@ -115,7 +114,7 @@ func TestWizardSecretFlagSeedsReview(t *testing.T) {
 	runner := newPrefsRunner()
 	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{SignIn: jumphost.SignInPassword, DBUser: "saved"}
 	m := wizardAtReviewWithRegion(t, runner, jumphost.Options{DBSecretARN: arn}, jumphost.ResourceSummary{Name: "archive", Engine: "postgres"})
-	if m.signIn != jumphost.SignInSecret || m.secret.ARN != arn || !strings.Contains(m.View(), "prod/app-user") {
+	if m.signIn != jumphost.SignInSecret || m.secret.ARN != arn || !strings.Contains(m.render(), "prod/app-user") {
 		t.Fatalf("signIn = %q secret = %+v", m.signIn, m.secret)
 	}
 	m, cmd := wizardUpdate(t, m, key("enter"))

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -98,10 +98,10 @@ func TestFailedFirstSubscribeOfADaemonViewIsALostConnection(t *testing.T) {
 	}
 	m = m.subscribe().startupView(0)
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if m.connLost == "" || m.mode != ssmModeSessions || !strings.Contains(m.View(), "broken pipe") {
-		t.Fatalf("connLost = %q, mode = %v, view:\n%s", m.connLost, m.mode, m.View())
+	if m.connLost == "" || m.mode != ssmModeSessions || !strings.Contains(m.render(), "broken pipe") {
+		t.Fatalf("connLost = %q, mode = %v, view:\n%s", m.connLost, m.mode, m.render())
 	}
-	updated, cmd := m.Update(keyRunes("r"))
+	updated, cmd := m.Update(key("r"))
 	if cmd == nil {
 		t.Fatal("r must reconnect")
 	}
@@ -127,7 +127,7 @@ func TestChoiceRefusedBecauseAnotherViewAnsweredIsIgnored(t *testing.T) {
 	service := newFakeService()
 	m := choosingModel(t, service)
 	service.chooseErr = errors.New("no credentials to choose for archive-db")
-	_, cmd := m.Update(keyRunes("1"))
+	_, cmd := m.Update(key("1"))
 	// The other view's choice won: the daemon is checking it.
 	service.snapshot.Sessions[0].SignIn.State = sessions.SignInChecking
 	m = asModel(t, mustUpdate(t, m, cmd()))
@@ -140,7 +140,7 @@ func TestChoiceRefusedWhileStillChoosingIsShown(t *testing.T) {
 	service := newFakeService()
 	m := choosingModel(t, service)
 	service.chooseErr = errors.New("no credentials to choose for archive-db")
-	_, cmd := m.Update(keyRunes("1"))
+	_, cmd := m.Update(key("1"))
 	m = asModel(t, mustUpdate(t, m, cmd()))
 	if !strings.Contains(m.errorMsg, "no credentials to choose") {
 		t.Fatalf("errorMsg = %q", m.errorMsg)

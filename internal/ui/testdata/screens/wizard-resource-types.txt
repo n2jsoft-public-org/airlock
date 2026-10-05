@@ -1,0 +1,39 @@
+
+  ◆ airlock  SSM port forwarding                                                      profile dev   region … resolving
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ● Type  ›  ○ Target  ›  ○ Connect
+
+  What do you want to reach?
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  RDS   Relational Database Service                                 1 │
+  │ Tunnel to a database, with IDE data source and MCP server            │
+  ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  EKS   Elastic Kubernetes Service                                  2 │
+  │ Reach a private cluster API endpoint, with kubeconfig and MCP server │
+  ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  CACHE   ElastiCache                                               3 │
+  │ Tunnel to a Redis / Valkey cache, with MCP server                    │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   ↑↓  move   1-3  pick   enter  select   r  region   s  search   ?  help   q  quit

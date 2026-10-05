@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -78,7 +78,7 @@ func (m ssmModel) retrySignIn() (tea.Model, tea.Cmd) {
 }
 
 // handleSignInKey chooses in the credentials dialog.
-func (m ssmModel) handleSignInKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handleSignInKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
 	if s == nil || (s.SignIn.State != sessions.SignInChoosing && s.SignIn.State != sessions.SignInSkipped) {
 		m.mode = ssmModeSessions
@@ -171,7 +171,7 @@ func (m ssmModel) renderSignInDialog(width int) string {
 			rows = append(rows, "     "+m.styles.Danger.Render(truncate("✗ "+failed, inner-5)))
 		}
 	}
-	return m.styles.ModalPanel.Width(dialogWidth - 2).Render(strings.Join(rows, "\n"))
+	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))
 }
 
 // signInStatus is the Sign-in row of the details of s; empty when it has no sign-in to check.

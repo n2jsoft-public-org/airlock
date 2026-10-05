@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -48,20 +48,20 @@ func TestDashboardPassesProductionProfilesToTheWizard(t *testing.T) {
 
 func TestWizardFlagsProductionProfile(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{AwsProfile: "prod-eu"})
-	if strings.Contains(ansi.Strip(m.View()), "PROD") {
+	if strings.Contains(ansi.Strip(m.render()), "PROD") {
 		t.Fatal("PROD shown without any production pattern")
 	}
 	m.production = productionMatcher{"prod*"}
-	if !strings.Contains(ansi.Strip(m.View()), "PROD") {
-		t.Fatalf("the header does not flag the production profile:\n%s", ansi.Strip(m.View()))
+	if !strings.Contains(ansi.Strip(m.render()), "PROD") {
+		t.Fatalf("the header does not flag the production profile:\n%s", ansi.Strip(m.render()))
 	}
 }
 
 func TestWizardReviewFlagsProductionProfile(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m.production = productionMatcher{"dev"}
-	if got := strings.Count(ansi.Strip(m.View()), "PROD"); got < 2 {
-		t.Fatalf("%d PROD badges, want the header and the review's AWS row:\n%s", got, ansi.Strip(m.View()))
+	if got := strings.Count(ansi.Strip(m.render()), "PROD"); got < 2 {
+		t.Fatalf("%d PROD badges, want the header and the review's AWS row:\n%s", got, ansi.Strip(m.render()))
 	}
 }
 
@@ -73,15 +73,15 @@ func TestWizardProfileListFlagsProductionProfiles(t *testing.T) {
 	m, _ = wizardUpdate(t, m, key("enter")) // rds, then the profiles (dev, prod) load
 	m, _ = wizardUpdate(t, m, jumphostProfilesLoadedMsg{profiles: []jumphost.AWSProfileSummary{{Name: "dev"}, {Name: "prod"}}})
 
-	if got := strings.Count(ansi.Strip(m.View()), "PROD"); got != 1 {
-		t.Fatalf("%d PROD badges, want one on the prod profile:\n%s", got, ansi.Strip(m.View()))
+	if got := strings.Count(ansi.Strip(m.render()), "PROD"); got != 1 {
+		t.Fatalf("%d PROD badges, want one on the prod profile:\n%s", got, ansi.Strip(m.render()))
 	}
 }
 
 func TestRecentConnectionsFlagProductionProfiles(t *testing.T) {
-	p := newRecentPicker(NewStyles(), recentFixture(), nil, productionMatcher{"dev"}, nil, time.Now())
+	p := newRecentPicker(NewStyles(true), recentFixture(), nil, productionMatcher{"dev"}, nil, time.Now())
 	p.SetSize(100, 20)
-	if got := strings.Count(ansi.Strip(p.View(NewStyles(), 100)), "PROD"); got != 2 {
+	if got := strings.Count(ansi.Strip(p.View(NewStyles(true), 100)), "PROD"); got != 2 {
 		t.Fatalf("%d PROD badges, want both dev connections flagged", got)
 	}
 }

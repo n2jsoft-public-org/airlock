@@ -1,0 +1,39 @@
+
+  ◆ airlock  SSM port forwarding                                       profile dev   region eu-west-3 · Europe (Paris)
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ✓ Type  ›  ✓ Target  ›  ● Connect
+
+  Review and connect  edit any field, then connect
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │   Type      RDS                                                      │
+  │   Target   orders-db                                                 │
+  │   AWS      dev · eu-west-3 · Europe (Paris)                          │
+  │ ──────────────────────────────────────────────────────────────────── │
+  │ ▌ Port     15443                                                     │
+  │   Ports already used by sessions or local apps are skipped.          │
+  │   MCP      ○ read-only  AI assistants can only query                 │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+    Connect  ⏎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   enter  connect   tab  next field   esc  back   ctrl+c  quit

@@ -4,26 +4,30 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 func TestPaletteAdaptsToLightTerminals(t *testing.T) {
-	s := NewStyles()
-	foregrounds := map[string]lipgloss.Style{
-		"Text": s.Text, "Muted": s.Muted, "Faint": s.Faint, "Title": s.Title, "Subtitle": s.Subtitle,
-		"Success": s.Success, "Warning": s.Warning, "Danger": s.Danger, "Rule": s.Rule,
+	dark, light := NewStyles(true), NewStyles(false)
+	foregrounds := map[string][2]lipgloss.Style{
+		"Text": {dark.Text, light.Text}, "Muted": {dark.Muted, light.Muted}, "Faint": {dark.Faint, light.Faint},
+		"Title": {dark.Title, light.Title}, "Subtitle": {dark.Subtitle, light.Subtitle}, "Success": {dark.Success, light.Success},
+		"Warning": {dark.Warning, light.Warning}, "Danger": {dark.Danger, light.Danger}, "Rule": {dark.Rule, light.Rule},
 	}
-	for name, style := range foregrounds {
-		if color, ok := style.GetForeground().(lipgloss.AdaptiveColor); !ok || color.Light == "" || color.Light == color.Dark {
-			t.Errorf("%s foreground = %#v, want a distinct color for light terminals", name, style.GetForeground())
+	for name, pair := range foregrounds {
+		if d, l := pair[0].GetForeground(), pair[1].GetForeground(); d == nil || l == nil || d == l {
+			t.Errorf("%s foreground = %v (dark) and %v (light), want a distinct color for light terminals", name, d, l)
 		}
 	}
-	for name, style := range map[string]lipgloss.Style{"SelectedCard": s.SelectedCard, "KeyCap": s.KeyCap, "Button": s.Button} {
-		if color, ok := style.GetBackground().(lipgloss.AdaptiveColor); !ok || color.Light == "" || color.Light == color.Dark {
-			t.Errorf("%s background = %#v, want a distinct color for light terminals", name, style.GetBackground())
+	backgrounds := map[string][2]lipgloss.Style{
+		"SelectedCard": {dark.SelectedCard, light.SelectedCard}, "KeyCap": {dark.KeyCap, light.KeyCap}, "Button": {dark.Button, light.Button},
+	}
+	for name, pair := range backgrounds {
+		if d, l := pair[0].GetBackground(), pair[1].GetBackground(); d == nil || l == nil || d == l {
+			t.Errorf("%s background = %v (dark) and %v (light), want a distinct color for light terminals", name, d, l)
 		}
 	}
 }
@@ -56,7 +60,7 @@ func TestHelpFitsAShortTerminal(t *testing.T) {
 	w := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
 	w, _ = wizardUpdate(t, w, tea.WindowSizeMsg{Width: 80, Height: 24})
 	w, _ = wizardUpdate(t, w, key("?"))
-	if view := ansi.Strip(w.View()); !helpComplete(view) {
+	if view := ansi.Strip(w.render()); !helpComplete(view) {
 		t.Fatalf("the wizard help is cut on a 24-line terminal:\n%s", view)
 	}
 }

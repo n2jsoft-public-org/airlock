@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -156,7 +156,7 @@ func TestRecentDirectEntries(t *testing.T) {
 	connected := jumphost.SavedConnection{Ref: jumphost.DirectTargetRef("legacy-billing"), Prefs: jumphost.ConnectionPrefs{DBUser: "mcp_ro"}}
 	gone := jumphost.SavedConnection{Ref: jumphost.DirectTargetRef("old-crm"), TargetMissing: true}
 	unknown := jumphost.SavedConnection{Ref: jumphost.DirectTargetRef("reports")}
-	p := newRecentPicker(NewStyles(), []jumphost.SavedConnection{connected, gone, unknown},
+	p := newRecentPicker(NewStyles(true), []jumphost.SavedConnection{connected, gone, unknown},
 		map[string]bool{directConnectionKey("legacy-billing"): true}, productionMatcher{"*"},
 		map[string]directdb.Database{"legacy-billing": billing}, time.Now())
 
@@ -204,7 +204,7 @@ func TestWizardReopensRecentDirectDatabase(t *testing.T) {
 		t.Fatalf("lookups = %v, a direct database is never looked up in AWS", *runner.lookups)
 	}
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepStart {
 		t.Fatalf("step = %v, want the start screen again", m.step)
 	}
@@ -241,7 +241,7 @@ func TestWizardOpenDirectStartsOnReview(t *testing.T) {
 		t.Fatalf("breadcrumb = %v (%d), want Connect of a new direct connection", steps, current)
 	}
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if db, ok := m.directList.selected(); m.step != jumphostStepTarget || !ok || db.Name != "legacy-billing" {
 		t.Fatalf("step = %v selected = %+v, want the list on legacy-billing", m.step, db)
 	}
@@ -327,7 +327,7 @@ func TestWizardOpenDirectWithHistoryGoesBackThroughNewConnection(t *testing.T) {
 	}
 
 	for _, want := range []jumphostStep{jumphostStepTarget, jumphostStepType, jumphostStepStart} {
-		m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+		m, _ = wizardUpdate(t, m, key("esc"))
 		if m.step != want {
 			t.Fatalf("step = %v, want %v: esc walks back the steps of a new direct connection", m.step, want)
 		}
@@ -367,8 +367,8 @@ func TestDirectReviewUserDoesNotLeakIntoNextRDSReview(t *testing.T) {
 		t.Fatalf("step = %v user = %q, want the review of legacy-billing", m.step, m.options.DBUser)
 	}
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepType {
 		t.Fatalf("step = %v, want the type step", m.step)
 	}

@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func regionCodes(regions []awsRegion) []string {
@@ -80,9 +80,9 @@ func TestRegionPickerSearchesAndChooses(t *testing.T) {
 func TestRegionPickerMovesWithinMatches(t *testing.T) {
 	p := newRegionPicker("")
 	p, _ = pickerUpdate(t, p, key("eu-west"))
-	p, _ = pickerUpdate(t, p, tea.KeyMsg{Type: tea.KeyDown})
-	p, _ = pickerUpdate(t, p, tea.KeyMsg{Type: tea.KeyDown})
-	p, _ = pickerUpdate(t, p, tea.KeyMsg{Type: tea.KeyDown})
+	p, _ = pickerUpdate(t, p, key("down"))
+	p, _ = pickerUpdate(t, p, key("down"))
+	p, _ = pickerUpdate(t, p, key("down"))
 	if code, _ := p.choice(); code != "eu-west-2" {
 		t.Fatalf("choice = %s, want the last eu-west match eu-west-2", code)
 	}
@@ -103,7 +103,7 @@ func TestRegionPickerAcceptsUnlistedRegionCode(t *testing.T) {
 }
 
 func TestRegionPickerEscCancels(t *testing.T) {
-	if _, outcome := pickerUpdate(t, newRegionPicker(""), tea.KeyMsg{Type: tea.KeyEsc}); outcome != regionPickerCanceled {
+	if _, outcome := pickerUpdate(t, newRegionPicker(""), key("esc")); outcome != regionPickerCanceled {
 		t.Fatalf("outcome = %v, want canceled", outcome)
 	}
 }

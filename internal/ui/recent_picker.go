@@ -6,8 +6,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -154,11 +154,12 @@ func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, acti
 const recentShortcuts = "nsdqjkhlgG?/,"
 
 // startsFilter reports whether key is a printable character that is not a shortcut.
-func startsFilter(key tea.KeyMsg) bool {
-	if key.Type != tea.KeyRunes || key.Alt || len(key.Runes) != 1 {
+func startsFilter(key tea.KeyPressMsg) bool {
+	runes := []rune(key.Text)
+	if len(runes) != 1 || key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModCtrl) {
 		return false
 	}
-	r := key.Runes[0]
+	r := runes[0]
 	return unicode.IsPrint(r) && !unicode.IsSpace(r) && !strings.ContainsRune(recentShortcuts, r)
 }
 
@@ -187,7 +188,7 @@ func (p recentPicker) selected() (recentItem, bool) {
 
 // Update handles one message and reports what the user chose, if anything.
 func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, tea.Cmd) {
-	key, isKey := msg.(tea.KeyMsg)
+	key, isKey := msg.(tea.KeyPressMsg)
 	if isKey && p.confirming {
 		p.confirming = false
 		if key.String() == "y" {
@@ -212,7 +213,7 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 		}
 		// A letter that is not a shortcut starts the filter with it.
 		if startsFilter(key) {
-			p.list, _ = p.list.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+			p.list, _ = p.list.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 			var cmd tea.Cmd
 			p.list, cmd = p.list.Update(msg)
 			return p, recentPickerOpen, cmd
@@ -251,7 +252,7 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 	return p, recentPickerOpen, cmd
 }
 
-func (p recentPicker) updateActions(key tea.KeyMsg) (recentPicker, recentPickerOutcome, tea.Cmd) {
+func (p recentPicker) updateActions(key tea.KeyPressMsg) (recentPicker, recentPickerOutcome, tea.Cmd) {
 	last := recentActionSearch
 	if p.settings {
 		last = recentActionSettings

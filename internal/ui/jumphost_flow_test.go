@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -70,7 +70,7 @@ func focusUserField(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 
 func clearInput(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 	t.Helper()
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	return m
 }
 
@@ -83,7 +83,7 @@ func TestWizardReviewPrefillsPortAndDatabaseUser(t *testing.T) {
 	if got := m.userInput.Value(); got != testDefaultDBUser {
 		t.Fatalf("user input = %q, want prefilled with %q", got, testDefaultDBUser)
 	}
-	view := m.View()
+	view := m.render()
 	for _, want := range []string{"archive", "5433", testDefaultDBUser, "Connect"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("review does not show %q", want)
@@ -185,7 +185,7 @@ func TestWizardReviewWithoutIAMAuthOrMCPHasOnlyPort(t *testing.T) {
 	if !m.portInput.Focused() || m.userInput.Focused() {
 		t.Fatal("tab should stay on the port when there is no other field")
 	}
-	if strings.Contains(m.View(), testDefaultDBUser) {
+	if strings.Contains(m.render(), testDefaultDBUser) {
 		t.Fatal("the review shows a database user for an instance without IAM auth")
 	}
 	if _, cmd := wizardUpdate(t, m, key("enter")); !isQuit(cmd) {
@@ -196,7 +196,7 @@ func TestWizardReviewWithoutIAMAuthOrMCPHasOnlyPort(t *testing.T) {
 func TestWizardReviewGoesBackToTarget(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepTarget || m.portInput.Focused() || m.userInput.Focused() {
 		t.Fatalf("step = %v, want back on the target list with inputs blurred", m.step)
 	}
@@ -310,7 +310,7 @@ func TestWizardRegionShortcutSwitchesRegion(t *testing.T) {
 	if m.canceled {
 		t.Fatal("typing in the region search canceled the wizard")
 	}
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	m, _ = wizardUpdate(t, m, key("backspace"))
 	m, _ = wizardUpdate(t, m, key("frankfurt"))
 	m, _ = wizardUpdate(t, m, key("enter"))
 
@@ -326,7 +326,7 @@ func TestWizardRegionPickerEscKeepsRegion(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{AwsRegion: "eu-west-3"})
 	m, _ = wizardUpdate(t, m, key("r"))
 	m, _ = wizardUpdate(t, m, key("tokyo"))
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.pickingRegion || m.options.AwsRegion != "eu-west-3" || m.step != jumphostStepType {
 		t.Fatalf("picking = %v region = %q step = %v, want picker closed without change", m.pickingRegion, m.options.AwsRegion, m.step)
 	}
@@ -420,7 +420,7 @@ func TestWizardViewFitsTerminal(t *testing.T) {
 		views["review"] = m
 
 		for name, view := range views {
-			out := view.View()
+			out := view.render()
 			if got := lipgloss.Height(out); got > size.Height {
 				t.Errorf("%dx%d %s: height %d exceeds terminal", size.Width, size.Height, name, got)
 			}
@@ -435,7 +435,7 @@ func TestWizardReviewKeepsEditableFieldsOnShortTerminals(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 60, Height: 16})
 
-	view := m.View()
+	view := m.render()
 	for _, want := range []string{"5433", testDefaultDBUser} {
 		if !strings.Contains(view, want) {
 			t.Errorf("compact review does not show %q:\n%s", want, view)
@@ -446,11 +446,11 @@ func TestWizardReviewKeepsEditableFieldsOnShortTerminals(t *testing.T) {
 func TestWizardReviewSignsInWithIAMByDefault(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
-	if m.signIn != jumphost.SignInIAM || strings.Contains(m.View(), "Password  ") {
+	if m.signIn != jumphost.SignInIAM || strings.Contains(m.render(), "Password  ") {
 		t.Fatal("an IAM target should start with the IAM token, without a password field")
 	}
 	m, _ = wizardUpdate(t, m, key("tab"))
-	if m.reviewFocus != reviewFieldSignIn || !strings.Contains(m.View(), "IAM token") {
+	if m.reviewFocus != reviewFieldSignIn || !strings.Contains(m.render(), "IAM token") {
 		t.Fatalf("focus = %d, want the sign-in selector showing the IAM token", m.reviewFocus)
 	}
 	m, cmd := wizardUpdate(t, m, key("enter"))
@@ -473,7 +473,7 @@ func turnPasswordlessOff(t *testing.T, m jumphostWizardModel) jumphostWizardMode
 func TestWizardReviewAsksPasswordWithPasswordSignIn(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 	m = turnPasswordlessOff(t, m)
-	if !strings.Contains(m.View(), "Password") {
+	if !strings.Contains(m.render(), "Password") {
 		t.Fatal("the password field should show with the password sign-in")
 	}
 
@@ -485,7 +485,7 @@ func TestWizardReviewAsksPasswordWithPasswordSignIn(t *testing.T) {
 		t.Fatal("tab did not move from the user to the password field")
 	}
 	m, _ = wizardUpdate(t, m, key("s3cret q"))
-	if strings.Contains(m.View(), "s3cret") {
+	if strings.Contains(m.render(), "s3cret") {
 		t.Fatal("the password must be masked")
 	}
 
@@ -521,7 +521,7 @@ func TestWizardReviewResetsPasswordForAnotherTarget(t *testing.T) {
 	m = turnPasswordlessOff(t, m)
 	m.passwordInput.SetValue("s3cret")
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	m, _ = wizardUpdate(t, m, key("enter"))
 	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{port: 5433})
 	if m.signIn != jumphost.SignInIAM || m.passwordInput.Value() != "" {
@@ -542,7 +542,7 @@ func focusMCPWritesField(t *testing.T, m jumphostWizardModel) jumphostWizardMode
 func TestWizardReviewMCPIsReadOnlyByDefault(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
-	if m.mcpWrites || !strings.Contains(m.View(), "read-only") {
+	if m.mcpWrites || !strings.Contains(m.render(), "read-only") {
 		t.Fatal("an RDS connection should start with a read-only MCP server")
 	}
 	m, cmd := wizardUpdate(t, m, key("enter"))
@@ -560,7 +560,7 @@ func TestWizardReviewTogglesMCPWrites(t *testing.T) {
 		t.Fatalf("focus = %d, want the MCP writes toggle after the port", m.reviewFocus)
 	}
 	m, _ = wizardUpdate(t, m, key(" "))
-	if !m.mcpWrites || !strings.Contains(m.View(), "writes allowed") {
+	if !m.mcpWrites || !strings.Contains(m.render(), "writes allowed") {
 		t.Fatal("space on the toggle did not allow MCP writes")
 	}
 	m, cmd := wizardUpdate(t, m, key("enter"))
@@ -588,7 +588,7 @@ func TestWizardReviewMCPWritesStartsFromFlagAndResetsPerTarget(t *testing.T) {
 	m = focusMCPWritesField(t, m)
 	m, _ = wizardUpdate(t, m, key(" "))
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	m, _ = wizardUpdate(t, m, key("enter"))
 	m, _ = wizardUpdate(t, m, jumphostDefaultPortLoadedMsg{port: 5433})
 	if !m.mcpWrites {
@@ -599,7 +599,7 @@ func TestWizardReviewMCPWritesStartsFromFlagAndResetsPerTarget(t *testing.T) {
 func TestWizardReviewHidesMCPToggleWithoutMCP(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "archive"})
 
-	if strings.Contains(m.View(), "read-only") || len(m.reviewFields()) != 1 {
+	if strings.Contains(m.render(), "read-only") || len(m.reviewFields()) != 1 {
 		t.Fatal("the MCP toggle should not show when the MCP server is skipped")
 	}
 }
@@ -770,7 +770,7 @@ func TestWizardHeaderShowsMissingRegion(t *testing.T) {
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = pastStart(t, m)
 	m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: ""})
-	if view := m.View(); !strings.Contains(view, "none") {
+	if view := m.render(); !strings.Contains(view, "none") {
 		t.Fatalf("header should show that no region is set:\n%s", view)
 	}
 }
@@ -903,7 +903,7 @@ func TestWizardLongErrorWrapsWithinTheTerminal(t *testing.T) {
 		t.Fatalf("step = %v, want the error shown on the target step", m.step)
 	}
 
-	out := m.View()
+	out := m.render()
 	view := ansi.Strip(out)
 	if !strings.Contains(view, "--jumphost-tag") {
 		t.Fatalf("the end of the error, where its advice is, is cut:\n%s", view)
@@ -917,7 +917,7 @@ func TestWizardLongErrorWrapsWithinTheTerminal(t *testing.T) {
 }
 
 func TestErrorLinesAreCapped(t *testing.T) {
-	lines := NewStyles().errorLines(strings.Repeat("word ", 400), 40)
+	lines := NewStyles(true).errorLines(strings.Repeat("word ", 400), 40)
 	if len(lines) != maxErrorLines {
 		t.Fatalf("%d lines, want %d", len(lines), maxErrorLines)
 	}
@@ -938,7 +938,7 @@ func wizardAtReviewOfType(t *testing.T, base jumphost.Options, resourceType stri
 		if option.name == resourceType {
 			break
 		}
-		m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyDown})
+		m, _ = wizardUpdate(t, m, key("down"))
 	}
 	m, _ = wizardUpdate(t, m, key("enter"))
 	if m.awaitingRegion {
@@ -958,7 +958,7 @@ func TestWizardEKSReviewShowsReadOnlyMCP(t *testing.T) {
 	if slices.Contains(m.reviewFields(), reviewFieldMCPWrites) {
 		t.Fatal("EKS must not offer the MCP write toggle")
 	}
-	view := ansi.Strip(m.View())
+	view := ansi.Strip(m.render())
 	if !strings.Contains(view, "MCP") || !strings.Contains(view, "AI assistants can only read the cluster") {
 		t.Fatalf("review lacks the read-only MCP row:\n%s", view)
 	}
@@ -966,7 +966,7 @@ func TestWizardEKSReviewShowsReadOnlyMCP(t *testing.T) {
 
 func TestWizardEKSReviewWithoutMCP(t *testing.T) {
 	m := wizardAtReviewOfType(t, jumphost.Options{SkipMCP: true}, "eks", jumphost.ResourceSummary{Name: "platform"})
-	if strings.Contains(ansi.Strip(m.View()), "can only read the cluster") {
+	if strings.Contains(ansi.Strip(m.render()), "can only read the cluster") {
 		t.Fatal("--no-mcp must hide the MCP row")
 	}
 }

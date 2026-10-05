@@ -1,30 +1,46 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
-// Palette shared by every screen (256-color codes), with darker variants for terminals with a
-// light background, where the light ones would not be readable.
-var (
-	colorAccent  = lipgloss.AdaptiveColor{Dark: "81", Light: "31"}
-	colorWarm    = lipgloss.AdaptiveColor{Dark: "223", Light: "130"}
-	colorMuted   = lipgloss.AdaptiveColor{Dark: "244", Light: "242"}
-	colorFaint   = lipgloss.AdaptiveColor{Dark: "240", Light: "247"}
-	colorBorder  = lipgloss.AdaptiveColor{Dark: "238", Light: "250"}
-	colorText    = lipgloss.AdaptiveColor{Dark: "252", Light: "235"}
-	colorSurface = lipgloss.AdaptiveColor{Dark: "236", Light: "254"}
-	colorSuccess = lipgloss.AdaptiveColor{Dark: "42", Light: "28"}
-	colorWarning = lipgloss.AdaptiveColor{Dark: "214", Light: "166"}
-	colorDanger  = lipgloss.AdaptiveColor{Dark: "203", Light: "160"}
-	// colorOnBadge is the text of the colored badges and buttons, white on both backgrounds.
-	colorOnBadge = lipgloss.Color("231")
-)
+// palette is the set of 256-color codes every screen uses, with darker variants for terminals
+// with a light background, where the light ones would not be readable.
+type palette struct {
+	accent, warm, muted, faint, border, text, surface, success, warning, danger color.Color
+}
+
+func newPalette(dark bool) palette {
+	pick := lipgloss.LightDark(dark)
+	return palette{
+		accent:  pick(lipgloss.Color("31"), lipgloss.Color("81")),
+		warm:    pick(lipgloss.Color("130"), lipgloss.Color("223")),
+		muted:   pick(lipgloss.Color("242"), lipgloss.Color("244")),
+		faint:   pick(lipgloss.Color("247"), lipgloss.Color("240")),
+		border:  pick(lipgloss.Color("250"), lipgloss.Color("238")),
+		text:    pick(lipgloss.Color("235"), lipgloss.Color("252")),
+		surface: pick(lipgloss.Color("254"), lipgloss.Color("236")),
+		success: pick(lipgloss.Color("28"), lipgloss.Color("42")),
+		warning: pick(lipgloss.Color("166"), lipgloss.Color("214")),
+		danger:  pick(lipgloss.Color("160"), lipgloss.Color("203")),
+	}
+}
+
+// colorOnBadge is the text of the colored badges and buttons, white on both backgrounds.
+var colorOnBadge = lipgloss.Color("231")
 
 // Styles groups shared lipgloss styles used by the TUI.
 type Styles struct {
+	// Dark tells which palette the styles use; components with their own styles (lists) follow it.
+	Dark bool
+	// AccentColor, WarningColor and DangerColor are palette colors views apply to borders and labels directly.
+	AccentColor, WarningColor, DangerColor color.Color
+
 	Container lipgloss.Style
 	Title     lipgloss.Style
 	Subtitle  lipgloss.Style
@@ -55,77 +71,79 @@ type Styles struct {
 	StepPending lipgloss.Style
 
 	Badge       lipgloss.Style
-	BadgeRDS    lipgloss.Color
-	BadgeEKS    lipgloss.Color
-	BadgeCache  lipgloss.Color
-	BadgeOther  lipgloss.Color
+	BadgeRDS    color.Color
+	BadgeEKS    color.Color
+	BadgeCache  color.Color
+	BadgeOther  color.Color
 	KeyCap      lipgloss.Style
 	KeyDesc     lipgloss.Style
 	Button      lipgloss.Style
 	ButtonFocus lipgloss.Style
 }
 
-func NewStyles() Styles {
+func NewStyles(dark bool) Styles {
+	p := newPalette(dark)
 	return Styles{
+		Dark: dark, AccentColor: p.accent, WarningColor: p.warning, DangerColor: p.danger,
 		Container: lipgloss.NewStyle().
 			Padding(1, 2),
 		Title: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorAccent),
+			Foreground(p.accent),
 		Subtitle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorWarm),
+			Foreground(p.warm),
 		Muted: lipgloss.NewStyle().
-			Foreground(colorMuted),
+			Foreground(p.muted),
 		Faint: lipgloss.NewStyle().
-			Foreground(colorFaint),
+			Foreground(p.faint),
 		Text: lipgloss.NewStyle().
-			Foreground(colorText),
+			Foreground(p.text),
 		Success: lipgloss.NewStyle().
-			Foreground(colorSuccess),
+			Foreground(p.success),
 		Warning: lipgloss.NewStyle().
-			Foreground(colorWarning),
+			Foreground(p.warning),
 		Danger: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorDanger),
+			Foreground(p.danger),
 
 		Panel: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBorder).
+			BorderForeground(p.border).
 			Padding(0, 1),
 		ModalPanel: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorAccent).
+			BorderForeground(p.accent).
 			Padding(1, 3),
 		PanelTitle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorAccent),
+			Foreground(p.accent),
 		Rule: lipgloss.NewStyle().
-			Foreground(colorBorder),
+			Foreground(p.border),
 
 		SelectedCard: lipgloss.NewStyle().
-			Background(colorSurface),
+			Background(p.surface),
 		CardMarker: lipgloss.NewStyle().
-			Foreground(colorAccent),
+			Foreground(p.accent),
 		FieldLabel: lipgloss.NewStyle().
-			Foreground(colorMuted).
+			Foreground(p.muted).
 			Width(9),
 
 		Card: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBorder).
+			BorderForeground(p.border).
 			Padding(0, 1),
 		CardFocus: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorAccent).
+			BorderForeground(p.accent).
 			Padding(0, 1),
 		StepDone: lipgloss.NewStyle().
-			Foreground(colorSuccess),
+			Foreground(p.success),
 		StepCurrent: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorAccent),
+			Foreground(p.accent),
 		StepPending: lipgloss.NewStyle().
-			Foreground(colorFaint),
+			Foreground(p.faint),
 
 		Badge: lipgloss.NewStyle().
 			Bold(true).
@@ -138,14 +156,14 @@ func NewStyles() Styles {
 		KeyCap: lipgloss.NewStyle().
 			Bold(true).
 			Padding(0, 1).
-			Foreground(colorText).
-			Background(colorSurface),
+			Foreground(p.text).
+			Background(p.surface),
 		KeyDesc: lipgloss.NewStyle().
-			Foreground(colorMuted),
+			Foreground(p.muted),
 		Button: lipgloss.NewStyle().
 			Padding(0, 2).
-			Foreground(colorMuted).
-			Background(colorSurface),
+			Foreground(p.muted).
+			Background(p.surface),
 		ButtonFocus: lipgloss.NewStyle().
 			Bold(true).
 			Padding(0, 2).
@@ -175,7 +193,7 @@ func (s Styles) ProdBadge() string {
 
 // WritesBadge flags a session whose MCP server lets AI assistants modify data.
 func (s Styles) WritesBadge() string {
-	return s.Badge.Background(colorDanger).Render("WRITES")
+	return s.Badge.Background(s.DangerColor).Render("WRITES")
 }
 
 // AgentBadge flags a session an AI agent opened through the MCP gateway.
@@ -208,4 +226,25 @@ func (s Styles) KeyHintsPinned(keys [][2]string, pinned, width int) string {
 		}
 	}
 	return truncate(tail, width)
+}
+
+// textInputStyles keeps the look text inputs had with Bubbles v1: dim placeholder and suggestion,
+// unstyled prompt and text, a blinking block cursor in the terminal's own color.
+func textInputStyles() textinput.Styles {
+	state := textinput.StyleState{
+		Placeholder: lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+		Suggestion:  lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+		Prompt:      lipgloss.NewStyle(),
+		Text:        lipgloss.NewStyle(),
+	}
+	return textinput.Styles{Focused: state, Blurred: state, Cursor: textinput.CursorStyle{Shape: tea.CursorBlock, Blink: true}}
+}
+
+// inputView renders in as Bubbles v1 did without a width: v2 cuts the placeholder of an input with
+// no width to its first character, so an empty one gets a width that just fits its placeholder.
+func inputView(in textinput.Model) string {
+	if in.Width() == 0 && in.Value() == "" && in.Placeholder != "" {
+		in.SetWidth(max(1, lipgloss.Width(in.Placeholder)-1))
+	}
+	return in.View()
 }

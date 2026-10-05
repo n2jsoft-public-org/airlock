@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -56,24 +57,31 @@ func (m *ssmModel) refreshViewport() {
 	}
 	l := m.layout()
 	// Border (2) and padding (2) around the log lines; border (2) and title (1) above/below.
-	m.viewport.Width = maxInt(1, l.mainWidth-4)
-	m.viewport.Height = maxInt(minLogHeight, m.logPanelHeight(l)-3)
+	m.viewport.SetWidth(maxInt(1, l.mainWidth-4))
+	m.viewport.SetHeight(maxInt(minLogHeight, m.logPanelHeight(l)-3))
 
 	if s := m.selectedSession(); s != nil {
 		if m.queriesShown(s) {
-			m.viewport.SetContent(m.renderQueryLines(s, m.viewport.Width))
+			m.viewport.SetContent(m.renderQueryLines(s, m.viewport.Width()))
 		} else {
-			m.viewport.SetContent(m.renderLogLines(s, m.viewport.Width))
+			m.viewport.SetContent(m.renderLogLines(s, m.viewport.Width()))
 		}
 	} else {
 		m.viewport.SetContent("")
 	}
 }
 
-func (m ssmModel) View() string {
+// View is the dashboard on the alternate screen.
+func (m ssmModel) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = true
+	return v
+}
+
+func (m ssmModel) render() string {
 	switch m.mode {
 	case ssmModeWizard:
-		return m.wizard.View()
+		return m.wizard.render()
 	case ssmModePreparing:
 		keys := m.styles.KeyHints([][2]string{{"esc", "cancel"}, {"ctrl+c", "quit"}}, maxInt(m.width-4, 20))
 		return m.styles.Container.Render(m.styles.Title.Render("airlock") + "\n\n" + m.loadingUI.Body(m.styles) + "\n\n" + keys)
@@ -156,7 +164,7 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 	}
 	lines = append(lines, newHint)
 
-	return m.styles.Panel.Width(l.sidebarWidth - 2).Height(innerHeight).Render(strings.Join(lines, "\n"))
+	return m.styles.Panel.Width(l.sidebarWidth).Height(innerHeight + 2).Render(strings.Join(lines, "\n"))
 }
 
 func (m ssmModel) renderCard(s *sessions.Session, selected bool, width int) []string {
@@ -242,7 +250,7 @@ func (m ssmModel) renderDetails(width int) string {
 	if s == nil {
 		empty := m.styles.Text.Bold(true).Render("No active session") + "\n" +
 			m.styles.Muted.Render("Press ") + m.styles.KeyCap.Render("n") + m.styles.Muted.Render(" to open a connection.")
-		return m.styles.Panel.Width(width - 2).Render(empty)
+		return m.styles.Panel.Width(width).Render(empty)
 	}
 
 	icon, label, style := m.status(s)
@@ -296,9 +304,9 @@ func (m ssmModel) renderDetails(width int) string {
 
 	panel := m.styles.Panel
 	if m.isProduction(s) {
-		panel = panel.BorderForeground(colorWarning)
+		panel = panel.BorderForeground(m.styles.WarningColor)
 	}
-	return panel.Width(width - 2).Render(strings.Join(rows, "\n"))
+	return panel.Width(width).Render(strings.Join(rows, "\n"))
 }
 
 func (m ssmModel) renderLogs(width, height int) string {
@@ -318,7 +326,7 @@ func (m ssmModel) renderLogs(width, height int) string {
 	header := spread(title, follow, width-4)
 
 	content := header + "\n" + m.viewport.View()
-	return m.styles.Panel.Width(width - 2).Height(height - 2).Render(content)
+	return m.styles.Panel.Width(width).Height(height).Render(content)
 }
 
 func (m ssmModel) renderLogLines(s *sessions.Session, width int) string {
@@ -410,7 +418,7 @@ func (m ssmModel) renderDialog(width int) string {
 	content := m.styles.Text.Bold(true).Render(title) + "\n\n" +
 		lipgloss.NewStyle().Width(dialogWidth-8).Render(body) + "\n\n" +
 		buttons
-	return m.styles.ModalPanel.Width(dialogWidth - 2).Render(content)
+	return m.styles.ModalPanel.Width(dialogWidth).Render(content)
 }
 
 func (m ssmModel) renderFooter(width int) string {

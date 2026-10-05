@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -100,6 +100,7 @@ func newDirectForm(previous *directdb.Database) directForm {
 
 func newFormInput(placeholder string, limit int) textinput.Model {
 	input := textinput.New()
+	input.SetStyles(textInputStyles())
 	input.Placeholder = placeholder
 	input.Prompt = ""
 	input.CharLimit = limit
@@ -194,7 +195,7 @@ func (f directForm) toggle(delta int) directForm {
 
 // Update handles one message and reports whether the user submitted or canceled the form.
 func (f directForm) Update(msg tea.Msg) (directForm, directFormOutcome, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
 			return f, directFormCancel, nil
@@ -212,7 +213,7 @@ func (f directForm) Update(msg tea.Msg) (directForm, directFormOutcome, tea.Cmd)
 		}
 		if f.toggleFocused() {
 			switch key.String() {
-			case " ", "right", "l":
+			case "space", "right", "l":
 				f = f.toggle(1)
 			case "left", "h":
 				f = f.toggle(-1)
@@ -290,15 +291,15 @@ func (f directForm) View(styles Styles, width int) string {
 	add := func(field int, label, value, help string) {
 		rows = append(rows, f.row(styles, field, label, value, help, inner)...)
 	}
-	add(formFieldName, "Name", f.name.View(), "Names the MCP server, the IDE data source and the keychain entry.")
+	add(formFieldName, "Name", inputView(f.name), "Names the MCP server, the IDE data source and the keychain entry.")
 	add(formFieldEngine, "Engine", choiceSelector(styles, []string{string(directdb.EnginePostgres), string(directdb.EngineSQLServer)}, string(f.engine)), "←/→ or space change the engine.")
-	add(formFieldHost, "Host", f.host.View(), "Host name or IP address, without scheme or port.")
-	add(formFieldPort, "Port", f.port.View(), "Leave empty for the engine's default.")
-	add(formFieldDatabase, "Database", f.dbName.View(), "Leave empty for the default database.")
-	add(formFieldUser, "User", f.user.View(), "Its password is asked when connecting, never saved here.")
+	add(formFieldHost, "Host", inputView(f.host), "Host name or IP address, without scheme or port.")
+	add(formFieldPort, "Port", inputView(f.port), "Leave empty for the engine's default.")
+	add(formFieldDatabase, "Database", inputView(f.dbName), "Leave empty for the default database.")
+	add(formFieldUser, "User", inputView(f.user), "Its password is asked when connecting, never saved here.")
 	add(formFieldTLS, "TLS", choiceSelector(styles, tlsModes, string(f.effectiveTLS())), "require encrypts; verify also checks the certificate; disable is for local databases.")
 	add(formFieldProduction, "Production", f.productionToggle(styles), "Space toggles. On, the wizard and the dashboard flag it PROD.")
-	return styles.Card.Width(panelWidth - 2).Render(strings.Join(rows, "\n"))
+	return styles.Card.Width(panelWidth).Render(strings.Join(rows, "\n"))
 }
 
 // row renders one field: the accent marker and help line when focused, its error when invalid.
@@ -307,7 +308,7 @@ func (f directForm) row(styles Styles, field int, label, value, help string, wid
 	var rows []string
 	if field == f.focus {
 		rows = append(rows,
-			styles.CardMarker.Render("▌ ")+labelStyle.Foreground(colorAccent).Render(label)+value,
+			styles.CardMarker.Render("▌ ")+labelStyle.Foreground(styles.AccentColor).Render(label)+value,
 			"  "+styles.Faint.Render(truncate(help, width-2)),
 		)
 	} else {

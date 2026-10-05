@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -75,7 +75,7 @@ func (m ssmModel) shownApproval() *sessions.Approval {
 }
 
 // handleApprovalKey answers in the approval dialog; Deny has the focus first.
-func (m ssmModel) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handleApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "left", "right", "tab", "shift+tab":
 		m.approvalAllow = !m.approvalAllow
@@ -189,5 +189,5 @@ func (m ssmModel) renderApprovalDialog(width int) string {
 		allowStyle, denyStyle = m.styles.ButtonFocus, m.styles.Button
 	}
 	rows = append(rows, "", allowStyle.Render("Allow")+"  "+denyStyle.Render("Deny"))
-	return m.styles.ModalPanel.Width(dialogWidth - 2).Render(strings.Join(rows, "\n"))
+	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))
 }

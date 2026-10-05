@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -69,7 +69,7 @@ func pressWizard(t *testing.T, m jumphostWizardModel, msg tea.Msg) jumphostWizar
 	return runChain(t, m, cmd, 1)
 }
 
-var escKey = tea.KeyMsg{Type: tea.KeyEsc}
+var escKey = key("esc")
 
 func TestWizardStartScreenOpensSettings(t *testing.T) {
 	m := settingsWizard(t, newFakeSettingsStore())

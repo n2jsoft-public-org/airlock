@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -36,6 +36,7 @@ type secretPicker struct {
 
 func newSecretPicker(region string) secretPicker {
 	input := textinput.New()
+	input.SetStyles(textInputStyles())
 	input.Placeholder = "Search: app-user, prod, rds!db..."
 	input.Prompt = "⌕ "
 	input.CharLimit = 80
@@ -58,7 +59,7 @@ func (p secretPicker) loaded(secrets []jumphost.SecretSummary, err error) secret
 
 // Update handles one message and reports whether the picker stays open, was canceled or a secret was chosen.
 func (p secretPicker) Update(msg tea.Msg) (secretPicker, secretPickerOutcome, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
 			return p, secretPickerCanceled, nil
@@ -135,13 +136,13 @@ func (p secretPicker) View(styles Styles, width, height int) string {
 		styles.Faint.Render(fmt.Sprintf("%d/%d · %s", len(p.matches), len(p.all), p.region)),
 		inner,
 	)
-	p.input.Width = maxInt(inner-lipgloss.Width(p.input.Prompt)-1, 5)
+	p.input.SetWidth(maxInt(inner-lipgloss.Width(p.input.Prompt)-1, 5))
 
 	lines := []string{title, "", p.input.View(), styles.Rule.Render(strings.Repeat("─", inner))}
 	lines = append(lines, p.renderRows(styles, inner, rows)...)
 	lines = append(lines, "", styles.KeyHints([][2]string{{"↑↓", "move"}, {"enter", "pick"}, {"esc", "close"}}, inner))
 
-	panel := styles.ModalPanel.Width(inner + 6).Render(strings.Join(lines, "\n"))
+	panel := styles.ModalPanel.Width(inner + 8).Render(strings.Join(lines, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, panel)
 }
 

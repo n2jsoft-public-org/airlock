@@ -72,7 +72,7 @@ func TestWizardPasswordRememberedInKeychain(t *testing.T) {
 	m, _ = wizardUpdate(t, m, key("tab")) // password
 	m, _ = wizardUpdate(t, m, key("s3cret"))
 	m, _ = wizardUpdate(t, m, key("tab")) // remember
-	if m.reviewFocus != reviewFieldRemember || !strings.Contains(m.View(), "Remember") {
+	if m.reviewFocus != reviewFieldRemember || !strings.Contains(m.render(), "Remember") {
 		t.Fatalf("focus = %d, want the remember toggle", m.reviewFocus)
 	}
 	m, _ = wizardUpdate(t, m, key(" "))
@@ -93,7 +93,7 @@ func TestWizardPasswordWithoutKeychainHidesRemember(t *testing.T) {
 			t.Fatal("remember offered without a keychain")
 		}
 	}
-	if !strings.Contains(m.View(), "No OS keychain") {
+	if !strings.Contains(m.render(), "No OS keychain") {
 		t.Fatal("the review must say why the password cannot be remembered")
 	}
 	m.userInput.SetValue("app_user")
@@ -125,7 +125,7 @@ func TestWizardPrefillsPasswordFromKeychain(t *testing.T) {
 	if m.signIn != jumphost.SignInPassword || !m.remember || m.passwordInput.Value() != "from-keychain" {
 		t.Fatalf("signIn = %q remember = %v password = %q", m.signIn, m.remember, m.passwordInput.Value())
 	}
-	if strings.Contains(m.View(), "from-keychain") {
+	if strings.Contains(m.render(), "from-keychain") {
 		t.Fatal("the prefilled password must stay masked")
 	}
 }
@@ -174,7 +174,7 @@ func TestWizardHidesSignInWhereAirlockDoesNotUseCredentials(t *testing.T) {
 					t.Errorf("%s: sign-in field %d offered", c.name, field)
 				}
 			}
-			if m.signIn != "" || strings.Contains(m.View(), "Sign-in") {
+			if m.signIn != "" || strings.Contains(m.render(), "Sign-in") {
 				t.Errorf("%s: signIn = %q, want no selector", c.name, m.signIn)
 			}
 			m.userInput.SetValue("someone")

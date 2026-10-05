@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -148,7 +148,7 @@ func (m jumphostWizardModel) renderDirectReviewPanel(width int, compact bool) st
 	if compact {
 		passwordHelp, rememberHelp, mcpHelp = "", "", ""
 	}
-	rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", m.passwordInput.View(), passwordHelp, inner)...)
+	rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", inputView(m.passwordInput), passwordHelp, inner)...)
 	switch {
 	case m.keychainAvailable:
 		rows = append(rows, m.reviewInput(reviewFieldRemember, "Remember", m.rememberToggle(), rememberHelp, inner)...)
@@ -165,9 +165,9 @@ func (m jumphostWizardModel) renderDirectReviewPanel(width int, compact bool) st
 
 	card := m.styles.Card
 	if db.Production {
-		card = card.BorderForeground(colorWarning)
+		card = card.BorderForeground(m.styles.WarningColor)
 	}
-	return card.Width(panelWidth - 2).Render(strings.Join(rows, "\n"))
+	return card.Width(panelWidth).Render(strings.Join(rows, "\n"))
 }
 
 // directDatabaseLabel names the database a direct connection opens: the definition's, else the

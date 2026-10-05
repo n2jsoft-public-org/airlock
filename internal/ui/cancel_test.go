@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -18,7 +18,7 @@ func TestWizardEscCancelsTargetDiscovery(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{AwsRegion: "eu-west-3"})
 
 	m, late := wizardUpdate(t, m, key("enter")) // rds: the targets load
-	if !m.loading || !strings.Contains(ansi.Strip(m.View()), "esc  cancel") {
+	if !m.loading || !strings.Contains(ansi.Strip(m.render()), "esc  cancel") {
 		t.Fatal("the loading does not offer to cancel it")
 	}
 	m, _ = wizardUpdate(t, m, key("esc"))
@@ -93,7 +93,7 @@ func TestWizardHistoryLoadingIsNotCanceled(t *testing.T) {
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	m, _ = wizardUpdate(t, m, key("esc"))
-	if !m.loading || strings.Contains(ansi.Strip(m.View()), "esc  cancel") {
+	if !m.loading || strings.Contains(ansi.Strip(m.render()), "esc  cancel") {
 		t.Fatal("the history loading, a local file read, must not be canceled")
 	}
 }

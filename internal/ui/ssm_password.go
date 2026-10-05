@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -68,7 +68,7 @@ func (m ssmModel) handlePassword(msg ssmPasswordMsg) (tea.Model, tea.Cmd) {
 }
 
 // handlePasswordKey picks, copies or hides the passwords.
-func (m ssmModel) handlePasswordKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handlePasswordKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key := msg.String(); key {
 	case "left", "right", "tab", "shift+tab":
 		m.password.hideFocused = !m.password.hideFocused
@@ -164,7 +164,7 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 		}
 	}
 	rows = append(rows, "", copyButton.Render("Copy")+"  "+hideButton.Render("Hide"))
-	return m.styles.ModalPanel.Width(dialogWidth - 2).Render(strings.Join(rows, "\n"))
+	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))
 }
 
 // passwordLines renders password after indent, wrapped rather than truncated: a partial password

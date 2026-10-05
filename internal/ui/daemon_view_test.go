@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -18,8 +18,6 @@ func newDaemonView(t *testing.T, service *fakeService) ssmModel {
 	return m
 }
 
-func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
-
 func asModel(t *testing.T, model tea.Model) ssmModel {
 	t.Helper()
 	m, ok := model.(ssmModel)
@@ -30,7 +28,7 @@ func asModel(t *testing.T, model tea.Model) ssmModel {
 }
 
 func TestQuitDetachesADaemonView(t *testing.T) {
-	for _, key := range []tea.KeyMsg{keyRunes("q"), {Type: tea.KeyCtrlC}} {
+	for _, key := range []tea.KeyMsg{key("q"), key("ctrl+c")} {
 		service := newFakeService(testSession(1, "archive-db"))
 		m := newDaemonView(t, service)
 		_, cmd := m.Update(key)
@@ -46,11 +44,11 @@ func TestQuitDetachesADaemonView(t *testing.T) {
 func TestStopAllAndQuitInADaemonView(t *testing.T) {
 	service := newFakeService(testSession(1, "archive-db"))
 	m := newDaemonView(t, service)
-	m = asModel(t, mustUpdate(t, m, keyRunes("Q")))
-	if m.mode != ssmModeConfirmQuit || !strings.Contains(m.View(), "Stop every session and the daemon?") {
-		t.Fatalf("mode = %v, view:\n%s", m.mode, m.View())
+	m = asModel(t, mustUpdate(t, m, key("Q")))
+	if m.mode != ssmModeConfirmQuit || !strings.Contains(m.render(), "Stop every session and the daemon?") {
+		t.Fatalf("mode = %v, view:\n%s", m.mode, m.render())
 	}
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(key("enter"))
 	runServiceCmd(cmd)
 	if calls := service.Calls(); len(calls) != 1 || calls[0] != "stop-all" {
 		t.Fatalf("calls = %v", calls)
@@ -60,8 +58,8 @@ func TestStopAllAndQuitInADaemonView(t *testing.T) {
 func TestStopAllReachesTheDaemonEvenWithoutActiveSessions(t *testing.T) {
 	service := newFakeService()
 	m := newDaemonView(t, service)
-	m = asModel(t, mustUpdate(t, m, keyRunes("Q")))
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = asModel(t, mustUpdate(t, m, key("Q")))
+	_, cmd := m.Update(key("enter"))
 	runServiceCmd(cmd)
 	if calls := service.Calls(); len(calls) != 1 || calls[0] != "stop-all" {
 		t.Fatalf("calls = %v", calls)
@@ -80,8 +78,8 @@ func TestDaemonStoppedAfterStopAllQuits(t *testing.T) {
 func TestCtrlCOnTheDaemonQuitDialogOnlyLeaves(t *testing.T) {
 	service := newFakeService(testSession(1, "archive-db"))
 	m := newDaemonView(t, service)
-	m = asModel(t, mustUpdate(t, m, keyRunes("Q")))
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = asModel(t, mustUpdate(t, m, key("Q")))
+	_, cmd := m.Update(key("ctrl+c"))
 	if !isQuit(cmd) || len(service.Calls()) != 0 {
 		t.Fatalf("ctrl+c must leave without stopping: calls = %v", service.Calls())
 	}
@@ -110,10 +108,10 @@ func TestLostConnectionShowsABannerAndReconnects(t *testing.T) {
 	m.reconnect = func(context.Context) (sessions.Service, error) { return replacement, nil }
 
 	m = asModel(t, mustUpdate(t, m, ssmEventMsg{ok: true, event: sessions.Event{Kind: sessions.EventClosed, Err: "connection to the daemon lost"}}))
-	if !strings.Contains(m.View(), "connection to the daemon lost") {
-		t.Fatalf("view misses the banner:\n%s", m.View())
+	if !strings.Contains(m.render(), "connection to the daemon lost") {
+		t.Fatalf("view misses the banner:\n%s", m.render())
 	}
-	updated, cmd := m.Update(keyRunes("r"))
+	updated, cmd := m.Update(key("r"))
 	m = asModel(t, updated)
 	updated, _ = m.Update(cmd())
 	m = asModel(t, updated)
@@ -126,7 +124,7 @@ func TestFailedReconnectKeepsTheBanner(t *testing.T) {
 	m := newDaemonView(t, newFakeService())
 	m.connLost = "connection to the daemon lost"
 	m.reconnect = func(context.Context) (sessions.Service, error) { return nil, errors.New("version mismatch") }
-	updated, cmd := m.Update(keyRunes("r"))
+	updated, cmd := m.Update(key("r"))
 	m = asModel(t, updated)
 	m = asModel(t, mustUpdate(t, m, cmd()))
 	if !strings.Contains(m.connLost, "could not reach the daemon: version mismatch") {
@@ -161,9 +159,9 @@ func TestReconnectRunsOnceAtATime(t *testing.T) {
 	m.connLost = "connection to the daemon lost"
 	calls := 0
 	m.reconnect = func(context.Context) (sessions.Service, error) { calls++; return newFakeService(), nil }
-	updated, cmd := m.Update(keyRunes("r"))
+	updated, cmd := m.Update(key("r"))
 	m = asModel(t, updated)
-	_, second := m.Update(keyRunes("r"))
+	_, second := m.Update(key("r"))
 	if second != nil {
 		t.Fatal("a second r must not start another reconnection")
 	}
@@ -188,8 +186,8 @@ func TestLostConnectionLeavesDialogsAndShowsOnlyBannerHints(t *testing.T) {
 	m := newDaemonView(t, newFakeService(testSession(1, "archive-db")))
 	m.mode = ssmModeConfirmStop
 	m = asModel(t, mustUpdate(t, m, ssmEventMsg{ok: false}))
-	if m.mode != ssmModeSessions || strings.Contains(m.View(), "new") && strings.Contains(m.View(), "switch") {
-		t.Fatalf("mode = %v, view:\n%s", m.mode, m.View())
+	if m.mode != ssmModeSessions || strings.Contains(m.render(), "new") && strings.Contains(m.render(), "switch") {
+		t.Fatalf("mode = %v, view:\n%s", m.mode, m.render())
 	}
 }
 
@@ -200,7 +198,7 @@ func TestRefusedStopAllLeavesTheViewUsable(t *testing.T) {
 	if m.quitting {
 		t.Fatal("quitting must be cleared")
 	}
-	_, cmd := m.Update(keyRunes("q"))
+	_, cmd := m.Update(key("q"))
 	if !isQuit(cmd) {
 		t.Fatal("q must leave")
 	}
@@ -211,7 +209,7 @@ func TestDashboardStartsWithTheNotice(t *testing.T) {
 	service := newFakeService(testSession(1, "archive-db"))
 	m := newDashboardModel(t.Context(), service, fakeSessionRunner{}, 0, jumphost.Options{}, &DashboardOptions{Detach: true, Notice: "MCP gateway off: port in use"})
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if view := m.View(); !strings.Contains(view, "MCP gateway off: port in use") {
+	if view := m.render(); !strings.Contains(view, "MCP gateway off: port in use") {
 		t.Fatalf("view lacks the notice:\n%s", view)
 	}
 }

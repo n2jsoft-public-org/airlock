@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -119,7 +119,7 @@ func (p *directList) selectName(name string) {
 
 // Update handles one message and reports what the user chose, if anything.
 func (p directList) Update(msg tea.Msg) (directList, directListOutcome, tea.Cmd) {
-	key, isKey := msg.(tea.KeyMsg)
+	key, isKey := msg.(tea.KeyPressMsg)
 	if isKey && p.confirming {
 		p.confirming = false
 		if key.String() == "y" {

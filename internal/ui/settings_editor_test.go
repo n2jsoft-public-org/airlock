@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -50,7 +50,7 @@ func editorDown(t *testing.T, e settingsEditor, count int) settingsEditor {
 }
 
 func editorView(e settingsEditor) string {
-	return ansi.Strip(e.View(NewStyles(), 120))
+	return ansi.Strip(e.View(NewStyles(true), 120))
 }
 
 func TestSettingsEditorEditsADefaultKeyFromEmpty(t *testing.T) {
@@ -72,7 +72,7 @@ func TestSettingsEditorUnchangedDefaultKeyIsNotSaved(t *testing.T) {
 }
 
 func TestSettingsEditorClearedFileKeySavesEmpty(t *testing.T) {
-	e, outcome := editorPress(t, editorDown(t, loadedEditor(), 1), key("enter"), tea.KeyMsg{Type: tea.KeyCtrlU}, key("enter"))
+	e, outcome := editorPress(t, editorDown(t, loadedEditor(), 1), key("enter"), key("ctrl+u"), key("enter"))
 	if outcome != settingsSave || e.requestKey != "defaultDbUser" || e.requestValue != "" {
 		t.Fatalf("outcome = %v request = %q=%q, want the empty value saved", outcome, e.requestKey, e.requestValue)
 	}
@@ -93,7 +93,7 @@ func TestSettingsEditorTypesCommas(t *testing.T) {
 }
 
 func TestSettingsEditorEscCancelsTheEdit(t *testing.T) {
-	e, outcome := editorPress(t, loadedEditor(), key("enter"), key("x"), tea.KeyMsg{Type: tea.KeyEsc})
+	e, outcome := editorPress(t, loadedEditor(), key("enter"), key("x"), key("esc"))
 	if e.editing || outcome != settingsStay {
 		t.Fatalf("editing = %v outcome = %v, want the edit closed without a save", e.editing, outcome)
 	}
@@ -162,7 +162,7 @@ func TestSettingsEditorRegionOpensThePicker(t *testing.T) {
 }
 
 func TestSettingsEditorEscGoesBack(t *testing.T) {
-	if _, outcome := editorPress(t, loadedEditor(), tea.KeyMsg{Type: tea.KeyEsc}); outcome != settingsBack {
+	if _, outcome := editorPress(t, loadedEditor(), key("esc")); outcome != settingsBack {
 		t.Fatalf("outcome = %v, want back", outcome)
 	}
 }
@@ -191,7 +191,7 @@ func TestSettingsEditorFitsANarrowBody(t *testing.T) {
 	snapshot := testSettings()
 	snapshot.Settings[0].Value = "claude:user,vscode,codex,cursor,gemini:user"
 	snapshot.Settings[0].Description = strings.Repeat("a long description ", 12)
-	view := newSettingsEditor().loaded(snapshot, nil).View(NewStyles(), 60)
+	view := newSettingsEditor().loaded(snapshot, nil).View(NewStyles(true), 60)
 	for _, line := range strings.Split(view, "\n") {
 		if width := lipgloss.Width(line); width > 60 {
 			t.Fatalf("line of %d columns in a 60-column body: %q", width, ansi.Strip(line))
@@ -203,7 +203,7 @@ func TestSettingsEditorLongValueScrollsInItsColumn(t *testing.T) {
 	typed := "BEGIN" + strings.Repeat("-", 45) + "0123456789"
 	e, _ := editorPress(t, loadedEditor(), key("enter"), key(typed))
 	var row string
-	for _, line := range strings.Split(e.View(NewStyles(), 120), "\n") {
+	for _, line := range strings.Split(e.View(NewStyles(true), 120), "\n") {
 		if strings.Contains(line, "jumphostTag") {
 			row = line
 		}
@@ -228,7 +228,7 @@ func TestSettingsEditorUnreadableFileIsReadOnly(t *testing.T) {
 	if entered, outcome := editorPress(t, e, key("enter")); entered.editing || outcome != settingsStay {
 		t.Fatalf("enter: editing = %v outcome = %v, want nothing", entered.editing, outcome)
 	}
-	if _, outcome := editorPress(t, e, tea.KeyMsg{Type: tea.KeyEsc}); outcome != settingsBack {
+	if _, outcome := editorPress(t, e, key("esc")); outcome != settingsBack {
 		t.Fatalf("esc: outcome = %v, want back", outcome)
 	}
 }

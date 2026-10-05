@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -33,13 +33,13 @@ func TestApprovalDialogAllows(t *testing.T) {
 	if m.mode != ssmModeApproval {
 		t.Fatalf("mode = %v", m.mode)
 	}
-	view := m.View()
+	view := m.render()
 	for _, want := range []string{"claude-code asks to open a connection", "orders-db", "PROD", "check yesterday", "Allow", "Deny"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("dialog lacks %q", want)
 		}
 	}
-	m, cmd := update(t, m, keyRunes("y"))
+	m, cmd := update(t, m, key("y"))
 	runApprovalCmd(t, cmd)
 	if m.mode != ssmModeSessions || !slices.Contains(service.Calls(), "approve 7") {
 		t.Fatalf("mode = %v, calls = %v", m.mode, service.Calls())
@@ -50,7 +50,7 @@ func TestApprovalDialogDeniesOnEsc(t *testing.T) {
 	service := newFakeService()
 	m := newDaemonView(t, service)
 	m, _ = update(t, m, approvalEvent())
-	_, cmd := update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := update(t, m, key("esc"))
 	runApprovalCmd(t, cmd)
 	if !slices.Contains(service.Calls(), "deny 7") {
 		t.Fatalf("calls = %v", service.Calls())
@@ -87,7 +87,7 @@ func TestAgentSessionsAreTagged(t *testing.T) {
 	s := testSession(1, "orders-db")
 	s.OpenedBy = "claude-code"
 	m := newDaemonView(t, newFakeService(s))
-	if view := m.View(); !strings.Contains(view, "AGENT · claude-code") {
+	if view := m.render(); !strings.Contains(view, "AGENT · claude-code") {
 		t.Fatal("an agent session must carry AGENT · <name>")
 	}
 }
@@ -97,7 +97,7 @@ func TestApprovalEnterDefaultsToDenyWithoutSignIn(t *testing.T) {
 	m := newDaemonView(t, service)
 	m.interactive = func(context.Context, string, string, ...string) error { return nil }
 	m, _ = update(t, m, approvalEvent())
-	_, cmd := update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := update(t, m, key("enter"))
 	runApprovalCmd(t, cmd)
 	if !slices.Contains(service.Calls(), "deny 7") {
 		t.Fatalf("calls = %v", service.Calls())
@@ -112,7 +112,7 @@ func TestApprovalIDReusedAfterReconnectOpens(t *testing.T) {
 	service := newFakeService()
 	m := newDaemonView(t, service)
 	m, _ = update(t, m, approvalEvent())
-	m, _ = update(t, m, keyRunes("n"))
+	m, _ = update(t, m, key("n"))
 	m, _ = update(t, m, ssmEventMsg{ok: true, event: sessions.Event{Kind: sessions.EventApprovalResolved, Seq: 6, ApprovalID: 7}})
 	if len(m.answered) != 0 {
 		t.Fatalf("answered = %v", m.answered)
@@ -131,7 +131,7 @@ func TestApprovalIDReusedAfterReconnectOpens(t *testing.T) {
 func TestApprovalAnsweredKeptUntilResolved(t *testing.T) {
 	m := newDaemonView(t, newFakeService())
 	m, _ = update(t, m, approvalEvent())
-	m, _ = update(t, m, keyRunes("n"))
+	m, _ = update(t, m, key("n"))
 	m, _ = update(t, m, ssmTickMsg(time.Now()))
 	if m.mode != ssmModeSessions || !m.answered[7] {
 		t.Fatalf("an answered approval must not reopen: mode %v", m.mode)
@@ -147,7 +147,7 @@ func TestApprovalDialogDropsControlCharacters(t *testing.T) {
 	a.Reason = "check \x1b[2K\x1b[1Ainvoices\nof yesterday"
 	ev.event.Approval = &a
 	m, _ = update(t, m, ev)
-	view := m.View()
+	view := m.render()
 	for _, bad := range []string{"\x1b[2K", "\x1b[1A", "\x1b[2J", "\x1b]0;", "\a"} {
 		if strings.Contains(view, bad) {
 			t.Errorf("dialog writes %q", bad)

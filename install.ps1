@@ -261,7 +261,9 @@ function Test-AirlockUninstall([string]$target) {
 }
 
 # Invoke-AirlockUninstall runs airlock uninstall, then waits for the binary to go, and its folder
-# when nothing else is in it: Windows deletes them once airlock has exited.
+# when nothing else is in it: Windows deletes them once airlock has exited. The hidden Windows
+# PowerShell deleting them can take more than 10s to start on a busy machine: wait up to 30s, as
+# the tests of airlock uninstall do.
 function Invoke-AirlockUninstall([string]$target) {
     $arguments = @('uninstall', '--yes')
     if ($Purge) {
@@ -272,7 +274,7 @@ function Invoke-AirlockUninstall([string]$target) {
         throw "airlock uninstall failed with exit code $LASTEXITCODE"
     }
     $dir = Split-Path $target
-    for ($i = 0; $i -lt 40; $i++) {
+    for ($i = 0; $i -lt 120; $i++) {
         $emptyDir = (Test-Path $dir) -and -not (Get-ChildItem -Force $dir)
         if (-not (Test-Path $target) -and -not $emptyDir) {
             break

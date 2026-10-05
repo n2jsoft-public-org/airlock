@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -16,7 +15,7 @@ import (
 func typeText(t *testing.T, m jumphostWizardModel, text string) jumphostWizardModel {
 	t.Helper()
 	for _, r := range text {
-		m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m, _ = wizardUpdate(t, m, key(string(r)))
 	}
 	return m
 }
@@ -55,7 +54,7 @@ func directFormWizard(t *testing.T, runner JumphostDiscovery, store *fakeDirectS
 // saveForm presses ctrl+s and runs the save it starts.
 func saveForm(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 	t.Helper()
-	m, cmd := wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	m, cmd := wizardUpdate(t, m, key("ctrl+s"))
 	return runCmd(t, m, cmd)
 }
 
@@ -98,7 +97,7 @@ func TestDirectFormShowsFieldErrorUnderItsField(t *testing.T) {
 	store := &fakeDirectStore{}
 	m := directFormWizard(t, fakeSessionRunner{}, store, "")
 	m = typeText(t, m, "reports")
-	m, cmd := wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
+	m, cmd := wizardUpdate(t, m, key("ctrl+s"))
 
 	if cmd != nil || m.step != jumphostStepDirectForm || m.directForm.focus != formFieldHost || len(store.dbs) != 0 {
 		t.Fatalf("cmd = %v step = %v focus = %d saved = %v, want the form kept on host, nothing saved",
@@ -174,7 +173,7 @@ func TestDirectFormRenameForgetsOldConnection(t *testing.T) {
 	forgotten := &[]jumphost.TargetRef{}
 	m := directFormWizard(t, forgetRecorder{forgotten: forgotten}, store, "analytics")
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	m = typeText(t, m, "events")
 	m = saveForm(t, m)
 
@@ -198,7 +197,7 @@ func TestDirectFormUserChangeForgetsConnection(t *testing.T) {
 	m := directFormWizard(t, forgetRecorder{forgotten: forgotten}, store, "analytics")
 
 	m = focusFormField(t, m, formFieldUser)
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	m = typeText(t, m, "writer")
 	_ = saveForm(t, m)
 
@@ -213,7 +212,7 @@ func TestDirectFormHostChangeForgetsConnection(t *testing.T) {
 	m := directFormWizard(t, forgetRecorder{forgotten: forgotten}, store, "analytics")
 
 	m = focusFormField(t, m, formFieldHost)
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	m = typeText(t, m, "other.db.internal")
 	_ = saveForm(t, m)
 
@@ -268,7 +267,7 @@ func TestDirectFormEscReturnsToList(t *testing.T) {
 	m := directFormWizard(t, fakeSessionRunner{}, store, "")
 	m = typeText(t, m, "reports")
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepTarget || len(store.dbs) != 2 {
 		t.Fatalf("step = %v dbs = %d, want the list, nothing saved", m.step, len(store.dbs))
 	}
@@ -325,7 +324,7 @@ func TestDirectFormForgetsBeforeSaving(t *testing.T) {
 	forgotten, defined := &[]jumphost.TargetRef{}, &[]bool{}
 	m := directFormWizard(t, forgetRecorder{forgotten: forgotten, store: store, definedAtForget: defined}, store, "analytics")
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	m = typeText(t, m, "events")
 	saveForm(t, m)
 
@@ -338,7 +337,7 @@ func TestDirectFormKeepsTheDefinitionWhenForgettingFails(t *testing.T) {
 	store := &fakeDirectStore{dbs: testDirectDatabases()}
 	m := directFormWizard(t, forgetRecorder{forgotten: &[]jumphost.TargetRef{}, err: errors.New("keychain locked")}, store, "analytics")
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	m = typeText(t, m, "events")
 	m = saveForm(t, m)
 
@@ -352,7 +351,7 @@ func TestDirectFormRenameOntoExistingNameForgetsNothing(t *testing.T) {
 	forgotten := &[]jumphost.TargetRef{}
 	m := directFormWizard(t, forgetRecorder{forgotten: forgotten}, store, "analytics")
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = wizardUpdate(t, m, key("ctrl+u"))
 	m = typeText(t, m, "legacy-billing")
 	m = saveForm(t, m)
 

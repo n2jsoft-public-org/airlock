@@ -4,9 +4,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // SettingsStore reads and writes the settings of config.json for the Settings screen.
@@ -89,10 +89,11 @@ type settingsEditor struct {
 
 func newSettingsEditor() settingsEditor {
 	input := textinput.New()
+	input.SetStyles(textInputStyles())
 	input.Prompt = ""
 	input.CharLimit = 512
 	// The field scrolls inside the value column; the cursor takes its last cell.
-	input.Width = settingsValueWidth - 1
+	input.SetWidth(settingsValueWidth - 1)
 	return settingsEditor{input: input}
 }
 
@@ -136,7 +137,7 @@ func (e settingsEditor) refused(err error) settingsEditor {
 
 // Update handles one message and reports what the user asked, if anything.
 func (e settingsEditor) Update(msg tea.Msg) (settingsEditor, settingsOutcome, tea.Cmd) {
-	key, isKey := msg.(tea.KeyMsg)
+	key, isKey := msg.(tea.KeyPressMsg)
 	if e.editing {
 		return e.updateEdit(msg)
 	}
@@ -200,7 +201,7 @@ func (e settingsEditor) change(setting SettingView) (settingsEditor, settingsOut
 // field of a default key changes nothing, so it only closes the edit; a file key saved empty is
 // cleared, as the store decides.
 func (e settingsEditor) updateEdit(msg tea.Msg) (settingsEditor, settingsOutcome, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
 			return e.closeEdit(), settingsStay, nil

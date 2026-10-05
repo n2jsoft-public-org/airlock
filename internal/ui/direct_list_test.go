@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
@@ -97,7 +97,7 @@ func newDirectWizard(t *testing.T, runner JumphostDiscovery, store DirectDatabas
 }
 
 func wizardView(m jumphostWizardModel) string {
-	return ansi.Strip(m.View())
+	return ansi.Strip(m.render())
 }
 
 func TestWizardOffersDirectCardOnlyWithStore(t *testing.T) {
@@ -175,14 +175,14 @@ func TestDirectListEnterOpensReview(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
 	m, _ = wizardUpdate(t, m, key("4"))
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = wizardUpdate(t, m, key("down"))
 	m, _ = wizardUpdate(t, m, key("enter"))
 	if m.step != jumphostStepReview || m.options.ResourceType != "direct" || m.options.Name != "legacy-billing" ||
 		m.options.DBUser != "mcp_ro" || m.directDB.Host != "billing.db.internal" {
 		t.Fatalf("step = %v options = %+v directDB = %+v, want the review of legacy-billing", m.step, m.options, m.directDB)
 	}
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepTarget {
 		t.Fatalf("step = %v, esc on the review must return to the database list", m.step)
 	}
@@ -240,7 +240,7 @@ func TestDirectListEscGoesBackToType(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
 	m, _ = wizardUpdate(t, m, key("4"))
 
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepType {
 		t.Fatalf("step = %v, want the Type step", m.step)
 	}
@@ -263,7 +263,7 @@ func TestDirectListConnectedEntrySwitchesToSession(t *testing.T) {
 }
 
 func TestDirectListReportsAddAndEdit(t *testing.T) {
-	p := newDirectList(NewStyles(), testDirectDatabases(), nil, nil)
+	p := newDirectList(NewStyles(true), testDirectDatabases(), nil, nil)
 	p.SetSize(80, 20)
 	if _, outcome, _ := p.Update(key("a")); outcome != directListAdd {
 		t.Fatalf("a = %v, want directListAdd", outcome)
@@ -272,7 +272,7 @@ func TestDirectListReportsAddAndEdit(t *testing.T) {
 		t.Fatalf("e = %v, want directListEdit", outcome)
 	}
 
-	empty := newDirectList(NewStyles(), nil, nil, nil)
+	empty := newDirectList(NewStyles(true), nil, nil, nil)
 	empty.SetSize(80, 20)
 	if _, outcome, _ := empty.Update(key("e")); outcome != directListOpen {
 		t.Fatalf("e on an empty list = %v, want nothing", outcome)
@@ -283,7 +283,7 @@ func TestDirectListReportsAddAndEdit(t *testing.T) {
 }
 
 func TestDirectListSelectName(t *testing.T) {
-	p := newDirectList(NewStyles(), testDirectDatabases(), nil, nil)
+	p := newDirectList(NewStyles(true), testDirectDatabases(), nil, nil)
 	p.SetSize(80, 20)
 	p.selectName("legacy-billing")
 	if db, ok := p.selected(); !ok || db.Name != "legacy-billing" {
@@ -306,7 +306,7 @@ func TestSearchAfterDirectListPicksAWSTarget(t *testing.T) {
 	m := newTestWizard(t, runner, jumphost.Options{AwsRegion: "eu-west-3"})
 	m.databases = &fakeDirectStore{dbs: testDirectDatabases()}
 	m, _ = wizardUpdate(t, m, key("4"))
-	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m, _ = wizardUpdate(t, m, key("esc"))
 	m, cmd := wizardUpdate(t, m, key("s"))
 	m = runCmd(t, m, cmd)
 

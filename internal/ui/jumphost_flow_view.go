@@ -5,7 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -22,7 +23,10 @@ const (
 	reviewPanelWidth   = 72
 )
 
-func (m jumphostWizardModel) View() string {
+// View lets the wizard stand alone as a tea.Model; the dashboard embeds render().
+func (m jumphostWizardModel) View() tea.View { return tea.NewView(m.render()) }
+
+func (m jumphostWizardModel) render() string {
 	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg)
 	frame := wizardFrame{
 		title:    "airlock",
@@ -337,7 +341,7 @@ func (m jumphostWizardModel) renderResourceCards(width, height int) string {
 		if selected {
 			style = m.styles.CardFocus
 		}
-		rows = append(rows, style.Width(cardWidth-2).Render(header+"\n"+desc))
+		rows = append(rows, style.Width(cardWidth).Render(header+"\n"+desc))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -414,15 +418,15 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 	if compact {
 		portHelp, signInHelp, userHelp, passwordHelp, rememberHelp, secretHelp, mcpHelp = "", "", "", "", "", "", ""
 	}
-	rows = append(rows, m.reviewInput(reviewFieldPort, "Port", m.portInput.View(), portHelp, inner)...)
+	rows = append(rows, m.reviewInput(reviewFieldPort, "Port", inputView(m.portInput), portHelp, inner)...)
 	if len(m.signInOptions()) > 0 {
 		rows = append(rows, m.reviewInput(reviewFieldSignIn, "Sign-in", m.signInSelector(), signInHelp, inner)...)
 		for _, field := range m.signInFields() {
 			switch field {
 			case reviewFieldUser:
-				rows = append(rows, m.reviewInput(reviewFieldUser, "User", m.userInput.View(), userHelp, inner)...)
+				rows = append(rows, m.reviewInput(reviewFieldUser, "User", inputView(m.userInput), userHelp, inner)...)
 			case reviewFieldPassword:
-				rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", m.passwordInput.View(), passwordHelp, inner)...)
+				rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", inputView(m.passwordInput), passwordHelp, inner)...)
 			case reviewFieldRemember:
 				rows = append(rows, m.reviewInput(reviewFieldRemember, "Remember", m.rememberToggle(), rememberHelp, inner)...)
 			case reviewFieldSecret:
@@ -442,9 +446,9 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 
 	card := m.styles.Card
 	if m.production.matches(m.options.AwsProfile) {
-		card = card.BorderForeground(colorWarning)
+		card = card.BorderForeground(m.styles.WarningColor)
 	}
-	return card.Width(panelWidth - 2).Render(strings.Join(rows, "\n"))
+	return card.Width(panelWidth).Render(strings.Join(rows, "\n"))
 }
 
 // prodPrefix is the PROD badge and a space for a production profile, else "".
@@ -501,7 +505,7 @@ func (m jumphostWizardModel) reviewInput(field int, label, input, help string, w
 	if field != m.reviewFocus {
 		return []string{"  " + m.styles.FieldLabel.Render(label) + input}
 	}
-	rows := []string{m.styles.CardMarker.Render("▌ ") + m.styles.FieldLabel.Foreground(colorAccent).Render(label) + input}
+	rows := []string{m.styles.CardMarker.Render("▌ ") + m.styles.FieldLabel.Foreground(m.styles.AccentColor).Render(label) + input}
 	if help != "" {
 		rows = append(rows, "  "+m.styles.Faint.Render(truncate(help, width-2)))
 	}

@@ -1,0 +1,39 @@
+
+  ◆ airlock  SSM port forwarding                                                       server billing.db.internal:1433
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ✓ Type  ›  ✓ Target  ›  ● Connect
+
+  Review and connect  edit any field, then connect
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │   Type      DIRECT  sqlserver                                        │
+  │   Target    PROD  legacy-billing                                     │
+  │   Server   billing.db.internal:1433 · TLS require                    │
+  │   Database the login's default                                       │
+  │   User     mcp_ro  edit with e in the list                           │
+  │ ──────────────────────────────────────────────────────────────────── │
+  │ ▌ Password Database password                                         │
+  │   Kept in memory for the MCP server, unless remembered. The IDE ask… │
+  │   Remember ○ off  asked at every connection                          │
+  │   MCP      ○ read-only  AI assistants can only query                 │
+  │   ⚠ Read-only rests on mcp_ro's permissions (SQL Server)             │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+    Connect  ⏎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   enter  connect   tab  next field   esc  back   ctrl+c  quit

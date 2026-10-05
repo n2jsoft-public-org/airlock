@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -113,17 +113,6 @@ func isQuit(cmd tea.Cmd) bool {
 	}
 }
 
-func key(value string) tea.KeyMsg {
-	switch value {
-	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
-	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
-	default:
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(value)}
-	}
-}
-
 func TestSessionEndingKeepsOtherSessionsRunning(t *testing.T) {
 	m, _ := newSessionsModel(t, "first", "second")
 
@@ -144,7 +133,7 @@ func TestLastSessionEndingKeepsDashboardUntilQuit(t *testing.T) {
 	if isQuit(cmd) || m.mode != ssmModeSessions {
 		t.Fatalf("mode = %v quit = %v, want the dashboard kept on the ended session", m.mode, isQuit(cmd))
 	}
-	if !strings.Contains(m.View(), "TargetNotConnected") {
+	if !strings.Contains(m.render(), "TargetNotConnected") {
 		t.Fatal("the dashboard does not show why the session ended")
 	}
 
@@ -412,7 +401,7 @@ func TestViewFitsTerminalInEveryMode(t *testing.T) {
 			m.mode = mode
 			m, _ = update(t, m, size)
 
-			view := m.View()
+			view := m.render()
 			if got := lipgloss.Height(view); got > size.Height {
 				t.Errorf("%dx%d mode %v: view height %d exceeds terminal", size.Width, size.Height, mode, got)
 			}
@@ -435,7 +424,7 @@ func TestDetailsShowMCPServer(t *testing.T) {
 	m := detailsModel(t, "db", func(d *jumphost.SessionDetails) {
 		d.MCP = "read-only · acme-dev-db -> http://127.0.0.1:50000/mcp/acme-dev-db-abc123 (.mcp.json)"
 	})
-	if view := m.View(); !strings.Contains(view, "read-only · acme-dev-db") {
+	if view := m.render(); !strings.Contains(view, "read-only · acme-dev-db") {
 		t.Fatalf("details do not show the MCP server:\n%s", view)
 	}
 }
@@ -446,14 +435,14 @@ func TestDetailsShowKubeconfig(t *testing.T) {
 		d.Kubeconfig = "/home/dev/.config/airlock/kube/airlock-dev-eu-west-3-platform.json"
 	})
 	// The home directory is shortened so the path fits, ready to paste in a shell.
-	if view := m.View(); !strings.Contains(view, "KUBECONFIG=~/.config/airlock/kube/airlock-dev-eu-west-3-platform.json") {
+	if view := m.render(); !strings.Contains(view, "KUBECONFIG=~/.config/airlock/kube/airlock-dev-eu-west-3-platform.json") {
 		t.Fatalf("details do not show the session kubeconfig:\n%s", view)
 	}
 }
 
 func TestDetailsShowSignInMode(t *testing.T) {
 	m := detailsModel(t, "db", func(d *jumphost.SessionDetails) { d.Auth = "password · acme_rw" })
-	if view := m.View(); !strings.Contains(view, "password · acme_rw") {
+	if view := m.render(); !strings.Contains(view, "password · acme_rw") {
 		t.Fatalf("details do not show the sign-in mode:\n%s", view)
 	}
 }
@@ -496,7 +485,7 @@ func TestDashboardWizardSwitchesToConnectedEntry(t *testing.T) {
 	if !item.connected || item.conn.Ref.Name != "db" {
 		t.Fatalf("item = %+v, want db marked connected", item)
 	}
-	if !strings.Contains(m.View(), "switch to") {
+	if !strings.Contains(m.render(), "switch to") {
 		t.Fatal("the key hints do not say that enter switches to the running session")
 	}
 	m, cmd := update(t, m, key("enter"))
@@ -528,7 +517,7 @@ func TestEndedSessionRestartsInPlace(t *testing.T) {
 	m, service := newSessionsModel(t, "archive", "cache")
 	m, _ = sendUpdate(t, m, 1, ended("TargetNotConnected"))
 	m = m.selectSession(0)
-	if !strings.Contains(m.View(), "restart") {
+	if !strings.Contains(m.render(), "restart") {
 		t.Fatal("the footer does not offer to restart the ended session")
 	}
 
@@ -607,8 +596,8 @@ func escFromDashboardWizard(t *testing.T, discovery JumphostDiscovery) (ssmModel
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	m, _ = update(t, m, key("n"))
 	m, _ = update(t, m, m.wizard.loadSavedCmd()())
-	if !strings.Contains(m.View(), "esc") {
-		t.Fatalf("the first wizard screen does not hint that esc goes back:\n%s", m.View())
+	if !strings.Contains(m.render(), "esc") {
+		t.Fatalf("the first wizard screen does not hint that esc goes back:\n%s", m.render())
 	}
 	return update(t, m, key("esc"))
 }
@@ -662,8 +651,8 @@ func TestLogKeysJumpToTopAndResumeFollowing(t *testing.T) {
 		m := newLongLogModel(t)
 
 		m, _ = update(t, m, key(keys[0]))
-		if m.viewport.YOffset != 0 {
-			t.Fatalf("%s: offset = %d, want the top of the log", keys[0], m.viewport.YOffset)
+		if m.viewport.YOffset() != 0 {
+			t.Fatalf("%s: offset = %d, want the top of the log", keys[0], m.viewport.YOffset())
 		}
 		if view := plainView(m); !strings.Contains(view, "paused") || !strings.Contains(view, "G follow") {
 			t.Fatalf("%s: a paused log does not say how to follow it again:\n%s", keys[0], view)
@@ -749,8 +738,8 @@ func TestStopKeyAsksTheServiceToStop(t *testing.T) {
 	service := newFakeService(testSession(1, "archive-db"))
 	m := newServiceModel(t, service)
 
-	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
-	_, cmd := update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = update(t, m, key("x"))
+	_, cmd := update(t, m, key("enter"))
 	runServiceCmd(cmd)
 	if calls := service.Calls(); len(calls) != 1 || calls[0] != "stop 1" {
 		t.Fatalf("calls = %v", calls)
@@ -762,7 +751,7 @@ func TestEventsUpdateTheSelectedSessionLog(t *testing.T) {
 	m := newServiceModel(t, service)
 	updated, _ := update(t, m, ssmEventMsg{ok: true, event: sessions.Event{Kind: sessions.EventLines, Seq: 1, ID: 1,
 		Lines: []sessions.LogLine{{Text: "Connection accepted for session"}}}})
-	if view := updated.View(); !strings.Contains(view, "Connection accepted for session") {
+	if view := updated.render(); !strings.Contains(view, "Connection accepted for session") {
 		t.Fatalf("view misses the new line:\n%s", view)
 	}
 }
@@ -806,7 +795,7 @@ func TestSignInDialogOpensForTheSelectedSession(t *testing.T) {
 	if m.mode != ssmModeSignIn {
 		t.Fatalf("mode = %v, want the sign-in dialog", m.mode)
 	}
-	_, cmd := update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	_, cmd := update(t, m, key("2"))
 	runServiceCmd(cmd)
 	if calls := service.Calls(); len(calls) != 1 || calls[0] != "choose 1 1" {
 		t.Fatalf("calls = %v", calls)

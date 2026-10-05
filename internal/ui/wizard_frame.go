@@ -5,9 +5,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -175,10 +175,16 @@ func newWizardList(styles Styles, items []list.Item) list.Model {
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
 	l.DisableQuitKeybindings()
+	l.Styles = list.DefaultStyles(styles.Dark)
+	// list.New drew the page dots with the dark styles; draw them again with the chosen ones.
+	l.Paginator.ActiveDot = l.Styles.ActivePaginationDot.String()
+	l.Paginator.InactiveDot = l.Styles.InactivePaginationDot.String()
 	l.Styles.TitleBar = lipgloss.NewStyle().Padding(0, 0, 1, 0)
 	l.Styles.Title = styles.Faint
 	l.FilterInput.Prompt = "⌕ "
-	l.FilterInput.PromptStyle = styles.Title
+	filter := l.Styles.Filter
+	filter.Focused.Prompt, filter.Blurred.Prompt = styles.Title, styles.Title
+	l.FilterInput.SetStyles(filter)
 	return l
 }
 

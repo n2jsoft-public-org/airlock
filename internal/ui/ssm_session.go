@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -177,6 +179,9 @@ type DashboardOptions struct {
 	Reconnect func(ctx context.Context) (sessions.Service, error)
 	// Notice, when not empty, is shown from the start (a daemon view: why the MCP gateway is off).
 	Notice string
+	// lightBackground selects the palette for a terminal with a light background; RunJumphostSessions
+	// asks the terminal before starting (false, a dark background, when it cannot tell).
+	lightBackground bool
 }
 
 // shutdowner is the in-process service, whose sessions end with the dashboard (CLI mode).
@@ -196,9 +201,10 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 	subscribeCtx, unsubscribe := context.WithCancel(ctx)
 	defer unsubscribe()
 
+	opts.lightBackground = !lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	model := newDashboardModel(subscribeCtx, service, discovery, first, base, &opts)
 
-	program := tea.NewProgram(model, tea.WithAltScreen())
+	program := tea.NewProgram(model)
 	if opts.Handoff != nil {
 		opts.Handoff.attach(program)
 		defer opts.Handoff.attach(nil)
@@ -234,6 +240,7 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 // newDashboardModel is the dashboard of RunJumphostSessions, subscribed and on its first screen.
 func newDashboardModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, first sessions.ID, base jumphost.Options, opts *DashboardOptions) ssmModel { //nolint:gocritic // base is kept by the model.
 	model := newSSMModel(ctx, service, discovery, base)
+	model.styles = NewStyles(!opts.lightBackground)
 	model.production = productionMatcher(opts.ProductionProfiles)
 	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
 	model.settings, model.notice = opts.Settings, opts.Notice
@@ -247,7 +254,7 @@ func newDashboardModel(ctx context.Context, service sessions.Service, discovery 
 func newSSMModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, base jumphost.Options) ssmModel { //nolint:gocritic // base is kept by the model.
 	return ssmModel{
 		ctx: ctx, service: service, discovery: discovery, baseOptions: base,
-		viewport: viewport.New(0, 0), styles: NewStyles(), copier: copyToClipboard,
+		viewport: viewport.New(), styles: NewStyles(true), copier: copyToClipboard,
 	}
 }
 
@@ -355,7 +362,7 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch m.mode {
 		case ssmModeWizard:
 			return m.updateWizard(msg)
@@ -551,7 +558,7 @@ func (m ssmModel) act(prefix string, fn func(ctx context.Context) error) tea.Cmd
 	return func() tea.Msg { return ssmActionMsg{err: fn(ctx), prefix: prefix} }
 }
 
-func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.connLost != "" {
 		switch msg.String() {
 		case "r":
@@ -660,7 +667,7 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handlePreparingKey cancels the preparation on esc; ctrl+c cancels it too, then asks to quit. A
 // canceled preparation is released by the service.
-func (m ssmModel) handlePreparingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handlePreparingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		if m.cancelPrepare != nil {
@@ -680,7 +687,7 @@ func (m ssmModel) handlePreparingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleHelpKey closes the help on any key; ctrl+c then asks to quit, as it does from the sessions.
-func (m ssmModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.mode = ssmModeSessions
 	m.refreshViewport()
 	if msg.String() == "ctrl+c" {
@@ -689,7 +696,7 @@ func (m ssmModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m ssmModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "left", "right", "tab":
 		m.confirmYes = !m.confirmYes
@@ -765,7 +772,7 @@ func (m ssmModel) startupWizard() ssmModel {
 }
 
 func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic // base is the wizard's copy.
-	m.wizard = newJumphostWizardModel(m.ctx, m.discovery, base)
+	m.wizard = newStyledWizardModel(m.ctx, m.discovery, base, m.styles)
 	m.wizard.embedded = true
 	m.wizard.hostHasSessions = len(m.sessions) > 0
 	m.wizard.production = m.production

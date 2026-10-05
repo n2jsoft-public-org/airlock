@@ -4,15 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 func TestKeyHintsKeepPinnedKeysWhenShort(t *testing.T) {
 	keys := [][2]string{{"n", "new"}, {"x", "stop"}, {"tab", "switch"}, {"1-9", "jump"}, {"↑↓", "scroll"}, {"?", "help"}, {"q", "quit"}}
-	line := ansi.Strip(NewStyles().KeyHintsPinned(keys, 2, 40))
+	line := ansi.Strip(NewStyles(true).KeyHintsPinned(keys, 2, 40))
 	if lipgloss.Width(line) > 40 {
 		t.Fatalf("hints %q exceed 40 cells", line)
 	}
@@ -21,7 +21,7 @@ func TestKeyHintsKeepPinnedKeysWhenShort(t *testing.T) {
 			t.Fatalf("hints %q lack %q", line, want)
 		}
 	}
-	if full := ansi.Strip(NewStyles().KeyHintsPinned(keys, 2, 200)); strings.Contains(full, "…") {
+	if full := ansi.Strip(NewStyles(true).KeyHintsPinned(keys, 2, 200)); strings.Contains(full, "…") {
 		t.Fatalf("hints %q elide keys although they fit", full)
 	}
 }
@@ -50,7 +50,7 @@ func TestDashboardHelpListsEveryKey(t *testing.T) {
 			t.Fatalf("help lacks %q:\n%s", want, view)
 		}
 	}
-	if got := lipgloss.Height(m.View()); got > 40 {
+	if got := lipgloss.Height(m.render()); got > 40 {
 		t.Fatalf("help height %d exceeds the terminal", got)
 	}
 
@@ -64,11 +64,11 @@ func TestWizardHelpShowsStepKeys(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
 
 	m, _ = wizardUpdate(t, m, key("?"))
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "Keys") || !strings.Contains(view, "region") {
+	if view := ansi.Strip(m.render()); !strings.Contains(view, "Keys") || !strings.Contains(view, "region") {
 		t.Fatalf("the help does not list the Type step keys:\n%s", view)
 	}
 	m, cmd := wizardUpdate(t, m, key("q"))
-	if strings.Contains(ansi.Strip(m.View()), "Keys") || cmd != nil {
+	if strings.Contains(ansi.Strip(m.render()), "Keys") || cmd != nil {
 		t.Fatal("a key did not just close the help")
 	}
 }

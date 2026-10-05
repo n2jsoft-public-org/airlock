@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -36,7 +36,7 @@ func sendQuery(t *testing.T, m ssmModel, query mcpserve.ToolEvent) ssmModel { //
 }
 
 func plainView(m ssmModel) string {
-	return ansi.Strip(m.View())
+	return ansi.Strip(m.render())
 }
 
 func TestMCPQueryEventsAreKeptPerSessionAndCapped(t *testing.T) {

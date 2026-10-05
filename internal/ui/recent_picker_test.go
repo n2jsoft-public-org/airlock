@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -21,7 +21,7 @@ func recentFixture() []jumphost.SavedConnection {
 }
 
 func newTestRecentPicker(active map[string]bool) recentPicker {
-	p := newRecentPicker(NewStyles(), recentFixture(), active, nil, nil, pickerNow)
+	p := newRecentPicker(NewStyles(true), recentFixture(), active, nil, nil, pickerNow)
 	p.SetSize(100, 20)
 	return p
 }
@@ -48,7 +48,7 @@ func TestRecentPickerDescribesEntries(t *testing.T) {
 	if got := item.Description(); got != "dev · eu-west-3 · 3h ago" {
 		t.Fatalf("description = %q, want the type in its badge only", got)
 	}
-	if view := ansi.Strip(newTestRecentPicker(nil).View(NewStyles(), 100)); !strings.Contains(view, "RDS") || !strings.Contains(view, "EKS") {
+	if view := ansi.Strip(newTestRecentPicker(nil).View(NewStyles(true), 100)); !strings.Contains(view, "RDS") || !strings.Contains(view, "EKS") {
 		t.Fatalf("the recent connections do not show their type badge:\n%s", view)
 	}
 	for _, want := range []string{"archive", "rds", "dev", "eu-west-3"} {
@@ -94,7 +94,7 @@ func TestRecentPickerShortcutsAreTextWhileFiltering(t *testing.T) {
 
 func TestRecentPickerForgetAsksConfirmation(t *testing.T) {
 	p, outcome := pickerKey(t, newTestRecentPicker(nil), "d")
-	if outcome != recentPickerOpen || !p.confirmingForget() || !strings.Contains(p.View(NewStyles(), 100), "Forget archive? y/n") {
+	if outcome != recentPickerOpen || !p.confirmingForget() || !strings.Contains(p.View(NewStyles(true), 100), "Forget archive? y/n") {
 		t.Fatalf("outcome = %v, want a confirmation", outcome)
 	}
 	p, outcome = pickerKey(t, p, "n")
@@ -170,7 +170,7 @@ func TestRecentPickerTypingALetterFilters(t *testing.T) {
 	if item, ok := items[0].(recentItem); !ok || item.conn.Ref.Name != "platform" {
 		t.Fatalf("visible = %v, want platform only", items)
 	}
-	if !strings.Contains(ansi.Strip(newTestRecentPicker(nil).View(NewStyles(), 100)), "type to filter") {
+	if !strings.Contains(ansi.Strip(newTestRecentPicker(nil).View(NewStyles(true), 100)), "type to filter") {
 		t.Fatal("the start screen does not say that typing filters")
 	}
 }

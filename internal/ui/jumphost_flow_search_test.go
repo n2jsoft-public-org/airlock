@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -70,10 +70,10 @@ func TestWizardSearchListsEveryType(t *testing.T) {
 	if first := asListItem(t, m.targetList.Items()[0]); first.desc != "postgres 16" {
 		t.Fatalf("desc = %q, want the type in its badge only", first.desc)
 	}
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "RDS") || !strings.Contains(view, "EKS") {
+	if view := ansi.Strip(m.render()); !strings.Contains(view, "RDS") || !strings.Contains(view, "EKS") {
 		t.Fatalf("the targets do not show their type badge:\n%s", view)
 	}
-	if !strings.Contains(m.View(), "Search a target") {
+	if !strings.Contains(m.render(), "Search a target") {
 		t.Fatal("the target step of a search must say so")
 	}
 }
@@ -207,8 +207,8 @@ func TestWizardSearchFailedReloadStepsBackToProfile(t *testing.T) {
 func TestWizardTypeStepSearchesWithoutHistory(t *testing.T) {
 	m := pastStart(t, newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{}))
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if !strings.Contains(m.View(), "search") {
-		t.Fatalf("the Type step without history must offer search:\n%s", m.View())
+	if !strings.Contains(m.render(), "search") {
+		t.Fatalf("the Type step without history must offer search:\n%s", m.render())
 	}
 
 	m, cmd := wizardUpdate(t, m, key("s"))
@@ -234,7 +234,7 @@ func TestWizardTypeStepSearchNeedsNoHistory(t *testing.T) {
 	if m.flow != flowNew || m.step != jumphostStepType {
 		t.Fatalf("flow = %v step = %v, with a history search lives on the start screen", m.flow, m.step)
 	}
-	if strings.Contains(m.View(), "search") {
+	if strings.Contains(m.render(), "search") {
 		t.Fatal("the Type step with a history must not offer search")
 	}
 }

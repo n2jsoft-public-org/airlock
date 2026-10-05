@@ -12,13 +12,13 @@ const testNotice = "update available: 20261005-3f9a1c2 · run airlock update"
 
 func TestWizardShowsTheUpdateNotice(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
-	before := ansi.Strip(m.View())
+	before := ansi.Strip(m.render())
 	if strings.Contains(before, "update available") {
 		t.Fatalf("notice shown without a newer release:\n%s", before)
 	}
 
 	m.updateNotice = testNotice
-	after := ansi.Strip(m.View())
+	after := ansi.Strip(m.render())
 	if !strings.Contains(after, testNotice) {
 		t.Fatalf("the wizard does not show the notice:\n%s", after)
 	}

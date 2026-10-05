@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -304,7 +304,13 @@ type jumphostWizardDoneMsg struct {
 	switchTo string
 }
 
+// newJumphostWizardModel is the wizard on the dark palette (tests, and callers without a terminal).
 func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base jumphost.Options) jumphostWizardModel {
+	return newStyledWizardModel(ctx, runner, base, NewStyles(true))
+}
+
+// newStyledWizardModel is the wizard drawn with styles, the dashboard's palette.
+func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base jumphost.Options, styles Styles) jumphostWizardModel {
 	askProfile := strings.TrimSpace(base.AwsProfile) == ""
 
 	if strings.TrimSpace(base.AwsProfile) == "" {
@@ -315,14 +321,14 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 	}
 	base.AwsRegion = strings.TrimSpace(base.AwsRegion)
 
-	styles := NewStyles()
-
 	portInput := textinput.New()
+	portInput.SetStyles(textInputStyles())
 	portInput.Placeholder = "Local port"
 	portInput.Prompt = ""
 	portInput.CharLimit = 6
 
 	userInput := textinput.New()
+	userInput.SetStyles(textInputStyles())
 	userInput.Placeholder = "Database user"
 	if def := runner.ResolveDBUser(""); def != "" {
 		userInput.Placeholder = def
@@ -331,6 +337,7 @@ func newJumphostWizardModel(ctx context.Context, runner JumphostDiscovery, base 
 	userInput.CharLimit = 63
 
 	passwordInput := textinput.New()
+	passwordInput.SetStyles(textInputStyles())
 	passwordInput.Placeholder = "Database password"
 	passwordInput.Prompt = ""
 	passwordInput.EchoMode = textinput.EchoPassword
@@ -435,7 +442,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			m.canceled = true
 			return m, m.finish()
@@ -639,10 +646,10 @@ func (m jumphostWizardModel) currentRegion() string {
 }
 
 func (m jumphostWizardModel) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "esc" && !m.profileList.SettingFilter() && !m.profileList.IsFiltered() {
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" && !m.profileList.SettingFilter() && !m.profileList.IsFiltered() {
 		return m.goBack()
 	}
-	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "enter" {
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		selected, ok := m.profileList.SelectedItem().(jumphostListItem)
 		if !ok {
 			return m, nil
@@ -663,7 +670,7 @@ func (m jumphostWizardModel) updateProfileStep(msg tea.Msg) (tea.Model, tea.Cmd)
 }
 
 func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
+	key, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}
@@ -746,7 +753,7 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 	if m.isDirect() {
 		return m.updateDirectListStep(msg)
 	}
-	if key, ok := msg.(tea.KeyMsg); ok && !m.targetList.SettingFilter() {
+	if key, ok := msg.(tea.KeyPressMsg); ok && !m.targetList.SettingFilter() {
 		switch key.String() {
 		case "esc":
 			// A first esc clears an applied filter; the next one goes back.
@@ -760,7 +767,7 @@ func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		}
 	}
 
-	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "enter" {
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		selected, ok := m.targetList.SelectedItem().(jumphostListItem)
 		if !ok {
 			return m, nil
@@ -839,7 +846,7 @@ func (m jumphostWizardModel) updateRegionPicker(msg tea.Msg) (tea.Model, tea.Cmd
 }
 
 func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "esc":
 			m = m.blurReviewInputs()
@@ -856,7 +863,7 @@ func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		}
 		if m.reviewFocus == reviewFieldSignIn || m.reviewFocus == reviewFieldRemember || m.reviewFocus == reviewFieldMCPWrites {
 			switch key.String() {
-			case " ", "right", "l":
+			case "space", "right", "l":
 				m = m.toggleReviewField(1)
 			case "left", "h":
 				m = m.toggleReviewField(-1)

@@ -1,0 +1,40 @@
+ ◆ airlock  SSM port forwarding                                                                               ● 1 ready
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                      ╭──────────────────────────────────────────────────────────────────────────╮
+                      │  Sessions                                                                │
+                      │    n              Open a new connection                                  │
+                      │    r              Restart an ended session                               │
+                      │    x              Stop the session, or close it once ended               │
+                      │    c              Copy its address, a command or the last MCP call       │
+                      │    a p            Choose the database credentials, or show the password  │
+                      │    tab ←→ 1-9     Switch session, or jump to one                         │
+                      │                                                                          │
+                      │  Logs                                                                    │
+                      │    ↑↓ pgup pgdn   Scroll, pausing the live tail                          │
+                      │    g home         Start of the logs                                      │
+                      │    G end          Back to the live tail                                  │
+                      │    m              Logs or MCP calls (sessions with an MCP server)        │
+                      │                                                                          │
+                      │  airlock                                                                 │
+                      │    ?              This help                                              │
+                      │    q ctrl+c       Stop all sessions and quit                             │
+                      │                                                                          │
+                      │  any key closes this help                                                │
+                      ╰──────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+  esc  close

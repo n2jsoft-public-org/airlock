@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -70,7 +70,7 @@ func (m ssmModel) openCopyMenu() (tea.Model, tea.Cmd) {
 }
 
 // handleCopyKey moves in the copy menu and copies the chosen value, picked by number or with enter.
-func (m ssmModel) handleCopyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m ssmModel) handleCopyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
 	if s == nil {
 		m.mode = ssmModeSessions
@@ -145,5 +145,5 @@ func (m ssmModel) renderCopyMenu(width int) string {
 		row := marker + m.styles.Faint.Render(strconv.Itoa(idx+1)) + "  " + label + "  " + m.styles.Muted.Render(item.value)
 		rows = append(rows, truncate(row, inner))
 	}
-	return m.styles.ModalPanel.Width(dialogWidth - 2).Render(strings.Join(rows, "\n"))
+	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))
 }
