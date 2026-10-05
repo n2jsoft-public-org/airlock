@@ -124,6 +124,8 @@ type ssmModel struct {
 	updateNotice string
 	// databases holds the direct database definitions (DashboardOptions.Databases).
 	databases DirectDatabaseStore
+	// settings reads and writes config.json (DashboardOptions.Settings); nil hides the Settings screen.
+	settings SettingsStore
 	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
 	openDirect string
 	// interactive runs the terminal commands of the openings (aws sso login); projectDir is set on
@@ -153,6 +155,8 @@ type DashboardOptions struct {
 	// Databases holds the direct database definitions the wizard lists and edits; nil hides the
 	// Direct database card.
 	Databases DirectDatabaseStore
+	// Settings reads and writes config.json for the Settings screen; nil hides it.
+	Settings SettingsStore
 	// OpenDirect, when not empty, opens the startup wizard on the review step of that direct
 	// database (`airlock direct <name>`).
 	OpenDirect string
@@ -184,6 +188,7 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 	model := newSSMModel(subscribeCtx, service, discovery, base)
 	model.production = productionMatcher(opts.ProductionProfiles)
 	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
+	model.settings = opts.Settings
 	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
 	if opts.Handoff != nil {
 		model.interactive = opts.Handoff.Run
@@ -564,6 +569,8 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "n":
 		return m.openWizard()
+	case ",":
+		return m.openSettings()
 	case "?":
 		m.mode = ssmModeHelp
 		return m, nil
@@ -736,6 +743,7 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic
 	m.wizard.production = m.production
 	m.wizard.updateNotice = m.updateNotice
 	m.wizard.databases = m.databases
+	m.wizard.settings = m.settings
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
 	m.errorMsg = ""
@@ -744,6 +752,16 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic
 
 func (m ssmModel) openWizard() (tea.Model, tea.Cmd) {
 	return m.showWizard(m.wizardDefaults()).startWizard()
+}
+
+// openSettings opens the wizard on the Settings screen; esc there returns to the sessions.
+func (m ssmModel) openSettings() (tea.Model, tea.Cmd) {
+	if m.settings == nil {
+		return m, nil
+	}
+	m = m.showWizard(m.wizardDefaults())
+	m.wizard.settingsAtStart = true
+	return m.startWizard()
 }
 
 // startWizard starts the wizard showWizard set up, sized to the dashboard.
@@ -791,6 +809,8 @@ func (m ssmModel) updateWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	updated, cmd := m.wizard.Update(msg)
 	if wizard, ok := updated.(jumphostWizardModel); ok {
 		m.wizard = wizard
+		// The Settings screen may change productionProfiles: the session cards follow it.
+		m.production = wizard.production
 	}
 	return m, cmd
 }

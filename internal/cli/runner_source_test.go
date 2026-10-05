@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 func TestRunnerSourceReloadsChangedConfig(t *testing.T) {
@@ -45,5 +46,40 @@ func setModTime(t *testing.T, path string, at time.Time) {
 	t.Helper()
 	if err := os.Chtimes(path, at, at); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunnerSourceLastKeepsTheValidRunner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeTestFile(t, path, `{"defaultDbUser": "one"}`)
+	source := newRunnerSource(path, func(cfg config.Config) (*jumphost.Runner, error) {
+		return jumphost.NewRunner(jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
+	})
+	if _, ok := source.Last(); ok {
+		t.Fatal("Last reports a runner before the first opening")
+	}
+	first, err := source.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, path, `{"defaultDbUser": `)
+	setModTime(t, path, time.Now().Add(time.Second))
+	if _, err = source.Current(); err == nil {
+		t.Fatal("an invalid file fails the opening")
+	}
+	if last, ok := source.Last(); !ok || last != first {
+		t.Fatalf("Last = %p, %v; want the runner of the valid file", last, ok)
+	}
+}
+
+func TestRunnerSourceNeverReturnsANilRunnerInterface(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeTestFile(t, path, `{"defaultDbUser": `)
+	source := newRunnerSource(path, func(config.Config) (*jumphost.Runner, error) {
+		return jumphost.NewRunner(jumphost.RunnerOptions{}), nil
+	})
+	runner, err := source.Source()()
+	if err == nil || runner != nil {
+		t.Fatalf("runner = %v, err = %v; want a nil interface and an error", runner, err)
 	}
 }

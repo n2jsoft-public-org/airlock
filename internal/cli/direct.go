@@ -50,7 +50,8 @@ func checkDirectTarget(cmd *cobra.Command, args []string, databases jumphost.Dir
 
 // directEnv is what executeJumphost prepared that a direct opening needs.
 type directEnv struct {
-	tuiRunner *jumphost.Runner
+	// discovery is the wizard discovery of the dashboard, which follows config.json.
+	discovery ui.JumphostDiscovery
 	manager   *sessions.Manager
 	dashboard *ui.DashboardOptions
 	shared    *jumphost.RunnerOptions
@@ -67,9 +68,9 @@ func openDirect(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 		dashboard.OpenDirect = options.Name
 		// In daemon mode the review step opens it in the daemon: the password is typed the same way.
 		if shouldUseDaemon(env.cfg, interactive) {
-			return runDaemonView(cmd, options, false, env.tuiRunner, &dashboard)
+			return runDaemonView(cmd, options, false, env.discovery, &dashboard)
 		}
-		return ui.RunJumphostSessions(cmd.Context(), env.manager, env.tuiRunner, 0, *options, cmd.OutOrStdout(), dashboard)
+		return ui.RunJumphostSessions(cmd.Context(), env.manager, env.discovery, 0, *options, cmd.OutOrStdout(), dashboard)
 	}
 	runnerOptions := *env.shared
 	runnerOptions.Out, runnerOptions.Err = cmd.OutOrStdout(), cmd.ErrOrStderr()

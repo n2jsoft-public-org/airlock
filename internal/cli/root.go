@@ -126,7 +126,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 			}
 		}()
 	}
-	cfg, _, err := loadConfig(cmd)
+	cfg, configPath, err := loadConfig(cmd)
 	if err != nil {
 		return err
 	}
@@ -137,11 +137,11 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		projectDir = ""
 	}
 
-	// Runners share the registry so parallel sessions never reuse a local port or target,
-	// and the MCP host so all database sessions are served on one localhost listener and
-	// registered in the same AI clients.
+	// Runners share the registry so parallel sessions never reuse a local port or target, and an
+	// MCP host per AI client selection so database sessions are served on one localhost listener
+	// and registered in the same AI clients until mcpClients changes.
 	registry := jumphost.NewSessionRegistry()
-	mcpHost := mcpserve.NewHostFor(cfg.MCPClientSelection())
+	hosts := newMCPHosts()
 	interactive := isInteractiveInput(cmd.InOrStdin())
 	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()
@@ -167,36 +167,50 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if err != nil {
 		cmd.PrintErrf("Warning: direct databases are unavailable: %v\n", err)
 	}
-	shared := sharedRunnerOptions(&cfg, registry, mcpHost, mcpLogDir, kubeconfigDir, databaseStore)
+	shared := sharedRunnerOptions(&cfg, registry, hosts.For(&cfg), mcpLogDir, kubeconfigDir, databaseStore)
 	shared.In = cmd.InOrStdin()
 	databases := shared.Databases
 
-	// The TUI runner stays silent: its progress would corrupt the full-screen display.
-	tuiOptions := shared
-	tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
-	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
-	tuiOptions.Keychain = newKeychain()
 	// SSO sign-ins suspend the dashboard, so their browser prompt, URL and code stay readable.
 	handoff := ui.NewTerminalHandoff()
-	tuiOptions.Interactive = handoff.Run
+	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
+	keychainStore := newKeychain()
+	// The dashboard's runner follows config.json, the flags of this run applied over it: the next
+	// openings and the wizard use its new values. It stays silent: its progress would corrupt the
+	// full-screen display.
+	tuiRunners := newRunnerSource(configPath, withOverrides(overridesFromFlags(cmd.Flags()), func(next config.Config) (*jumphost.Runner, error) {
+		// Not "options": that is the parameter of executeJumphost.
+		tuiOptions := sharedRunnerOptions(&next, registry, hosts.For(&next), mcpLogDir, kubeconfigDir, databaseStore)
+		tuiOptions.In = cmd.InOrStdin()
+		tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
+		tuiOptions.Keychain, tuiOptions.Interactive = keychainStore, handoff.Run
+		return jumphost.NewRunner(tuiOptions), nil
+	}))
+	// Built once now, so the wizard always has a last valid runner to fall back on.
+	if _, err = tuiRunners.Current(); err != nil {
+		return err
+	}
+	discovery := reloadingDiscovery{source: tuiRunners}
 	dashboard := ui.DashboardOptions{Handoff: handoff, ProductionProfiles: cfg.ProductionProfilePatterns()}
+	if configPath != "" {
+		dashboard.Settings = newConfigSettingsStore(configPath, cmd.Flags())
+	}
 	if databaseStore != nil {
 		dashboard.Databases = databaseStore
 	}
 	if latestRelease != "" {
 		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
 	}
-	tuiRunner := jumphost.NewRunner(tuiOptions)
 	// The dashboard's sessions live in this process and end with it (CLI mode).
-	manager := sessions.NewManager(cmd.Context(), sessions.Config{Runner: sessions.Fixed(tuiRunner)})
+	manager := sessions.NewManager(cmd.Context(), sessions.Config{Runner: tuiRunners.Source()})
 	dashboard.ProjectDir = projectDir
 
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
 		if shouldUseDaemon(&cfg, interactive) {
-			return runDaemonView(cmd, &options, false, tuiRunner, &dashboard)
+			return runDaemonView(cmd, &options, false, discovery, &dashboard)
 		}
-		return ui.RunJumphostSessions(cmd.Context(), manager, tuiRunner, 0, options, cmd.OutOrStdout(), dashboard)
+		return ui.RunJumphostSessions(cmd.Context(), manager, discovery, 0, options, cmd.OutOrStdout(), dashboard)
 	}
 
 	if latestRelease != "" {
@@ -211,7 +225,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 			return err
 		}
 		return openDirect(cmd, &options, interactive, &directEnv{
-			tuiRunner: tuiRunner, manager: manager, dashboard: &dashboard, shared: &shared, cfg: &cfg, prefsPath: prefsPath,
+			discovery: discovery, manager: manager, dashboard: &dashboard, shared: &shared, cfg: &cfg, prefsPath: prefsPath,
 		})
 	}
 	if len(args) > 1 {
@@ -230,7 +244,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// In daemon mode, an interactive run is a view of the daemon, which opens the named target.
 	if shouldUseDaemon(&cfg, interactive) {
 		openFirst := options.ResourceType != "" && options.Name != ""
-		return runDaemonView(cmd, &options, openFirst, tuiRunner, &dashboard)
+		return runDaemonView(cmd, &options, openFirst, discovery, &dashboard)
 	}
 
 	if options.ResourceType == "" {
@@ -255,7 +269,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	}
 	first := manager.Adopt(session, &options)
 
-	return ui.RunJumphostSessions(cmd.Context(), manager, tuiRunner, first, options, cmd.OutOrStdout(), dashboard)
+	return ui.RunJumphostSessions(cmd.Context(), manager, discovery, first, options, cmd.OutOrStdout(), dashboard)
 }
 
 // sharedRunnerOptions are the runner options of both modes, from the config and the directories

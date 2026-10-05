@@ -675,6 +675,16 @@ The file is rewritten indented, with keys in a fixed order. Errors caused by a s
 example, a jumphost not found with the configured tag points to `jumphostTag`, `airlock config show`
 and `--jumphost-tag`.
 
+### From the TUI
+
+Press `,` on the start screen (or on the Type step when there is no saved connection) or in the
+dashboard to open the Settings screen: every key, its value, where it comes from and what it does.
+`enter` changes the selected key (`mode` switches between `cli` and `daemon`, `defaultRegion`
+opens the region list), `d` resets it to its default and `esc` goes back. Values are checked as
+`airlock config set` checks them. The next connections use the new values, in CLI mode as in
+daemon mode; `mode` applies at the next launch of airlock. A flag of the run, such as
+`--jumphost-tag`, keeps winning over the file and is shown next to its key.
+
 ### Daemon mode
 
 With `"mode": "daemon"`, a background daemon keeps the sessions. `airlock` starts it when needed,

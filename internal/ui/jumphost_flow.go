@@ -71,6 +71,8 @@ const (
 	jumphostStepStart
 	// jumphostStepDirectForm adds or edits a direct database, opened from the direct database list.
 	jumphostStepDirectForm
+	// jumphostStepSettings shows and edits the settings of config.json.
+	jumphostStepSettings
 )
 
 // Editable fields of the review step, in focus order.
@@ -167,6 +169,18 @@ type jumphostWizardModel struct {
 	openDirectError string
 	// directChoicesLoaded reports that the choices remembered for directDB are known.
 	directChoicesLoaded bool
+	// settings reads and writes config.json; nil hides the Settings screen.
+	settings SettingsStore
+	// settingsEditor is the Settings screen (jumphostStepSettings).
+	settingsEditor settingsEditor
+	// settingsReturn is the step esc returns to from the Settings screen.
+	settingsReturn jumphostStep
+	// settingsLeavesToHost makes esc on the Settings screen return to the dashboard that opened it.
+	settingsLeavesToHost bool
+	// settingsAtStart opens the Settings screen once the history is loaded (`,` in the dashboard).
+	settingsAtStart bool
+	// regionForSettings makes the region picker choose a setting instead of the connection's region.
+	regionForSettings bool
 	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
 	hostHasSessions bool
 	// warning is shown in the session log once connected (e.g. the keychain failed).
@@ -509,6 +523,10 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleDirectDeleted(msg)
 	case directSavedMsg:
 		return m.handleDirectSaved(msg)
+	case settingsLoadedMsg:
+		return m.handleSettingsLoaded(msg)
+	case settingRefusedMsg:
+		return m.handleSettingRefused(msg)
 	case directChoicesLoadedMsg:
 		return m.handleDirectChoicesLoaded(msg)
 	case jumphostSecretsLoadedMsg:
@@ -574,6 +592,8 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateStartStep(msg)
 	case jumphostStepDirectForm:
 		return m.updateDirectFormStep(msg)
+	case jumphostStepSettings:
+		return m.updateSettingsStep(msg)
 	case jumphostStepProfile:
 		return m.updateProfileStep(msg)
 	case jumphostStepType:
@@ -596,6 +616,8 @@ func (m jumphostWizardModel) typingText() bool {
 		return true
 	case jumphostStepDirectForm:
 		return true
+	case jumphostStepSettings:
+		return m.settingsEditor.typing()
 	case jumphostStepProfile:
 		return m.profileList.SettingFilter()
 	case jumphostStepTarget:
@@ -658,6 +680,11 @@ func (m jumphostWizardModel) updateTypeStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		return m.openRegionPicker()
+	case ",":
+		if m.settings != nil {
+			return m.openSettings(false)
+		}
+		return m, nil
 	case "s":
 		// Without history there is no start screen: search starts from here.
 		if !m.hasHistory {
@@ -777,6 +804,9 @@ func (m jumphostWizardModel) openRegionPicker() (tea.Model, tea.Cmd) {
 }
 
 func (m jumphostWizardModel) updateRegionPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.regionForSettings {
+		return m.updateSettingsRegionPicker(msg)
+	}
 	picker, outcome, cmd := m.regionPicker.Update(msg)
 	m.regionPicker = picker
 

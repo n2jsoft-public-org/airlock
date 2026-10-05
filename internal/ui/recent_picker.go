@@ -25,6 +25,8 @@ const (
 	recentPickerBack
 	// recentPickerSwitch shows the running session of a connected entry.
 	recentPickerSwitch
+	// recentPickerSettings opens the Settings screen.
+	recentPickerSettings
 )
 
 // Focus positions of the action rows under the list; recentActionNone is the list itself.
@@ -32,6 +34,7 @@ const (
 	recentActionNone = iota - 1
 	recentActionNew
 	recentActionSearch
+	recentActionSettings
 )
 
 // recentPickerChrome counts the lines under the list: rule, two action rows and a notice.
@@ -122,6 +125,8 @@ type recentPicker struct {
 	action int
 	// confirming waits for y to forget the selected entry.
 	confirming bool
+	// settings offers the Settings row and its shortcut.
+	settings bool
 }
 
 // newRecentPicker lists connections; direct holds the definitions of the direct databases by name
@@ -146,7 +151,7 @@ func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, acti
 }
 
 // recentShortcuts are the keys of the start screen and its list, which never start the filter.
-const recentShortcuts = "nsdqjkhlgG?/"
+const recentShortcuts = "nsdqjkhlgG?/,"
 
 // startsFilter reports whether key is a printable character that is not a shortcut.
 func startsFilter(key tea.KeyMsg) bool {
@@ -159,7 +164,11 @@ func startsFilter(key tea.KeyMsg) bool {
 
 // SetSize fits the list and the action rows in width x height.
 func (p *recentPicker) SetSize(width, height int) {
-	p.list.SetSize(width, maxInt(height-recentPickerChrome, 3))
+	chrome := recentPickerChrome
+	if p.settings {
+		chrome++
+	}
+	p.list.SetSize(width, maxInt(height-chrome, 3))
 }
 
 // typing reports whether printable keys belong to the list filter.
@@ -192,6 +201,11 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 			return p, recentPickerNew, nil
 		case "s":
 			return p, recentPickerSearch, nil
+		case ",":
+			if p.settings {
+				return p, recentPickerSettings, nil
+			}
+			return p, recentPickerOpen, nil
 		}
 		if p.action != recentActionNone {
 			return p.updateActions(key)
@@ -238,18 +252,26 @@ func (p recentPicker) Update(msg tea.Msg) (recentPicker, recentPickerOutcome, te
 }
 
 func (p recentPicker) updateActions(key tea.KeyMsg) (recentPicker, recentPickerOutcome, tea.Cmd) {
+	last := recentActionSearch
+	if p.settings {
+		last = recentActionSettings
+	}
 	switch key.String() {
 	case "up", "k", "shift+tab":
 		p.action--
 	case "down", "j", "tab":
-		p.action = min(p.action+1, recentActionSearch)
+		p.action = min(p.action+1, last)
 	case "esc":
 		p.action = recentActionNone
 	case "enter":
-		if p.action == recentActionNew {
+		switch p.action {
+		case recentActionNew:
 			return p, recentPickerNew, nil
+		case recentActionSettings:
+			return p, recentPickerSettings, nil
+		default:
+			return p, recentPickerSearch, nil
 		}
-		return p, recentPickerSearch, nil
 	}
 	return p, recentPickerOpen, nil
 }
@@ -261,6 +283,9 @@ func (p recentPicker) View(styles Styles, width int) string {
 		styles.Rule.Render(strings.Repeat("─", min(width, resourceCardWidth))),
 		p.actionRow(styles, recentActionNew, "+ New connection", "n", width),
 		p.actionRow(styles, recentActionSearch, "⌕ Search a target", "s", width),
+	}
+	if p.settings {
+		lines = append(lines, p.actionRow(styles, recentActionSettings, "⚙ Settings", ",", width))
 	}
 	switch item, _ := p.selected(); {
 	case p.confirming:

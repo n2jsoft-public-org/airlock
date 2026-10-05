@@ -487,6 +487,9 @@ func (m ssmModel) helpGroups() []helpGroup {
 	if m.detach {
 		quitKeys = [][2]string{{"?", "This help"}, {"q ctrl+c", "Leave this view (sessions keep running)"}, {"Q", "Stop every session and the daemon"}}
 	}
+	if m.settings != nil {
+		quitKeys = append([][2]string{{",", "Settings: change config.json"}}, quitKeys...)
+	}
 	return []helpGroup{
 		{title: "Sessions", keys: [][2]string{
 			{"n", "Open a new connection"},

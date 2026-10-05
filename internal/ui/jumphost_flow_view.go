@@ -64,6 +64,10 @@ func (m jumphostWizardModel) View() string {
 }
 
 func (m jumphostWizardModel) contextChips() []string {
+	// The settings have no AWS context.
+	if m.step == jumphostStepSettings {
+		return nil
+	}
 	// A direct database has no AWS context; its review shows the server it connects to.
 	if m.isDirect() {
 		if m.step != jumphostStepReview {
@@ -87,7 +91,7 @@ func (m jumphostWizardModel) contextChips() []string {
 // breadcrumb lists the steps of the current flow and the index of the current one; the start
 // screen has none.
 func (m jumphostWizardModel) breadcrumb() (steps []string, current int) {
-	if m.flow == flowStart {
+	if m.flow == flowStart || m.step == jumphostStepSettings {
 		return nil, 0
 	}
 	for idx, step := range m.flowSteps() {
@@ -123,6 +127,8 @@ func (m jumphostWizardModel) canGoBack() bool {
 
 func (m jumphostWizardModel) stepHeading() string {
 	switch m.step {
+	case jumphostStepSettings:
+		return "Settings"
 	case jumphostStepStart:
 		return "Recent connections"
 	case jumphostStepProfile:
@@ -151,6 +157,8 @@ func (m jumphostWizardModel) stepHeading() string {
 
 func (m jumphostWizardModel) stepHint() string {
 	switch m.step {
+	case jumphostStepSettings:
+		return "config.json · flags of this run win"
 	case jumphostStepStart:
 		return plural(len(m.recent.list.Items()), "connection")
 	case jumphostStepProfile:
@@ -193,6 +201,8 @@ func (m jumphostWizardModel) stepBody(width, height int) string {
 		return m.renderReview(width, height)
 	case jumphostStepDirectForm:
 		return m.directForm.View(m.styles, width)
+	case jumphostStepSettings:
+		return m.settingsEditor.View(m.styles, width)
 	default:
 		return ""
 	}
@@ -202,6 +212,8 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 	quit := [2]string{"q", m.quitLabel()}
 	help := [2]string{"?", "help"}
 	switch m.step {
+	case jumphostStepSettings:
+		return m.settingsKeys(help, quit)
 	case jumphostStepStart:
 		switch {
 		case m.recent.confirmingForget():
@@ -214,6 +226,9 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 			enter = "switch to"
 		}
 		keys := [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"enter", enter}, {"n", "new"}, {"s", "search"}, {"d", "forget"}}
+		if m.settings != nil {
+			keys = append(keys, [2]string{",", "settings"})
+		}
 		if m.canGoBack() {
 			keys = append(keys, [2]string{"esc", "back"})
 		}
@@ -229,6 +244,9 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		return append(keys, help, quit)
 	case jumphostStepType:
 		keys := [][2]string{{"↑↓", "move"}, {"1-" + strconv.Itoa(len(m.typeOptions())), "pick"}, {"enter", "select"}, {"r", "region"}}
+		if m.settings != nil {
+			keys = append(keys, [2]string{",", "settings"})
+		}
 		if !m.hasHistory {
 			keys = append(keys, [2]string{"s", "search"})
 		}

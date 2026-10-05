@@ -54,6 +54,7 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 	if m.hasHistory {
 		// Update sizes it to the frame body.
 		m.recent = newRecentPicker(m.styles, msg.connections, m.active, m.production, m.directDefinitions(), time.Now())
+		m.recent.settings = m.settings != nil
 		m.flow = flowStart
 		m.step = jumphostStepStart
 	} else {
@@ -66,6 +67,10 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 	if name := m.openDirect; name != "" {
 		m.openDirect = ""
 		return m.openDirectAtStart(name)
+	}
+	if m.settingsAtStart {
+		m.settingsAtStart = false
+		return m.openSettings(true)
 	}
 	return m, nil
 }
@@ -85,6 +90,8 @@ func (m jumphostWizardModel) updateStartStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case recentPickerSearch:
 		return m.beginSearch()
+	case recentPickerSettings:
+		return m.openSettings(false)
 	case recentPickerBack:
 		return m.goBack()
 	case recentPickerSwitch:
