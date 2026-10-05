@@ -33,7 +33,7 @@ var postgresDialect = dialect{
 	defaultSchema: "public",
 	readOnlyTx:    true,
 	txSetup:       []string{"SET LOCAL standard_conforming_strings = on", "SET LOCAL statement_timeout = '30s'"},
-	databasesSQL:  "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY datname",
+	databasesSQL:  "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn AND has_database_privilege(datname, 'CONNECT') ORDER BY datname",
 	tablesSQL: `SELECT table_schema, table_name, table_type FROM information_schema.tables
 WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND ($1 = '' OR table_schema = $1)
 ORDER BY table_schema, table_name`,
@@ -64,7 +64,7 @@ var sqlServerDialect = dialect{
 	// go-mssqldb has no read-only transactions: rely on rollback and grants.
 	readOnlyTx:   false,
 	txSetup:      []string{"SET LOCK_TIMEOUT 5000"},
-	databasesSQL: "SELECT name FROM sys.databases WHERE database_id > 4 AND name <> 'rdsadmin' ORDER BY name",
+	databasesSQL: "SELECT name FROM sys.databases WHERE database_id > 4 AND name <> 'rdsadmin' AND HAS_DBACCESS(name) = 1 ORDER BY name",
 	tablesSQL: `SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES
 WHERE (@p1 = '' OR TABLE_SCHEMA = @p1) ORDER BY TABLE_SCHEMA, TABLE_NAME`,
 	columnsSQL: `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS
@@ -83,7 +83,7 @@ JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
 JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
 WHERE SCHEMA_NAME(pt.schema_id) = @p1 AND pt.name = @p2
 ORDER BY fk.name, fkc.constraint_column_id`,
-	indexesSQL: `SELECT i.name, CONCAT(CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END, i.type_desc, ' (',
+	indexesSQL: `SELECT i.name, CONCAT(CASE WHEN i.is_unique = 1 THEN 'UNIQUE ' ELSE '' END, i.type_desc COLLATE DATABASE_DEFAULT, ' (',
   STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal), ')')
 FROM sys.indexes i
 JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0

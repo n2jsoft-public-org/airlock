@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -108,6 +109,9 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	}
 	profile := strings.TrimSpace(in.Profile)
 	wantType, query := strings.ToLower(strings.TrimSpace(in.Type)), strings.ToLower(strings.TrimSpace(in.Query))
+	if wantType != "" && !slices.Contains(openableTypes, wantType) {
+		return refusal("unknown type %q (valid: %s)", in.Type, strings.Join(openableTypes, ", ")), nil, nil
+	}
 	keep := func(targetType, name string) bool {
 		return (wantType == "" || wantType == targetType) && (query == "" || strings.Contains(strings.ToLower(name), query))
 	}

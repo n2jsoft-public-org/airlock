@@ -238,6 +238,23 @@ func TestDatabasesFallsBackToCatalog(t *testing.T) {
 	}
 }
 
+func TestDatabasesCatalogListsOnlyReachableDatabases(t *testing.T) {
+	// The catalog lists every database; the login may open only some of them.
+	if !strings.Contains(postgresDialect.databasesSQL, "has_database_privilege(datname, 'CONNECT')") {
+		t.Errorf("postgres databasesSQL = %q", postgresDialect.databasesSQL)
+	}
+	if !strings.Contains(sqlServerDialect.databasesSQL, "HAS_DBACCESS(name) = 1") {
+		t.Errorf("sqlserver databasesSQL = %q", sqlServerDialect.databasesSQL)
+	}
+}
+
+func TestSQLServerIndexesAvoidCollationConflict(t *testing.T) {
+	// sys.indexes.type_desc and sys.columns.name may differ in collation (error 451 in CONCAT).
+	if !strings.Contains(sqlServerDialect.indexesSQL, "i.type_desc COLLATE DATABASE_DEFAULT") {
+		t.Errorf("indexesSQL = %q", sqlServerDialect.indexesSQL)
+	}
+}
+
 func TestTablesPassesSchemaFilter(t *testing.T) {
 	q, db, _ := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
 	db.answer("SELECT table_schema", []string{"s", "n", "t"}, []driver.Value{"public", "users", "BASE TABLE"})

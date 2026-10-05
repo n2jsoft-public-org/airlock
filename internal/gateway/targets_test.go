@@ -139,6 +139,16 @@ func TestListTargetsSaved(t *testing.T) {
 	}
 }
 
+func TestListTargetsRefusesUnknownType(t *testing.T) {
+	m, _ := newTestManager(t, sessionstest.NewRunner())
+	d := &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev")}}
+	cs, _ := newToolset(t, m, Settings{}, d, fakeDatabases{})
+	text, isError := callTool(t, cs, "list_targets", map[string]any{"type": "s3"})
+	if !isError || !strings.Contains(text, "unknown type") {
+		t.Fatalf("isError = %v, text = %q", isError, text)
+	}
+}
+
 func TestListTargetsSearchIsUnattended(t *testing.T) {
 	m, _ := newTestManager(t, sessionstest.NewRunner())
 	d := &fakeDiscovery{found: []jumphost.ResourceSummary{{Name: "orders-db", Type: "rds"}, {Name: "platform", Type: "eks"}}}
