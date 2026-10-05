@@ -92,6 +92,15 @@ func TestDatabasesFileIsUnderConfigDir(t *testing.T) {
 	}
 }
 
+func TestSavedConnectionsFileIsUnderConfigDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	path, err := SavedConnectionsFile()
+	if want := filepath.Join(root, "airlock", "saved-connections.json"); err != nil || path != want {
+		t.Fatalf("SavedConnectionsFile() = %q, %v; want %q", path, err, want)
+	}
+}
+
 func TestConfigFileIsConfigJSON(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", root)

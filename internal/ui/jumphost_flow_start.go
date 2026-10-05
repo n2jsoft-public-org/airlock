@@ -62,7 +62,7 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 		m.step = jumphostStepType
 	}
 	if msg.err != nil {
-		m.errorMsg = "connections.json unreadable: " + msg.err.Error()
+		m.errorMsg = "saved-connections.json unreadable: " + msg.err.Error()
 	}
 	if name := m.openDirect; name != "" {
 		m.openDirect = ""

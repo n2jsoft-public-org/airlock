@@ -319,3 +319,50 @@ func TestDirectListKeysOfferAddAndEdit(t *testing.T) {
 		t.Fatalf("keys = %v, want add without edit on an empty list", keys)
 	}
 }
+
+func TestDirectFormForgetsBeforeSaving(t *testing.T) {
+	store := &fakeDirectStore{dbs: testDirectDatabases()}
+	forgotten, defined := &[]jumphost.TargetRef{}, &[]bool{}
+	m := directFormWizard(t, forgetRecorder{forgotten: forgotten, store: store, definedAtForget: defined}, store, "analytics")
+
+	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = typeText(t, m, "events")
+	saveForm(t, m)
+
+	if !slices.Equal(*defined, []bool{true}) {
+		t.Fatalf("defined at forget = %v, want analytics forgotten before the rename", *defined)
+	}
+}
+
+func TestDirectFormKeepsTheDefinitionWhenForgettingFails(t *testing.T) {
+	store := &fakeDirectStore{dbs: testDirectDatabases()}
+	m := directFormWizard(t, forgetRecorder{forgotten: &[]jumphost.TargetRef{}, err: errors.New("keychain locked")}, store, "analytics")
+
+	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = typeText(t, m, "events")
+	m = saveForm(t, m)
+
+	if _, found, err := store.Get("analytics"); err != nil || !found || !strings.Contains(m.errorMsg, "keychain locked") {
+		t.Fatalf("analytics found %v, error %q; want it unchanged and the error shown", found, m.errorMsg)
+	}
+}
+
+func TestDirectFormRenameOntoExistingNameForgetsNothing(t *testing.T) {
+	store := &fakeDirectStore{dbs: testDirectDatabases()}
+	forgotten := &[]jumphost.TargetRef{}
+	m := directFormWizard(t, forgetRecorder{forgotten: forgotten}, store, "analytics")
+
+	m, _ = wizardUpdate(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = typeText(t, m, "legacy-billing")
+	m = saveForm(t, m)
+
+	if _, found, err := store.Get("analytics"); err != nil || !found || len(*forgotten) != 0 {
+		t.Fatalf("analytics found %v, forgotten %v; want the source kept and nothing forgotten", found, *forgotten)
+	}
+	if m.step != jumphostStepDirectForm || m.directForm.focus != formFieldName {
+		t.Fatalf("step = %v focus = %d, want the form kept on name", m.step, m.directForm.focus)
+	}
+	if view := wizardView(m); !strings.Contains(view, "name: a database named legacy-billing already exists") {
+		t.Fatalf("view lacks the name error:\n%s", view)
+	}
+}

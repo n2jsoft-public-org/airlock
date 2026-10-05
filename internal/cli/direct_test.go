@@ -42,7 +42,7 @@ func TestDirectRequiresAName(t *testing.T) {
 func TestDirectUnknownNameFailsBeforeOpening(t *testing.T) {
 	testDatabases(t)
 	_, err := runAirlockWithInput(t, "", "direct", "nope")
-	if err == nil || err.Error() != "no direct database named nope (see airlock db list)" {
+	if err == nil || err.Error() != "no direct database named nope (see airlock connection list)" {
 		t.Fatalf("err = %v", err)
 	}
 }

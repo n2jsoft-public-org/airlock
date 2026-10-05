@@ -3,6 +3,7 @@ package jumphost
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -62,7 +63,7 @@ func TestFilterSavedConnectionsFlagsMissingProfiles(t *testing.T) {
 }
 
 func TestRunnerForgetConnection(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "connections.json")
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
 	runner := NewRunner(RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{ResourceType: "eks", Name: "cluster", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 9444}
@@ -90,12 +91,12 @@ func TestFilterSavedConnectionsKeepsDirectDatabases(t *testing.T) {
 
 func TestListSavedConnectionsFlagsRemovedDirectDatabases(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	path := filepath.Join(t.TempDir(), "connections.json")
-	store := NewPrefsStore(path)
-	for _, name := range []string{"legacy-billing", "gone-db"} {
-		if err := store.Save(DirectTargetRef(name), &ConnectionPrefs{ResourceType: "direct", DBUser: "mcp_ro"}); err != nil {
-			t.Fatal(err)
-		}
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
+	// A direct entry whose definition the runner's databases do not hold (they may come from another store).
+	direct := `{"engine": "sqlserver", "host": "billing.db.internal", "user": "mcp_ro", "used_at": "2026-10-01T00:00:00Z", "mcp_allow_writes": false}`
+	doc := `{"version": 1, "connections": {"legacy-billing": ` + direct + `, "gone-db": ` + direct + `}}`
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	missing := func(databases DirectDatabases) map[string]bool {
 		t.Helper()

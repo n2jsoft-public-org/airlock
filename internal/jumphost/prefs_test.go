@@ -10,14 +10,17 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/connections"
 )
+
+// prefsNow dates the connections saved by newTestPrefsStore.
+var prefsNow = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 
 func newTestPrefsStore(t *testing.T) (store *PrefsStore, path string) {
 	t.Helper()
-	path = filepath.Join(t.TempDir(), "jumphost", "connections.json")
-	store = NewPrefsStore(path)
-	store.now = func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) }
-	return store, path
+	path = filepath.Join(t.TempDir(), "airlock", "saved-connections.json")
+	return &PrefsStore{store: connections.NewStoreWithClock(path, func() time.Time { return prefsNow })}, path
 }
 
 var devArchive = TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "rds", Name: "archive"}
@@ -38,7 +41,7 @@ func TestPrefsStoreRoundTripsPerAccountRegionAndDatabase(t *testing.T) {
 	}
 
 	got, ok := store.Load(devArchive)
-	archive.UpdatedAt = store.now()
+	archive.UpdatedAt, archive.ResourceType = prefsNow, "rds"
 	if !ok || got != archive {
 		t.Fatalf("Load = %+v, %v; want %+v", got, ok, archive)
 	}
@@ -85,7 +88,7 @@ func TestPrefsStoreKeepsUnreadableFile(t *testing.T) {
 	}
 }
 
-func TestPrefsStoreKeysByTypeAndWritesVersion2(t *testing.T) {
+func TestPrefsStoreKeysByTypeAndWritesJumphostEntries(t *testing.T) {
 	store, path := newTestPrefsStore(t)
 	cache := TargetRef{Account: devArchive.Account, Region: devArchive.Region, Type: "elasticache", Name: "archive"}
 	if err := store.Save(devArchive, &ConnectionPrefs{Profile: "dev", ResourceType: "rds", LocalPort: 5433}); err != nil {
@@ -97,30 +100,31 @@ func TestPrefsStoreKeysByTypeAndWritesVersion2(t *testing.T) {
 
 	db, _ := store.Load(devArchive)
 	redis, _ := store.Load(cache)
-	if db.LocalPort != 5433 || redis.LocalPort != 6380 {
+	if db.LocalPort != 5433 || redis.LocalPort != 6380 || db.ResourceType != "rds" || redis.ResourceType != "elasticache" {
 		t.Fatalf("a database and a cache of the same name must not share an entry: %+v %+v", db, redis)
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- path is inside the test temp directory.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"111111111111/eu-west-3/rds/archive"`, `"111111111111/eu-west-3/elasticache/archive"`, `"version": 2`, `"profile": "dev"`, `"resource_type": "rds"`} {
+	for _, want := range []string{`"111111111111/eu-west-3/rds/archive"`, `"111111111111/eu-west-3/elasticache/archive"`, `"version": 1`,
+		`"profile": "dev"`, `"type": "rds"`, `"type": "elasticache"`, `"jumphost": {`} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("file lacks %s:\n%s", want, data)
 		}
 	}
 }
 
-func TestPrefsStoreListsNewestFirstAndSkipsMalformedKeys(t *testing.T) {
+func TestPrefsStoreListsNewestFirstAndSkipsInvalidAndUnopenedEntries(t *testing.T) {
 	store, path := newTestPrefsStore(t)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	doc := `{"version": 2, "connections": {
-		"111111111111/eu-west-3/rds/old": {"updated_at": "2026-09-01T00:00:00Z", "profile": "dev"},
-		"111111111111/eu-west-3/eks/new": {"updated_at": "2026-09-20T00:00:00Z", "profile": "dev"},
-		"eu-west-3/leftover": {"updated_at": "2026-09-25T00:00:00Z"},
-		"111111111111//rds/no-region": {"updated_at": "2026-09-25T00:00:00Z"}
+	doc := `{"version": 1, "connections": {
+		"111111111111/eu-west-3/rds/old": {"type": "rds", "target": "old", "jumphost": {"account": "111111111111", "region": "eu-west-3", "profile": "dev"}, "used_at": "2026-09-01T00:00:00Z", "mcp_allow_writes": false},
+		"111111111111/eu-west-3/eks/new": {"type": "eks", "target": "new", "jumphost": {"account": "111111111111", "region": "eu-west-3", "profile": "dev"}, "used_at": "2026-09-20T00:00:00Z", "mcp_allow_writes": false},
+		"eu-west-3/leftover": {"type": "rds", "target": "leftover", "jumphost": {"account": "x", "region": "eu-west-3"}},
+		"never-opened": {"engine": "postgres", "host": "db.internal", "user": "reader", "mcp_allow_writes": false}
 	}}`
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
@@ -218,19 +222,19 @@ func TestPrefsStoreRoundTripsSecretAndKeychainChoices(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := store.Load(devArchive)
-	prefs.UpdatedAt = store.now()
+	prefs.UpdatedAt, prefs.ResourceType = prefsNow, "rds"
 	if !ok || got != prefs {
 		t.Fatalf("Load = %+v, %v", got, ok)
 	}
 	//nolint:errcheck // test file, ignoring read error
 	data, _ := os.ReadFile(path) // #nosec G304
-	if !strings.Contains(string(data), `"db_secret_arn"`) || !strings.Contains(string(data), `"version": 2`) {
+	if !strings.Contains(string(data), `"secret_arn"`) || !strings.Contains(string(data), `"version": 1`) {
 		t.Fatalf("file = %s", data)
 	}
 }
 
 func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "connections.json")
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
 	runner := NewRunner(RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "arn:aws:sts::111111111111:assumed-role/AWSReservedSSO_dev/me@example.com")
 	options := Options{
@@ -258,7 +262,7 @@ func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 }
 
 func TestRunnerSavesSecretChoice(t *testing.T) {
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json")})
+	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json")})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3",
 		DBSecretARN: "arn:secret", SignIn: SignInSecret}
@@ -281,7 +285,7 @@ func TestRememberAccountAcceptsIdentityARNOrAccountID(t *testing.T) {
 }
 
 func TestRunnerSavesEKSConnectionWithoutDatabaseFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "connections.json")
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
 	runner := NewRunner(RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{
@@ -300,7 +304,7 @@ func TestRunnerSavesEKSConnectionWithoutDatabaseFields(t *testing.T) {
 }
 
 func TestRunnerSavesProfileAndTypeOfRDSConnection(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "connections.json")
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
 	runner := NewRunner(RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3", DBUser: "app"}
@@ -333,7 +337,7 @@ func TestRunnerWithoutPrefsPathRemembersNothing(t *testing.T) {
 }
 
 func TestPrefsStoreConcurrentSavesKeepEveryEntry(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "connections.json")
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Add(1)

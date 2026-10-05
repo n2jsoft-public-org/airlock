@@ -136,3 +136,18 @@ func TestMigrateReportsNothingWhenLegacyDirIsEmpty(t *testing.T) {
 		t.Fatalf("migrateFrom = %v, %v; want nothing reported for an empty legacy directory", migrated, err)
 	}
 }
+
+func TestMigrateSkipsWhenSavedConnectionsExist(t *testing.T) {
+	root := t.TempDir()
+	legacy, target := filepath.Join(root, "jumphost"), filepath.Join(root, "airlock")
+	writeFile(t, filepath.Join(legacy, "connections.json"), `{"v":1}`)
+	writeFile(t, filepath.Join(target, "saved-connections.json"), `{"version":1}`)
+
+	migrated, err := migrateFrom(legacy, target)
+	if err != nil || migrated {
+		t.Fatalf("migrateFrom = %v, %v; want skipped", migrated, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "connections.json")); !os.IsNotExist(err) {
+		t.Fatal("a legacy connections.json must never come back after the move")
+	}
+}

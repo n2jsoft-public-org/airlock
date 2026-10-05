@@ -10,6 +10,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/daemon"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
@@ -255,10 +256,14 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	log.warnLookup("MCP queries will not be logged", err)
 	kubeconfigDir, err := appdir.KubeconfigDir()
 	log.warnLookup("EKS sessions will not get a kubeconfig", err)
-	prefsPath, err := appdir.ConnectionsFile()
-	log.warnLookup("connection choices will not be remembered", err)
-	databaseStore, err := openDatabaseStore()
-	log.warnLookup("direct databases are unavailable", err)
+	var prefsPath string
+	var databaseStore *connections.Databases
+	if saved, err := openSavedConnections(log); err != nil {
+		// The daemon reads the file (and migrates the old ones) only once, at its start.
+		log.warnLookup("saved connections are unavailable until the file is fixed and `airlock daemon restart` is run", err)
+	} else {
+		prefsPath, databaseStore = saved.Path(), saved.Databases()
+	}
 	source := newRunnerSource(configPath, func(cfg config.Config) (sessionsRunner, error) {
 		options := sharedRunnerOptions(&cfg, registry, mcpserve.NewHostFor(cfg.MCPClientSelection()), mcpLogDir, kubeconfigDir, databaseStore)
 		options.Out, options.Err, options.PrefsPath, options.Keychain = log, log, prefsPath, newKeychain()

@@ -33,7 +33,7 @@ func checkDirectTarget(cmd *cobra.Command, args []string, databases jumphost.Dir
 		name = strings.TrimSpace(args[1])
 	}
 	if name == "" {
-		return "", errors.New("a direct database name is required: airlock direct <name> (see airlock db list)")
+		return "", errors.New("a direct database name is required: airlock direct <name> (see airlock connection list)")
 	}
 	if databases == nil {
 		return "", errors.New("direct databases are unavailable: the config directory cannot be resolved")

@@ -215,7 +215,7 @@ func TestWizardRecentDirectEntryWithoutDefinition(t *testing.T) {
 	m := historyWizard(t, runner, &fakeDirectStore{})
 
 	m, _ = wizardUpdate(t, m, key("enter"))
-	if m.step != jumphostStepStart || !strings.Contains(m.errorMsg, "no direct database named old-crm (see airlock db list)") {
+	if m.step != jumphostStepStart || !strings.Contains(m.errorMsg, "no direct database named old-crm (see airlock connection list)") {
 		t.Fatalf("step = %v error = %q, want the start screen with the error", m.step, m.errorMsg)
 	}
 
@@ -254,7 +254,7 @@ func TestWizardOpenDirectUnknownNameShowsError(t *testing.T) {
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	m, _ = wizardUpdate(t, m, jumphostSavedLoadedMsg{connections: []jumphost.SavedConnection{savedArchive}})
 
-	if m.step != jumphostStepStart || m.errorMsg != "no direct database named nope (see airlock db list)" {
+	if m.step != jumphostStepStart || m.errorMsg != "no direct database named nope (see airlock connection list)" {
 		t.Fatalf("step = %v error = %q, want the start screen with the error", m.step, m.errorMsg)
 	}
 }

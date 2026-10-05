@@ -18,18 +18,21 @@ type updateEnv struct {
 	repository func() (string, error)
 	executable func() (string, error)
 	cacheFile  func() (string, error)
-	current    string
-	baseURL    string
+	// daemonRunning reports whether a daemon runs, which keeps the replaced binary until restarted; nil means none.
+	daemonRunning func(context.Context) bool
+	current       string
+	baseURL       string
 }
 
 func defaultUpdateEnv() updateEnv {
 	return updateEnv{
-		token:      selfupdate.Token,
-		repository: selfupdate.Repository,
-		executable: selfupdate.Executable,
-		cacheFile:  appdir.UpdateCheckFile,
-		current:    version.String(),
-		baseURL:    selfupdate.DefaultBaseURL,
+		token:         selfupdate.Token,
+		repository:    selfupdate.Repository,
+		executable:    selfupdate.Executable,
+		cacheFile:     appdir.UpdateCheckFile,
+		daemonRunning: func(ctx context.Context) bool { return findDaemon(ctx) != nil },
+		current:       version.String(),
+		baseURL:       selfupdate.DefaultBaseURL,
 	}
 }
 
@@ -105,6 +108,9 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 		}
 	}
 	outf(cmd, "Updated airlock %s → %s\n", result.Current, result.Latest)
+	if env.daemonRunning != nil && env.daemonRunning(ctx) {
+		outf(cmd, "restart the daemon to use the new version: airlock daemon restart\n")
+	}
 	return nil
 }
 

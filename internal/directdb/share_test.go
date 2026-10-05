@@ -32,14 +32,25 @@ func TestExportImportRoundTrip(t *testing.T) {
 		t.Fatalf("changes = %+v, want archive then legacy-billing, added", plan.Changes)
 	}
 
-	store, _ := newTestStore(t)
-	if err = ApplyImport(store, &plan); err != nil {
+	writer := &memoryWriter{}
+	if err = ApplyImport(writer, &plan); err != nil {
 		t.Fatal(err)
 	}
-	dbs, err := store.List()
-	if err != nil || !reflect.DeepEqual(dbs, []Database{archive, billing}) {
-		t.Fatalf("imported = %+v, %v", dbs, err)
+	if writer.calls != 1 || !reflect.DeepEqual(writer.written, []Database{archive, billing}) {
+		t.Fatalf("written = %+v in %d calls, want both databases in one write", writer.written, writer.calls)
 	}
+}
+
+// memoryWriter records what ApplyImport writes.
+type memoryWriter struct {
+	written []Database
+	calls   int
+}
+
+func (w *memoryWriter) PutAll(dbs []Database) error {
+	w.calls++
+	w.written = append(w.written, dbs...)
+	return nil
 }
 
 func TestExportHoldsOnlyTheDefinitions(t *testing.T) {
@@ -117,37 +128,23 @@ func TestPlanImportWithNothingToChange(t *testing.T) {
 	}
 }
 
-func TestApplyImportNeverRemovesALocalDatabase(t *testing.T) {
-	store, _ := newTestStore(t)
-	for _, name := range []string{"billing", "local-only"} {
-		if err := store.Put("", testDatabase(name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	incoming := testDatabase("billing")
-	incoming.Host = "db2.internal"
-	shared, err := Export([]Database{incoming, testDatabase("archive")})
-	if err != nil {
+func TestApplyImportWritesOnlyTheAddedAndChangedDatabases(t *testing.T) {
+	kept, changed := testDatabase("archive"), testDatabase("billing")
+	changed.Port = 6432
+	plan := ImportPlan{Changes: []ImportChange{
+		{Kind: ChangeUnchanged, Database: kept},
+		{Kind: ChangeUpdated, Database: changed},
+		{Kind: ChangeAdded, Database: testDatabase("events")},
+	}}
+	writer := &memoryWriter{}
+	if err := ApplyImport(writer, &plan); err != nil {
 		t.Fatal(err)
 	}
-	current, err := store.List()
-	if err != nil {
-		t.Fatal(err)
+	if !reflect.DeepEqual(writer.written, []Database{changed, testDatabase("events")}) {
+		t.Fatalf("written = %+v, want billing and events only", writer.written)
 	}
-	plan, err := PlanImport(current, shared)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = ApplyImport(store, &plan); err != nil {
-		t.Fatal(err)
-	}
-	dbs, err := store.List()
-	if err != nil || len(dbs) != 3 {
-		t.Fatalf("List() = %+v, %v; want archive, billing and local-only", dbs, err)
-	}
-	got, _, err := store.Get("billing")
-	if err != nil || got.Host != "db2.internal" {
-		t.Fatalf("billing = %+v, %v; want the imported host", got, err)
+	if err := ApplyImport(writer, &ImportPlan{Changes: plan.Changes[:1]}); err != nil || writer.calls != 1 {
+		t.Fatalf("a plan without change must write nothing: calls = %d, err = %v", writer.calls, err)
 	}
 }
 

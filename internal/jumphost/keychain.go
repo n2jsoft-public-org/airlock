@@ -38,6 +38,9 @@ func (r *Runner) KeychainAvailable() bool {
 }
 
 // LoadKeychainPassword returns the password of options.DBUser remembered for the target of options.
+// The password of a direct database is only returned while its remembered choices flag it for that
+// user: an entry left in the keychain under its name (by a definition replaced since, say) must
+// never reach the server the name designates now.
 func (r *Runner) LoadKeychainPassword(ctx context.Context, options Options) (string, bool) { //nolint:gocritic // same by-value Options as LoadConnectionPrefs, its sibling
 	if !r.KeychainAvailable() {
 		return "", false
@@ -46,11 +49,40 @@ func (r *Runner) LoadKeychainPassword(ctx context.Context, options Options) (str
 	if !ok || keychainUser(target.Type, options.DBUser) == "" {
 		return "", false
 	}
+	if target.Type == resourceDirect && !r.directPasswordFlagged(target, options.DBUser) {
+		return "", false
+	}
 	password, err := r.keychain.Get(keychainAccount(target, options.DBUser))
 	if err != nil || password == "" {
 		return "", false
 	}
 	return password, true
+}
+
+// ForgetDirectPassword deletes the keychain password of user remembered under the direct database
+// name, for an entry whose choices cannot be read (an invalid one) and that is about to be removed
+// or replaced: the password must not wait in the keychain for the next database of that name.
+// flagged tells that the entry reports such a password; an unflagged one is still deleted while
+// the keychain is available. A missing password is not an error.
+func (r *Runner) ForgetDirectPassword(name, user string, flagged bool) error {
+	ref := DirectTargetRef(name)
+	if r.keychain == nil || strings.TrimSpace(ref.Name) == "" || keychainUser(ref.Type, user) == "" {
+		return nil
+	}
+	if !flagged && !r.KeychainAvailable() {
+		return nil
+	}
+	if err := r.keychain.Delete(keychainAccount(ref, user)); err != nil {
+		return fmt.Errorf("%w: failed to forget the password: %w", ErrKeychain, err)
+	}
+	return nil
+}
+
+// directPasswordFlagged reports whether the remembered choices of the direct database target flag
+// a password in the keychain for user.
+func (r *Runner) directPasswordFlagged(target TargetRef, user string) bool {
+	prefs, ok := r.prefs.Load(target)
+	return ok && prefs.PasswordInKeychain && strings.TrimSpace(prefs.DBUser) == strings.TrimSpace(user)
 }
 
 // syncKeychain stores or deletes the password of next, deleting the entry of the previous user

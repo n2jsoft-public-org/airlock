@@ -50,7 +50,7 @@ type JumphostDiscovery interface {
 	FindResource(ctx context.Context, options *jumphost.Options, account string) (jumphost.ResourceSummary, error)
 }
 
-// DirectDatabaseStore holds the direct database definitions (databases.json), which the wizard
+// DirectDatabaseStore holds the direct database definitions (saved-connections.json), which the wizard
 // lists, adds, edits and deletes.
 type DirectDatabaseStore interface {
 	List() ([]directdb.Database, error)

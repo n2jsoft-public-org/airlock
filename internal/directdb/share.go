@@ -76,7 +76,7 @@ func (p *ImportPlan) HasChanges() bool {
 // definition, so never part of the string.
 func Export(dbs []Database) (string, error) {
 	if len(dbs) == 0 {
-		return "", errors.New("nothing to export: no direct database (add one with `airlock db add`)")
+		return "", errors.New("nothing to export: no direct database (add one with `airlock connection add`)")
 	}
 	layout := fileLayout{Version: fileVersion, Databases: make(map[string]Database, len(dbs))}
 	for i := range dbs {
@@ -122,19 +122,23 @@ func PlanImport(current []Database, shared string) (ImportPlan, error) {
 	return plan, nil
 }
 
+// Writer writes definitions, each in place of the one of the same name, in one write.
+type Writer interface {
+	PutAll(dbs []Database) error
+}
+
 // ApplyImport writes the added and changed databases of plan in one write.
-func ApplyImport(store *Store, plan *ImportPlan) error {
+func ApplyImport(store Writer, plan *ImportPlan) error {
 	if !plan.HasChanges() {
 		return nil
 	}
-	return store.update(func(databases map[string]Database) error {
-		for i := range plan.Changes {
-			if change := &plan.Changes[i]; change.Kind != ChangeUnchanged {
-				databases[change.Database.Name] = change.Database
-			}
+	var dbs []Database
+	for i := range plan.Changes {
+		if change := &plan.Changes[i]; change.Kind != ChangeUnchanged {
+			dbs = append(dbs, change.Database)
 		}
-		return nil
-	})
+	}
+	return store.PutAll(dbs)
 }
 
 // decodeShare reads a string of Export; its fields must be known, its databases valid.

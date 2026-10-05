@@ -2,7 +2,6 @@ package jumphost
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"strings"
 )
@@ -40,16 +39,20 @@ func (r *Runner) flagMissingDirectDatabases(saved []SavedConnection) {
 	}
 }
 
-// ForgetConnection removes the remembered choices of ref, and its password from the keychain.
+// ForgetConnection removes the remembered choices of ref, and its password from the keychain; when
+// the password cannot be deleted, the choices stay too and the error is returned.
 func (r *Runner) ForgetConnection(_ context.Context, ref TargetRef) error {
 	if r.prefs == nil {
 		return nil
 	}
-	var keychainErr error
 	if prefs, ok := r.prefs.Load(ref); ok {
-		keychainErr = r.forgetKeychainPassword(ref, &prefs)
+		// A password that stays in the keychain must stay flagged in the prefs, so that a retry
+		// still deletes it instead of leaving it for whatever is saved under this name next.
+		if err := r.forgetKeychainPassword(ref, &prefs); err != nil {
+			return err
+		}
 	}
-	return errors.Join(r.prefs.Delete(ref), keychainErr)
+	return r.prefs.Delete(ref)
 }
 
 // knownProfiles returns the local AWS CLI profiles; nil when they cannot be listed, so that no

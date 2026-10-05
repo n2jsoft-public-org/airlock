@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
@@ -30,7 +29,7 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 	case 0:
 		return []string{
 			"rds\tRDS database", "eks\tEKS cluster API endpoint", "elasticache\tElastiCache cluster",
-			"direct\tDirect database (airlock db add)",
+			"direct\tDirect database (airlock connection add)",
 		}, cobra.ShellCompDirectiveNoFileComp
 	case 1:
 		if strings.EqualFold(args[0], directResourceType) {
@@ -61,13 +60,13 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 }
 
 // recentConnections lists the remembered connections of resourceType, most recent first, limited
-// to the --profile and --region given; none when connections.json cannot be read.
+// to the --profile and --region given; none when saved-connections.json cannot be read.
 func recentConnections(cmd *cobra.Command, resourceType string) []jumphost.SavedConnection {
-	path, err := appdir.ConnectionsFile()
+	store, err := savedConnectionsStore()
 	if err != nil {
 		return nil
 	}
-	saved, err := jumphost.NewPrefsStore(path).List()
+	saved, err := jumphost.NewPrefsStore(store.Path()).List()
 	if err != nil {
 		return nil
 	}
@@ -104,13 +103,13 @@ func completeProfiles(cmd *cobra.Command, _ []string, _ string) ([]string, cobra
 }
 
 // directDatabaseCompletions lists the direct databases with their engine and address; none when
-// databases.json cannot be read.
+// saved-connections.json cannot be read.
 func directDatabaseCompletions() []string {
-	store, err := openDatabaseStore()
+	store, err := savedConnectionsStore()
 	if err != nil {
 		return nil
 	}
-	dbs, err := store.List()
+	dbs, err := store.Databases().List()
 	if err != nil {
 		return nil
 	}
@@ -141,6 +140,36 @@ func completeDirectDatabases(_ *cobra.Command, args []string, _ string) ([]strin
 		if name, _, _ := strings.Cut(candidate, "\t"); !given[name] {
 			names = append(names, candidate)
 		}
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeSavedConnection completes the only argument with the saved connections: the direct
+// names and the <type>/<target> of the jumphost entries, their keys when several share one.
+func completeSavedConnection(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	store, err := savedConnectionsStore()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	entries, err := store.List()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	shared := map[string]int{}
+	for idx := range entries {
+		shared[entries[idx].ShortName()]++
+	}
+	names := make([]string, 0, len(entries))
+	for idx := range entries {
+		entry := &entries[idx]
+		name := entry.ShortName()
+		if shared[name] > 1 {
+			name = entry.Key
+		}
+		names = append(names, name+"\t"+describeConnection(entry))
 	}
 	return names, cobra.ShellCompDirectiveNoFileComp
 }

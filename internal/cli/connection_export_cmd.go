@@ -4,24 +4,29 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/spf13/cobra"
 )
 
-func newDBExportCmd() *cobra.Command {
+func newConnectionExportCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "export [name...]",
 		Short: "Print direct databases as one string to share (never their passwords)",
 		Long: "Prints every direct database, or the named ones, as one string for teammates to import with " +
-			"`airlock db import <string>`, which shows every change before applying it. Passwords are never part of it.",
+			"`airlock connection import <string>`, which shows every change before applying it. Passwords are never part of it.",
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: completeDirectDatabases,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := openDatabaseStore()
+			store, err := openDatabases(cmd)
 			if err != nil {
 				return err
 			}
 			dbs, err := store.List()
+			if err != nil {
+				return err
+			}
+			err = refuseJumphostNames(store, dbs, args)
 			if err != nil {
 				return err
 			}
@@ -52,9 +57,27 @@ func selectDatabases(dbs []directdb.Database, names []string) ([]directdb.Databa
 	for _, name := range names {
 		idx, ok := byName[strings.TrimSpace(name)]
 		if !ok {
-			return nil, fmt.Errorf("no direct database named %s (see airlock db list)", strings.TrimSpace(name))
+			return nil, fmt.Errorf("no direct database named %s (see airlock connection list)", strings.TrimSpace(name))
 		}
 		selected = append(selected, dbs[idx])
 	}
 	return selected, nil
+}
+
+// refuseJumphostNames returns the error of the first of names that is no direct database but
+// designates a target reached through a jumphost.
+func refuseJumphostNames(store *connections.Databases, dbs []directdb.Database, names []string) error {
+	direct := make(map[string]bool, len(dbs))
+	for idx := range dbs {
+		direct[dbs[idx].Name] = true
+	}
+	for _, name := range names {
+		if direct[strings.TrimSpace(name)] {
+			continue
+		}
+		if err := refuseJumphostEntry(store, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }

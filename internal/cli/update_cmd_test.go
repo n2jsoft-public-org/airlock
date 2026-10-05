@@ -139,6 +139,21 @@ func TestUpdateWithoutToken(t *testing.T) {
 	}
 }
 
+func TestUpdateAsksToRestartARunningDaemon(t *testing.T) {
+	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env.daemonRunning = func(context.Context) bool { return true }
+	out, err := runUpdateCmd(t, env)
+	if err != nil || !strings.HasSuffix(out, "restart the daemon to use the new version: airlock daemon restart\n") {
+		t.Fatalf("out = %q, err = %v; want the restart notice", out, err)
+	}
+
+	env, _ = testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env.daemonRunning = func(context.Context) bool { return false }
+	if out, err := runUpdateCmd(t, env); err != nil || strings.Contains(out, "daemon") {
+		t.Fatalf("out = %q, err = %v; want no notice without daemon", out, err)
+	}
+}
+
 func TestUpdateIsRegistered(t *testing.T) {
 	cmd, _, err := NewRootCmd().Find([]string{"update"})
 	if err != nil || cmd.Name() != "update" {

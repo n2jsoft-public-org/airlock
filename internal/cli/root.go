@@ -10,7 +10,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
@@ -35,7 +35,7 @@ func NewRootCmd() *cobra.Command {
 		Use:   "airlock [eks|rds|elasticache|direct] [name] [local-port]",
 		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct database",
 		Long: "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, " +
-			"or to a direct database declared with `airlock db add` (`airlock direct <name>`). " +
+			"or to a direct database declared with `airlock connection add` (`airlock direct <name>`). " +
 			"When values are omitted in an interactive shell, a wizard asks for them.",
 		Args:         cobra.MaximumNArgs(3),
 		SilenceUsage: true,
@@ -62,7 +62,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", `cli: sessions close with airlock; daemon: a background daemon keeps them (config "mode", default cli)`)
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newDBCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd())
+	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd())
 
 	return cmd
 }
@@ -104,11 +104,6 @@ func loadConfig(cmd *cobra.Command) (config.Config, string, error) {
 }
 
 func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options) error {
-	if migrated, err := appdir.MigrateLegacy(); err != nil {
-		cmd.PrintErrf("Warning: %v\n", err)
-	} else if migrated {
-		cmd.PrintErrln("Copied saved connections and MCP logs of the former jumphost config directory into airlock's.")
-	}
 	// A previous airlock update may leave the replaced binary behind (Windows); then the notice
 	// comes from the last release check, refreshed in the background once a day.
 	updates := defaultUpdateEnv()
@@ -156,16 +151,14 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		// Kubeconfigs left by a killed airlock go; those of a running one stay.
 		cmd.PrintErrf("Warning: stale EKS kubeconfigs were not all removed: %v\n", removeErr)
 	}
-	// The wizard's Connect step choices are remembered in ~/.config/airlock/connections.json;
-	// a lookup failure only disables it.
-	prefsPath, err := appdir.ConnectionsFile()
-	if err != nil {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: connection choices will not be remembered: %v\n", err)
-	}
-	// Direct databases live in ~/.config/airlock/databases.json; a lookup failure only disables them.
-	databaseStore, err := openDatabaseStore()
-	if err != nil {
-		cmd.PrintErrf("Warning: direct databases are unavailable: %v\n", err)
+	// Connections live in ~/.config/airlock/saved-connections.json; a failure only disables the
+	// remembered choices and the direct databases.
+	var prefsPath string
+	var databaseStore *connections.Databases
+	if saved, openErr := openSavedConnections(cmd.ErrOrStderr()); openErr != nil {
+		cmd.PrintErrf("Warning: saved connections are unavailable: %v\n", openErr)
+	} else {
+		prefsPath, databaseStore = saved.Path(), saved.Databases()
 	}
 	shared := sharedRunnerOptions(&cfg, registry, hosts.For(&cfg), mcpLogDir, kubeconfigDir, databaseStore)
 	shared.In = cmd.InOrStdin()
@@ -274,7 +267,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 
 // sharedRunnerOptions are the runner options of both modes, from the config and the directories
 // airlock found; a nil databaseStore disables the direct databases.
-func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry, mcpHost *mcpserve.Host, mcpLogDir, kubeconfigDir string, databaseStore *directdb.Store) jumphost.RunnerOptions {
+func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry, mcpHost *mcpserve.Host, mcpLogDir, kubeconfigDir string, databaseStore *connections.Databases) jumphost.RunnerOptions {
 	// A nil store must stay a nil interface: the runner and the dashboard test for nil.
 	var databases jumphost.DirectDatabases
 	if databaseStore != nil {

@@ -40,7 +40,7 @@ var checkDirectSignIn = func(ctx context.Context, runner *jumphost.Runner, name,
 	return runner.CheckDirectSignIn(ctx, name, password)
 }
 
-func newDBTestCmd() *cobra.Command {
+func newConnectionTestCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "test <name>",
 		Short: "Sign in to a direct database and run SELECT 1",
@@ -49,7 +49,7 @@ func newDBTestCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeDirectDatabase,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := openDatabaseStore()
+			store, err := openDatabases(cmd)
 			if err != nil {
 				return err
 			}
@@ -57,10 +57,7 @@ func newDBTestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			runner, err := newDBRunner(cmd, store)
-			if err != nil {
-				return err
-			}
+			runner := newConnectionRunner(cmd, store)
 			password, remembered := runner.LoadKeychainPassword(cmd.Context(),
 				jumphost.Options{ResourceType: directResourceType, Name: db.Name, DBUser: db.User})
 			if !remembered {

@@ -52,7 +52,18 @@ func ConfigFile() (string, error) {
 	return filepath.Join(dir, "config.json"), nil
 }
 
-// ConnectionsFile is the file under ConfigDir remembering connection choices per region and database.
+// SavedConnectionsFile is the file under ConfigDir holding every saved connection: the direct
+// databases and the targets reached through a jumphost.
+func SavedConnectionsFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "saved-connections.json"), nil
+}
+
+// ConnectionsFile is the connections.json under ConfigDir of an earlier airlock, moved into
+// SavedConnectionsFile once.
 func ConnectionsFile() (string, error) {
 	dir, err := ConfigDir()
 	if err != nil {
@@ -61,7 +72,8 @@ func ConnectionsFile() (string, error) {
 	return filepath.Join(dir, "connections.json"), nil
 }
 
-// DatabasesFile is the file under ConfigDir holding the databases airlock reaches directly.
+// DatabasesFile is the databases.json under ConfigDir of an earlier airlock, moved into
+// SavedConnectionsFile once.
 func DatabasesFile() (string, error) {
 	dir, err := ConfigDir()
 	if err != nil {

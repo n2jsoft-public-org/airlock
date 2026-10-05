@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -57,7 +58,7 @@ func (i directItem) FilterValue() string {
 	return strings.Join(strings.Fields(strings.Join([]string{i.db.Name, string(i.db.Engine), i.db.Host, i.db.Database}, " ")), " ")
 }
 
-// directList is the target step of a direct database: the definitions of databases.json, or why
+// directList is the target step of a direct database: the definitions of saved-connections.json, or why
 // they cannot be read.
 type directList struct {
 	// err is the store's error, shown in place of the list.
@@ -185,9 +186,8 @@ func (p directList) View(styles Styles, width int) string {
 // directDeletedMsg reports the deletion of a direct database, its connection prefs and its
 // keychain password.
 type directDeletedMsg struct {
-	err       error
-	forgetErr error
-	name      string
+	err  error
+	name string
 }
 
 // enterDirectList shows the direct databases of the store.
@@ -242,14 +242,15 @@ func (m jumphostWizardModel) updateDirectListStep(msg tea.Msg) (tea.Model, tea.C
 	}
 }
 
-// deleteDirectCmd deletes the definition of name, then its connection prefs and keychain password.
+// deleteDirectCmd forgets the connection prefs and keychain password of name, then deletes its
+// definition: a failure to forget deletes nothing, so the password is never orphaned.
 func (m jumphostWizardModel) deleteDirectCmd(name string) tea.Cmd {
 	store, runner, ctx := m.databases, m.runner, m.ctx
 	return func() tea.Msg {
-		if err := store.Delete(name); err != nil {
-			return directDeletedMsg{name: name, err: err}
+		if err := runner.ForgetConnection(ctx, jumphost.DirectTargetRef(name)); err != nil {
+			return directDeletedMsg{name: name, err: fmt.Errorf("its saved settings were not forgotten: %w", err)}
 		}
-		return directDeletedMsg{name: name, forgetErr: runner.ForgetConnection(ctx, jumphost.DirectTargetRef(name))}
+		return directDeletedMsg{name: name, err: store.Delete(name)}
 	}
 }
 
@@ -258,11 +259,8 @@ func (m jumphostWizardModel) handleDirectDeleted(msg directDeletedMsg) (tea.Mode
 	m.loading = false
 	m.loadingUI.stop()
 	m = m.reloadDirectList("")
-	switch {
-	case msg.err != nil:
+	if msg.err != nil {
 		m.errorMsg = "Could not delete " + msg.name + ": " + msg.err.Error()
-	case msg.forgetErr != nil:
-		m.errorMsg = "Deleted " + msg.name + ", but could not forget its saved settings: " + msg.forgetErr.Error()
 	}
 	return m, nil
 }

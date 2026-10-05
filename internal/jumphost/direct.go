@@ -14,7 +14,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 )
 
-// resourceDirect is a database reached directly, without jumphost, declared with `airlock db add`.
+// resourceDirect is a database reached directly, without jumphost, declared with `airlock connection add`.
 const resourceDirect = "direct"
 
 // directAccount and directRegion key direct databases in the prefs and the keychain: they belong to
@@ -24,7 +24,7 @@ const (
 	directRegion  = "local"
 )
 
-// DirectDatabases finds the definitions of the direct databases (databases.json, read by the CLI).
+// DirectDatabases finds the definitions of the direct databases (saved-connections.json, opened by the CLI).
 type DirectDatabases interface {
 	// Get returns the database named name; false when there is none.
 	Get(name string) (directdb.Database, bool, error)

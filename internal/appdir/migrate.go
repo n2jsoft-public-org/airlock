@@ -10,7 +10,7 @@ import (
 )
 
 // MigrateLegacy copies connections.json and logs/ from the former jumphost config directory into
-// airlock's, once: only while airlock's directory holds neither of them yet (a config.json written
+// airlock's, once: only while airlock's directory holds none of them yet (nor a saved-connections.json) (a config.json written
 // before the first run does not prevent it). The old directory is left untouched. It reports
 // whether anything was copied.
 func MigrateLegacy() (bool, error) {
@@ -23,7 +23,8 @@ func MigrateLegacy() (bool, error) {
 
 func migrateFrom(legacyDir, dir string) (bool, error) {
 	// Anything already saved by airlock (or unreadable) means it ran before: never merge into it.
-	if !missing(filepath.Join(dir, "connections.json")) || !missing(filepath.Join(dir, "logs")) {
+	// saved-connections.json holds what connections.json became: it must not come back.
+	if !missing(filepath.Join(dir, "connections.json")) || !missing(filepath.Join(dir, "saved-connections.json")) || !missing(filepath.Join(dir, "logs")) {
 		return false, nil
 	}
 	legacyConnections := filepath.Join(legacyDir, "connections.json")

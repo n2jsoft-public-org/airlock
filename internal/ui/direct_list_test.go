@@ -68,11 +68,22 @@ func testDirectDatabases() []directdb.Database {
 type forgetRecorder struct {
 	fakeSessionRunner
 	forgotten *[]jumphost.TargetRef
+	// store, when set, records in definedAtForget whether each forgotten name was still defined.
+	store           *fakeDirectStore
+	definedAtForget *[]bool
+	err             error
 }
 
 func (r forgetRecorder) ForgetConnection(_ context.Context, ref jumphost.TargetRef) error {
 	*r.forgotten = append(*r.forgotten, ref)
-	return nil
+	if r.store != nil {
+		_, found, err := r.store.Get(ref.Name)
+		if err != nil {
+			return err
+		}
+		*r.definedAtForget = append(*r.definedAtForget, found)
+	}
+	return r.err
 }
 
 // newDirectWizard opens a wizard on the Type step of a new connection, with store wired and no
@@ -306,5 +317,32 @@ func TestSearchAfterDirectListPicksAWSTarget(t *testing.T) {
 	m = runCmd(t, m, cmd)
 	if m.step != jumphostStepReview || m.options.ResourceType == sessions.DirectResourceType {
 		t.Fatalf("step = %v type = %q, want the review of an AWS target", m.step, m.options.ResourceType)
+	}
+}
+
+func TestDirectListForgetsBeforeDeleting(t *testing.T) {
+	store := &fakeDirectStore{dbs: testDirectDatabases()}
+	forgotten, defined := &[]jumphost.TargetRef{}, &[]bool{}
+	m := newDirectWizard(t, forgetRecorder{forgotten: forgotten, store: store, definedAtForget: defined}, store)
+	m, _ = wizardUpdate(t, m, key("4"))
+	m, _ = wizardUpdate(t, m, key("x"))
+	m, cmd := wizardUpdate(t, m, key("y"))
+	runCmd(t, m, cmd)
+
+	if !slices.Equal(*defined, []bool{true}) || !slices.Equal(store.deleted, []string{"analytics"}) {
+		t.Fatalf("defined at forget = %v, deleted = %v; want the connection forgotten while analytics was still defined", *defined, store.deleted)
+	}
+}
+
+func TestDirectListKeepsTheDatabaseWhenForgettingFails(t *testing.T) {
+	store := &fakeDirectStore{dbs: testDirectDatabases()}
+	m := newDirectWizard(t, forgetRecorder{forgotten: &[]jumphost.TargetRef{}, err: errors.New("keychain locked")}, store)
+	m, _ = wizardUpdate(t, m, key("4"))
+	m, _ = wizardUpdate(t, m, key("x"))
+	m, cmd := wizardUpdate(t, m, key("y"))
+	m = runCmd(t, m, cmd)
+
+	if len(store.deleted) != 0 || !strings.Contains(m.errorMsg, "Could not delete analytics") || !strings.Contains(m.errorMsg, "keychain locked") {
+		t.Fatalf("deleted = %v error = %q, want analytics kept and the error shown", store.deleted, m.errorMsg)
 	}
 }

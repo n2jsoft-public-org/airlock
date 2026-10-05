@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/keychain"
@@ -46,12 +47,20 @@ func (f fakeDirectDatabases) Get(name string) (directdb.Database, bool, error) {
 	return db, ok, nil
 }
 
-// directKeychainRunner remembers prefs and passwords; no AWS CLI is reachable, so any AWS lookup fails.
-func directKeychainRunner(t *testing.T, databases DirectDatabases) (*Runner, *keychain.MemoryStore) {
+// directKeychainRunner remembers prefs and passwords in one saved-connections.json holding dbs; no
+// AWS CLI is reachable, so any AWS lookup fails.
+func directKeychainRunner(t *testing.T, dbs ...directdb.Database) (*Runner, *keychain.MemoryStore) {
 	t.Helper()
 	t.Setenv("PATH", t.TempDir())
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
+	saved := connections.NewStore(path).Databases()
+	for _, db := range dbs {
+		if err := saved.Put("", db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	store := keychain.NewMemoryStore()
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json"), Keychain: store, Databases: databases})
+	runner := NewRunner(RunnerOptions{PrefsPath: path, Keychain: store, Databases: saved})
 	return runner, store
 }
 
@@ -70,7 +79,7 @@ func TestDirectTargetRef(t *testing.T) {
 }
 
 func TestSaveConnectionPrefsKeysDirectDatabasesLocally(t *testing.T) {
-	runner, store := directKeychainRunner(t, directDatabases(billingDatabase()))
+	runner, store := directKeychainRunner(t, billingDatabase())
 	options := directOptions("s3cret", true)
 	options.MCPAllowWrites = true
 	if err := runner.SaveConnectionPrefs(context.Background(), options); err != nil {
@@ -91,7 +100,7 @@ func TestSaveConnectionPrefsKeysDirectDatabasesLocally(t *testing.T) {
 }
 
 func TestSaveConnectionPrefsKeepsTheRememberedDirectPassword(t *testing.T) {
-	runner, store := directKeychainRunner(t, directDatabases(billingDatabase()))
+	runner, store := directKeychainRunner(t, billingDatabase())
 	mustSave(t, runner, new(directOptions("s3cret", true)))
 	// Opened again with the remembered password: nothing typed.
 	mustSave(t, runner, new(directOptions("", false)))
@@ -105,7 +114,7 @@ func TestSaveConnectionPrefsKeepsTheRememberedDirectPassword(t *testing.T) {
 }
 
 func TestForgetConnectionForgetsTheDirectPassword(t *testing.T) {
-	runner, store := directKeychainRunner(t, directDatabases(billingDatabase()))
+	runner, store := directKeychainRunner(t, billingDatabase())
 	mustSave(t, runner, new(directOptions("s3cret", true)))
 
 	if err := runner.ForgetConnection(context.Background(), DirectTargetRef("legacy-billing")); err != nil {
@@ -224,13 +233,13 @@ func TestPrepareDirectRefusesASecondSession(t *testing.T) {
 func TestPrepareDirectUnknownDatabase(t *testing.T) {
 	runner := directRunner(t, &RunnerOptions{})
 	_, err := runner.Prepare(context.Background(), Options{ResourceType: "direct", Name: "nope", DBPassword: "s3cret"})
-	if err == nil || err.Error() != "no direct database named nope (see airlock db list)" {
+	if err == nil || err.Error() != "no direct database named nope (see airlock connection list)" {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestPrepareDirectRequiresAPassword(t *testing.T) {
-	runner := directRunner(t, &RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json"), Keychain: keychain.NewMemoryStore()})
+	runner := directRunner(t, &RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: keychain.NewMemoryStore()})
 	_, err := runner.Prepare(context.Background(), Options{ResourceType: "direct", Name: "legacy-billing"})
 	if !errors.Is(err, ErrPasswordRequired) || err.Error() != "password required for legacy-billing" {
 		t.Fatalf("err = %v, want ErrPasswordRequired", err)
@@ -241,13 +250,50 @@ func TestPrepareDirectRequiresAPassword(t *testing.T) {
 	}
 }
 
+// rememberedDirectRunner is a directRunner whose saved-connections.json holds the billing database,
+// its password remembered in store as an opening with Remember leaves it.
+func rememberedDirectRunner(t *testing.T, store *keychain.MemoryStore, password string) *Runner {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
+	saved := connections.NewStore(path).Databases()
+	if err := saved.Put("", billingDatabase()); err != nil {
+		t.Fatal(err)
+	}
+	runner := directRunner(t, &RunnerOptions{PrefsPath: path, Keychain: store, Databases: saved})
+	mustSave(t, runner, new(directOptions(password, true)))
+	return runner
+}
+
+func TestPrepareDirectIgnoresAKeychainPasswordTheChoicesDoNotFlag(t *testing.T) {
+	stubDirectMCP(t)
+	store := keychain.NewMemoryStore()
+	path := filepath.Join(t.TempDir(), "saved-connections.json")
+	saved := connections.NewStore(path).Databases()
+	if err := saved.Put("", billingDatabase()); err != nil {
+		t.Fatal(err)
+	}
+	runner := directRunner(t, &RunnerOptions{PrefsPath: path, Keychain: store, Databases: saved})
+	// Left by an entry of the same name and user the file no longer flags (another server, maybe).
+	if err := store.Set(billingKeychainAccount, "stale"); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"never opened", "opened without remembering"} {
+		if step == "opened without remembering" {
+			mustSave(t, runner, new(directOptions("", false)))
+		}
+		if got, ok := runner.LoadKeychainPassword(context.Background(), directOptions("", false)); ok || got != "" {
+			t.Fatalf("%s: LoadKeychainPassword = %q, %v; want nothing unflagged", step, got, ok)
+		}
+		if _, err := runner.Prepare(context.Background(), Options{ResourceType: "direct", Name: "legacy-billing"}); !errors.Is(err, ErrPasswordRequired) {
+			t.Fatalf("%s: Prepare = %v, want ErrPasswordRequired rather than the unflagged keychain password", step, err)
+		}
+	}
+}
+
 func TestPrepareDirectUsesTheKeychainPasswordAndForgetsItOnceRejected(t *testing.T) {
 	started := stubDirectMCP(t)
 	store := keychain.NewMemoryStore()
-	runner := directRunner(t, &RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json"), Keychain: store})
-	if err := store.Set(billingKeychainAccount, "kept"); err != nil {
-		t.Fatal(err)
-	}
+	runner := rememberedDirectRunner(t, store, "kept")
 
 	session, err := runner.Prepare(context.Background(), Options{ResourceType: "direct", Name: "legacy-billing"})
 	if err != nil {
@@ -291,10 +337,7 @@ func TestPrepareDirectRegistersTheIDEDataSourceOnTheRealHost(t *testing.T) {
 func TestDirectSignInChecksThePasswordAndForgetsARejectedOne(t *testing.T) {
 	stubDirectMCP(t)
 	store := keychain.NewMemoryStore()
-	runner := directRunner(t, &RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json"), Keychain: store})
-	if err := store.Set(billingKeychainAccount, "kept"); err != nil {
-		t.Fatal(err)
-	}
+	runner := rememberedDirectRunner(t, store, "kept")
 	var checked dbmcp.Address
 	var creds dbmcp.Credentials
 	previous := checkDirectSignIn
@@ -472,5 +515,32 @@ func TestPrepareDirectCarriesTLSToTheIDEDataSource(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestForgetDirectPasswordDeletesThePasswordOfTheNamedUser(t *testing.T) {
+	store := keychain.NewMemoryStore()
+	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: store})
+	for _, flagged := range []bool{true, false} {
+		if err := store.Set(billingKeychainAccount, "s3cret"); err != nil {
+			t.Fatal(err)
+		}
+		if err := runner.ForgetDirectPassword(" legacy-billing ", " mcp_ro ", flagged); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Get(billingKeychainAccount); !errors.Is(err, keychain.ErrNotFound) {
+			t.Fatalf("flagged %v: keychain entry still there: %v", flagged, err)
+		}
+	}
+	if err := runner.ForgetDirectPassword("legacy-billing", "mcp_ro", true); err != nil {
+		t.Fatalf("a missing password is not an error: %v", err)
+	}
+	if err := runner.ForgetDirectPassword("legacy-billing", " ", true); err != nil {
+		t.Fatalf("no user, nothing to forget: %v", err)
+	}
+
+	locked := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: undeletableKeychain{store}})
+	if err := locked.ForgetDirectPassword("legacy-billing", "mcp_ro", true); !errors.Is(err, ErrKeychain) {
+		t.Fatalf("err = %v, want ErrKeychain", err)
 	}
 }

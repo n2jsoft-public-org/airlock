@@ -128,7 +128,7 @@ type RunnerOptions struct {
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
-	// PrefsPath is the file remembering the Connect step choices per region and database; empty disables it.
+	// PrefsPath is the saved-connections.json remembering the Connect step choices per target; empty disables it.
 	PrefsPath string
 	// Keychain remembers the passwords the user asks to keep; nil disables it. It only works
 	// together with PrefsPath, which records which targets have one.

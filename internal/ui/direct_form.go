@@ -340,11 +340,10 @@ func choiceSelector(styles Styles, options []string, chosen string) string {
 	return strings.Join(parts, styles.Faint.Render(" │ "))
 }
 
-// directSavedMsg reports the save of the form's database; warning tells what the save left behind.
+// directSavedMsg reports the save of the form's database.
 type directSavedMsg struct {
-	err     error
-	name    string
-	warning string
+	err  error
+	name string
 }
 
 // openDirectForm opens the form on previous, or on a new database when nil.
@@ -389,20 +388,27 @@ func (m jumphostWizardModel) submitDirectForm() (tea.Model, tea.Cmd) {
 
 // saveDirectCmd writes db in place of previousName, previous its former definition. A change of
 // any connection field (all but production) forgets the connection prefs and keychain password of
-// the former name: a rename leaves them unreachable, another user or server must not get them.
+// the former name first: a rename leaves them unreachable, another user or server must not get
+// them. A failure to forget saves nothing, and neither does a rename onto an existing name, which
+// must leave the source's remembered choices alone.
 func (m jumphostWizardModel) saveDirectCmd(previousName string, previous, db directdb.Database) tea.Cmd {
 	store, runner, ctx := m.databases, m.runner, m.ctx
 	return func() tea.Msg {
-		if err := store.Put(previousName, db); err != nil {
-			return directSavedMsg{name: db.Name, err: err}
-		}
-		msg := directSavedMsg{name: db.Name}
-		if previousName != "" && directdb.ConnectionChanged(&previous, &db) {
-			if err := runner.ForgetConnection(ctx, jumphost.DirectTargetRef(previousName)); err != nil {
-				msg.warning = fmt.Sprintf("%s saved, but the choices remembered for %s were not forgotten: %v", db.Name, previousName, err)
+		if previousName != "" && db.Name != previousName {
+			_, found, err := store.Get(db.Name)
+			if err != nil {
+				return directSavedMsg{name: db.Name, err: err}
+			}
+			if found {
+				return directSavedMsg{name: db.Name, err: fmt.Errorf("database %q %w", db.Name, directdb.ErrExists)}
 			}
 		}
-		return msg
+		if previousName != "" && directdb.ConnectionChanged(&previous, &db) {
+			if err := runner.ForgetConnection(ctx, jumphost.DirectTargetRef(previousName)); err != nil {
+				return directSavedMsg{name: db.Name, err: fmt.Errorf("the choices remembered for %s were not forgotten: %w", previousName, err)}
+			}
+		}
+		return directSavedMsg{name: db.Name, err: store.Put(previousName, db)}
 	}
 }
 
@@ -419,6 +425,5 @@ func (m jumphostWizardModel) handleDirectSaved(msg directSavedMsg) (tea.Model, t
 	}
 	m = m.reloadDirectList(msg.name)
 	m.step = jumphostStepTarget
-	m.errorMsg = msg.warning
 	return m, nil
 }

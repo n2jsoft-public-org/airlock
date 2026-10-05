@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// saveRecent remembers connections in the connections.json of a fresh XDG_CONFIG_HOME.
+// saveRecent remembers connections in the saved-connections.json of a fresh XDG_CONFIG_HOME.
 func saveRecent(t *testing.T, connections ...jumphost.SavedConnection) {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", root)
-	store := jumphost.NewPrefsStore(filepath.Join(root, "airlock", "connections.json"))
+	store := jumphost.NewPrefsStore(filepath.Join(root, "airlock", "saved-connections.json"))
 	for idx := range connections {
 		if err := store.Save(connections[idx].Ref, &connections[idx].Prefs); err != nil {
 			t.Fatal(err)
@@ -121,10 +121,14 @@ func TestCompletesDirectDatabaseNames(t *testing.T) {
 	putDatabase(t, store, &archive)
 	want := "legacy-billing\tsqlserver · billing.db.internal:1433"
 
-	for _, args := range [][]string{{"direct", ""}, {"db", "edit", ""}, {"db", "remove", ""}, {"db", "test", ""}, {"db", "export", ""}} {
+	for _, args := range [][]string{{"direct", ""}, {"db", "edit", ""}, {"db", "test", ""}, {"db", "export", ""}} {
 		if got := strings.Join(complete(t, args...), "\n"); !strings.Contains(got, want) || !strings.Contains(got, "archive\tpostgres · archive.internal:5432") {
 			t.Fatalf("%v: candidates = %q", args, got)
 		}
+	}
+	removable := strings.Join(complete(t, "connection", "remove", ""), "\n")
+	if !strings.Contains(removable, "legacy-billing\tdirect database legacy-billing (billing.db.internal:1433)") || !strings.Contains(removable, "archive\tdirect database archive") {
+		t.Fatalf("connection remove: candidates = %q", removable)
 	}
 	if got := complete(t, "direct", "legacy-billing", ""); len(got) != 0 {
 		t.Fatalf("candidates after the name = %q, want none (no local port)", got)

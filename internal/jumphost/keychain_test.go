@@ -14,7 +14,7 @@ const archiveKeychainAccount = "111111111111/eu-west-3/rds/archive/app_user"
 func keychainRunner(t *testing.T) (*Runner, *keychain.MemoryStore) {
 	t.Helper()
 	store := keychain.NewMemoryStore()
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json"), Keychain: store})
+	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: store})
 	runner.rememberAccount("dev", "111111111111")
 	return runner, store
 }
@@ -25,8 +25,6 @@ func mustSave(t *testing.T, runner *Runner, options *Options) {
 		t.Fatal(err)
 	}
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func passwordOptions(user string, remember bool) Options {
 	return Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3",
@@ -60,7 +58,7 @@ func TestSaveConnectionPrefsRemembersPasswordInKeychain(t *testing.T) {
 
 func TestSaveConnectionPrefsForgetsPasswordWhenNotRemembered(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 	if err := runner.SaveConnectionPrefs(context.Background(), passwordOptions("app_user", false)); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +66,7 @@ func TestSaveConnectionPrefsForgetsPasswordWhenNotRemembered(t *testing.T) {
 		t.Fatalf("keychain entry still there: %v", err)
 	}
 	// Switching to IAM also forgets it.
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 	iam := passwordOptions("app_user", false)
 	iam.SignIn, iam.DBPassword = SignInIAM, ""
 	mustSave(t, runner, &iam)
@@ -79,7 +77,7 @@ func TestSaveConnectionPrefsForgetsPasswordWhenNotRemembered(t *testing.T) {
 
 func TestSaveConnectionPrefsMovesKeychainEntryWhenUserChanges(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 	if err := runner.SaveConnectionPrefs(context.Background(), passwordOptions("other_user", true)); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +108,7 @@ func TestSaveConnectionPrefsReportsKeychainErrorsButSavesPrefs(t *testing.T) {
 
 func TestForgetConnectionDeletesKeychainEntry(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 	ref := TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "rds", Name: "archive"}
 	if err := runner.ForgetConnection(context.Background(), ref); err != nil {
 		t.Fatal(err)
@@ -121,7 +119,7 @@ func TestForgetConnectionDeletesKeychainEntry(t *testing.T) {
 }
 
 func TestKeychainDisabledWithoutStore(t *testing.T) {
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "connections.json")})
+	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json")})
 	runner.rememberAccount("dev", "111111111111")
 	if runner.KeychainAvailable() {
 		t.Fatal("no store must not be available")
@@ -169,7 +167,7 @@ const otherKeychainAccount = "111111111111/eu-west-3/rds/archive/other_user"
 
 func TestSaveConnectionPrefsKeepsFlagWhenSetFailsForSameUser(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 	store.Err = errors.New("user interaction is not allowed")
 	if err := runner.SaveConnectionPrefs(context.Background(), passwordOptions("app_user", true)); !errors.Is(err, ErrKeychain) {
 		t.Fatalf("err = %v, want an ErrKeychain", err)
@@ -186,7 +184,7 @@ func unavailableKeychainRunner(t *testing.T, runner *Runner) *Runner {
 	t.Helper()
 	broken := keychain.NewMemoryStore()
 	broken.Err = errors.New("no secret service")
-	other := NewRunner(RunnerOptions{PrefsPath: runner.prefs.path, Keychain: broken})
+	other := NewRunner(RunnerOptions{PrefsPath: runner.prefs.store.Path(), Keychain: broken})
 	other.rememberAccount("dev", "111111111111")
 	if other.KeychainAvailable() {
 		t.Fatal("the broken keychain must be unavailable")
@@ -196,11 +194,11 @@ func unavailableKeychainRunner(t *testing.T, runner *Runner) *Runner {
 
 func TestSaveConnectionPrefsKeepsKeychainEntryWhenKeychainUnavailable(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 	other := unavailableKeychainRunner(t, runner)
 
 	// Another user: the entry of app_user cannot be deleted, so the prefs keep pointing at it.
-	mustSave(t, other, ptr(passwordOptions("other_user", true)))
+	mustSave(t, other, new(passwordOptions("other_user", true)))
 	prefs, _ := runner.LoadConnectionPrefs(context.Background(), passwordOptions("app_user", true))
 	if !prefs.PasswordInKeychain || prefs.DBUser != "app_user" {
 		t.Fatalf("prefs = %+v, want the flag and the account of the remembered entry kept", prefs)
@@ -226,9 +224,9 @@ func unchosenSignIn(user string) Options {
 
 func TestSaveConnectionPrefsKeepsRememberedPasswordWhenSignInNotOffered(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(passwordOptions("app_user", true)))
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
 
-	mustSave(t, runner, ptr(unchosenSignIn("iam_user")))
+	mustSave(t, runner, new(unchosenSignIn("iam_user")))
 	if got, err := store.Get(archiveKeychainAccount); err != nil || got != "s3cret" {
 		t.Fatalf("keychain = %q, %v: a connection without the choice must keep the password", got, err)
 	}
@@ -244,7 +242,7 @@ func TestSaveConnectionPrefsKeepsSavedSecretWhenSignInNotOffered(t *testing.T) {
 		SignIn: SignInSecret, DBSecretARN: "arn:aws:secretsmanager:eu-west-3:111111111111:secret:app-AbCdEf", DBUser: "app_user"}
 	mustSave(t, runner, &secret)
 
-	mustSave(t, runner, ptr(unchosenSignIn("")))
+	mustSave(t, runner, new(unchosenSignIn("")))
 	prefs, _ := runner.LoadConnectionPrefs(context.Background(), unchosenSignIn(""))
 	if prefs.SignInMethod() != SignInSecret || prefs.DBSecretARN != secret.DBSecretARN || prefs.DBUser != "app_user" {
 		t.Fatalf("prefs = %+v, want the saved secret choice kept", prefs)
@@ -253,13 +251,13 @@ func TestSaveConnectionPrefsKeepsSavedSecretWhenSignInNotOffered(t *testing.T) {
 
 func TestSaveConnectionPrefsRecordsIAMWhenSignInNotOffered(t *testing.T) {
 	runner, _ := keychainRunner(t)
-	mustSave(t, runner, ptr(unchosenSignIn("iam_user")))
+	mustSave(t, runner, new(unchosenSignIn("iam_user")))
 	prefs, _ := runner.LoadConnectionPrefs(context.Background(), unchosenSignIn(""))
 	if prefs.SignInMethod() != SignInIAM || prefs.DBUser != "iam_user" {
 		t.Fatalf("prefs = %+v, want IAM with the user", prefs)
 	}
 	// A saved IAM choice is not a password: the new user replaces it.
-	mustSave(t, runner, ptr(unchosenSignIn("other_iam_user")))
+	mustSave(t, runner, new(unchosenSignIn("other_iam_user")))
 	prefs, _ = runner.LoadConnectionPrefs(context.Background(), unchosenSignIn(""))
 	if prefs.SignInMethod() != SignInIAM || prefs.DBUser != "other_iam_user" {
 		t.Fatalf("prefs = %+v, want IAM with the new user", prefs)
@@ -273,7 +271,7 @@ func cachePasswordOptions(user string) Options {
 
 func TestSaveConnectionPrefsRemembersCachePasswordAsTheDefaultUser(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(cachePasswordOptions("")))
+	mustSave(t, runner, new(cachePasswordOptions("")))
 	if got, err := store.Get("111111111111/eu-west-3/elasticache/sessions/default"); err != nil || got != "t0ken" {
 		t.Fatalf("keychain = %q, %v; want the AUTH token under the default user", got, err)
 	}
@@ -293,7 +291,7 @@ func TestSaveConnectionPrefsRemembersCachePasswordAsTheDefaultUser(t *testing.T)
 
 func TestSaveConnectionPrefsRemembersCacheRBACPassword(t *testing.T) {
 	runner, store := keychainRunner(t)
-	mustSave(t, runner, ptr(cachePasswordOptions("app")))
+	mustSave(t, runner, new(cachePasswordOptions("app")))
 	if got, err := store.Get("111111111111/eu-west-3/elasticache/sessions/app"); err != nil || got != "t0ken" {
 		t.Fatalf("keychain = %q, %v", got, err)
 	}
@@ -318,5 +316,33 @@ func TestKeychainAccountOfAnEmptyCacheUserIsTheDefaultUser(t *testing.T) {
 	ref := TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "elasticache", Name: "sessions"}
 	if got := keychainAccount(ref, " "); got != "111111111111/eu-west-3/elasticache/sessions/default" {
 		t.Fatalf("keychainAccount = %q", got)
+	}
+}
+
+// undeletableKeychain is a keychain whose entries cannot be deleted.
+type undeletableKeychain struct{ *keychain.MemoryStore }
+
+func (undeletableKeychain) Delete(string) error { return errors.New("keychain locked") }
+
+func TestForgetConnectionKeepsThePrefsWhenTheKeychainDeleteFails(t *testing.T) {
+	runner, store := keychainRunner(t)
+	mustSave(t, runner, new(passwordOptions("app_user", true)))
+	ref := TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "rds", Name: "archive"}
+
+	runner.keychain = undeletableKeychain{store}
+	if err := runner.ForgetConnection(context.Background(), ref); !errors.Is(err, ErrKeychain) {
+		t.Fatalf("err = %v, want ErrKeychain", err)
+	}
+	prefs, ok := runner.LoadConnectionPrefs(context.Background(), passwordOptions("app_user", true))
+	if !ok || !prefs.PasswordInKeychain {
+		t.Fatalf("prefs = %+v, %v: want the password still flagged so a retry deletes it", prefs, ok)
+	}
+
+	runner.keychain = store
+	if err := runner.ForgetConnection(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(archiveKeychainAccount); !errors.Is(err, keychain.ErrNotFound) {
+		t.Fatalf("keychain entry kept after the retry: %v", err)
 	}
 }

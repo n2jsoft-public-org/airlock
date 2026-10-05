@@ -1,6 +1,6 @@
 // Package directdb keeps the databases airlock reaches directly, without jumphost: their
-// definitions, the databases.json file holding them and the strings sharing them with teammates.
-// Passwords are never part of them.
+// definitions, the reader of the databases.json of an earlier airlock, and the strings sharing them
+// with teammates. Passwords are never part of them.
 package directdb
 
 import (
@@ -37,7 +37,7 @@ const maxNameLength = 63
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 
-// Database is the definition of one direct database. Name keys it in databases.json; empty Port,
+// Database is the definition of one direct database. Name keys it in saved-connections.json; empty Port,
 // Database and TLS fields apply the defaults (EffectivePort, EffectiveTLS).
 type Database struct {
 	Name     string  `json:"-"`

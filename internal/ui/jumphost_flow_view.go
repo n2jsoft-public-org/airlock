@@ -178,7 +178,7 @@ func (m jumphostWizardModel) stepHint() string {
 	case jumphostStepReview:
 		return "edit any field, then connect"
 	case jumphostStepDirectForm:
-		return "saved to databases.json · passwords never are"
+		return "saved to saved-connections.json · passwords never are"
 	default:
 		return ""
 	}

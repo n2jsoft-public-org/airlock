@@ -176,7 +176,7 @@ airlock                              # interactive wizard
 airlock rds my-db 5432               # tunnel to an RDS instance on localhost:5432
 airlock eks my-cluster 15432         # tunnel to a private EKS API endpoint
 airlock elasticache my-cache 6379    # tunnel to an ElastiCache cluster
-airlock direct legacy-billing        # a direct database declared with airlock db add
+airlock direct legacy-billing        # a direct database declared with airlock connection add
 airlock rds my-db 5432 --db-user app_ro
 ```
 
@@ -344,7 +344,7 @@ Once the tunnel is up, airlock checks the sign-in with `SELECT 1` and shows the 
 **Sign-in** row of the session. With **Auto** on SQL Server, it looks for the instance's read-only
 secrets (tag `readOnlySecretTag`), with or without a `dbname`: one is used right away, several are
 offered in a dialog (`1`–`9` or `enter`; `esc` decides later). A working secret becomes the session's
-sign-in (MCP server, IntelliJ data source, reconnect command) and is remembered in `connections.json`
+sign-in (MCP server, IntelliJ data source, reconnect command) and is remembered in `saved-connections.json`
 as a Secrets Manager sign-in, its ARN and user only, so the next connection skips the choice. When a
 check fails, the tunnel stays open and the other credentials are offered; if the database rejects a
 remembered secret, it is forgotten and the sign-in falls back to **Auto**. Press `a` to choose or
@@ -374,10 +374,11 @@ Secrets Manager sign-in needs `secretsmanager:ListSecrets` and `secretsmanager:G
 > airlock remembers each connection per target (AWS account, region, resource type and name), so
 > several profiles that reach one account share it. It stores the last profile and local port, plus the
 > user, sign-in method, secret ARN, keychain flag and MCP write access for databases, in
-> `~/.config/airlock/connections.json` (`$XDG_CONFIG_HOME/airlock` when set), as `sign_in`,
-> `db_secret_arn` and `password_in_keychain`. A saved port that is already in use falls back to a free
-> one, and `--db-user` / `--db-secret` / `--mcp-allow-writes` still win. **`connections.json` never
-> holds a password.**
+> `~/.config/airlock/saved-connections.json` (`$XDG_CONFIG_HOME/airlock` when set), next to the
+> direct databases. A saved port that is already in use falls back to a free one, and `--db-user` /
+> `--db-secret` / `--mcp-allow-writes` still win. **`saved-connections.json` never holds a password.**
+> `airlock connection list` shows every saved connection; `airlock connection remove <name>` forgets
+> one (`rds/my-db`, or its full key when several regions or accounts have one).
 
 ### Kubernetes (EKS)
 
@@ -405,13 +406,13 @@ any other connection, without tunnel nor AWS profile: same MCP server (`airlock-
 log, IntelliJ data source, sign-in check and `PROD` badge.
 
 ```sh
-airlock db add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --production
-airlock db add analytics --engine postgres --host 10.0.4.12 --database events --user reader --tls verify
-airlock db list                      # name, engine, address, database, user, TLS, production
-airlock db edit analytics --port 6432
-airlock db test legacy-billing       # signs in and runs SELECT 1
-airlock direct legacy-billing        # opens it in the dashboard
-airlock db remove analytics          # also forgets its saved choices and keychain password
+airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --production
+airlock connection add analytics --engine postgres --host 10.0.4.12 --database events --user reader --tls verify
+airlock connection list                # every saved connection: direct and through a jumphost
+airlock connection edit analytics --port 6432
+airlock connection test legacy-billing # signs in and runs SELECT 1
+airlock direct legacy-billing          # opens it in the dashboard
+airlock connection remove analytics    # also forgets its saved choices and keychain password
 ```
 
 The dashboard does the same: pick **Direct database** (`4`) on the Type step, then `a` adds a
@@ -428,20 +429,28 @@ recent connections as `direct · host:port`; `d` forgets one.
 | `--tls` | `require` | `require` encrypts without checking the certificate; `verify` also checks it, against the host name, with your system's trusted CAs; `disable` sends everything in clear text, for local databases only |
 | `--production` | off | Flags the database `PROD` in the wizard and the dashboard |
 
-`airlock db edit` changes only the flags you give; any change but `--production` (renaming it with
+`airlock connection edit` changes only the flags you give; any change but `--production` (renaming it with
 `--name`, or another engine, host, port, database, user or TLS mode) forgets the password remembered
-before, so that it never reaches another server or user. The dashboard's form and `airlock db
+before, so that it never reaches another server or user. The dashboard's form and `airlock connection
 import` do the same.
 
-Definitions live in `~/.config/airlock/databases.json`, next to `config.json`. Passwords never do:
-you type the password on the review step, and **Remember** keeps it in the OS keychain.
-`airlock direct <name>` without a terminal needs it there.
+Definitions live in `~/.config/airlock/saved-connections.json`, next to `config.json`. Passwords
+never do: you type the password on the review step, and **Remember** keeps it in the OS keychain.
+`airlock direct <name>` without a terminal needs it there. `airlock db …` still works as an alias
+of `airlock connection …`.
 
-**Sharing.** `airlock db export [name…]` prints the definitions as one `airlockdb1:` string, without
-any password. `airlock db import <string>` lists every database it adds (`+`), changes (`~`, field
+**Sharing.** `airlock connection export [name…]` prints the definitions as one `airlockdb1:` string, without
+any password. `airlock connection import <string>` lists every database it adds (`+`), changes (`~`, field
 by field) or keeps (`=`), then asks before writing; `--yes` skips the question. A database whose
 connection changes is marked `(remembered password will be forgotten)`: its password is forgotten
-once the import is applied. An import never removes a database.
+once the import is applied. A name held by an entry airlock cannot read is marked `(replaces an
+invalid entry)`, and the password remembered for the user it names is forgotten too. An import never
+removes a database.
+
+**Upgrading.** The first run of this version moves `databases.json` and `connections.json` into
+`saved-connections.json` and keeps the old files as `databases.json.bak` and `connections.json.bak`.
+Remembered keychain passwords are kept. A daemon started before the update keeps its old version
+until `airlock daemon restart`.
 
 > [!WARNING]
 > Read-only access to a direct **SQL Server** database rests on the permissions of its user: there

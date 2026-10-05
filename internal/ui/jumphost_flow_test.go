@@ -864,7 +864,7 @@ func TestWizardEscBacktracksNewFlow(t *testing.T) {
 func TestWizardWarnsAboutUnreadableHistory(t *testing.T) {
 	m := newJumphostWizardModel(context.Background(), fakeSessionRunner{}, jumphost.Options{})
 	m, _ = wizardUpdate(t, m, jumphostSavedLoadedMsg{err: errors.New("failed to parse")})
-	if m.step != jumphostStepType || !strings.Contains(m.errorMsg, "connections.json unreadable: failed to parse") {
+	if m.step != jumphostStepType || !strings.Contains(m.errorMsg, "saved-connections.json unreadable: failed to parse") {
 		t.Fatalf("step = %v error = %q", m.step, m.errorMsg)
 	}
 }

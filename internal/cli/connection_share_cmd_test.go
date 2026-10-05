@@ -24,7 +24,7 @@ func exportString(t *testing.T, dbs ...directdb.Database) string {
 	return shared
 }
 
-func TestDBExportPrintsOnlyTheString(t *testing.T) {
+func TestConnectionExportPrintsOnlyTheString(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)
 	putDatabase(t, store, &billing)
@@ -43,7 +43,7 @@ func TestDBExportPrintsOnlyTheString(t *testing.T) {
 	}
 }
 
-func TestDBExportNamedDatabases(t *testing.T) {
+func TestConnectionExportNamedDatabases(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)
 	putDatabase(t, store, &billing)
@@ -58,15 +58,15 @@ func TestDBExportNamedDatabases(t *testing.T) {
 	}
 }
 
-func TestDBExportUnknownName(t *testing.T) {
+func TestConnectionExportUnknownName(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)
-	if _, err := runAirlock(t, "db", "export", "archive", "nope"); err == nil || err.Error() != "no direct database named nope (see airlock db list)" {
+	if _, err := runAirlock(t, "db", "export", "archive", "nope"); err == nil || err.Error() != "no direct database named nope (see airlock connection list)" {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestDBImportShowsThePlanAndAbortsWithoutYes(t *testing.T) {
+func TestConnectionImportShowsThePlanAndAbortsWithoutYes(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)
 	putDatabase(t, store, &billing)
@@ -97,7 +97,7 @@ func TestDBImportShowsThePlanAndAbortsWithoutYes(t *testing.T) {
 	}
 }
 
-func TestDBImportAppliesWithYes(t *testing.T) {
+func TestConnectionImportAppliesWithYes(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)
 	putDatabase(t, store, &billing)
@@ -119,7 +119,7 @@ func TestDBImportAppliesWithYes(t *testing.T) {
 	}
 }
 
-func TestDBImportWithNothingToChange(t *testing.T) {
+func TestConnectionImportWithNothingToChange(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)
 	out, err := runAirlock(t, "db", "import", exportString(t, archive))
@@ -128,7 +128,7 @@ func TestDBImportWithNothingToChange(t *testing.T) {
 	}
 }
 
-func TestDBImportRefusesADamagedString(t *testing.T) {
+func TestConnectionImportRefusesADamagedString(t *testing.T) {
 	testDatabases(t)
 	shared := exportString(t, archive)
 	if _, err := runAirlock(t, "db", "import", shared[:len(shared)-3]); !errors.Is(err, directdb.ErrInvalidShare) {
@@ -136,7 +136,7 @@ func TestDBImportRefusesADamagedString(t *testing.T) {
 	}
 }
 
-func TestDBImportConnectionChangeForgetsTheConnection(t *testing.T) {
+func TestConnectionImportConnectionChangeForgetsTheConnection(t *testing.T) {
 	store, memory := testDatabases(t)
 	putDatabase(t, store, &billing)
 	putDatabase(t, store, &archive)
@@ -161,5 +161,54 @@ func TestDBImportConnectionChangeForgetsTheConnection(t *testing.T) {
 	}
 	if password, err := memory.Get("local/local/direct/archive/reader"); err != nil || password != "s3cret" {
 		t.Fatalf("keychain of archive = %q, %v; want it kept on a production-only change", password, err)
+	}
+}
+
+// invalidTraceDB is a direct entry left invalid by a typo, its password remembered in the keychain.
+const invalidTraceDB = `{"version": 1, "connections": {"trace-db": {"engine": "postgres", "host": "trace.internal", "user": "tracer", "tls": "requir", "sign_in": "password", "password_in_keychain": true}}}`
+
+const traceDBKeychainAccount = "local/local/direct/trace-db/tracer"
+
+func TestConnectionImportOverAnInvalidEntryForgetsItsPassword(t *testing.T) {
+	store, memory := testDatabases(t)
+	writeTestFile(t, store.Path(), invalidTraceDB)
+	if err := memory.Set(traceDBKeychainAccount, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	other := directdb.Database{Name: "trace-db", Engine: directdb.EnginePostgres, Host: "other.example", User: "tracer"}
+
+	out, err := runAirlock(t, "db", "import", exportString(t, other), "--yes")
+	if err != nil {
+		t.Fatalf("out = %q, err = %v", out, err)
+	}
+	if !strings.Contains(out, "  ~ trace-db (replaces an invalid entry) (remembered password will be forgotten)\n") {
+		t.Fatalf("the plan must tell that the invalid entry is replaced and its password forgotten:\n%s", out)
+	}
+	if _, err := memory.Get(traceDBKeychainAccount); !errors.Is(err, keychain.ErrNotFound) {
+		t.Fatalf("keychain entry of trace-db: err = %v, want ErrNotFound: the password must not reach the new host", err)
+	}
+	if db, found := getStored(t, store, "trace-db"); !found || db.Host != "other.example" {
+		t.Fatalf("trace-db = %+v (found %v), want the imported definition", db, found)
+	}
+}
+
+func TestConnectionImportOverAnInvalidEntryImportsNothingWhenItsPasswordStays(t *testing.T) {
+	store, memory := testDatabases(t)
+	writeTestFile(t, store.Path(), invalidTraceDB)
+	if err := memory.Set(traceDBKeychainAccount, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	newKeychain = func() keychain.Store { return undeletableKeychain{memory} }
+	other := directdb.Database{Name: "trace-db", Engine: directdb.EnginePostgres, Host: "other.example", User: "tracer"}
+
+	_, err := runAirlock(t, "db", "import", exportString(t, other), "--yes")
+	if err == nil || !strings.Contains(err.Error(), "nothing imported") {
+		t.Fatalf("err = %v, want nothing imported", err)
+	}
+	if entry, found, err := store.Store().Get("trace-db"); err != nil || !found || entry.Invalid == nil {
+		t.Fatalf("trace-db = %+v (found %v, err %v), want the invalid entry kept", entry, found, err)
+	}
+	if password, err := memory.Get(traceDBKeychainAccount); err != nil || password != "s3cret" {
+		t.Fatalf("keychain = %q, %v; want the password still there", password, err)
 	}
 }

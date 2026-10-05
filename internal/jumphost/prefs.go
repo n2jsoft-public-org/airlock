@@ -1,16 +1,12 @@
 package jumphost
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft/airlock/internal/connections"
 )
 
 const (
@@ -23,8 +19,6 @@ const (
 	// SignInAuto uses the automatic SQL Server secrets: tagged read-only secrets, or the master
 	// user secret with MCP writes.
 	SignInAuto = "auto"
-
-	prefsFileVersion = 2
 )
 
 // ConnectionPrefs are the choices remembered for one target (AWS account, region, type and name).
@@ -54,24 +48,55 @@ func (p ConnectionPrefs) SignInMethod() string { //nolint:gocritic
 	return p.SignIn
 }
 
-// prefsFile is the JSON document of a PrefsStore.
-type prefsFile struct {
-	// Connections is keyed by "<account>/<region>/<type>/<name>" (see TargetRef.key).
-	Connections map[string]ConnectionPrefs `json:"connections"`
-	Version     int                        `json:"version"`
-}
-
-// PrefsStore keeps ConnectionPrefs in a JSON file, one entry per database. Entries are keyed by
-// AWS account rather than profile: several profiles may reach one account, and profile names are
-// local to each machine.
+// PrefsStore keeps ConnectionPrefs in saved-connections.json (internal/connections): an RDS, EKS or
+// ElastiCache target as the entry of its account, region, type and name, a direct database as the
+// choices of its definition. Entries are keyed by AWS account rather than profile: several
+// profiles may reach one account, and profile names are local to each machine.
 type PrefsStore struct {
-	now  func() time.Time
-	path string
+	store *connections.Store
 }
 
-// NewPrefsStore stores preferences in path, created on the first save.
+// NewPrefsStore stores preferences in the saved-connections.json at path, created on the first save.
 func NewPrefsStore(path string) *PrefsStore {
-	return &PrefsStore{path: path, now: time.Now}
+	return &PrefsStore{store: connections.NewStore(path)}
+}
+
+// entryKey is the key of the entry of ref.
+func entryKey(ref TargetRef) string {
+	if ref.Type == resourceDirect {
+		return strings.TrimSpace(ref.Name)
+	}
+	return connections.JumphostKey(ref.Account, ref.Region, ref.Type, ref.Name)
+}
+
+// remembered reports whether entry holds choices: a jumphost entry always does, a direct database
+// once opened.
+func remembered(entry *connections.Entry) bool {
+	return entry.Jumphost != nil || (entry.Direct != nil && !entry.Choices.UsedAt.IsZero())
+}
+
+// prefsOf is the ConnectionPrefs of a valid entry.
+func prefsOf(entry *connections.Entry) ConnectionPrefs {
+	choices := &entry.Choices
+	prefs := ConnectionPrefs{
+		UpdatedAt: choices.UsedAt, SignIn: choices.SignIn, DBSecretARN: choices.SecretARN,
+		PasswordInKeychain: choices.PasswordInKeychain, LocalPort: choices.LocalPort, MCPAllowWrites: choices.MCPAllowWrites,
+	}
+	if entry.Direct != nil {
+		prefs.ResourceType, prefs.DBUser = resourceDirect, entry.Direct.User
+		return prefs
+	}
+	prefs.ResourceType, prefs.Profile, prefs.DBUser = entry.Jumphost.Type, entry.Jumphost.Profile, choices.User
+	return prefs
+}
+
+// refOf is the TargetRef of a valid entry.
+func refOf(entry *connections.Entry) TargetRef {
+	if entry.Direct != nil {
+		return DirectTargetRef(entry.Key)
+	}
+	target := entry.Jumphost
+	return TargetRef{Account: target.Account, Region: target.Region, Type: target.Type, Name: target.Target}
 }
 
 // TargetRef identifies an RDS instance, EKS cluster or ElastiCache cluster across AWS accounts.
@@ -89,16 +114,6 @@ func (t TargetRef) key() string {
 func (t TargetRef) complete() bool {
 	return strings.TrimSpace(t.Account) != "" && strings.TrimSpace(t.Region) != "" &&
 		strings.TrimSpace(t.Type) != "" && strings.TrimSpace(t.Name) != ""
-}
-
-// parseTargetRef reads a key written by TargetRef.key; false for any other key.
-func parseTargetRef(key string) (TargetRef, bool) {
-	parts := strings.Split(key, "/")
-	if len(parts) != 4 {
-		return TargetRef{}, false
-	}
-	ref := TargetRef{Account: parts[0], Region: parts[1], Type: parts[2], Name: parts[3]}
-	return ref, ref.complete()
 }
 
 // SavedConnection is one remembered target with its choices.
@@ -119,69 +134,43 @@ func (s *PrefsStore) Load(ref TargetRef) (ConnectionPrefs, bool) {
 	if !ref.complete() {
 		return ConnectionPrefs{}, false
 	}
-	file, err := s.read()
-	if err != nil {
+	entry, found, err := s.store.Get(entryKey(ref))
+	if err != nil || !found || entry.Invalid != nil || !remembered(&entry) {
 		return ConnectionPrefs{}, false
 	}
-	prefs, ok := file.Connections[ref.key()]
-	return prefs, ok
+	return prefsOf(&entry), true
 }
 
-// lock holds the cross-process lock of the file while a change reads and rewrites it: the daemon
-// and the dashboards save choices concurrently.
-func (s *PrefsStore) lock() (unlock func(), err error) {
-	dirErr := os.MkdirAll(filepath.Dir(s.path), 0o700)
-	if dirErr != nil {
-		return nil, fmt.Errorf("failed to create %s: %w", filepath.Dir(s.path), dirErr)
-	}
-	file, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- next to the user's own prefs file.
-	if err != nil {
-		return nil, fmt.Errorf("failed to lock connection preferences: %w", err)
-	}
-	if err := platform.LockFile(file); err != nil {
-		_ = file.Close() //nolint:errcheck // ignore close error on failed lock
-		return nil, fmt.Errorf("failed to lock connection preferences: %w", err)
-	}
-	return func() {
-		_ = platform.UnlockFile(file) //nolint:errcheck // ignore unlock error on cleanup
-		_ = file.Close()              //nolint:errcheck // ignore close error on cleanup
-	}, nil
-}
-
-// Save records prefs for ref, keeping the entries of other targets.
+// Save records prefs for ref, dated now, keeping the entries of other targets. The choices of a
+// direct database are only saved while its definition exists.
 func (s *PrefsStore) Save(ref TargetRef, prefs *ConnectionPrefs) error {
 	if !ref.complete() {
 		return errors.New("connection preferences need an AWS account, a region, a type and a name")
 	}
-	unlock, err := s.lock()
-	if err != nil {
-		return err
+	choices := connections.Choices{
+		User: prefs.DBUser, SignIn: prefs.SignIn, SecretARN: prefs.DBSecretARN,
+		PasswordInKeychain: prefs.PasswordInKeychain, LocalPort: prefs.LocalPort, MCPAllowWrites: prefs.MCPAllowWrites,
 	}
-	defer unlock()
-	file, err := s.read()
-	if err != nil {
-		// Rewriting would drop every entry of a file we cannot parse.
-		return err
+	if ref.Type == resourceDirect {
+		return s.store.RememberDirect(ref.Name, choices)
 	}
-	saved := *prefs
-	saved.UpdatedAt = s.now().UTC()
-	file.Connections[ref.key()] = saved
-	return s.write(file)
+	return s.store.RememberJumphost(connections.JumphostTarget{
+		Account: ref.Account, Region: ref.Region, Type: ref.Type, Target: ref.Name, Profile: prefs.Profile,
+	}, choices)
 }
 
-// List returns every remembered target, most recently used first. Keys of another format are skipped.
+// List returns every remembered target, most recently used first. Invalid entries and direct
+// databases never opened are skipped.
 func (s *PrefsStore) List() ([]SavedConnection, error) {
-	file, err := s.read()
+	entries, err := s.store.List()
 	if err != nil {
 		return nil, err
 	}
-	saved := make([]SavedConnection, 0, len(file.Connections))
-	for key, prefs := range file.Connections {
-		ref, ok := parseTargetRef(key)
-		if !ok {
-			continue
+	saved := make([]SavedConnection, 0, len(entries))
+	for idx := range entries {
+		if entry := &entries[idx]; entry.Invalid == nil && remembered(entry) {
+			saved = append(saved, SavedConnection{Ref: refOf(entry), Prefs: prefsOf(entry)})
 		}
-		saved = append(saved, SavedConnection{Ref: ref, Prefs: prefs})
 	}
 	sort.Slice(saved, func(i, j int) bool {
 		if !saved[i].Prefs.UpdatedAt.Equal(saved[j].Prefs.UpdatedAt) {
@@ -192,73 +181,8 @@ func (s *PrefsStore) List() ([]SavedConnection, error) {
 	return saved, nil
 }
 
-// Delete forgets ref, keeping the other entries. Forgetting an unknown target is not an error.
+// Delete forgets ref, keeping the other entries: a jumphost target goes, a direct database keeps
+// its definition. Forgetting an unknown target is not an error.
 func (s *PrefsStore) Delete(ref TargetRef) error {
-	unlock, err := s.lock()
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	file, err := s.read()
-	if err != nil {
-		// Rewriting would drop every entry of a file we cannot parse.
-		return err
-	}
-	if _, ok := file.Connections[ref.key()]; !ok {
-		return nil
-	}
-	delete(file.Connections, ref.key())
-	return s.write(file)
-}
-
-// write stores file as the current version.
-func (s *PrefsStore) write(file prefsFile) error {
-	file.Version = prefsFileVersion
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to encode connection preferences: %w", err)
-	}
-	return writePrefsAtomic(s.path, append(data, '\n'))
-}
-
-// read parses the file; a missing file is an empty document.
-func (s *PrefsStore) read() (prefsFile, error) {
-	file := prefsFile{Connections: map[string]ConnectionPrefs{}}
-	data, err := os.ReadFile(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return file, nil
-	}
-	if err != nil {
-		return file, fmt.Errorf("failed to read connection preferences: %w", err)
-	}
-	if err := json.Unmarshal(data, &file); err != nil {
-		return file, fmt.Errorf("failed to parse connection preferences %s: %w", s.path, err)
-	}
-	if file.Connections == nil {
-		file.Connections = map[string]ConnectionPrefs{}
-	}
-	return file, nil
-}
-
-// writePrefsAtomic replaces path through a temporary file, so a crash never leaves it half written.
-func writePrefsAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("failed to create %s: %w", dir, err)
-	}
-	tmp, err := os.CreateTemp(dir, ".connections-*.json")
-	if err != nil {
-		return fmt.Errorf("failed to save connection preferences: %w", err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-
-	_, writeErr := tmp.Write(data)
-	closeErr := tmp.Close()
-	if err := errors.Join(writeErr, closeErr, os.Chmod(tmp.Name(), 0o600)); err != nil {
-		return fmt.Errorf("failed to save connection preferences: %w", err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("failed to save connection preferences: %w", err)
-	}
-	return nil
+	return s.store.Forget(entryKey(ref))
 }
