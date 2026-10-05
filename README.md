@@ -561,21 +561,51 @@ the tunnel is reachable: keys of other shards answer `MOVED`. Memcached sessions
 **Registration.** The server is registered as `<prefix>-<profile>-<instance>` for a database,
 `<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
 cache (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
-name never share one, in:
+name never share one, in the configuration of the AI clients chosen by `mcpClients` (or
+`--mcp-clients`):
 
-- `.mcp.json` for **Claude Code**, written when `.mcp.json` or `.claude/` exists
-- `.vscode/mcp.json` for **VS Code**, written when `.vscode/` exists
+| Client | Name | Project file (`<client>`) | User file (`<client>:user`) | Detected by `auto` when |
+|---|---|---|---|---|
+| **Claude Code** | `claude` | `.mcp.json` | `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when set) | `.mcp.json` exists (`.claude/` alone is not enough) |
+| **VS Code** | `vscode` | `.vscode/mcp.json` | `mcp.json` of the VS Code user settings directory | `.vscode/` exists |
+| **Codex** | `codex` | `.codex/config.toml` | `~/.codex/config.toml` (`$CODEX_HOME/config.toml` when set) | `.codex/` exists |
+| **Cursor** | `cursor` | `.cursor/mcp.json` | `~/.cursor/mcp.json` | `.cursor/` exists |
+| **Gemini CLI** | `gemini` | `.gemini/settings.json` | `~/.gemini/settings.json` | `.gemini/` exists |
 
-It is removed when the session stops. The prefix comes from `mcpServerPrefix` (default `airlock`)
+`mcpClients` is `auto` by default: the project files of the clients the working directory uses.
+For Claude Code, that means `.mcp.json` is only updated when it already exists: create it (`{}`)
+or select `claude` to have airlock write it.
+Otherwise it lists clients, comma-separated, each written in its project file, or in its user file
+with `:user`. The user file serves every project, wherever airlock runs. `auto` can be combined with
+the list, and `none` registers nothing:
+
+```sh
+airlock config set mcpClients claude:user,codex   # Claude Code everywhere, Codex in the current project
+airlock config set mcpClients auto,codex:user     # detected project clients, plus Codex everywhere
+airlock --mcp-clients none                        # this run only: register nowhere
+```
+
+A client chosen explicitly gets its project file even when its directory does not exist yet. Project
+files are never written when the working directory is your home directory: use `:user` there. Each
+file is edited in place: the other servers and settings are kept. JSON files must be plain JSON,
+without comments. Codex's TOML keeps its comments.
+
+The entry is removed when the session stops. The prefix comes from `mcpServerPrefix` (default `airlock`)
 and is not repeated for profiles that already start with it: prefix `team` with profile `team-prod`
 gives `team-prod-<instance>`. A red `WRITES` badge flags the sessions whose server can modify
 data, in the sidebar and the compact pills. The dashboard's `MCP` row shows `read-only` or
-`WRITES ENABLED`, the server name and its URL. When neither file exists, it also shows the bearer token so you can
-configure a client by hand.
+`WRITES ENABLED`, the server name, its URL and the files it was written to. When no file was
+written, it also shows the bearer token so you can configure a client by hand.
 
 > [!IMPORTANT]
 > Claude Code reads `.mcp.json` at startup and asks you to approve new project servers. If you open
-> a session while Claude Code is already running, use `/mcp` to reconnect.
+> a session while Claude Code is already running, use `/mcp` to reconnect. Codex only loads a
+> project's `.codex/config.toml` once you trust the project, and reads its servers at startup.
+
+> [!WARNING]
+> Claude Code rewrites `~/.claude.json` while it runs, so an entry written in it by `claude:user`
+> can be lost if Claude Code saves that file at the same moment. Prefer the project file when
+> Claude Code is open.
 
 **Credentials.** Nothing is written to disk.
 
@@ -623,6 +653,8 @@ unknown key or a malformed value is an error that names the file.
 | `mcpServerPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
 | `defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
 | `productionProfiles` | none | none | Comma-separated patterns (`*` wildcard, any case) of the AWS profiles flagged as production, e.g. `*prod*,*-live` |
+| `mcpClients` | `--mcp-clients` | `auto` | AI clients the MCP servers are registered in: `auto`, `none`, or e.g. `claude:user,codex` (see [AI access with MCP](#-ai-access-with-mcp)) |
+| `mode` | `--mode` | `cli` | `cli`: sessions live in each `airlock` and close with it; `daemon`: a background daemon keeps them (see [Daemon mode](#daemon-mode)) |
 
 Profiles matching `productionProfiles` get an orange `PROD` badge everywhere they appear: the
 wizard header, profile list, recent connections and review step, and the dashboard's session
@@ -642,6 +674,58 @@ airlock config unset <key>       # remove a key so its default applies again
 The file is rewritten indented, with keys in a fixed order. Errors caused by a setting name it. For
 example, a jumphost not found with the configured tag points to `jumphostTag`, `airlock config show`
 and `--jumphost-tag`.
+
+### Daemon mode
+
+With `"mode": "daemon"`, a background daemon keeps the sessions. `airlock` starts it when needed,
+then shows its dashboard: closing the terminal or pressing `q` leaves the sessions running, and
+`airlock` in any terminal shows them again. Several dashboards can be open at once; each has its
+own selection, and closes on its own. `airlock direct <name>` opens the review step of that
+database in the dashboard, so you can type the password, like in CLI mode. `airlock <type> <name>`
+opens that target in the daemon, or shows its session when the daemon already runs it (same type,
+name and profile, and region when `--region` is given).
+
+```sh
+airlock config set mode daemon
+airlock --mode daemon    # or choose the mode for one run (--mode cli to leave it)
+airlock daemon status    # running or not, version, sessions, views, socket and log
+airlock daemon stop      # stop every session, then the daemon
+airlock daemon restart   # after an update, or to pick up a new environment
+```
+
+| Key | In a daemon view |
+|---|---|
+| `q`, `ctrl+c` | Leave this view; the sessions keep running |
+| `Q` | Stop all and quit: asks first, then stops every session and the daemon |
+| `r` | After a lost connection: reconnect (starting the daemon again if needed) |
+
+When the daemon is stopped on purpose (`Q`, `airlock daemon stop`, a signal, or the idle stop),
+every view closes and prints `The airlock daemon stopped.` If the connection is lost otherwise (the
+daemon crashed), the view shows a banner: `r` reconnects, `q` quits.
+
+The daemon takes its settings from `config.json` and reads it again when it changes: the next
+connections use the new values. For that reason, the setting flags `--jumphost-tag`,
+`--read-only-secret-tag`, `--mcp-server-prefix` and `--mcp-clients` are refused in daemon mode: use
+`airlock config set`, or run with `--mode cli`.
+
+It stops on its own after 10 minutes without running session nor dashboard; ended sessions go
+with it. It listens on a socket only you can open (`~/Library/Caches/airlock/daemon/daemon.sock` on
+macOS, `~/.cache/airlock/daemon/daemon.sock` on Linux, or under `$XDG_CACHE_HOME` when set,
+`%LocalAppData%\airlock\daemon\daemon.sock` on Windows); on macOS and Linux, airlock refuses a
+daemon directory owned by another user. It logs to `daemon.log` in airlock's logs
+directory, next to the MCP query logs; the previous log is kept as `daemon.log.1`. A daemon that
+fails to start writes why there, and `airlock` quotes the end of it.
+
+The IntelliJ data source and the MCP entries of a session are written in the directory of the
+terminal that opened it. An AWS sign-in during an opening runs in that terminal too. A session that
+drops while its terminal is gone is reconnected automatically, unless AWS asks to sign in again:
+then press `r` in any dashboard.
+
+Runs without a terminal (scripts) stay standalone, whatever the mode. `airlock update` replaces
+the binary, not the running daemon: when it runs another version, the next `airlock` asks before
+restarting it (restarting closes its sessions), and `airlock daemon status` tells too.
+`airlock uninstall` lists the running daemon and its sessions among what it will do, and stops them
+only after you confirm.
 
 ### Sharing settings with your team
 

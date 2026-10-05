@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/aiclient"
 )
 
 // useIsolatedLocks keeps config locks of the test in its own directory.
@@ -19,11 +21,23 @@ func sampleEntry(url string) ClientEntry {
 	return ClientEntry{Name: "acme-dev-app", URL: url, Token: "tok"}
 }
 
+// writeEmptyMCPJSON creates an empty .mcp.json in dir, which auto-detection takes for Claude Code.
+func writeEmptyMCPJSON(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRegisterClientsSkipsProjectsWithoutClients(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
+	// .claude/ alone does not make airlock create a .mcp.json.
+	if err := os.Mkdir(filepath.Join(dir, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
 
-	written, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a"))
+	written, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a"))
 	if err != nil || len(written) != 0 {
 		t.Fatalf("written = %v, err = %v", written, err)
 	}
@@ -35,10 +49,10 @@ func TestRegisterClientsSkipsProjectsWithoutClients(t *testing.T) {
 func TestRegisterClientsWritesClaudeAndVSCodeFiles(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+	writeEmptyMCPJSON(t, dir)
 	_ = os.Mkdir(filepath.Join(dir, ".vscode"), 0o750)
 
-	written, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a"))
+	written, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +90,7 @@ func TestRegisterClientsPreservesOtherKeysAndOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
 		t.Fatal(err)
 	}
 	content := readFile(t, path)
@@ -98,7 +112,7 @@ func TestRegisterClientsRejectsJSONWithComments(t *testing.T) {
 	original := "{\n  // my servers\n  \"servers\": {}\n}\n"
 	_ = os.WriteFile(path, []byte(original), 0o600)
 
-	_, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a"))
+	_, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a"))
 	if err == nil || !strings.Contains(err.Error(), "comments are not supported") {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,11 +127,11 @@ func TestUnregisterClientsRemovesOnlyOwnEntry(t *testing.T) {
 	path := filepath.Join(dir, ".mcp.json")
 	_ = os.WriteFile(path, []byte(`{"mcpServers": {"other": {"command": "x"}}}`), 0o600)
 	ours := sampleEntry("http://127.0.0.1:1/mcp/a")
-	if _, err := RegisterClients(dir, ours); err != nil {
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, ours); err != nil {
 		t.Fatal(err)
 	}
 
-	changed, err := UnregisterClients(dir, ours)
+	changed, err := UnregisterClients(dir, aiclient.AutoDetect, ours)
 	if err != nil || len(changed) != 1 {
 		t.Fatalf("changed = %v, err = %v", changed, err)
 	}
@@ -130,12 +144,16 @@ func TestUnregisterClientsRemovesOnlyOwnEntry(t *testing.T) {
 func TestUnregisterClientsKeepsEntryReplacedByAnotherSession(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+	writeEmptyMCPJSON(t, dir)
 	first, second := sampleEntry("http://127.0.0.1:1/mcp/a"), sampleEntry("http://127.0.0.1:2/mcp/b")
-	_, _ = RegisterClients(dir, first)
-	_, _ = RegisterClients(dir, second)
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, second); err != nil {
+		t.Fatal(err)
+	}
 
-	changed, err := UnregisterClients(dir, first)
+	changed, err := UnregisterClients(dir, aiclient.AutoDetect, first)
 	if err != nil || len(changed) != 0 {
 		t.Fatalf("changed = %v, err = %v", changed, err)
 	}
@@ -146,7 +164,7 @@ func TestUnregisterClientsKeepsEntryReplacedByAnotherSession(t *testing.T) {
 
 func TestUnregisterClientsWithoutFiles(t *testing.T) {
 	useIsolatedLocks(t)
-	changed, err := UnregisterClients(t.TempDir(), sampleEntry("http://127.0.0.1:1/mcp/a"))
+	changed, err := UnregisterClients(t.TempDir(), aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a"))
 	if err != nil || len(changed) != 0 {
 		t.Fatalf("changed = %v, err = %v", changed, err)
 	}
@@ -155,7 +173,7 @@ func TestUnregisterClientsWithoutFiles(t *testing.T) {
 func TestRegisterClientsConcurrentSessionsKeepBothEntries(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+	writeEmptyMCPJSON(t, dir)
 
 	var wg sync.WaitGroup
 	for i := range 10 {
@@ -163,7 +181,7 @@ func TestRegisterClientsConcurrentSessionsKeepBothEntries(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			entry := ClientEntry{Name: fmt.Sprintf("acme-%c", 'a'+i), URL: "http://127.0.0.1:1/mcp/x", Token: "t"}
-			if _, err := RegisterClients(dir, entry); err != nil {
+			if _, err := RegisterClients(dir, aiclient.AutoDetect, entry); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -184,7 +202,7 @@ func TestRegisterClientsKeepsIndentation(t *testing.T) {
 	path := filepath.Join(dir, ".mcp.json")
 	_ = os.WriteFile(path, []byte("{\n\t\"mcpServers\": {}\n}\n"), 0o600)
 
-	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
 		t.Fatal(err)
 	}
 	if content := readFile(t, path); !strings.HasPrefix(content, "{\n\t\"mcpServers\": {\n\t\t\"acme-dev-app\"") {
@@ -195,17 +213,17 @@ func TestRegisterClientsKeepsIndentation(t *testing.T) {
 func TestRegisterClientsSkipsTheHomeDirectory(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+	writeEmptyMCPJSON(t, dir)
 	_ = os.Mkdir(filepath.Join(dir, ".vscode"), 0o750)
 	previous := userHomeDir
 	userHomeDir = func() (string, error) { return dir, nil }
 	t.Cleanup(func() { userHomeDir = previous })
 
-	written, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a"))
+	written, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a"))
 	if err != nil || len(written) != 0 {
 		t.Fatalf("written = %v, err = %v", written, err)
 	}
-	if exists(filepath.Join(dir, ".mcp.json")) || exists(filepath.Join(dir, ".vscode", "mcp.json")) {
+	if readFile(t, filepath.Join(dir, ".mcp.json")) != "{}" || exists(filepath.Join(dir, ".vscode", "mcp.json")) {
 		t.Fatal("must not write into the user's home directory")
 	}
 }
@@ -213,9 +231,9 @@ func TestRegisterClientsSkipsTheHomeDirectory(t *testing.T) {
 func TestRegisterClientsNewFileGetsRestrictivePermissions(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
 
-	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
+	if _, err := RegisterClients(dir, aiclient.Selection{Targets: []aiclient.Target{{Client: aiclient.Claude, Scope: aiclient.ScopeProject}}},
+		sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(dir, ".mcp.json"))
@@ -236,7 +254,7 @@ func TestRegisterClientsKeepsHTMLCharactersByteForByte(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/a")); err != nil {
 		t.Fatal(err)
 	}
 	content := readFile(t, path)
@@ -248,11 +266,13 @@ func TestRegisterClientsKeepsHTMLCharactersByteForByte(t *testing.T) {
 func TestRegisterClientsReplacesStaleEntryOfSameTarget(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	_ = os.Mkdir(filepath.Join(dir, ".claude"), 0o750)
+	writeEmptyMCPJSON(t, dir)
 	// A crashed session left its entry behind; the next session of the same target takes the name over.
-	_, _ = RegisterClients(dir, sampleEntry("http://127.0.0.1:1/mcp/crashed"))
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:1/mcp/crashed")); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := RegisterClients(dir, sampleEntry("http://127.0.0.1:2/mcp/new")); err != nil {
+	if _, err := RegisterClients(dir, aiclient.AutoDetect, sampleEntry("http://127.0.0.1:2/mcp/new")); err != nil {
 		t.Fatal(err)
 	}
 	content := readFile(t, filepath.Join(dir, ".mcp.json"))

@@ -9,21 +9,29 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
-// newCopyTestModel returns a dashboard whose copies land in *copied instead of the clipboard.
-func newCopyTestModel(t *testing.T) (m ssmModel, copied *[]string) {
+// copyTestSession is the archive session of the copy tests, on local port 5432.
+func copyTestSession() sessions.Session {
+	s := testSession(1, "archive")
+	s.LocalPort = 5432
+	s.Details.TokenCommand = "aws rds generate-db-auth-token --hostname archive.rds --port 5432 --username app_ro --profile dev --region eu-west-3"
+	s.Details.RestartCommand = "airlock rds archive 5432 --profile dev --region eu-west-3"
+	return s
+}
+
+// newCopyTestModel returns a dashboard on s whose copies land in *copied instead of the clipboard.
+func newCopyTestModel(t *testing.T, s *sessions.Session) (m ssmModel, service *fakeService, copied *[]string) {
 	t.Helper()
-	m = newTestSSMModel(t, "archive")
+	service = newFakeService(*s)
+	m = newServiceModel(t, service)
 	copied = &[]string{}
 	m.copier = func(text string) error {
 		*copied = append(*copied, text)
 		return nil
 	}
-	details := &m.sessions[0].session.Details
-	details.TokenCommand = "aws rds generate-db-auth-token --hostname archive.rds --port 5432 --username app_ro --profile dev --region eu-west-3"
-	details.RestartCommand = "airlock rds archive 5432 --profile dev --region eu-west-3"
-	return m, copied
+	return m, service, copied
 }
 
 // copyChosen runs the copy command of a menu choice and feeds its result back.
@@ -40,7 +48,7 @@ func copyChosen(t *testing.T, m ssmModel, keys ...string) ssmModel {
 }
 
 func TestCopyMenuListsWhatCanBeCopied(t *testing.T) {
-	m, _ := newCopyTestModel(t)
+	m, _, _ := newCopyTestModel(t, new(copyTestSession()))
 
 	m, _ = update(t, m, key("c"))
 	if m.mode != ssmModeCopy {
@@ -58,7 +66,7 @@ func TestCopyMenuListsWhatCanBeCopied(t *testing.T) {
 }
 
 func TestCopyMenuCopiesByNumberOrSelection(t *testing.T) {
-	m, copied := newCopyTestModel(t)
+	m, _, copied := newCopyTestModel(t, new(copyTestSession()))
 
 	m = copyChosen(t, m, "c", "3")
 	if len(*copied) != 1 || (*copied)[0] != "airlock rds archive 5432 --profile dev --region eu-west-3" {
@@ -75,11 +83,10 @@ func TestCopyMenuCopiesByNumberOrSelection(t *testing.T) {
 }
 
 func TestCopyMenuOffersKubeconfigAndLastQuery(t *testing.T) {
-	m, copied := newCopyTestModel(t)
-	m.sessions[0].session.Details.Kubeconfig = "/home/dev/.config/airlock/kube/platform.json"
-	m.sessions[0].mcp = &ssmMCPQueries{}
-	m.sessions[0].mcp.add(ptr(queryEvent("query", "SELECT 1")))
-	m.sessions[0].mcp.add(ptr(queryEvent("query", "SELECT id FROM users")))
+	s := copyTestSession()
+	s.Details.Kubeconfig = "/home/dev/.config/airlock/kube/platform.json"
+	s.MCP = &sessions.MCP{Events: []mcpserve.ToolEvent{queryEvent("query", "SELECT 1"), queryEvent("query", "SELECT id FROM users")}, Total: 2}
+	m, _, copied := newCopyTestModel(t, &s)
 
 	m = copyChosen(t, m, "c")
 	view := plainView(m)
@@ -97,9 +104,9 @@ func TestCopyMenuOffersKubeconfigAndLastQuery(t *testing.T) {
 }
 
 func TestCopyMenuOffersTheLastNonSQLCall(t *testing.T) {
-	m, copied := newCopyTestModel(t)
-	m.sessions[0].mcp = &ssmMCPQueries{}
-	m.sessions[0].mcp.add(&mcpserve.ToolEvent{Tool: "command", Engine: "redis", Command: "HGETALL user:1"})
+	s := copyTestSession()
+	s.MCP = &sessions.MCP{Events: []mcpserve.ToolEvent{{Tool: "command", Engine: "redis", Command: "HGETALL user:1"}}, Total: 1}
+	m, _, copied := newCopyTestModel(t, &s)
 
 	m = copyChosen(t, m, "c")
 	if !strings.Contains(plainView(m), "Last MCP call") {
@@ -112,7 +119,7 @@ func TestCopyMenuOffersTheLastNonSQLCall(t *testing.T) {
 }
 
 func TestCopyFailureIsShown(t *testing.T) {
-	m, _ := newCopyTestModel(t)
+	m, _, _ := newCopyTestModel(t, new(copyTestSession()))
 	m.copier = func(string) error { return errors.New("no clipboard") }
 
 	m = copyChosen(t, m, "c", "1")
@@ -122,7 +129,7 @@ func TestCopyFailureIsShown(t *testing.T) {
 }
 
 func TestCopyMenuEscCloses(t *testing.T) {
-	m, copied := newCopyTestModel(t)
+	m, _, copied := newCopyTestModel(t, new(copyTestSession()))
 	m = copyChosen(t, m, "c", "esc")
 	if m.mode != ssmModeSessions || len(*copied) != 0 {
 		t.Fatalf("mode = %v copied = %v, want the menu closed without copying", m.mode, *copied)
@@ -149,5 +156,3 @@ func TestWriteOSC52(t *testing.T) {
 		t.Fatalf("sequence = %q, want it passed through tmux", out.String())
 	}
 }
-
-func ptr[T any](v T) *T { return &v }

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/n2jsoft/airlock/internal/aiclient"
 )
 
 const (
@@ -40,14 +42,23 @@ type Host struct {
 	server  *http.Server
 	routes  map[string]route
 	baseURL string
+	// clients are the AI clients the servers are registered in.
+	clients aiclient.Selection
 	mu      sync.Mutex
 }
 
-// NewHost returns a host listening on a random port of 127.0.0.1 once a server is mounted.
+// NewHost returns a host listening on a random port of 127.0.0.1 once a server is mounted, whose
+// servers are registered in the AI clients the project uses.
 func NewHost() *Host {
+	return NewHostFor(aiclient.AutoDetect)
+}
+
+// NewHostFor is NewHost registering the servers in clients.
+func NewHostFor(clients aiclient.Selection) *Host {
 	return &Host{
-		listen: func() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") },
-		routes: map[string]route{},
+		listen:  func() (net.Listener, error) { return net.Listen("tcp", "127.0.0.1:0") },
+		routes:  map[string]route{},
+		clients: clients,
 	}
 }
 

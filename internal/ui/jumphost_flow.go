@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 type JumphostDiscovery interface {
@@ -103,7 +104,7 @@ var resourceTypeOptions = []resourceTypeOption{
 
 // directCard is the Type step card of direct databases, offered when the dashboard has a store.
 var directCard = resourceTypeOption{
-	name:  directResourceType,
+	name:  sessions.DirectResourceType,
 	title: "Direct database",
 	desc:  "PostgreSQL or SQL Server reached without jumphost, with IDE data source and MCP server",
 }
@@ -359,7 +360,7 @@ func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
 // step is behind, in a new connection or a recent direct entry reopened. A search never does, even
 // when a direct list left its type behind.
 func (m jumphostWizardModel) isDirect() bool {
-	return (m.flow == flowNew || m.flow == flowRecent) && m.options.ResourceType == directResourceType &&
+	return (m.flow == flowNew || m.flow == flowRecent) && m.options.ResourceType == sessions.DirectResourceType &&
 		m.step != jumphostStepType && m.step != jumphostStepStart
 }
 
@@ -681,7 +682,7 @@ func (m jumphostWizardModel) pickResourceType(index int) (tea.Model, tea.Cmd) {
 	m = m.clearDirectOptions()
 	m.options.ResourceType = m.typeOptions()[index].name
 	m.errorMsg = ""
-	if m.options.ResourceType == directResourceType {
+	if m.options.ResourceType == sessions.DirectResourceType {
 		return m.enterDirectList()
 	}
 	if m.askProfile {
@@ -890,7 +891,7 @@ func (m jumphostWizardModel) mcpApplies() bool {
 		return false
 	}
 	switch m.options.ResourceType {
-	case "rds", "eks", directResourceType:
+	case "rds", "eks", sessions.DirectResourceType:
 		return true
 	case "elasticache":
 		return jumphost.CacheEngineSupported(m.targetEngine)

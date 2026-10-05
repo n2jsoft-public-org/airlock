@@ -29,12 +29,12 @@ func TestPaletteAdaptsToLightTerminals(t *testing.T) {
 }
 
 func TestCountsArePluralized(t *testing.T) {
-	m := newTestSSMModel(t, "db")
-	m.sessions[0].connections = 1
+	m, _ := newSessionsModel(t, "db")
+	m.sessions[0].Connections = 1
 	if view := plainView(m); !strings.Contains(view, "1 connection") || strings.Contains(view, "connection(s)") {
 		t.Fatalf("details do not say 1 connection:\n%s", view)
 	}
-	m.sessions[0].connections = 2
+	m.sessions[0].Connections = 2
 	if view := plainView(m); !strings.Contains(view, "2 connections") {
 		t.Fatalf("details do not say 2 connections:\n%s", view)
 	}
@@ -46,7 +46,7 @@ func TestCountsArePluralized(t *testing.T) {
 }
 
 func TestHelpFitsAShortTerminal(t *testing.T) {
-	m := newTestSSMModel(t, "db")
+	m, _ := newSessionsModel(t, "db")
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m, _ = update(t, m, key("?"))
 	if view := plainView(m); !helpComplete(view) {

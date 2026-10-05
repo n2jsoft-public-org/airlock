@@ -335,10 +335,11 @@ func TestDirectSignInChecksThePasswordAndForgetsARejectedOne(t *testing.T) {
 func TestRunDirectReleasesOnCancel(t *testing.T) {
 	t.Cleanup(mcpserve.IsolateLocks(t.TempDir()))
 	projectDir := t.TempDir()
-	for _, dir := range []string{".claude", ".idea"} {
-		if err := os.Mkdir(filepath.Join(projectDir, dir), 0o750); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.Mkdir(filepath.Join(projectDir, ".idea"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	var out bytes.Buffer
 	runner := directRunner(t, &RunnerOptions{ProjectDir: projectDir, Out: &out})

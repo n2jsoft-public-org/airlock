@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -154,9 +155,9 @@ func encodeCommand(script string) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
-// OtherInstances counts the other running processes of exe: while one runs, its binary cannot be
-// deleted.
-func OtherInstances(exe string) (int, error) {
+// OtherInstances counts the other running processes of exe, but those of except: while one runs,
+// its binary cannot be deleted.
+func OtherInstances(exe string, except ...int) (int, error) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return 0, fmt.Errorf("cannot list the running programs: %w", err)
@@ -167,7 +168,7 @@ func OtherInstances(exe string) (int, error) {
 	count := 0
 	entry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
 	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
-		if entry.ProcessID == self || !strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), filepath.Base(exe)) {
+		if entry.ProcessID == self || slices.Contains(except, int(entry.ProcessID)) || !strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), filepath.Base(exe)) {
 			continue
 		}
 		if path, pathErr := processPath(entry.ProcessID); pathErr == nil && strings.EqualFold(path, exe) {

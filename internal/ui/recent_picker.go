@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 type recentPickerOutcome int
@@ -44,7 +45,7 @@ func connectionKey(profile, region, resourceType, name string) string {
 
 // directConnectionKey identifies a direct database connection, which has no profile or region.
 func directConnectionKey(name string) string {
-	return connectionKey("", "", directResourceType, name)
+	return connectionKey("", "", sessions.DirectResourceType, name)
 }
 
 // recentItem is one remembered connection of the start screen.
@@ -61,7 +62,7 @@ type recentItem struct {
 func (i recentItem) isProduction() bool { return i.production }
 
 // direct reports whether the entry is a direct database, which has no profile nor region.
-func (i recentItem) direct() bool { return i.conn.Ref.Type == directResourceType }
+func (i recentItem) direct() bool { return i.conn.Ref.Type == sessions.DirectResourceType }
 
 // isDimmed fades a direct entry whose definition was removed.
 func (i recentItem) isDimmed() bool { return i.conn.TargetMissing }
@@ -77,11 +78,11 @@ func (i recentItem) Description() string {
 	var parts []string
 	switch {
 	case i.direct() && i.conn.TargetMissing:
-		parts = []string{directResourceType, "definition removed"}
+		parts = []string{sessions.DirectResourceType, "definition removed"}
 	case i.direct() && i.db.Host != "":
-		parts = []string{directResourceType, i.db.Address()}
+		parts = []string{sessions.DirectResourceType, i.db.Address()}
 	case i.direct():
-		parts = []string{directResourceType}
+		parts = []string{sessions.DirectResourceType}
 	default:
 		profile := i.conn.Prefs.Profile
 		if i.conn.ProfileMissing {

@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // copyItem is one value the copy menu puts on the clipboard.
@@ -23,38 +24,38 @@ type ssmCopiedMsg struct {
 
 // copyItems lists what the copy menu offers for s, always in the same order so numbers stay stable.
 // A direct session offers its server and user, never its password.
-func copyItems(s *ssmSession) []copyItem {
-	details := s.session.Details
+func copyItems(s *sessions.Session) []copyItem {
+	details := s.Details
 	var items []copyItem
 	add := func(label, value string) {
 		if value = strings.TrimSpace(value); value != "" {
 			items = append(items, copyItem{label: label, value: value})
 		}
 	}
-	if s.direct() {
+	if s.Direct() {
 		add("Server address", details.ConnectedServer)
 		add("User", directUser(s))
 	} else {
-		add("Local address", fmt.Sprintf("localhost:%d", s.session.LocalPort))
+		add("Local address", fmt.Sprintf("localhost:%d", s.LocalPort))
 	}
 	add("IAM token command", details.TokenCommand)
 	add("Reconnect command", details.RestartCommand)
 	if kubeconfig := strings.TrimSpace(details.Kubeconfig); kubeconfig != "" {
 		add("KUBECONFIG export", "export KUBECONFIG="+kubeconfig)
 	}
-	if s.mcp != nil && len(s.mcp.events) > 0 {
-		add("Last MCP call", s.mcp.events[len(s.mcp.events)-1].Detail())
+	if s.MCP != nil && len(s.MCP.Events) > 0 {
+		add("Last MCP call", s.MCP.Events[len(s.MCP.Events)-1].Detail())
 	}
 	return items
 }
 
 // directUser is the user a direct database session signs in as: the one it was opened with, else
 // the one its sign-in check used.
-func directUser(s *ssmSession) string {
-	if user := strings.TrimSpace(s.options.DBUser); user != "" {
+func directUser(s *sessions.Session) string {
+	if user := strings.TrimSpace(s.Options.DBUser); user != "" {
 		return user
 	}
-	return s.signIn.user
+	return s.SignIn.User
 }
 
 // openCopyMenu shows what can be copied from the selected session.

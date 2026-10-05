@@ -28,7 +28,7 @@ func TestWizardShowsTheUpdateNotice(t *testing.T) {
 }
 
 func TestDashboardPassesTheUpdateNoticeToTheWizard(t *testing.T) {
-	m := newTestSSMModel(t, "db")
+	m, _ := newSessionsModel(t, "db")
 	m.updateNotice = testNotice
 	m, _ = update(t, m, key("n"))
 	if m.wizard.updateNotice != testNotice {

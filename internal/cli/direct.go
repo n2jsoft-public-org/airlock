@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -49,8 +51,10 @@ func checkDirectTarget(cmd *cobra.Command, args []string, databases jumphost.Dir
 // directEnv is what executeJumphost prepared that a direct opening needs.
 type directEnv struct {
 	tuiRunner *jumphost.Runner
+	manager   *sessions.Manager
 	dashboard *ui.DashboardOptions
 	shared    *jumphost.RunnerOptions
+	cfg       *config.Config
 	prefsPath string
 }
 
@@ -61,7 +65,11 @@ func openDirect(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 	if interactive {
 		dashboard := *env.dashboard
 		dashboard.OpenDirect = options.Name
-		return ui.RunJumphostSessions(cmd.Context(), env.tuiRunner, nil, *options, cmd.OutOrStdout(), dashboard)
+		// In daemon mode the review step opens it in the daemon: the password is typed the same way.
+		if shouldUseDaemon(env.cfg, interactive) {
+			return runDaemonView(cmd, options, false, env.tuiRunner, &dashboard)
+		}
+		return ui.RunJumphostSessions(cmd.Context(), env.manager, env.tuiRunner, 0, *options, cmd.OutOrStdout(), dashboard)
 	}
 	runnerOptions := *env.shared
 	runnerOptions.Out, runnerOptions.Err = cmd.OutOrStdout(), cmd.ErrOrStderr()

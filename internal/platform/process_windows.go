@@ -2,7 +2,9 @@ package platform
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -46,4 +48,34 @@ func TerminateGroup(cmd *exec.Cmd) {
 	if err := kill.Run(); err != nil {
 		_ = cmd.Process.Kill() //nolint:errcheck // the process may already have ended.
 	}
+}
+
+// ProcessName returns the executable name of pid; an error when pid does not run.
+func ProcessName(pid int) (string, error) {
+	if pid <= 0 {
+		return "", fmt.Errorf("invalid pid %d", pid)
+	}
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)) // #nosec G115 -- pid is positive.
+	if err != nil {
+		return "", fmt.Errorf("process %d does not run: %w", pid, err)
+	}
+	defer windows.CloseHandle(handle) //nolint:errcheck // a query handle holds nothing to flush.
+	var code uint32
+	if err := windows.GetExitCodeProcess(handle, &code); err != nil || code != stillActive {
+		return "", fmt.Errorf("process %d does not run", pid)
+	}
+	buf := make([]uint16, windows.MAX_PATH)
+	size := uint32(len(buf)) // #nosec G115 -- MAX_PATH is small.
+	if err := windows.QueryFullProcessImageName(handle, 0, &buf[0], &size); err != nil {
+		return "", err
+	}
+	return filepath.Base(windows.UTF16ToString(buf[:size])), nil
+}
+
+// TerminatePID ends pid and the processes it spawned, forcibly as TerminateGroup does.
+func TerminatePID(pid int) error {
+	if pid <= 1 {
+		return fmt.Errorf("invalid pid %d", pid)
+	}
+	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).Run() // #nosec G204 -- a numeric pid.
 }

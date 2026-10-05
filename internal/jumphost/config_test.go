@@ -95,7 +95,7 @@ func TestSecretsSessionInfoWithoutTagOmitsReadOnlyHint(t *testing.T) {
 func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
 	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	target := ideTarget{Engine: "sqlserver-se", InstanceARN: "arn:db"}
-	handle, display := runner.startMCP("mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
+	handle, display := runner.startMCP(&Options{}, "mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
 	if handle != nil {
 		t.Fatal("no MCP server expected without a read-only secret tag")
 	}

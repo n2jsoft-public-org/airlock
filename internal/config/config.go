@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
@@ -30,7 +31,20 @@ type Config struct {
 	// ProductionProfiles lists, comma-separated, the patterns (* wildcard, any case) of the AWS
 	// profiles flagged as production; empty flags none.
 	ProductionProfiles string
+	// MCPClients selects, in the aiclient.Parse form, the AI clients the MCP servers are
+	// registered in (normalized; auto by default).
+	MCPClients string
+	// Mode is ModeCLI or ModeDaemon.
+	Mode string
 }
+
+// Modes of the mode setting.
+const (
+	// ModeCLI keeps the sessions in each airlock, closed with it.
+	ModeCLI = "cli"
+	// ModeDaemon keeps the sessions in a background daemon; airlock is a view of it.
+	ModeDaemon = "daemon"
+)
 
 // ProductionProfilePatterns returns the patterns of ProductionProfiles; none when empty.
 func (c *Config) ProductionProfilePatterns() []string {
@@ -40,11 +54,23 @@ func (c *Config) ProductionProfilePatterns() []string {
 	return strings.Split(c.ProductionProfiles, ",")
 }
 
+// MCPClientSelection returns the AI clients selected by MCPClients.
+func (c *Config) MCPClientSelection() aiclient.Selection {
+	sel, err := aiclient.Parse(c.MCPClients)
+	if err != nil {
+		// Load and Apply only keep valid values; a hand-built Config falls back to the default.
+		return aiclient.AutoDetect
+	}
+	return sel
+}
+
 // Defaults are the built-in settings.
 func Defaults() Config {
 	return Config{
 		JumphostTag:     awstag.Tag{Key: "Usage", Value: "jumphost"},
 		MCPServerPrefix: "airlock",
+		MCPClients:      aiclient.Auto,
+		Mode:            ModeCLI,
 	}
 }
 
@@ -58,6 +84,8 @@ type file struct {
 	DefaultRegion     *string `json:"defaultRegion,omitempty"`
 	// ProductionProfiles is last: it was added after the others.
 	ProductionProfiles *string `json:"productionProfiles,omitempty"`
+	MCPClients         *string `json:"mcpClients,omitempty"`
+	Mode               *string `json:"mode,omitempty"`
 }
 
 // Load reads path over the defaults. A missing file (or an empty path) gives the defaults; invalid
@@ -127,6 +155,16 @@ func (f *file) apply(base *Config) (Config, error) {
 			return Config{}, fmt.Errorf("productionProfiles: %w", err)
 		}
 	}
+	if f.MCPClients != nil {
+		if cfg.MCPClients, err = parseMCPClients(*f.MCPClients); err != nil {
+			return Config{}, fmt.Errorf("mcpClients: %w", err)
+		}
+	}
+	if f.Mode != nil {
+		if cfg.Mode, err = parseMode(*f.Mode); err != nil {
+			return Config{}, fmt.Errorf("mode: %w", err)
+		}
+	}
 	return cfg, nil
 }
 
@@ -135,6 +173,8 @@ type Overrides struct {
 	JumphostTag       *string
 	ReadOnlySecretTag *string
 	MCPServerPrefix   *string
+	MCPClients        *string
+	Mode              *string
 }
 
 // Apply returns a copy of c with the given flags applied over it.
@@ -154,6 +194,16 @@ func (c *Config) Apply(o Overrides) (Config, error) {
 	if o.MCPServerPrefix != nil {
 		if out.MCPServerPrefix, err = parsePrefix(*o.MCPServerPrefix); err != nil {
 			return Config{}, fmt.Errorf("--mcp-server-prefix: %w", err)
+		}
+	}
+	if o.MCPClients != nil {
+		if out.MCPClients, err = parseMCPClients(*o.MCPClients); err != nil {
+			return Config{}, fmt.Errorf("--mcp-clients: %w", err)
+		}
+	}
+	if o.Mode != nil {
+		if out.Mode, err = parseMode(*o.Mode); err != nil {
+			return Config{}, fmt.Errorf("--mode: %w", err)
 		}
 	}
 	return out, nil
@@ -184,6 +234,24 @@ func parseProfilePatterns(s string) (string, error) {
 		patterns = append(patterns, pattern)
 	}
 	return strings.Join(patterns, ","), nil
+}
+
+// parseMCPClients normalizes a client selection (see aiclient.Parse).
+func parseMCPClients(s string) (string, error) {
+	sel, err := aiclient.Parse(s)
+	if err != nil {
+		return "", err
+	}
+	return sel.String(), nil
+}
+
+func parseMode(s string) (string, error) {
+	switch mode := strings.ToLower(strings.TrimSpace(s)); mode {
+	case ModeCLI, ModeDaemon:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unknown mode %q (valid: %s, %s)", s, ModeCLI, ModeDaemon)
+	}
 }
 
 func parsePrefix(s string) (string, error) {

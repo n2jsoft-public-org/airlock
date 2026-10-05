@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // targetsLoaded answers the discovery of a wizard with db-00 and db-01.
@@ -98,25 +99,48 @@ func TestWizardHistoryLoadingIsNotCanceled(t *testing.T) {
 }
 
 func TestDashboardEscCancelsPreparation(t *testing.T) {
-	prepared := &[]jumphost.Options{}
-	m := newSSMModel(context.Background(), prepareRecorder{prepared: prepared}, newProcessTracker(), jumphost.Options{})
-	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds", Profile: "dev", Region: "eu-west-3"}, jumphost.Options{})
-	m.sessions[0].state = ssmSessionRunning
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ := newSessionsModel(t, "db")
 
 	m, _ = update(t, m, key("n"))
 	m, cmd := update(t, m, jumphostWizardDoneMsg{options: jumphost.Options{ResourceType: "rds", Name: "other", LocalPortNumber: 5440}})
 	if !strings.Contains(plainView(m), "esc") {
 		t.Fatal("the preparation does not offer to cancel it")
 	}
-	late := preparedMsg(t, cmd)
+	late := openedMsg(t, cmd)
 
 	m, _ = update(t, m, key("esc"))
-	if m.mode != ssmModeSessions {
+	if m.mode != ssmModeSessions || !strings.Contains(plainView(m), "Connection canceled") {
 		t.Fatalf("mode = %v, want back to the sessions", m.mode)
 	}
 	m, _ = update(t, m, late)
+	if m.pendingSelect != 0 || m.mode != ssmModeSessions || m.selected != 0 {
+		t.Fatalf("pending = %d mode = %v, a canceled preparation must be forgotten", m.pendingSelect, m.mode)
+	}
+}
+
+func TestCanceledOpeningThatSucceededIsStoppedAndClosed(t *testing.T) {
+	m, service := newSessionsModel(t, "db")
+	m, cmd := update(t, m, jumphostWizardDoneMsg{options: jumphost.Options{ResourceType: "rds", Name: "other"}})
+	late := openedMsg(t, cmd) // the opening succeeded just before esc
+	m, _ = update(t, m, key("esc"))
+	m, _ = sendEvent(t, m, added(late.id, "other"))
+
+	m, cmd = update(t, m, late)
+	runServiceCmd(cmd)
+	if calls := service.Calls(); len(calls) != 1 || calls[0] != "stop 101" {
+		t.Fatalf("calls = %v, want the canceled opening stopped", calls)
+	}
+	if m.selected != 0 || m.mode != ssmModeSessions {
+		t.Fatalf("selected = %d mode = %v, want db kept selected", m.selected, m.mode)
+	}
+
+	m, cmd = sendUpdate(t, m, late.id, ended(""))
+	runServiceCmd(cmd)
+	if calls := service.Calls(); len(calls) != 2 || calls[1] != "remove 101" {
+		t.Fatalf("calls = %v, want the canceled opening closed once ended", calls)
+	}
+	m, _ = sendEvent(t, m, sessions.Event{Kind: sessions.EventRemoved, ID: late.id})
 	if len(m.sessions) != 1 {
-		t.Fatalf("sessions = %d, a canceled preparation must not add its session", len(m.sessions))
+		t.Fatalf("sessions = %d, want only db", len(m.sessions))
 	}
 }

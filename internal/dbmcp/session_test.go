@@ -37,7 +37,9 @@ func TestStartSkipsUnsupportedEngine(t *testing.T) {
 func TestStartRegistersAndCloseCleansUp(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testSessionConfig(t, "postgres")
-	_ = os.Mkdir(filepath.Join(cfg.ProjectDir, ".claude"), 0o750)
+	if err := os.WriteFile(filepath.Join(cfg.ProjectDir, ".mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	host := mcpserve.NewHost()
 
 	handle, err := Start(host, cfg)
@@ -87,7 +89,7 @@ func TestStartWithoutClientConfigPrintsToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer handle.Close()
-	if !strings.Contains(handle.Display(), "no AI client config found; header Authorization: Bearer ") {
+	if !strings.Contains(handle.Display(), "no AI client config written; header Authorization: Bearer ") {
 		t.Fatalf("display = %q", handle.Display())
 	}
 }

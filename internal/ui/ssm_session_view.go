@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 const (
@@ -107,15 +108,15 @@ func (m ssmModel) renderHeader(width int) string {
 	}
 
 	var counts []string
-	if n := m.countSessions(func(s *ssmSession) bool { return s.state == ssmSessionRunning && s.ready }); n > 0 {
+	if n := m.countSessions(func(s *sessions.Session) bool { return s.State == sessions.StateRunning && s.Ready }); n > 0 {
 		counts = append(counts, m.styles.Success.Render(fmt.Sprintf("● %d ready", n)))
 	}
-	if n := m.countSessions(func(s *ssmSession) bool {
-		return (s.active() && (s.state != ssmSessionRunning || !s.ready)) || s.reconnectPending()
+	if n := m.countSessions(func(s *sessions.Session) bool {
+		return (s.Active() && (s.State != sessions.StateRunning || !s.Ready)) || s.ReconnectPending()
 	}); n > 0 {
 		counts = append(counts, m.styles.Warning.Render(fmt.Sprintf("%s %d pending", m.spinner(), n)))
 	}
-	if n := m.countSessions(func(s *ssmSession) bool { return !s.active() && !s.reconnectPending() }); n > 0 {
+	if n := m.countSessions(func(s *sessions.Session) bool { return !s.Active() && !s.ReconnectPending() }); n > 0 {
 		counts = append(counts, m.styles.Muted.Render(fmt.Sprintf("○ %d ended", n)))
 	}
 	right := strings.Join(counts, m.styles.Faint.Render("  ·  "))
@@ -143,7 +144,7 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 		lines = append(lines, m.styles.Faint.Render(fmt.Sprintf("  ↑ %d more", first)))
 	}
 	for idx := first; idx < last; idx++ {
-		lines = append(lines, m.renderCard(m.sessions[idx], idx == m.selected, inner)...)
+		lines = append(lines, m.renderCard(&m.sessions[idx], idx == m.selected, inner)...)
 		lines = append(lines, "")
 	}
 	if last < len(m.sessions) {
@@ -158,15 +159,15 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 	return m.styles.Panel.Width(l.sidebarWidth - 2).Height(innerHeight).Render(strings.Join(lines, "\n"))
 }
 
-func (m ssmModel) renderCard(s *ssmSession, selected bool, width int) []string {
+func (m ssmModel) renderCard(s *sessions.Session, selected bool, width int) []string {
 	icon, label, style := m.status(s)
 	contentWidth := width - 2
 
 	badges := m.badges(s)
 	rows := []string{
-		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.session.Target, contentWidth-lipgloss.Width(badges)-1)),
-		spread(style.Render(icon+" "+label), m.styles.Text.Render(s.address()), contentWidth),
-		m.styles.Muted.Render(truncate(s.origin()+" · "+formatUptime(s), contentWidth)),
+		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.Target, contentWidth-lipgloss.Width(badges)-1)),
+		spread(style.Render(icon+" "+label), m.styles.Text.Render(sessionAddress(s)), contentWidth),
+		m.styles.Muted.Render(truncate(sessionOrigin(s)+" · "+formatUptime(s), contentWidth)),
 	}
 
 	marker := "  "
@@ -185,16 +186,17 @@ func (m ssmModel) renderCard(s *ssmSession, selected bool, width int) []string {
 
 func (m ssmModel) renderPills(width int) string {
 	pills := make([]string, 0, len(m.sessions))
-	for idx, s := range m.sessions {
+	for idx := range m.sessions {
+		s := &m.sessions[idx]
 		icon, _, style := m.status(s)
-		pill := style.Render(icon) + " " + s.session.Target
-		if !s.direct() {
-			pill += fmt.Sprintf(" :%d", s.session.LocalPort)
+		pill := style.Render(icon) + " " + s.Target
+		if !s.Direct() {
+			pill += fmt.Sprintf(" :%d", s.LocalPort)
 		}
 		if m.isProduction(s) {
 			pill += " " + m.styles.Warning.Bold(true).Render("PROD")
 		}
-		if s.mcpWrites() {
+		if s.MCPWrites() {
 			pill += " " + m.styles.Danger.Render("WRITES")
 		}
 		if idx == m.selected {
@@ -240,32 +242,32 @@ func (m ssmModel) renderDetails(width int) string {
 
 	icon, label, style := m.status(s)
 	title := spread(
-		m.badges(s)+" "+m.styles.Text.Bold(true).Render(s.session.Target),
+		m.badges(s)+" "+m.styles.Text.Bold(true).Render(s.Target),
 		style.Render(icon+" "+label),
 		inner,
 	)
 
-	remote := strings.TrimSpace(s.session.Details.ConnectedServer)
+	remote := strings.TrimSpace(s.Details.ConnectedServer)
 	if remote == "" {
 		remote = "n/a"
 	}
 	uptime := formatUptime(s)
-	if s.connections > 0 {
-		uptime += m.styles.Muted.Render("  ·  " + plural(s.connections, "connection"))
+	if s.Connections > 0 {
+		uptime += m.styles.Muted.Render("  ·  " + plural(s.Connections, "connection"))
 	}
 
 	rows := []string{title, ""}
-	if s.direct() {
+	if s.Direct() {
 		rows = append(rows, m.field("Server", m.styles.Title.Render(remote), inner))
 	} else {
 		rows = append(rows,
-			m.field("Local", m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.session.LocalPort)), inner),
+			m.field("Local", m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.LocalPort)), inner),
 			m.field("Remote", remote, inner),
-			m.field("AWS", s.session.Profile+m.styles.Faint.Render(" · ")+s.session.Region, inner),
+			m.field("AWS", s.Profile+m.styles.Faint.Render(" · ")+s.Region, inner),
 		)
 	}
 	rows = append(rows, m.field("Uptime", uptime, inner))
-	if auth := strings.TrimSpace(s.session.Details.Auth); auth != "" {
+	if auth := strings.TrimSpace(s.Details.Auth); auth != "" {
 		if canRevealPassword(s) {
 			auth += "  " + m.styles.KeyCap.Render("p") + m.styles.Faint.Render(" show password")
 		}
@@ -274,17 +276,17 @@ func (m ssmModel) renderDetails(width int) string {
 	if status := m.signInStatus(s); status != "" {
 		rows = append(rows, m.field("Sign-in", status, inner))
 	}
-	if ide := strings.TrimSpace(s.session.Details.IDEDataSource); ide != "" {
+	if ide := strings.TrimSpace(s.Details.IDEDataSource); ide != "" {
 		rows = append(rows, m.field("IDE", ide, inner))
 	}
-	if mcp := strings.TrimSpace(s.session.Details.MCP); mcp != "" {
+	if mcp := strings.TrimSpace(s.Details.MCP); mcp != "" {
 		rows = append(rows, m.field("MCP", mcp, inner))
 	}
-	if kubeconfig := strings.TrimSpace(s.session.Details.Kubeconfig); kubeconfig != "" {
+	if kubeconfig := strings.TrimSpace(s.Details.Kubeconfig); kubeconfig != "" {
 		rows = append(rows, m.field("Kube", "KUBECONFIG="+shortenHome(kubeconfig), inner))
 	}
-	if s.err != nil && !s.stopRequested {
-		rows = append(rows, m.field("Error", m.styles.Danger.Render(s.err.Error()), inner))
+	if s.Err != "" && !s.StopRequested {
+		rows = append(rows, m.field("Error", m.styles.Danger.Render(s.Err), inner))
 	}
 
 	panel := m.styles.Panel
@@ -296,13 +298,13 @@ func (m ssmModel) renderDetails(width int) string {
 
 func (m ssmModel) renderLogs(width, height int) string {
 	title := m.styles.PanelTitle.Render("Logs")
-	if s := m.selectedSession(); s != nil && s.mcp != nil {
+	if s := m.selectedSession(); s != nil && s.MCP != nil {
 		// Both panels are named as tabs, the active one highlighted.
 		logs, queries := m.styles.PanelTitle, m.styles.Faint
 		if m.showQueries {
 			logs, queries = m.styles.Faint, m.styles.PanelTitle
 		}
-		title = logs.Render("Logs") + "   " + queries.Render("MCP calls") + m.styles.Faint.Render(fmt.Sprintf(" %d", s.mcp.total))
+		title = logs.Render("Logs") + "   " + queries.Render("MCP calls") + m.styles.Faint.Render(fmt.Sprintf(" %d", s.MCP.Total))
 	}
 	follow := m.styles.Success.Render("● live")
 	if !m.viewport.AtBottom() {
@@ -314,22 +316,22 @@ func (m ssmModel) renderLogs(width, height int) string {
 	return m.styles.Panel.Width(width - 2).Height(height - 2).Render(content)
 }
 
-func (m ssmModel) renderLogLines(s *ssmSession, width int) string {
+func (m ssmModel) renderLogLines(s *sessions.Session, width int) string {
 	textWidth := maxInt(10, width-logTimeWidth)
 	indent := strings.Repeat(" ", logTimeWidth)
 
 	var out []string
-	for _, line := range s.lines {
-		if strings.TrimSpace(line.text) == "" {
+	for _, line := range s.Lines {
+		if strings.TrimSpace(line.Text) == "" {
 			out = append(out, "")
 			continue
 		}
-		wrapped := strings.Split(lipgloss.NewStyle().Width(textWidth).Render(line.text), "\n")
-		style := m.logStyle(line.text)
+		wrapped := strings.Split(lipgloss.NewStyle().Width(textWidth).Render(line.Text), "\n")
+		style := m.logStyle(line.Text)
 		for idx, part := range wrapped {
 			prefix := indent
 			if idx == 0 {
-				prefix = m.styles.Faint.Render(line.at.Format("15:04:05")) + "  "
+				prefix = m.styles.Faint.Render(line.At.Format("15:04:05")) + "  "
 			}
 			out = append(out, prefix+style.Render(strings.TrimRight(part, " ")))
 		}
@@ -356,8 +358,8 @@ func (m ssmModel) logStyle(text string) lipgloss.Style {
 // quitDialogBody says what stopping every active session does: a direct session has no local
 // port to free, only the tunnels do.
 func (m ssmModel) quitDialogBody() string {
-	active := m.countSessions(func(s *ssmSession) bool { return s.active() })
-	tunnels := m.countSessions(func(s *ssmSession) bool { return s.active() && !s.direct() })
+	active := m.countSessions(func(s *sessions.Session) bool { return s.Active() })
+	tunnels := m.countSessions(func(s *sessions.Session) bool { return s.Active() && !s.Direct() })
 	switch {
 	case tunnels == 0:
 		return fmt.Sprintf("This stops %s.", plural(active, "active session"))
@@ -377,14 +379,17 @@ func (m ssmModel) renderDialog(width int) string {
 		title = "Quit airlock?"
 		body = m.quitDialogBody()
 		confirm = "Stop all & quit"
+		if m.detach {
+			title = "Stop every session and the daemon?"
+		}
 	default:
 		s := m.selectedSession()
 		if s == nil {
 			return ""
 		}
 		title = "Stop this session?"
-		body = m.badge(s.session.ResourceType) + " " + s.session.Target + m.styles.Muted.Render(" on "+s.address())
-		if cmd := strings.TrimSpace(s.session.Details.RestartCommand); cmd != "" {
+		body = m.badge(s.ResourceType) + " " + s.Target + m.styles.Muted.Render(" on "+sessionAddress(s))
+		if cmd := strings.TrimSpace(s.Details.RestartCommand); cmd != "" {
 			body += "\n\n" + m.styles.Faint.Render("Reconnect later with:") + "\n" + m.styles.Muted.Render(cmd)
 		}
 		confirm = "Stop session"
@@ -411,29 +416,37 @@ func (m ssmModel) renderFooter(width int) string {
 	if m.notice != "" {
 		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Muted.Render(m.notice)))
 	}
+	if m.connLost != "" {
+		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Danger.Render("✗ "+m.connLost)+m.styles.Faint.Render("  r reconnect · q quit")))
+	}
 	if m.quitting && m.hasActiveSessions() {
 		lines = append(lines, m.styles.Warning.Render(m.spinner()+" Stopping sessions...")+m.styles.Faint.Render("  ctrl+c again to force"))
 	}
 
 	var keys [][2]string
-	switch m.mode {
-	case ssmModeConfirmQuit:
+	switch {
+	case m.connLost != "":
+		keys = [][2]string{{"r", "reconnect"}, {"q", "quit"}}
+	case m.mode == ssmModeConfirmQuit:
 		keys = [][2]string{{"y", "quit"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}, {"ctrl+c", "quit"}}
-	case ssmModeConfirmStop:
+		if m.detach {
+			keys[4] = [2]string{"ctrl+c", "leave"}
+		}
+	case m.mode == ssmModeConfirmStop:
 		keys = [][2]string{{"y", "stop"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}}
-	case ssmModeHelp:
+	case m.mode == ssmModeHelp:
 		keys = [][2]string{{"esc", "close"}}
-	case ssmModeCopy:
+	case m.mode == ssmModeCopy:
 		keys = [][2]string{{"1-9", "copy"}, {"↑↓", "move"}, {"enter", "copy"}, {"esc", "close"}}
-	case ssmModePassword:
+	case m.mode == ssmModePassword:
 		keys = [][2]string{{"c", "copy"}, {"esc", "hide"}, {"↑↓", "move"}, {"←→", "choose"}, {"enter", "select"}}
-	case ssmModeSignIn:
+	case m.mode == ssmModeSignIn:
 		keys = [][2]string{{"1-9", "choose"}, {"↑↓", "move"}, {"enter", "choose"}, {"esc", "later"}}
 	default:
 		keys = [][2]string{{"n", "new"}}
 		switch s := m.selectedSession(); {
 		case s == nil:
-		case s.active():
+		case s.Active():
 			keys = append(keys, [2]string{"x", "stop"})
 		default:
 			keys = append(keys, [2]string{"r", "restart"}, [2]string{"x", "close"})
@@ -445,20 +458,24 @@ func (m ssmModel) renderFooter(width int) string {
 			keys = append(keys, [2]string{"p", "password"})
 		}
 		if s := m.selectedSession(); canRetrySignIn(s) {
-			switch s.signIn.state {
-			case signInChoosing, signInSkipped, signInFailed:
+			switch s.SignIn.State {
+			case sessions.SignInChoosing, sessions.SignInSkipped, sessions.SignInFailed:
 				keys = append(keys, [2]string{"a", "sign in"})
 			}
 		}
 		keys = append(keys, [2]string{"tab", "switch"}, [2]string{"1-9", "jump"}, [2]string{"↑↓", "scroll"})
-		if s := m.selectedSession(); s != nil && s.mcp != nil {
+		if s := m.selectedSession(); s != nil && s.MCP != nil {
 			panel := "queries"
 			if m.showQueries {
 				panel = "logs"
 			}
 			keys = append(keys, [2]string{"m", panel})
 		}
-		keys = append(keys, [2]string{"?", "help"}, [2]string{"q", "quit"})
+		if m.detach {
+			keys = append(keys, [2]string{"?", "help"}, [2]string{"q", "leave"}, [2]string{"Q", "stop all"})
+		} else {
+			keys = append(keys, [2]string{"?", "help"}, [2]string{"q", "quit"})
+		}
 	}
 	lines = append(lines, m.styles.KeyHintsPinned(keys, 2, width))
 	return strings.Join(lines, "\n")
@@ -466,6 +483,10 @@ func (m ssmModel) renderFooter(width int) string {
 
 // helpGroups lists every key of the dashboard for its help.
 func (m ssmModel) helpGroups() []helpGroup {
+	quitKeys := [][2]string{{"?", "This help"}, {"q ctrl+c", "Stop all sessions and quit"}}
+	if m.detach {
+		quitKeys = [][2]string{{"?", "This help"}, {"q ctrl+c", "Leave this view (sessions keep running)"}, {"Q", "Stop every session and the daemon"}}
+	}
 	return []helpGroup{
 		{title: "Sessions", keys: [][2]string{
 			{"n", "Open a new connection"},
@@ -481,34 +502,31 @@ func (m ssmModel) helpGroups() []helpGroup {
 			{"G end", "Back to the live tail"},
 			{"m", "Logs or MCP calls (sessions with an MCP server)"},
 		}},
-		{title: "airlock", keys: [][2]string{
-			{"?", "This help"},
-			{"q ctrl+c", "Stop all sessions and quit"},
-		}},
+		{title: "airlock", keys: quitKeys},
 	}
 }
 
 // status returns the icon, label and style describing the session state.
-func (m ssmModel) status(s *ssmSession) (icon, label string, style lipgloss.Style) {
-	switch s.state {
-	case ssmSessionRunning:
-		if s.ready {
+func (m ssmModel) status(s *sessions.Session) (icon, label string, style lipgloss.Style) {
+	switch s.State {
+	case sessions.StateRunning:
+		if s.Ready {
 			return "●", "Ready", m.styles.Success
 		}
 		return m.spinner(), "Connecting", m.styles.Warning
-	case ssmSessionStarting:
+	case sessions.StateStarting:
 		return m.spinner(), "Starting", m.styles.Warning
-	case ssmSessionStopping:
+	case sessions.StateStopping:
 		return m.spinner(), "Stopping", m.styles.Warning
 	default:
 		switch {
-		case s.reconnecting:
+		case s.Reconnecting:
 			return m.spinner(), reconnectStatus(s), m.styles.Warning
-		case s.reconnectPending():
+		case s.ReconnectPending():
 			return "↻", reconnectStatus(s), m.styles.Warning
-		case s.stopRequested:
+		case s.StopRequested:
 			return "○", "Stopped", m.styles.Muted
-		case s.err != nil:
+		case s.Err != "":
 			return "✗", "Failed", m.styles.Danger
 		default:
 			return "○", "Closed", m.styles.Muted
@@ -521,12 +539,12 @@ func (m ssmModel) badge(resourceType string) string {
 }
 
 // badges renders the resource type of s, flagged when its MCP server may modify data.
-func (m ssmModel) badges(s *ssmSession) string {
-	badges := m.badge(s.session.ResourceType)
+func (m ssmModel) badges(s *sessions.Session) string {
+	badges := m.badge(s.ResourceType)
 	if m.isProduction(s) {
 		badges += " " + m.styles.ProdBadge()
 	}
-	if s.mcpWrites() {
+	if s.MCPWrites() {
 		badges += " " + m.styles.WritesBadge()
 	}
 	return badges
@@ -540,10 +558,10 @@ func (m ssmModel) spinner() string {
 	return spinnerFrames[m.frame%len(spinnerFrames)]
 }
 
-func (m ssmModel) countSessions(match func(*ssmSession) bool) int {
+func (m ssmModel) countSessions(match func(*sessions.Session) bool) int {
 	count := 0
-	for _, s := range m.sessions {
-		if match(s) {
+	for idx := range m.sessions {
+		if match(&m.sessions[idx]) {
 			count++
 		}
 	}
@@ -576,12 +594,12 @@ func truncate(value string, width int) string {
 	return ansi.Truncate(value, width, "…")
 }
 
-func formatUptime(s *ssmSession) string {
-	end := s.endedAt
+func formatUptime(s *sessions.Session) string {
+	end := s.EndedAt
 	if end.IsZero() {
 		end = time.Now()
 	}
-	d := max(end.Sub(s.startedAt).Round(time.Second), 0)
+	d := max(end.Sub(s.StartedAt).Round(time.Second), 0)
 
 	switch {
 	case d >= time.Hour:
@@ -594,17 +612,17 @@ func formatUptime(s *ssmSession) string {
 }
 
 // address is where tools reach s: the tunnel's local port, or the server of a direct database.
-func (s *ssmSession) address() string {
-	if s.direct() {
-		return s.session.Details.ConnectedServer
+func sessionAddress(s *sessions.Session) string {
+	if s.Direct() {
+		return s.Details.ConnectedServer
 	}
-	return fmt.Sprintf("localhost:%d", s.session.LocalPort)
+	return fmt.Sprintf("localhost:%d", s.LocalPort)
 }
 
 // origin says how s is reached: its AWS profile and region, or "direct".
-func (s *ssmSession) origin() string {
-	if s.direct() {
-		return directResourceType
+func sessionOrigin(s *sessions.Session) string {
+	if s.Direct() {
+		return sessions.DirectResourceType
 	}
-	return s.session.Profile + " · " + s.session.Region
+	return s.Profile + " · " + s.Region
 }

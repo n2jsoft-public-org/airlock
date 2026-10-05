@@ -86,3 +86,21 @@ func TestRootCmdHasDBSecretFlag(t *testing.T) {
 		t.Fatalf("--db-secret flag = %+v", flag)
 	}
 }
+
+func TestLoadConfigMCPClientsFlagWinsOverTheFile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	writeTestFile(t, filepath.Join(root, "airlock", "config.json"), `{"mcpClients": "claude:user"}`)
+
+	cmd := NewRootCmd()
+	if err := cmd.ParseFlags([]string{"--mcp-clients", "Codex, vscode"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadConfig(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCPClients != "codex,vscode" {
+		t.Fatalf("MCPClients = %q, want the flag normalized", cfg.MCPClients)
+	}
+}

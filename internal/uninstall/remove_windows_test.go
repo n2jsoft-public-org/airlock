@@ -80,4 +80,7 @@ func TestOtherInstancesIgnoresThisProcess(t *testing.T) {
 	if n, err := OtherInstances(filepath.Join(t.TempDir(), "airlock.exe")); err != nil || n != 0 {
 		t.Fatalf("OtherInstances(not running) = %d, %v; want 0", n, err)
 	}
+	if n, err := OtherInstances(exe, os.Getpid()); err != nil || n != 0 {
+		t.Fatalf("OtherInstances(this test, except itself) = %d, %v; want 0", n, err)
+	}
 }

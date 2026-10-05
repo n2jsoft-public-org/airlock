@@ -171,7 +171,7 @@ func (r *Runner) prepareDirect(ctx context.Context, options *Options) (*Session,
 
 	var removeDataSource func() string
 	if !options.SkipIDEDataSource {
-		session.Details.IDEDataSource, removeDataSource = r.registerDataSource(&ideadatasource.DataSource{
+		session.Details.IDEDataSource, removeDataSource = r.registerDataSource(options, &ideadatasource.DataSource{
 			Key:        resourceDirect + "|" + name,
 			Name:       "airlock " + name,
 			Engine:     string(db.Engine),
@@ -186,7 +186,7 @@ func (r *Runner) prepareDirect(ctx context.Context, options *Options) (*Session,
 		}
 	}
 	if !options.SkipMCP {
-		handle, display := r.startDirectMCP(&db, engine, name, password, account, options.MCPAllowWrites)
+		handle, display := r.startDirectMCP(options, &db, engine, name, password, account, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	session.SignIn = &directSignIn{
@@ -203,8 +203,8 @@ func (r *Runner) prepareDirect(ctx context.Context, options *Options) (*Session,
 
 // startDirectMCP serves the MCP server of a direct database and returns its display line ("not
 // started: …" on failure, which never fails the session).
-func (r *Runner) startDirectMCP(db *directdb.Database, engine dbmcp.Engine, name, password, account string, allowWrites bool) (handle *dbmcp.Handle, display string) {
-	projectDir, err := r.mcpProjectDir()
+func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine dbmcp.Engine, name, password, account string, allowWrites bool) (handle *dbmcp.Handle, display string) {
+	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}

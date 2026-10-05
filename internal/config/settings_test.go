@@ -183,7 +183,7 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"productionProfiles\": \"\"\n}\n"
+	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"productionProfiles\": \"\",\n  \"mcpClients\": \"auto\",\n  \"mode\": \"cli\"\n}\n"
 	if string(data) != want {
 		t.Fatalf("template = %q, want %q", data, want)
 	}

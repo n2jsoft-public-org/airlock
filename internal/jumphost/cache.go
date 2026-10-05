@@ -260,7 +260,7 @@ func cacheSignInApplies(target *ideTarget) bool {
 
 // startCacheMCP serves the MCP server of a cache session and returns its display line: empty for
 // engines without server, "not started: …" on failure or without sign-in.
-func (r *Runner) startCacheMCP(cacheName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *cachemcp.Handle, display string) {
+func (r *Runner) startCacheMCP(options *Options, cacheName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *cachemcp.Handle, display string) {
 	if !CacheEngineSupported(target.Engine) {
 		return nil, ""
 	}
@@ -268,7 +268,7 @@ func (r *Runner) startCacheMCP(cacheName string, localPort int, target *ideTarge
 	if err != nil {
 		return nil, "not started: " + err.Error()
 	}
-	projectDir, err := r.mcpProjectDir()
+	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}

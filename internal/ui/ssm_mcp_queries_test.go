@@ -9,17 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
-
-type fakeQuerySource struct {
-	subscriber func(mcpserve.ToolEvent)
-	logDir     string
-	writes     bool
-}
-
-func (f *fakeQuerySource) Subscribe(fn func(mcpserve.ToolEvent)) { f.subscriber = fn }
-func (f *fakeQuerySource) QueryLogDir() string                   { return f.logDir }
-func (f *fakeQuerySource) AllowsWrites() bool                    { return f.writes }
 
 func queryEvent(tool, sql string) mcpserve.ToolEvent {
 	rows := int64(3)
@@ -32,8 +23,15 @@ func queryEvent(tool, sql string) mcpserve.ToolEvent {
 // newMCPTestModel returns a dashboard with one database session serving an MCP server.
 func newMCPTestModel(t *testing.T) ssmModel {
 	t.Helper()
-	m := newTestSSMModel(t, "db")
-	m.sessions[0].mcp = &ssmMCPQueries{logDir: "/home/me/.config/jumphost/logs"}
+	s := testSession(1, "db")
+	s.MCP = &sessions.MCP{LogDir: "/home/me/.config/jumphost/logs"}
+	return newServiceModel(t, newFakeService(s))
+}
+
+// sendQuery feeds m a call made through the MCP server of session 1.
+func sendQuery(t *testing.T, m ssmModel, query mcpserve.ToolEvent) ssmModel { //nolint:gocritic // a test value.
+	t.Helper()
+	m, _ = sendEvent(t, m, sessions.Event{Kind: sessions.EventMCPQuery, ID: 1, Query: &query})
 	return m
 }
 
@@ -41,58 +39,23 @@ func plainView(m ssmModel) string {
 	return ansi.Strip(m.View())
 }
 
-func TestSubscribeMCPQueriesForwardsEventsWithoutBlocking(t *testing.T) {
-	events := make(chan tea.Msg, 1)
-	source := &fakeQuerySource{logDir: "/logs"}
-
-	queries := subscribeMCPQueries(7, source, events)
-	if queries.logDir != "/logs" || source.subscriber == nil {
-		t.Fatalf("queries = %+v, subscribed = %v", queries, source.subscriber != nil)
-	}
-
-	source.subscriber(queryEvent("query", "SELECT 1"))
-	done := make(chan struct{})
-	go func() {
-		source.subscriber(queryEvent("query", "SELECT 2"))
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("a full event channel must not block the MCP server")
-	}
-
-	msg, ok := (<-events).(ssmMCPQueryMsg)
-	if !ok || msg.id != 7 || msg.event.SQL != "SELECT 1" {
-		t.Fatalf("message = %#v", msg)
-	}
-}
-
 func TestMCPQueryEventsAreKeptPerSessionAndCapped(t *testing.T) {
 	m := newMCPTestModel(t)
-	id := m.sessions[0].id
 
-	for i := range maxMCPQueries + 5 {
-		m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: queryEvent("query", "SELECT "+strings.Repeat("x", i%3))})
+	for i := range sessions.MaxMCPQueries + 5 {
+		m = sendQuery(t, m, queryEvent("query", "SELECT "+strings.Repeat("x", i%3)))
 	}
-	queries := m.sessions[0].mcp
-	if len(queries.events) != maxMCPQueries || queries.total != maxMCPQueries+5 {
-		t.Fatalf("kept %d events, total %d", len(queries.events), queries.total)
-	}
-}
-
-func TestSubscribeMCPQueriesKnowsWriteAccess(t *testing.T) {
-	queries := subscribeMCPQueries(7, &fakeQuerySource{writes: true}, make(chan tea.Msg, 1))
-	if !queries.writes {
-		t.Fatal("a session whose MCP server can write is not known as such")
+	queries := m.sessions[0].MCP
+	if len(queries.Events) != sessions.MaxMCPQueries || queries.Total != sessions.MaxMCPQueries+5 {
+		t.Fatalf("kept %d events, total %d", len(queries.Events), queries.Total)
 	}
 }
 
 func TestWritableMCPSessionIsFlagged(t *testing.T) {
 	for _, width := range []int{140, 80} { // sidebar cards, then the compact pills
-		m := newTestSSMModel(t, "reader", "writer")
-		m.sessions[0].mcp = &ssmMCPQueries{}
-		m.sessions[1].mcp = &ssmMCPQueries{writes: true}
+		reader, writer := testSession(1, "reader"), testSession(2, "writer")
+		reader.MCP, writer.MCP = &sessions.MCP{}, &sessions.MCP{Writes: true}
+		m := newServiceModel(t, newFakeService(reader, writer))
 		m = m.selectSession(0)
 		m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 40})
 
@@ -105,7 +68,7 @@ func TestWritableMCPSessionIsFlagged(t *testing.T) {
 
 func TestMKeyTogglesTheQueriesPanel(t *testing.T) {
 	m := newMCPTestModel(t)
-	m, _ = update(t, m, ssmMCPQueryMsg{id: m.sessions[0].id, event: queryEvent("query", "SELECT id, name FROM users")})
+	m = sendQuery(t, m, queryEvent("query", "SELECT id, name FROM users"))
 
 	if strings.Contains(plainView(m), "SELECT id, name FROM users") {
 		t.Fatal("queries must not be shown before pressing m")
@@ -125,7 +88,7 @@ func TestMKeyTogglesTheQueriesPanel(t *testing.T) {
 }
 
 func TestMKeyIgnoredWithoutMCPServer(t *testing.T) {
-	m := newTestSSMModel(t, "cache")
+	m, _ := newSessionsModel(t, "cache")
 
 	m, _ = update(t, m, key("m"))
 	if m.showQueries {
@@ -150,14 +113,13 @@ func TestQueriesPanelEmptyStateShowsLogDir(t *testing.T) {
 
 func TestQueriesPanelShowsErrorsAndWrites(t *testing.T) {
 	m := newMCPTestModel(t)
-	id := m.sessions[0].id
 	rejected := queryEvent("query", "DELETE FROM users")
 	rejected.Rows, rejected.Error = nil, "only a single read-only SELECT or WITH statement is allowed"
 	rejected.LogError = errors.New("disk full").Error()
 	write := queryEvent("execute", "UPDATE users SET name = 'x'")
 
-	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: rejected})
-	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: write})
+	m = sendQuery(t, m, rejected)
+	m = sendQuery(t, m, write)
 	m, _ = update(t, m, key("m"))
 
 	view := plainView(m)
@@ -169,7 +131,7 @@ func TestQueriesPanelShowsErrorsAndWrites(t *testing.T) {
 }
 
 func TestFooterHintsQueriesKeyForMCPSessions(t *testing.T) {
-	if strings.Contains(plainView(newTestSSMModel(t, "cache")), "m  queries") {
+	if cache, _ := newSessionsModel(t, "cache"); strings.Contains(plainView(cache), "m  queries") {
 		t.Fatal("sessions without MCP server must not hint the queries key")
 	}
 	m := newMCPTestModel(t)
@@ -184,12 +146,11 @@ func TestFooterHintsQueriesKeyForMCPSessions(t *testing.T) {
 
 func TestQueriesPanelShowsKubernetesAndCacheCalls(t *testing.T) {
 	m := newMCPTestModel(t)
-	id := m.sessions[0].id
 	five, two := int64(5), int64(2)
 	db := 0
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.Local)
-	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: mcpserve.ToolEvent{Time: at, Tool: "list_resources", Engine: "kubernetes", Namespace: "web", Resource: "pods", Rows: &five}})
-	m, _ = update(t, m, ssmMCPQueryMsg{id: id, event: mcpserve.ToolEvent{Time: at, Tool: "command", Engine: "redis", DB: &db, Command: "HGETALL user:1", Rows: &two}})
+	m = sendQuery(t, m, mcpserve.ToolEvent{Time: at, Tool: "list_resources", Engine: "kubernetes", Namespace: "web", Resource: "pods", Rows: &five})
+	m = sendQuery(t, m, mcpserve.ToolEvent{Time: at, Tool: "command", Engine: "redis", DB: &db, Command: "HGETALL user:1", Rows: &two})
 	m, _ = update(t, m, key("m"))
 
 	view := plainView(m)

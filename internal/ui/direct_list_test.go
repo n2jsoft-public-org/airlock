@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // fakeDirectStore is a DirectDatabaseStore in memory; listErr makes List fail, putErr Put.
@@ -281,7 +282,7 @@ func TestDirectListSelectName(t *testing.T) {
 
 func TestDashboardPassesDatabasesToWizard(t *testing.T) {
 	store := &fakeDirectStore{}
-	m := newTestSSMModel(t)
+	m, _ := newSessionsModel(t)
 	m.databases = store
 	m = m.showWizard(jumphost.Options{})
 	if m.wizard.databases != store {
@@ -303,7 +304,7 @@ func TestSearchAfterDirectListPicksAWSTarget(t *testing.T) {
 	}
 	m, cmd = wizardUpdate(t, m, key("enter"))
 	m = runCmd(t, m, cmd)
-	if m.step != jumphostStepReview || m.options.ResourceType == directResourceType {
+	if m.step != jumphostStepReview || m.options.ResourceType == sessions.DirectResourceType {
 		t.Fatalf("step = %v type = %q, want the review of an AWS target", m.step, m.options.ResourceType)
 	}
 }

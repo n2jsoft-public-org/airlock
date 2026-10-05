@@ -3,6 +3,8 @@ package ui
 import (
 	"path"
 	"strings"
+
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // productionMatcher holds the patterns (* wildcard, any case) of the AWS profiles flagged as
@@ -25,6 +27,6 @@ func (p productionMatcher) matches(profile string) bool {
 
 // isProduction reports whether s reaches production: a direct database flagged so, or an AWS
 // profile of the productionProfiles setting.
-func (m ssmModel) isProduction(s *ssmSession) bool {
-	return s.session.Production || m.production.matches(s.session.Profile)
+func (m ssmModel) isProduction(s *sessions.Session) bool {
+	return s.Production || m.production.matches(s.Profile)
 }

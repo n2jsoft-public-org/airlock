@@ -5,67 +5,22 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
-// maxMCPQueries caps the MCP tool calls kept per session; the audit log keeps them all.
-const maxMCPQueries = 500
-
-// mcpQuerySource is the part of a session MCP server the dashboard listens to.
-type mcpQuerySource interface {
-	Subscribe(fn func(mcpserve.ToolEvent))
-	QueryLogDir() string
-	AllowsWrites() bool
-}
-
-type ssmMCPQueryMsg struct {
-	event mcpserve.ToolEvent
-	id    int
-}
-
-// ssmMCPQueries holds the recent MCP tool calls of a session.
-type ssmMCPQueries struct {
-	// logDir is where every call is logged (empty when the audit log is disabled).
-	logDir string
-	// writes reports that the server may modify data (the execute tool is offered).
-	writes bool
-	events []mcpserve.ToolEvent
-	total  int
-}
-
-func (q *ssmMCPQueries) add(e *mcpserve.ToolEvent) {
-	q.events = append(q.events, *e)
-	q.total++
-	if len(q.events) > maxMCPQueries {
-		q.events = q.events[len(q.events)-maxMCPQueries:]
-	}
-}
-
-// subscribeMCPQueries forwards the tool calls of source to the dashboard as messages for session id.
-// Events are dropped rather than blocking the MCP server when the dashboard lags behind.
-func subscribeMCPQueries(id int, source mcpQuerySource, events chan<- tea.Msg) *ssmMCPQueries {
-	source.Subscribe(func(e mcpserve.ToolEvent) {
-		select {
-		case events <- ssmMCPQueryMsg{id: id, event: e}:
-		default:
-		}
-	})
-	return &ssmMCPQueries{logDir: source.QueryLogDir(), writes: source.AllowsWrites()}
-}
-
 // queriesShown reports whether the bottom panel shows the MCP queries of s rather than its logs.
-func (m ssmModel) queriesShown(s *ssmSession) bool {
-	return m.showQueries && s != nil && s.mcp != nil
+func (m ssmModel) queriesShown(s *sessions.Session) bool {
+	return m.showQueries && s != nil && s.MCP != nil
 }
 
-func (m ssmModel) renderQueryLines(s *ssmSession, width int) string {
-	queries := s.mcp
-	if len(queries.events) == 0 {
+func (m ssmModel) renderQueryLines(s *sessions.Session, width int) string {
+	queries := s.MCP
+	if len(queries.Events) == 0 {
 		text := m.styles.Muted.Render("No MCP calls yet. What AI assistants run through this session's MCP server shows up here.")
-		if queries.logDir != "" {
-			text += "\n\n" + m.styles.Faint.Render("Every call is also logged to "+queries.logDir)
+		if queries.LogDir != "" {
+			text += "\n\n" + m.styles.Faint.Render("Every call is also logged to "+queries.LogDir)
 		}
 		return lipgloss.NewStyle().Width(width).Render(text)
 	}
@@ -73,11 +28,11 @@ func (m ssmModel) renderQueryLines(s *ssmSession, width int) string {
 	textWidth := maxInt(10, width-logTimeWidth)
 	indent := strings.Repeat(" ", logTimeWidth)
 	var out []string
-	if hidden := queries.total - len(queries.events); hidden > 0 {
+	if hidden := queries.Total - len(queries.Events); hidden > 0 {
 		out = append(out, m.styles.Faint.Render(fmt.Sprintf("%d older calls not shown", hidden)), "")
 	}
-	for idx := range queries.events {
-		e := &queries.events[idx]
+	for idx := range queries.Events {
+		e := &queries.Events[idx]
 		if idx > 0 {
 			out = append(out, "")
 		}

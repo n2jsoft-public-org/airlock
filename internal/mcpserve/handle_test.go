@@ -44,7 +44,7 @@ func toolNames(t *testing.T, session *mcp.ClientSession) []string {
 func TestServeRegistersAndCloseCleansUp(t *testing.T) {
 	useIsolatedLocks(t)
 	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, ".claude"), 0o750); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cleaned := 0

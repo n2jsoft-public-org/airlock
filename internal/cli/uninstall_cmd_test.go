@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -46,7 +47,9 @@ func (i *testInstall) env(interactive bool) *uninstallEnv {
 		dataDir:        func() (string, error) { return i.dataDir, nil },
 		keychain:       func() keychain.Store { return i.keychain },
 		userPath:       nil,
-		otherInstances: func(string) (int, error) { return 0, nil },
+		otherInstances: func(string, int) (int, error) { return 0, nil },
+		findDaemon:     func(context.Context) *runningDaemon { return nil },
+		stopDaemon:     func(context.Context) (bool, error) { return false, errors.New("no daemon to stop") },
 		interactive:    func(io.Reader) bool { return interactive },
 	}
 }
@@ -146,10 +149,77 @@ func TestUninstallWithoutTerminalNeedsYes(t *testing.T) {
 func TestUninstallRefusesWhileAnotherAirlockRuns(t *testing.T) {
 	install := newTestInstall(t)
 	env := install.env(false)
-	env.otherInstances = func(string) (int, error) { return 1, nil }
+	env.otherInstances = func(string, int) (int, error) { return 1, nil }
 	_, err := runUninstallCmd(t, env, "", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "quit") {
 		t.Fatalf("err = %v, want to quit the other airlock", err)
+	}
+	assertExists(t, install.exe, true)
+}
+
+// withDaemon makes env find a daemon of pid 4242 with sessions; stops counts its stops.
+func withDaemon(env *uninstallEnv, sessions int, stops *int, beforeStop func()) {
+	env.findDaemon = func(context.Context) *runningDaemon { return &runningDaemon{PID: 4242, Sessions: sessions} }
+	env.stopDaemon = func(context.Context) (bool, error) {
+		*stops++
+		beforeStop()
+		return true, nil
+	}
+}
+
+func TestUninstallAnsweredNoLeavesTheDaemonRunning(t *testing.T) {
+	skipOnWindows(t)
+	install := newTestInstall(t)
+	env := install.env(true)
+	stops := 0
+	withDaemon(env, 2, &stops, func() {})
+	out, err := runUninstallCmd(t, env, "n\n")
+	if err == nil || stops != 0 {
+		t.Fatalf("a no must leave the daemon and its sessions: err = %v, stops = %d\n%s", err, stops, out)
+	}
+	if !strings.Contains(out, "Also stops the airlock daemon and its 2 sessions.") {
+		t.Fatalf("the plan does not mention the daemon:\n%s", out)
+	}
+	assertExists(t, install.exe, true)
+}
+
+func TestUninstallYesStopsTheDaemonBeforeRemoving(t *testing.T) {
+	skipOnWindows(t)
+	install := newTestInstall(t)
+	env := install.env(false)
+	excluded := 0
+	env.otherInstances = func(_ string, daemonPID int) (int, error) {
+		excluded = daemonPID
+		return 0, nil
+	}
+	stops := 0
+	withDaemon(env, 1, &stops, func() { assertExists(t, install.exe, true) })
+	out, err := runUninstallCmd(t, env, "", "--yes")
+	if err != nil || stops != 1 {
+		t.Fatalf("err = %v, stops = %d\n%s", err, stops, out)
+	}
+	if excluded != 4242 {
+		t.Fatalf("the daemon must not count as another airlock: excluded pid = %d", excluded)
+	}
+	for _, want := range []string{"Also stops the airlock daemon and its 1 session.", "Stopped the airlock daemon and its sessions."} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "Stopped the airlock daemon") > strings.Index(out, "Removed "+install.exe) {
+		t.Fatalf("the daemon must stop before the removal:\n%s", out)
+	}
+	assertExists(t, install.exe, false)
+}
+
+func TestUninstallFailsWhenTheDaemonDoesNotStop(t *testing.T) {
+	install := newTestInstall(t)
+	env := install.env(false)
+	env.findDaemon = func(context.Context) *runningDaemon { return &runningDaemon{PID: 4242} }
+	env.stopDaemon = func(context.Context) (bool, error) { return false, errors.New("timeout") }
+	_, err := runUninstallCmd(t, env, "", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "daemon") {
+		t.Fatalf("err = %v, want the daemon named", err)
 	}
 	assertExists(t, install.exe, true)
 }

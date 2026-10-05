@@ -73,6 +73,9 @@ type Options struct {
 	DBSecretARN string
 	// RememberPassword keeps DBPassword in the OS keychain for the next connections.
 	RememberPassword bool
+	// ProjectDir is where the IDE data source and the MCP client files of this opening are written;
+	// empty uses RunnerOptions.ProjectDir, else the working directory.
+	ProjectDir string `json:"projectDir,omitempty"`
 	// Unattended never signs in interactively, as nobody may be there to answer (automatic
 	// reconnections): missing or expired credentials fail with ErrSignInRequired.
 	Unattended bool
@@ -146,7 +149,7 @@ type RunnerOptions struct {
 	Databases DirectDatabases
 	// Interactive runs a command needing the user's terminal (aws sso login), purpose saying why;
 	// nil runs it on In, Out and Err.
-	Interactive func(ctx context.Context, purpose, name string, args ...string) error
+	Interactive InteractiveFunc
 }
 
 type SessionDetails struct {
@@ -251,7 +254,7 @@ type Runner struct {
 	kubeconfigDir string
 	// databases finds the direct databases; nil when they are disabled.
 	databases   DirectDatabases
-	interactive func(ctx context.Context, purpose, name string, args ...string) error
+	interactive InteractiveFunc
 	// loginMu serializes the SSO sign-ins of expired identities.
 	loginMu sync.Mutex
 }
@@ -477,7 +480,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 
 	var removeDataSource func() string
 	if !options.SkipIDEDataSource {
-		session.Details.IDEDataSource, removeDataSource = r.registerIDEDataSource(resourceType, resolvedTargetName, localPort, target, cfg)
+		session.Details.IDEDataSource, removeDataSource = r.registerIDEDataSource(&options, resourceType, resolvedTargetName, localPort, &target, cfg)
 		if session.Details.IDEDataSource != "" {
 			session.Intro = append(session.Intro, session.Details.IDEDataSource)
 		}
@@ -492,15 +495,15 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		}
 	}
 	if resourceType == resourceEKS && !options.SkipMCP {
-		handle, display := r.startKubeMCP(resolvedTargetName, host, target.ClusterCA, session.LocalPort, cfg)
+		handle, display := r.startKubeMCP(&options, resolvedTargetName, host, target.ClusterCA, session.LocalPort, cfg)
 		r.attachMCP(session, handle, display)
 	}
 	if resourceType == resourceRDS && !options.SkipMCP {
-		handle, display := r.startMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		handle, display := r.startMCP(&options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	if resourceType == resourceElastiCache && !options.SkipMCP {
-		handle, display := r.startCacheMCP(resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		handle, display := r.startCacheMCP(&options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	if (resourceType == resourceRDS && signInApplies(&target, options.MCPAllowWrites)) ||
@@ -515,7 +518,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 				updated := target
 				updated.DBUser = user
 				// Same key: the entry is updated; the first remover still removes it.
-				r.registerIDEDataSource(resourceType, resolvedTargetName, localPort, updated, cfg)
+				r.registerIDEDataSource(&options, resourceType, resolvedTargetName, localPort, &updated, cfg)
 			}
 		}
 		session.SignIn = signIn
@@ -1121,11 +1124,15 @@ func jumphostNotFoundError(tag awstag.Tag, profile, region string) error {
 
 // ssoLogin signs profile in again with AWS IAM Identity Center, on the user's terminal.
 func (r *Runner) ssoLogin(ctx context.Context, profile string) error {
-	if r.interactive == nil {
+	interactive := interactiveFrom(ctx)
+	if interactive == nil {
+		interactive = r.interactive
+	}
+	if interactive == nil {
 		return r.runAWSStreaming(ctx, nil, "sso", "login", "--profile", profile)
 	}
 	purpose := fmt.Sprintf("The AWS credentials of profile %s are missing or expired: signing in again.", profile)
-	return r.interactive(ctx, purpose, "aws", "sso", "login", "--profile", profile)
+	return interactive(ctx, purpose, "aws", "sso", "login", "--profile", profile)
 }
 
 // ensureIdentity checks the AWS identity of cfg, signing in again when it is missing or expired,
@@ -1697,7 +1704,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 // It returns a display message and a function removing the entry again and describing the outcome
 // (nil when nothing was registered).
 // Failures are reported as a warning and never abort the session.
-func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort string, target ideTarget, cfg awsConfig) (message string, remove func() string) {
+func (r *Runner) registerIDEDataSource(options *Options, resourceType, targetName, localPort string, target *ideTarget, cfg awsConfig) (message string, remove func() string) {
 	if strings.TrimSpace(target.Engine) == "" {
 		return "", nil
 	}
@@ -1714,26 +1721,23 @@ func (r *Runner) registerIDEDataSource(resourceType, targetName, localPort strin
 		Host:       "localhost",
 		Port:       port,
 		Database:   target.Database,
-		Properties: awsIAMProperties(target, cfg),
+		Properties: awsIAMProperties(*target, cfg),
 	}
 	dataSource.User = target.DBUser
 	if target.IAMAuth {
 		dataSource.AuthProvider = awsIAMAuthProvider
 	}
-	return r.registerDataSource(dataSource, fmt.Sprintf("localhost:%d", port))
+	return r.registerDataSource(options, dataSource, fmt.Sprintf("localhost:%d", port))
 }
 
 // registerDataSource adds dataSource to the IntelliJ project in the working directory; endpoint is
 // where it connects, for display. It returns a display message and a function removing the entry
 // again (nil when nothing was registered). Failures are reported as a warning and never abort the
 // session.
-func (r *Runner) registerDataSource(dataSource *ideadatasource.DataSource, endpoint string) (message string, remove func() string) {
-	projectDir := r.projectDir
-	if projectDir == "" {
-		var err error
-		if projectDir, err = os.Getwd(); err != nil {
-			return "", nil
-		}
+func (r *Runner) registerDataSource(options *Options, dataSource *ideadatasource.DataSource, endpoint string) (message string, remove func() string) {
+	projectDir, err := r.projectDirFor(options)
+	if err != nil {
+		return "", nil
 	}
 
 	result, err := ideadatasource.Register(projectDir, dataSource)
@@ -1810,8 +1814,12 @@ func sessionRelease(releasePort func(), mcpServer mcpserve.Session, cleanups ...
 	}
 }
 
-// mcpProjectDir is where MCP servers are registered: the project directory, else the working directory.
-func (r *Runner) mcpProjectDir() (string, error) {
+// projectDirFor is where the opening of options registers its IDE data source and MCP servers: its
+// own project directory, else the runner's, else the working directory.
+func (r *Runner) projectDirFor(options *Options) (string, error) {
+	if options != nil && options.ProjectDir != "" {
+		return options.ProjectDir, nil
+	}
 	if r.projectDir != "" {
 		return r.projectDir, nil
 	}
@@ -1823,8 +1831,8 @@ var kubemcpStart = kubemcp.Start
 
 // startKubeMCP serves the read-only MCP server of an EKS session and returns its display line:
 // empty when no server applies (no certificate authority), "not started: …" on failure.
-func (r *Runner) startKubeMCP(clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (handle *mcpserve.Handle, display string) {
-	projectDir, err := r.mcpProjectDir()
+func (r *Runner) startKubeMCP(options *Options, clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (handle *mcpserve.Handle, display string) {
+	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
@@ -1850,8 +1858,8 @@ var dbmcpStart = dbmcp.Start
 // it (empty when the engine is unsupported, so the session shows no MCP line at all). A failure
 // to start is reported through the returned display rather than r.err, which is discarded in TUI
 // mode.
-func (r *Runner) startMCP(targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
-	projectDir, err := r.mcpProjectDir()
+func (r *Runner) startMCP(options *Options, targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
+	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}

@@ -81,7 +81,7 @@ func installServerlessCacheAWS(t *testing.T) {
 func prepareCache(t *testing.T, options *Options) (*Session, error) {
 	t.Helper()
 	project := t.TempDir()
-	if err := os.Mkdir(filepath.Join(project, ".claude"), 0o750); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})

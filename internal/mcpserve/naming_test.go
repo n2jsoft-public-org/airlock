@@ -1,6 +1,9 @@
 package mcpserve
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestServerName(t *testing.T) {
 	cases := map[[3]string]string{
@@ -34,5 +37,19 @@ func TestDirectServerName(t *testing.T) {
 		if got := DirectServerName(in[0], in[1]); got != want {
 			t.Fatalf("DirectServerName(%q, %q) = %q, want %q", in[0], in[1], got, want)
 		}
+	}
+}
+
+func TestRelativeToShowsProjectAndHomeFilesShort(t *testing.T) {
+	home := useFakeHome(t, nil)
+	project := filepath.Join(home, "dev", "app")
+	got := RelativeTo(project, []string{
+		filepath.Join(project, ".mcp.json"),
+		filepath.Join(home, ".codex", "config.toml"),
+		filepath.Join(string(filepath.Separator), "etc", "mcp.json"),
+	})
+	want := ".mcp.json, " + filepath.Join("~", ".codex", "config.toml") + ", " + filepath.Join(string(filepath.Separator), "etc", "mcp.json")
+	if got != want {
+		t.Fatalf("RelativeTo = %q, want %q", got, want)
 	}
 }

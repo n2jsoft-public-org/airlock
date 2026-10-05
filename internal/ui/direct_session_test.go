@@ -2,124 +2,43 @@ package ui
 
 import (
 	"bytes"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
-// directTestSession is a prepared direct database session, as jumphost.Runner.Prepare returns it.
-func directTestSession() *jumphost.Session {
-	return &jumphost.Session{
+// directTestSession is a running direct database session, as the service shows it.
+func directTestSession() sessions.Session {
+	return sessions.Session{
+		ID:           1,
 		Label:        "DIRECT legacy-billing",
-		ResourceType: "direct",
+		ResourceType: sessions.DirectResourceType,
 		Target:       "legacy-billing",
+		State:        sessions.StateRunning,
+		Ready:        true,
+		Options:      jumphost.Options{ResourceType: sessions.DirectResourceType, Name: "legacy-billing", DBUser: "mcp_ro"},
 		Details: jumphost.SessionDetails{
 			ConnectedServer: "billing.db.internal:1433",
 			Auth:            "password · mcp_ro",
 			RestartCommand:  "airlock direct legacy-billing",
 		},
+		Lines: []sessions.LogLine{{Text: "Connected directly to billing.db.internal:1433: no tunnel to wait for."}},
 	}
 }
 
-// openDirectSession hands m a prepared direct session, as after the wizard, and returns the
-// command it starts.
-func openDirectSession(t *testing.T, m ssmModel, session *jumphost.Session) (ssmModel, tea.Cmd) {
+// newDirectModel returns a dashboard showing list, the direct session selected.
+func newDirectModel(t *testing.T, list ...sessions.Session) ssmModel {
 	t.Helper()
-	m.mode = ssmModePreparing
-	options := jumphost.Options{ResourceType: "direct", Name: session.Target, DBUser: "mcp_ro", DBPassword: "hunter2"}
-	return update(t, m, ssmPreparedMsg{session: session, options: options, id: m.prepareID})
-}
-
-func TestDirectSessionRunsWithoutProcess(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
-
-	s := m.sessions[0]
-	if s.state != ssmSessionRunning || !s.ready || s.cmd != nil {
-		t.Fatalf("state = %v ready = %v cmd = %v, want running and ready without process", s.state, s.ready, s.cmd)
-	}
-	if len(m.processes.commands) != 0 {
-		t.Fatalf("processes = %d, want no aws process for a direct session", len(m.processes.commands))
-	}
-	if !slices.ContainsFunc(s.lines, func(line ssmLogLine) bool {
-		return strings.Contains(line.text, "Connected directly to billing.db.internal:1433")
-	}) {
-		t.Fatalf("lines = %+v, want the direct connection logged", s.lines)
-	}
-}
-
-func TestDirectSessionChecksSignInAtOnce(t *testing.T) {
-	session := directTestSession()
-	signIn := &fakeSignIn{candidates: []jumphost.SignInCandidate{{Label: "password", User: "mcp_ro"}}}
-	session.SignIn = signIn
-
-	m, cmd := openDirectSession(t, newTestSSMModel(t), session)
-	m = settle(t, m, cmd)
-
-	if !slices.Equal(signIn.checked, []string{"password"}) || m.sessions[0].signIn.state != signInDone {
-		t.Fatalf("checked = %v state = %v, want the password checked without waiting for a tunnel", signIn.checked, m.sessions[0].signIn.state)
-	}
-}
-
-func TestStoppingDirectSessionEndsItAtOnce(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
-
-	m, _ = update(t, m, key("x"))
-	m, cmd := update(t, m, key("enter"))
-
-	s := m.sessions[0]
-	if s.state != ssmSessionEnded || !s.stopRequested || s.reconnectPending() {
-		t.Fatalf("state = %v stopRequested = %v reconnect = %v, want ended at once, never reconnected", s.state, s.stopRequested, s.reconnectPending())
-	}
-	if isQuit(cmd) {
-		t.Fatal("stopping the session quit airlock; only q should")
-	}
-	if !strings.Contains(plainView(m), "Session stopped.") {
-		t.Fatalf("view lacks the stop line:\n%s", plainView(m))
-	}
-}
-
-func TestQuitWithDirectSessionsQuitsAtOnce(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
-
-	m, _ = update(t, m, key("q"))
-	_, cmd := update(t, m, key("enter"))
-	if !isQuit(cmd) {
-		t.Fatal("stop all & quit waited for a process a direct session does not have")
-	}
-}
-
-func TestRestartedDirectSessionRunsAgain(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
-	m, _ = update(t, m, key("x"))
-	m, _ = update(t, m, key("enter"))
-	ended := m.sessions[0].id
-
-	m.mode = ssmModePreparing
-	m, _ = update(t, m, ssmPreparedMsg{session: directTestSession(), replaces: ended, id: m.prepareID})
-
-	if len(m.sessions) != 1 || m.sessions[0].state != ssmSessionRunning || m.sessions[0].cmd != nil {
-		t.Fatalf("sessions = %d state = %v, want the slot reused and running without process", len(m.sessions), m.sessions[0].state)
-	}
-	if !strings.Contains(plainView(m), "Restarting session...") {
-		t.Fatalf("view lacks the restart note:\n%s", plainView(m))
-	}
-}
-
-func TestDirectSessionNeverReconnects(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
-
-	m, _ = update(t, m, ssmFinishedMsg{id: m.sessions[0].id, err: errors.New("boom")})
-	if m.sessions[0].reconnectPending() {
-		t.Fatal("a direct session has no tunnel to reconnect")
-	}
+	m := newServiceModel(t, newFakeService(append(list, directTestSession())...))
+	return m.selectSession(len(list))
 }
 
 func TestDirectSessionShowsServerInsteadOfTunnel(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
+	m := newDirectModel(t)
 
 	view := plainView(m)
 	for _, want := range []string{"DIRECT", "legacy-billing", "billing.db.internal:1433", "Server", "direct · "} {
@@ -135,7 +54,7 @@ func TestDirectSessionShowsServerInsteadOfTunnel(t *testing.T) {
 }
 
 func TestDirectSessionCompactViewShowsNoLocalPort(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
+	m := newDirectModel(t)
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
 
 	view := plainView(m)
@@ -148,35 +67,35 @@ func TestDirectSessionCompactViewShowsNoLocalPort(t *testing.T) {
 }
 
 func TestProductionDirectSessionIsFlagged(t *testing.T) {
-	session := directTestSession()
-	session.Production = true
-	m, _ := openDirectSession(t, newTestSSMModel(t), session)
+	s := directTestSession()
+	s.Production = true
+	m := newServiceModel(t, newFakeService(s))
 
-	if !m.isProduction(m.sessions[0]) || !strings.Contains(plainView(m), "PROD") {
-		t.Fatalf("production = %v, want the PROD badge:\n%s", m.isProduction(m.sessions[0]), plainView(m))
+	if !m.isProduction(&m.sessions[0]) || !strings.Contains(plainView(m), "PROD") {
+		t.Fatalf("production = %v, want the PROD badge:\n%s", m.isProduction(&m.sessions[0]), plainView(m))
 	}
 }
 
 func TestIsProductionFromProfileOrFlag(t *testing.T) {
-	m := newTestSSMModel(t, "archive")
+	m, _ := newSessionsModel(t, "archive")
 	m.production = productionMatcher{"*prod*"}
-	s := m.sessions[0]
+	s := &m.sessions[0]
 
 	if m.isProduction(s) {
 		t.Fatal("profile dev flagged as production")
 	}
-	s.session.Profile = "team-prod"
+	s.Profile = "team-prod"
 	if !m.isProduction(s) {
 		t.Fatal("profile team-prod not flagged")
 	}
-	s.session.Profile, s.session.Production = "dev", true
+	s.Profile, s.Production = "dev", true
 	if !m.isProduction(s) {
 		t.Fatal("the session's own production flag is ignored")
 	}
 }
 
 func TestCopyMenuOfDirectSession(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
+	m := newDirectModel(t)
 	copied := &[]string{}
 	m.copier = func(text string) error {
 		*copied = append(*copied, text)
@@ -190,8 +109,8 @@ func TestCopyMenuOfDirectSession(t *testing.T) {
 			t.Fatalf("copy menu lacks %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Local address") || strings.Contains(view, "hunter2") {
-		t.Fatalf("copy menu offers a local address or the password:\n%s", view)
+	if strings.Contains(view, "Local address") {
+		t.Fatalf("copy menu offers a local address:\n%s", view)
 	}
 
 	m = copyChosen(t, m, "2")
@@ -201,33 +120,39 @@ func TestCopyMenuOfDirectSession(t *testing.T) {
 }
 
 func TestSessionSummaryShowsDirectServer(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
+	s := directTestSession()
+	s.Cleanup = "MCP server legacy-billing removed from .mcp.json"
 
 	var out bytes.Buffer
-	m.printSessionSummary(&out)
-	if !strings.Contains(out.String(), "- DIRECT legacy-billing -> billing.db.internal:1433") {
-		t.Fatalf("summary = %q, want the direct server", out.String())
+	printSessionSummary(&out, []sessions.Session{s})
+	for _, want := range []string{"- DIRECT legacy-billing -> billing.db.internal:1433", "  MCP server legacy-billing removed from .mcp.json", "new session command: airlock direct legacy-billing"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("summary = %q, want %q", out.String(), want)
+		}
 	}
 }
 
+// rejectPassword feeds m the end of the direct session, whose password the database rejected.
+func rejectPassword(t *testing.T, m ssmModel) ssmModel {
+	t.Helper()
+	m, _ = sendUpdate(t, m, 1, func(s *sessions.Session) {
+		s.State, s.Err, s.SignIn.State = sessions.StateEnded, jumphost.ErrSignInRejected.Error(), sessions.SignInFailed
+	})
+	m, _ = sendEvent(t, m, sessions.Event{Kind: sessions.EventPasswordRejected, ID: 1, Name: "legacy-billing", User: "mcp_ro", Err: jumphost.ErrSignInRejected.Error()})
+	return m
+}
+
 func TestRejectedDirectPasswordEndsSessionAndAsksAgain(t *testing.T) {
-	session := directTestSession()
-	session.SignIn = &fakeSignIn{
-		candidates: []jumphost.SignInCandidate{{Label: "password", User: "mcp_ro"}},
-		checkErrs:  map[string]error{"password": jumphost.ErrSignInRejected},
-	}
-	m := newTestSSMModel(t)
+	m := newDirectModel(t)
 	m.databases = &fakeDirectStore{dbs: testDirectDatabases()}
 
-	m, cmd := openDirectSession(t, m, session)
-	m = settle(t, m, cmd)
-
-	s := m.sessions[0]
-	if s.active() || canRetrySignIn(s) {
-		t.Fatalf("state = %v, want the session ended: it holds a rejected password", s.state)
+	m = rejectPassword(t, m)
+	s := m.selectedSession()
+	if s == nil {
+		t.Fatal("no session selected")
 	}
-	if strings.Contains(strings.Join(logTexts(s), "\n"), "The tunnel stays open") {
-		t.Fatalf("lines = %v, a direct session has no tunnel", logTexts(s))
+	if s.Active() || canRetrySignIn(s) {
+		t.Fatalf("state = %v, want the session ended: it holds a rejected password", s.State)
 	}
 	if m.mode != ssmModeWizard {
 		t.Fatalf("mode = %v, want the wizard asking the password again", m.mode)
@@ -243,78 +168,56 @@ func TestRejectedDirectPasswordEndsSessionAndAsksAgain(t *testing.T) {
 	}
 }
 
-func logTexts(s *ssmSession) []string {
-	texts := make([]string, 0, len(s.lines))
-	for _, line := range s.lines {
-		texts = append(texts, line.text)
-	}
-	return texts
-}
-
 func TestRejectedDirectPasswordKeepsAnOpenWizard(t *testing.T) {
-	session := directTestSession()
-	session.SignIn = &fakeSignIn{
-		candidates: []jumphost.SignInCandidate{{Label: "password", User: "mcp_ro"}},
-		checkErrs:  map[string]error{"password": jumphost.ErrSignInRejected},
-	}
-	m := newTestSSMModel(t)
+	m := newDirectModel(t)
 	m.databases = &fakeDirectStore{dbs: testDirectDatabases()}
-	m, cmd := openDirectSession(t, m, session)
 	m = m.showWizard(m.wizardDefaults())
 	m.wizard.step = jumphostStepType
 
-	m = settle(t, m, cmd)
-	s := m.sessions[0]
-	if s.active() || m.mode != ssmModeWizard || m.wizard.step != jumphostStepType || m.wizard.openDirect != "" {
-		t.Fatalf("state = %v mode = %v step = %v, want the session ended and the open wizard untouched", s.state, m.mode, m.wizard.step)
-	}
-	if !slices.Contains(logTexts(s), "Press n and open legacy-billing to enter the password of mcp_ro again.") {
-		t.Fatalf("lines = %v, want how to enter the password again", logTexts(s))
+	m = rejectPassword(t, m)
+	if m.mode != ssmModeWizard || m.wizard.step != jumphostStepType || m.wizard.openDirect != "" {
+		t.Fatalf("mode = %v step = %v, want the open wizard untouched", m.mode, m.wizard.step)
 	}
 }
 
 func TestRejectedDirectPasswordWaitsForTheSessionsList(t *testing.T) {
 	for _, mode := range []ssmViewMode{ssmModePreparing, ssmModeConfirmQuit, ssmModeCopy} {
-		session := directTestSession()
-		session.SignIn = &fakeSignIn{
-			candidates: []jumphost.SignInCandidate{{Label: "password", User: "mcp_ro"}},
-			checkErrs:  map[string]error{"password": jumphost.ErrSignInRejected},
-		}
-		m := newTestSSMModel(t)
+		m := newDirectModel(t)
 		m.databases = &fakeDirectStore{dbs: testDirectDatabases()}
-		m, cmd := openDirectSession(t, m, session)
 		m.mode = mode
 
-		m = settle(t, m, cmd)
-		s := m.sessions[0]
-		if s.active() || m.mode != mode {
-			t.Fatalf("mode %v: state = %v mode = %v, want the session ended and the screen left as it was", mode, s.state, m.mode)
+		if m = rejectPassword(t, m); m.mode != mode {
+			t.Fatalf("mode %v: mode = %v, want the screen left as it was", mode, m.mode)
 		}
-		if !slices.Contains(logTexts(s), "Press n and open legacy-billing to enter the password of mcp_ro again.") {
-			t.Fatalf("mode %v: lines = %v, want how to enter the password again", mode, logTexts(s))
-		}
+	}
+
+	// Nor does it take over another session.
+	m := newDirectModel(t, testSession(2, "archive"))
+	m = m.selectSession(0)
+	if m = rejectPassword(t, m); m.mode != ssmModeSessions {
+		t.Fatalf("mode = %v, want the selected archive session kept", m.mode)
 	}
 }
 
 func TestQuitDialogOfDirectSessionsFreesNoPort(t *testing.T) {
-	m, _ := openDirectSession(t, newTestSSMModel(t), directTestSession())
+	m := newDirectModel(t)
 
 	m, _ = update(t, m, key("q"))
 	if view := plainView(m); !strings.Contains(view, "This stops 1 active session.") || strings.Contains(view, "local port") {
 		t.Fatalf("a direct session has no local port to free:\n%s", view)
 	}
 
-	tunnels, _ := openDirectSession(t, newTestSSMModel(t, "archive"), directTestSession())
+	tunnels := newDirectModel(t, testSession(2, "archive"))
 	if body := tunnels.quitDialogBody(); body != "This stops 2 active sessions and frees the local ports of their tunnels." {
 		t.Fatalf("body = %q, want the ports of the tunnels freed", body)
 	}
 }
 
 func TestPreparingDirectSessionTalksNoTunnel(t *testing.T) {
-	updated, _ := newTestSSMModel(t).prepare(ssmPreparedMsg{options: jumphost.Options{ResourceType: "direct", Name: "legacy-billing"}}, "Connecting...")
+	updated, _ := newServiceModel(t, newFakeService()).open(jumphost.Options{ResourceType: "direct", Name: "legacy-billing"}, "", "Connecting...")
 	m, ok := updated.(ssmModel)
 	if !ok {
-		t.Fatalf("prepare returned %T", updated)
+		t.Fatalf("open returned %T", updated)
 	}
 	for _, line := range m.loadingUI.funnyLines {
 		if strings.Contains(line, "port") || strings.Contains(line, "jumphost") || strings.Contains(line, "tunnel") {
@@ -325,7 +228,7 @@ func TestPreparingDirectSessionTalksNoTunnel(t *testing.T) {
 		t.Fatal("want lines while preparing")
 	}
 
-	updated, _ = newTestSSMModel(t).prepare(ssmPreparedMsg{options: jumphost.Options{ResourceType: "rds", Name: "archive"}}, "Connecting...")
+	updated, _ = newServiceModel(t, newFakeService()).open(jumphost.Options{ResourceType: "rds", Name: "archive"}, "", "Connecting...")
 	if rds, ok := updated.(ssmModel); !ok || !slices.Contains(rds.loadingUI.funnyLines, "Reserving a cozy local port...") {
 		t.Fatalf("lines = %v, want the tunnel lines for RDS", rds.loadingUI.funnyLines)
 	}

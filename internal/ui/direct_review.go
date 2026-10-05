@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // directChoicesLoadedMsg carries the choices remembered for the direct database name: MCP writes,
@@ -24,7 +25,7 @@ type directChoicesLoadedMsg struct {
 // keychain, MCP writes) are loaded in the background.
 func (m jumphostWizardModel) enterDirectReview(db directdb.Database) (jumphostWizardModel, tea.Cmd) {
 	m.directDB = db
-	m.options.ResourceType = directResourceType
+	m.options.ResourceType = sessions.DirectResourceType
 	m.options.Name = db.Name
 	m.options.DBUser = db.User
 	m.errorMsg = ""
@@ -56,7 +57,7 @@ func (m jumphostWizardModel) clearDirectOptions() jumphostWizardModel {
 // when the keychain keeps one for db's user.
 func (m jumphostWizardModel) loadDirectChoicesCmd(db directdb.Database) tea.Cmd {
 	runner, ctx := m.runner, m.ctx
-	options := jumphost.Options{ResourceType: directResourceType, Name: db.Name, DBUser: db.User}
+	options := jumphost.Options{ResourceType: sessions.DirectResourceType, Name: db.Name, DBUser: db.User}
 	return func() tea.Msg {
 		msg := directChoicesLoadedMsg{name: db.Name, keychainAvailable: runner.KeychainAvailable()}
 		msg.prefs, msg.saved = runner.LoadConnectionPrefs(ctx, options)
@@ -104,7 +105,7 @@ func (m jumphostWizardModel) submitDirectReview() (tea.Model, tea.Cmd) {
 		m.errorMsg = "Enter the password of " + m.directDB.User
 		return m.focusReviewField(reviewFieldPassword), nil
 	}
-	m.options.ResourceType = directResourceType
+	m.options.ResourceType = sessions.DirectResourceType
 	m.options.Name = m.directDB.Name
 	m.options.DBUser = m.directDB.User
 	m.options.SignIn = jumphost.SignInPassword
@@ -130,10 +131,10 @@ func (m jumphostWizardModel) renderDirectReviewPanel(width int, compact bool) st
 	}
 	var rows []string
 	if compact {
-		rows = append(rows, m.reviewRow("Target", m.styles.ResourceBadge(directResourceType)+" "+name, inner))
+		rows = append(rows, m.reviewRow("Target", m.styles.ResourceBadge(sessions.DirectResourceType)+" "+name, inner))
 	} else {
 		rows = append(rows,
-			m.reviewRow("Type", m.styles.ResourceBadge(directResourceType)+" "+m.styles.Muted.Render(string(db.Engine)), inner),
+			m.reviewRow("Type", m.styles.ResourceBadge(sessions.DirectResourceType)+" "+m.styles.Muted.Render(string(db.Engine)), inner),
 			m.reviewRow("Target", name, inner),
 			m.reviewRow("Server", db.Address()+m.styles.Faint.Render(" · TLS "+string(db.EffectiveTLS())), inner),
 			m.reviewRow("Database", m.directDatabaseLabel(), inner),
@@ -241,13 +242,13 @@ func (m jumphostWizardModel) openDirectAtStart(name string) (tea.Model, tea.Cmd)
 	}
 	options := m.typeOptions()
 	for idx := range options {
-		if options[idx].name == directResourceType {
+		if options[idx].name == sessions.DirectResourceType {
 			m.resourceIndex = idx
 		}
 	}
 	m.flow = flowNew
 	m.options = m.base
-	m.options.ResourceType = directResourceType
+	m.options.ResourceType = sessions.DirectResourceType
 	m = m.reloadDirectList(name)
 	m.step = jumphostStepTarget
 	m, cmd := m.enterDirectReview(db)

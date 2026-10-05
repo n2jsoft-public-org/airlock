@@ -30,6 +30,6 @@ func removeFromUserPath(_ string) error {
 var UserPath func() (string, error)
 
 // OtherInstances is Windows only: elsewhere a running airlock does not keep its binary in place.
-func OtherInstances(_ string) (int, error) {
+func OtherInstances(_ string, _ ...int) (int, error) {
 	return 0, nil
 }

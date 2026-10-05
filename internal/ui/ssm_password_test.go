@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -9,20 +8,19 @@ import (
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
-// newPasswordTestModel returns a dashboard whose session reads creds from its secrets, reads
-// counting the calls, and whose copies land in *copied.
-func newPasswordTestModel(t *testing.T, creds []jumphost.DBCredentials, readErr error) (m ssmModel, copied *[]string, reads *int) {
+// newPasswordTestModel returns a dashboard whose session reads creds from its secrets, with auth
+// as its Auth detail, and whose copies land in *copied; the service counts the reads.
+func newPasswordTestModel(t *testing.T, creds []jumphost.DBCredentials, readErr error, auth string) (m ssmModel, copied *[]string, service *fakeService) {
 	t.Helper()
-	m, copied = newCopyTestModel(t)
-	reads = new(int)
-	session := m.sessions[0].session
-	session.Details.Auth = "Secrets Manager · rds/archive/app · app_rw"
-	session.ReadCredentials = func(context.Context) ([]jumphost.DBCredentials, error) {
-		*reads++
-		return creds, readErr
-	}
-	return m, copied, reads
+	s := copyTestSession()
+	s.HasCredentials, s.Details.Auth = true, auth
+	m, service, copied = newCopyTestModel(t, &s)
+	service.creds, service.credsErr = creds, readErr
+	return m, copied, service
 }
+
+// archiveSecretAuth is the Auth detail of a session signing in with a picked secret.
+const archiveSecretAuth = "Secrets Manager · rds/archive/app · app_rw"
 
 // pickedSecret is the credentials of a session signing in with a picked secret.
 var pickedSecret = []jumphost.DBCredentials{{User: "app_rw", Password: "s3cr3t-Pa55"}}
@@ -42,7 +40,7 @@ func revealed(t *testing.T, m ssmModel) ssmModel {
 }
 
 func TestPasswordDialogShowsTheSecretPassword(t *testing.T) {
-	m, _, reads := newPasswordTestModel(t, pickedSecret, nil)
+	m, _, service := newPasswordTestModel(t, pickedSecret, nil, archiveSecretAuth)
 
 	if view := plainView(m); !strings.Contains(view, "show password") {
 		t.Fatalf("details do not offer to show the password:\n%s", view)
@@ -66,13 +64,13 @@ func TestPasswordDialogShowsTheSecretPassword(t *testing.T) {
 
 	// Each reveal reads the secret again, so a rotated one shows its current value.
 	revealed(t, m)
-	if *reads != 2 {
-		t.Fatalf("secret read %d times, want 2", *reads)
+	if calls := service.Calls(); len(calls) != 2 || calls[1] != "credentials" {
+		t.Fatalf("calls = %v, want the secret read twice", calls)
 	}
 }
 
 func TestPasswordDialogCopiesThePassword(t *testing.T) {
-	m, copied, _ := newPasswordTestModel(t, pickedSecret, nil)
+	m, copied, _ := newPasswordTestModel(t, pickedSecret, nil, archiveSecretAuth)
 
 	m = revealed(t, m)
 	m = copyChosen(t, m, "c")
@@ -95,7 +93,7 @@ func TestPasswordDialogCopiesThePassword(t *testing.T) {
 }
 
 func TestPasswordDialogShowsAReadFailure(t *testing.T) {
-	m, copied, _ := newPasswordTestModel(t, nil, errors.New("failed to read secret rds/archive/app: AccessDeniedException"))
+	m, copied, _ := newPasswordTestModel(t, nil, errors.New("failed to read secret rds/archive/app: AccessDeniedException"), archiveSecretAuth)
 
 	m = revealed(t, m)
 	if view := plainView(m); !strings.Contains(view, "AccessDeniedException") {
@@ -112,7 +110,7 @@ func TestPasswordDialogShowsAReadFailure(t *testing.T) {
 }
 
 func TestPasswordReadAfterHidingIsDropped(t *testing.T) {
-	m, _, _ := newPasswordTestModel(t, pickedSecret, nil)
+	m, _, _ := newPasswordTestModel(t, pickedSecret, nil, archiveSecretAuth)
 
 	m, cmd := update(t, m, key("p"))
 	m, _ = update(t, m, key("esc"))
@@ -123,7 +121,7 @@ func TestPasswordReadAfterHidingIsDropped(t *testing.T) {
 }
 
 func TestPasswordKeyNeedsASecretSession(t *testing.T) {
-	m, _ := newCopyTestModel(t)
+	m, _, _ := newCopyTestModel(t, new(copyTestSession()))
 
 	if view := plainView(m); strings.Contains(view, "show password") {
 		t.Fatalf("session without secret offers to show a password:\n%s", view)
@@ -141,8 +139,7 @@ func TestPasswordDialogListsTheReadOnlySecretOfEachDatabase(t *testing.T) {
 	m, copied, _ := newPasswordTestModel(t, []jumphost.DBCredentials{
 		{Database: "app_db", User: "app_ro", Password: "app-Pa55"},
 		{Secret: "audit-integ", User: "app_ro", Password: "audit-Pa55"},
-	}, nil)
-	m.sessions[0].session.Details.Auth = "Secrets Manager · read-only secrets Role=read-only"
+	}, nil, "Secrets Manager · read-only secrets Role=read-only")
 
 	m = revealed(t, m)
 	view := plainView(m)
@@ -163,7 +160,7 @@ func TestPasswordDialogListsTheReadOnlySecretOfEachDatabase(t *testing.T) {
 }
 
 func TestPasswordDialogWithoutCredentialsCopiesNothing(t *testing.T) {
-	m, copied, _ := newPasswordTestModel(t, []jumphost.DBCredentials{}, nil)
+	m, copied, _ := newPasswordTestModel(t, []jumphost.DBCredentials{}, nil, archiveSecretAuth)
 
 	m = copyChosen(t, revealed(t, m), "c", "1", "down")
 	if len(*copied) != 0 || !strings.Contains(plainView(m), "No credentials found") {

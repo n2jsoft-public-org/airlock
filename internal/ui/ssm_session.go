@@ -1,45 +1,24 @@
 package ui
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
+	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
-const (
-	maxSessionLogLines = 1000
-	ssmTickInterval    = 150 * time.Millisecond
-)
+// daemonStoppedReason is the reason the daemon gives its views when it stops on purpose.
+const daemonStoppedReason = "daemon stopped"
 
-// directResourceType is the type of direct database sessions: they run no aws process and stay
-// open from their preparation until they are stopped.
-const directResourceType = "direct"
-
-// JumphostSessionRunner discovers targets and prepares sessions for the multi-session TUI.
-type JumphostSessionRunner interface {
-	JumphostDiscovery
-	Prepare(ctx context.Context, options jumphost.Options) (*jumphost.Session, error)
-}
-
-type ssmSessionState int
-
-const (
-	ssmSessionStarting ssmSessionState = iota
-	ssmSessionRunning
-	ssmSessionStopping
-	ssmSessionEnded
-)
+const ssmTickInterval = 150 * time.Millisecond
 
 type ssmViewMode int
 
@@ -59,144 +38,84 @@ const (
 	ssmModeSignIn
 )
 
-type ssmOutputMsg struct {
-	line string
-	id   int
-}
-
-type ssmFinishedMsg struct {
-	err error
-	id  int
-}
-
-type ssmStartedMsg struct {
-	cmd *exec.Cmd
-	id  int
-}
-
 // ssmTickMsg animates spinners and refreshes uptimes.
 type ssmTickMsg time.Time
 
-type ssmPreparedMsg struct {
-	session *jumphost.Session
-	err     error
-	warning string
-	options jumphost.Options
-	// replaces is the id of the ended session a restart takes the place of; 0 for a new session.
-	replaces int
-	// id identifies the preparation; a canceled one carries an older id than ssmModel.prepareID.
-	id int
-	// background marks an automatic reconnection, which never takes the screen.
-	background bool
+// ssmEventMsg is one change of the sessions; ok is false once the channel closed.
+type ssmEventMsg struct {
+	// events is the channel the message came from; nil matches any subscription.
+	events <-chan sessions.Event
+	event  sessions.Event
+	ok     bool
 }
 
-type ssmLogLine struct {
-	at   time.Time
-	text string
+// ssmSnapshotMsg is the snapshot taken after an EventResync.
+type ssmSnapshotMsg struct {
+	err      error
+	snapshot sessions.Snapshot
 }
 
-// ssmSession is one port-forwarding session shown in the sidebar.
-type ssmSession struct {
-	startedAt time.Time
-	endedAt   time.Time
+// ssmOpenedMsg is the result of an opening or restart; prepareID tells which one.
+type ssmOpenedMsg struct {
 	err       error
-	session   *jumphost.Session
-	cmd       *exec.Cmd
-	// options prepared the session; a restart prepares them again.
-	options jumphost.Options
-	// mcp holds the calls made through the session's MCP server (nil when none runs).
-	mcp *ssmMCPQueries
-	// signIn checks the database credentials once the tunnel is ready.
-	signIn        ssmSignIn
-	lines         []ssmLogLine
-	id            int
-	connections   int
-	state         ssmSessionState
-	stopRequested bool
-	// ready is set once session-manager-plugin listens on the local port.
-	ready bool
-	// reconnects counts the automatic reconnections in a row; reconnectAt is when the next one
-	// starts (zero when none is scheduled) and reconnecting reports one being prepared.
-	reconnects   int
-	reconnectAt  time.Time
-	reconnecting bool
-	// cancelReconnect cancels the context of the reconnection being prepared.
-	cancelReconnect context.CancelFunc
+	id        sessions.ID
+	prepareID int
+	restart   bool
 }
 
-// stopReconnecting cancels the scheduled or running automatic reconnection of s; the result of a
-// running one is released when it comes.
-func (s *ssmSession) stopReconnecting() {
-	if s.cancelReconnect != nil {
-		s.cancelReconnect()
-		s.cancelReconnect = nil
-	}
-	s.reconnectAt, s.reconnecting = time.Time{}, false
+// ssmReconnectedMsg carries the service of the daemon reached again.
+type ssmReconnectedMsg struct {
+	service sessions.Service
+	err     error
 }
 
-func (s *ssmSession) active() bool {
-	return s.state != ssmSessionEnded
+// ssmActionMsg reports a request to the service; prefix starts its error message.
+type ssmActionMsg struct {
+	err    error
+	prefix string
 }
 
-// mcpWrites reports whether the MCP server of s lets AI assistants modify data.
-func (s *ssmSession) mcpWrites() bool {
-	return s.mcp != nil && s.mcp.writes
-}
-
-// direct reports whether s is a direct database session, which runs no aws process.
-func (s *ssmSession) direct() bool {
-	return s.session.ResourceType == directResourceType
-}
-
-// key identifies the target of s as the wizard's recent connections do (see connectionKey).
-func (s *ssmSession) key() string {
-	if s.direct() {
-		return directConnectionKey(s.session.Target)
-	}
-	return connectionKey(s.session.Profile, s.session.Region, s.session.ResourceType, s.session.Target)
-}
-
-func (s *ssmSession) appendLines(lines ...string) {
-	now := time.Now()
-	for _, line := range lines {
-		s.lines = append(s.lines, ssmLogLine{at: now, text: line})
-	}
-	if len(s.lines) > maxSessionLogLines {
-		s.lines = s.lines[len(s.lines)-maxSessionLogLines:]
-	}
-}
-
+// ssmModel is the dashboard: it shows the sessions of its service and asks it for every change.
 type ssmModel struct {
-	ctx         context.Context
-	runner      JumphostSessionRunner
-	processes   *processTracker
-	events      chan tea.Msg
+	ctx       context.Context
+	service   sessions.Service
+	discovery JumphostDiscovery
+	// events delivers the service's changes; nil until subscribe.
+	events      <-chan sessions.Event
 	wizard      jumphostWizardModel
 	styles      Styles
 	errorMsg    string
-	sessions    []*ssmSession
+	sessions    []sessions.Session
 	loadingUI   loadingState
 	baseOptions jumphost.Options
 	viewport    viewport.Model
-	selected    int
-	nextID      int
-	frame       int
-	width       int
-	height      int
-	mode        ssmViewMode
-	confirmYes  bool
-	quitting    bool
+	// seq is the Seq of the last snapshot or event applied.
+	seq      uint64
+	selected int
+	frame    int
+	width    int
+	height   int
+	mode     ssmViewMode
+	// pendingSelect is the session an opening returned, selected once its EventAdded arrives.
+	pendingSelect sessions.ID
+	// discarded are the sessions opened after the user canceled their preparation: stopped, then
+	// closed once ended.
+	discarded  []sessions.ID
+	confirmYes bool
+	quitting   bool
 	// showQueries shows the MCP queries of the selected session instead of its logs.
 	showQueries bool
 	// notice is a neutral message shown above the key hints until the next key.
 	notice string
-	// prepareID identifies the preparation the dashboard waits for (see ssmPreparedMsg.id);
-	// cancelPrepare cancels its context, stopping its AWS calls.
+	// prepareID identifies the opening the dashboard waits for (see ssmOpenedMsg.prepareID);
+	// cancelPrepare cancels its context, which makes the service release it.
 	prepareID     int
 	cancelPrepare context.CancelFunc
 	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
 	copier     func(text string) error
 	copyCursor int
+	// signInCursor is the candidate the sign-in dialog chooses on enter.
+	signInCursor int
 	// password is the password dialog (ssmModePassword).
 	password ssmPasswordReveal
 	// production flags the AWS profiles of the productionProfiles setting.
@@ -207,10 +126,21 @@ type ssmModel struct {
 	databases DirectDatabaseStore
 	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
 	openDirect string
+	// interactive runs the terminal commands of the openings (aws sso login); projectDir is set on
+	// every opening.
+	interactive jumphost.InteractiveFunc
+	projectDir  string
+	// detach makes q leave the view only (daemon mode).
+	detach bool
+	// connLost, when not empty, says why the daemon is out of reach; r calls reconnect.
+	connLost string
+	// reconnecting is set while a reconnection runs, so that r starts only one.
+	reconnecting bool
+	// exitNotice is printed once the dashboard left the screen.
+	exitNotice string
+	reconnect  func(ctx context.Context) (sessions.Service, error)
 }
 
-// RunJumphostSessions shows the running port-forwarding sessions and lets the user open more in parallel.
-// first is already prepared; when nil, the dashboard opens on the wizard, as if the user pressed n.
 // DashboardOptions are the optional settings of RunJumphostSessions.
 type DashboardOptions struct {
 	// Handoff, when not nil, suspends the dashboard while it runs a command needing the terminal
@@ -226,115 +156,136 @@ type DashboardOptions struct {
 	// OpenDirect, when not empty, opens the startup wizard on the review step of that direct
 	// database (`airlock direct <name>`).
 	OpenDirect string
+	// ProjectDir is set on every opening's Options.ProjectDir.
+	ProjectDir string
+	// Detach marks a daemon view: q detaches (Task 13).
+	Detach bool
+	// Reconnect reaches the daemon again after its connection was lost (daemon views).
+	Reconnect func(ctx context.Context) (sessions.Service, error)
 }
 
-// New sessions are prepared with runner, reusing base for their defaults.
-func RunJumphostSessions(ctx context.Context, runner JumphostSessionRunner, first *jumphost.Session, base jumphost.Options, out io.Writer, opts DashboardOptions) error {
-	handoff := opts.Handoff
-	processes := newProcessTracker()
-	stopHangupWatch := jumphost.RunOnHangup(processes.shutdown)
-	defer stopHangupWatch()
+// shutdowner is the in-process service, whose sessions end with the dashboard (CLI mode).
+type shutdowner interface {
+	Shutdown()
+}
 
-	model := newSSMModel(ctx, runner, processes, base)
-	model.production = productionMatcher(opts.ProductionProfiles)
-	model.updateNotice = opts.UpdateNotice
-	model.databases = opts.Databases
-	model.openDirect = opts.OpenDirect
-	if first != nil {
-		model = model.addSession(first, base)
-	} else {
-		model = model.startupWizard()
+// RunJumphostSessions shows the sessions of service and lets the user open more in parallel.
+// first, when not 0, is selected at start; otherwise the dashboard opens on the wizard.
+func RunJumphostSessions(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, first sessions.ID, base jumphost.Options, out io.Writer, opts DashboardOptions) error { //nolint:gocritic // base is the caller's copy, kept by the model.
+	owned, ownsSessions := service.(shutdowner)
+	ownsSessions = ownsSessions && !opts.Detach
+	if ownsSessions {
+		stopHangupWatch := jumphost.RunOnHangup(owned.Shutdown)
+		defer stopHangupWatch()
 	}
+	subscribeCtx, unsubscribe := context.WithCancel(ctx)
+	defer unsubscribe()
+
+	model := newSSMModel(subscribeCtx, service, discovery, base)
+	model.production = productionMatcher(opts.ProductionProfiles)
+	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
+	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
+	if opts.Handoff != nil {
+		model.interactive = opts.Handoff.Run
+	}
+	model = model.subscribe().startupView(first)
 
 	program := tea.NewProgram(model, tea.WithAltScreen())
-	if handoff != nil {
-		handoff.attach(program)
-		defer handoff.attach(nil)
+	if opts.Handoff != nil {
+		opts.Handoff.attach(program)
+		defer opts.Handoff.attach(nil)
 	}
 	finalModel, err := program.Run()
+	if result, ok := finalModel.(ssmModel); ok && result.exitNotice != "" {
+		if _, writeErr := fmt.Fprintln(out, result.exitNotice); writeErr != nil && err == nil {
+			err = writeErr
+		}
+	}
+	if !ownsSessions {
+		return err
+	}
 	// Whatever happened, never leave aws processes or IDE data sources behind.
-	processes.shutdown()
+	owned.Shutdown()
 	if err != nil {
 		return err
 	}
-
-	result, ok := finalModel.(ssmModel)
-	if !ok {
+	snapshot, snapErr := service.Snapshot(ctx)
+	if snapErr != nil {
 		return nil
 	}
-	result.printSessionSummary(out)
-
-	// A lone session failing on its own keeps reporting its error, as before parallel sessions existed.
-	if len(result.sessions) == 1 && !result.sessions[0].stopRequested {
-		return result.sessions[0].err
+	printSessionSummary(out, snapshot.Sessions)
+	// A lone session failing on its own keeps reporting its error.
+	if result, ok := finalModel.(ssmModel); ok && len(result.sessions) == 1 && len(snapshot.Sessions) == 1 {
+		if s := snapshot.Sessions[0]; !s.StopRequested && s.Err != "" {
+			return errors.New(s.Err)
+		}
 	}
 	return nil
 }
 
-func newSSMModel(ctx context.Context, runner JumphostSessionRunner, processes *processTracker, base jumphost.Options) ssmModel {
+func newSSMModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, base jumphost.Options) ssmModel { //nolint:gocritic // base is kept by the model.
 	return ssmModel{
-		ctx:         ctx,
-		runner:      runner,
-		processes:   processes,
-		baseOptions: base,
-		events:      make(chan tea.Msg, 256),
-		viewport:    viewport.New(0, 0),
-		styles:      NewStyles(),
-		copier:      copyToClipboard,
-		nextID:      1,
+		ctx: ctx, service: service, discovery: discovery, baseOptions: base,
+		viewport: viewport.New(0, 0), styles: NewStyles(), copier: copyToClipboard,
+	}
+}
+
+// startupView chooses the first screen: session first when it is given, otherwise the wizard. A
+// daemon view showing sessions opens on them, unless the command named something to open
+// (`airlock direct <name>`, `airlock <type>`); a view that could not reach the daemon shows why.
+func (m ssmModel) startupView(first sessions.ID) ssmModel {
+	if index := m.sessionIndex(first); first != 0 && index >= 0 {
+		return m.selectSession(index)
+	}
+	if m.connLost != "" {
+		return m
+	}
+	asked := m.openDirect != "" || m.baseOptions.ResourceType != ""
+	if len(m.sessions) == 0 || first == 0 && (!m.detach || asked) {
+		return m.startupWizard()
+	}
+	return m
+}
+
+// subscribe takes the service's sessions and starts following its events. A daemon view that cannot
+// follow them shows the lost connection, which r reaches again.
+func (m ssmModel) subscribe() ssmModel {
+	snapshot, events, err := m.service.Subscribe(m.ctx)
+	if err != nil {
+		m.events = nil
+		if m.detach {
+			m.connLost = "could not follow the sessions: " + err.Error()
+		} else {
+			m.errorMsg = "Could not follow the sessions: " + err.Error()
+		}
+		m.refreshViewport()
+		return m
+	}
+	m.events, m.sessions, m.seq = events, snapshot.Sessions, snapshot.Seq
+	m.refreshViewport()
+	return m
+}
+
+func waitSSMEvent(events <-chan sessions.Event) tea.Cmd {
+	if events == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ev, ok := <-events
+		return ssmEventMsg{event: ev, ok: ok, events: events}
 	}
 }
 
 func (m ssmModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{waitSSMEvent(m.events), ssmTickCmd()}
-	for _, s := range m.sessions {
-		if s.state == ssmSessionStarting {
-			cmds = append(cmds, m.startSession(s))
-		}
-	}
+	var wizardInit tea.Cmd
 	if m.mode == ssmModeWizard {
-		cmds = append(cmds, m.wizard.Init())
+		wizardInit = m.wizard.Init()
 	}
-	return tea.Batch(cmds...)
+	return tea.Batch(waitSSMEvent(m.events), ssmTickCmd(), wizardInit)
 }
 
 func ssmTickCmd() tea.Cmd {
 	return tea.Tick(ssmTickInterval, func(t time.Time) tea.Msg { return ssmTickMsg(t) })
-}
-
-// addSession registers a session prepared with options as a new tab and selects it. The process is
-// launched separately.
-func (m ssmModel) addSession(session *jumphost.Session, options jumphost.Options) ssmModel {
-	m.sessions = append(m.sessions, m.newSession(session, options, nil, ""))
-	m.selected = len(m.sessions) - 1
-	m.refreshViewport()
-	m.viewport.GotoBottom()
-	return m
-}
-
-// newSession builds the tab of a prepared session; history holds the log lines of the ended run a
-// restart replaces, followed by note.
-func (m *ssmModel) newSession(session *jumphost.Session, options jumphost.Options, history []ssmLogLine, note string) *ssmSession {
-	s := &ssmSession{
-		id:        m.nextID,
-		session:   session,
-		options:   options,
-		state:     ssmSessionStarting,
-		startedAt: time.Now(),
-		lines:     append([]ssmLogLine{}, history...),
-	}
-	if server := session.MCPServer(); server != nil {
-		s.mcp = subscribeMCPQueries(s.id, server, m.events)
-	}
-	if note != "" {
-		s.appendLines("", note, "")
-	}
-	s.appendLines(session.Intro...)
-	s.appendLines("", "Starting session...")
-
-	m.nextID++
-	m.processes.track(session)
-	return s
 }
 
 func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -350,52 +301,26 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ssmTickMsg:
 		m.frame++
 		return m, ssmTickCmd()
-	case ssmOutputMsg:
-		var cmd tea.Cmd
-		if s := m.session(msg.id); s != nil {
-			wasReady := s.ready
-			s.appendLines(msg.line)
-			trackPluginOutput(s, msg.line)
-			if !wasReady && s.ready {
-				cmd = m.startSignIn(s)
-			}
-			m.refreshSelected(s)
+	case ssmEventMsg:
+		return m.handleEvent(msg)
+	case ssmSnapshotMsg:
+		return m.handleSnapshot(msg)
+	case ssmReconnectedMsg:
+		return m.handleReconnected(msg)
+	case ssmOpenedMsg:
+		return m.handleOpened(msg)
+	case ssmActionMsg:
+		if msg.err != nil {
+			// A refused "stop all & quit" leaves the dashboard usable.
+			m.quitting = false
+			m.errorMsg = msg.prefix + msg.err.Error()
+			m.refreshViewport()
 		}
-		return m, tea.Batch(waitSSMEvent(m.events), cmd)
-	case ssmMCPQueryMsg:
-		if s := m.session(msg.id); s != nil && s.mcp != nil {
-			s.mcp.add(&msg.event)
-			if m.queriesShown(s) {
-				m.refreshSelected(s)
-			}
-		}
-		return m, waitSSMEvent(m.events)
-	case ssmStartedMsg:
-		if s := m.session(msg.id); s != nil {
-			s.cmd = msg.cmd
-			s.state = ssmSessionRunning
-			if s.stopRequested {
-				s.state = ssmSessionStopping
-				terminateProcessGroup(s.cmd)
-			}
-		}
-		return m, waitSSMEvent(m.events)
-	case ssmFinishedMsg:
-		return m.handleFinished(msg)
-	case ssmPreparedMsg:
-		return m.handlePrepared(msg)
+		return m, nil
 	case ssmCopiedMsg:
 		return m.handleCopied(msg)
 	case ssmPasswordMsg:
 		return m.handlePassword(msg)
-	case ssmSignInListedMsg:
-		return m.handleSignInListed(msg)
-	case ssmSignInCheckedMsg:
-		return m.handleSignInChecked(msg)
-	case ssmPrefsSavedMsg:
-		return m.handlePrefsSaved(msg)
-	case ssmReconnectMsg:
-		return m.handleReconnect(msg)
 	case jumphostWizardDoneMsg:
 		return m.handleWizardDone(msg)
 	case loadingTickMsg:
@@ -434,7 +359,189 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m ssmModel) handleEvent(msg ssmEventMsg) (tea.Model, tea.Cmd) {
+	if msg.events != nil && msg.events != m.events {
+		// A previous subscription (before a reconnection).
+		return m, nil
+	}
+	if !msg.ok {
+		if m.detach {
+			return m.loseConnection("connection to the daemon lost")
+		}
+		// The service stopped (CLI mode at exit).
+		return m, nil
+	}
+	ev := msg.event
+	switch ev.Kind {
+	case sessions.EventClosed:
+		if ev.Err == daemonStoppedReason {
+			m.exitNotice = "The airlock daemon stopped."
+			return m, tea.Quit
+		}
+		return m.loseConnection(ev.Err)
+	case sessions.EventResync:
+		service, ctx := m.service, m.ctx
+		return m, func() tea.Msg {
+			snapshot, err := service.Snapshot(ctx)
+			return ssmSnapshotMsg{snapshot: snapshot, err: err}
+		}
+	case sessions.EventNotice:
+		m.notice = ev.Notice
+		m.refreshViewport()
+		return m, waitSSMEvent(m.events)
+	}
+	if ev.Seq <= m.seq {
+		return m, waitSSMEvent(m.events)
+	}
+	m.seq = ev.Seq
+	before := map[sessions.ID]*sessions.Session{ev.ID: m.sessionCopy(ev.ID)}
+	m.sessions = sessions.Apply(m.sessions, &ev)
+	if ev.Kind == sessions.EventRemoved {
+		m = m.selectSession(min(m.selected, max(len(m.sessions)-1, 0)))
+	}
+	m, closeCmd, quit := m.settle([]sessions.ID{ev.ID}, before)
+	if quit {
+		return m, tea.Quit
+	}
+	var cmd tea.Cmd
+	if ev.Kind == sessions.EventPasswordRejected {
+		var next tea.Model
+		next, cmd = m.askDirectPasswordAgain(ev)
+		if asked, ok := next.(ssmModel); ok {
+			m = asked
+		}
+	}
+	return m, tea.Batch(waitSSMEvent(m.events), cmd, closeCmd)
+}
+
+// handleSnapshot replaces the sessions with the snapshot taken after an EventResync, then follows
+// the change as an event would.
+func (m ssmModel) handleSnapshot(msg ssmSnapshotMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		return m, waitSSMEvent(m.events)
+	}
+	before := make(map[sessions.ID]*sessions.Session, len(m.sessions))
+	for index := range m.sessions {
+		before[m.sessions[index].ID] = m.sessionCopy(m.sessions[index].ID)
+	}
+	m.sessions, m.seq = msg.snapshot.Sessions, msg.snapshot.Seq
+	m.selected = min(m.selected, max(len(m.sessions)-1, 0))
+	m.refreshViewport()
+	changed := make([]sessions.ID, 0, len(m.sessions))
+	for index := range m.sessions {
+		changed = append(changed, m.sessions[index].ID)
+	}
+	m, closeCmd, quit := m.settle(changed, before)
+	if quit {
+		return m, tea.Quit
+	}
+	return m, tea.Batch(waitSSMEvent(m.events), closeCmd)
+}
+
+// settle follows a change of the sessions changed (before holds their copies from before it), after
+// an event or a resync: the opening waited for is selected, the sign-in dialog follows the selected
+// session, the discarded sessions that ended are closed. quit is set once "stop all & quit" has
+// nothing left running: only it leaves on its own, an ended session stays on screen with its logs.
+func (m ssmModel) settle(changed []sessions.ID, before map[sessions.ID]*sessions.Session) (next ssmModel, cmd tea.Cmd, quit bool) {
+	if m.pendingSelect != 0 {
+		if index := m.sessionIndex(m.pendingSelect); index >= 0 {
+			m.pendingSelect = 0
+			m = m.selectSession(index)
+		}
+	}
+	var closeCmds []tea.Cmd
+	for _, id := range changed {
+		if s := m.session(id); s != nil {
+			m.openSignInDialog(before[id], s)
+			m.closeSignInDialog(s)
+			m.refreshSelected(s)
+			closeCmds = append(closeCmds, m.closeDiscarded(s))
+		}
+	}
+	if m.quitting && !m.hasActiveSessions() {
+		return m, nil, true
+	}
+	return m, tea.Batch(closeCmds...), false
+}
+
+// loseConnection ends the view of a closed service: it quits after "stop all & quit", otherwise
+// it shows why and waits for r.
+func (m ssmModel) loseConnection(reason string) (tea.Model, tea.Cmd) {
+	if m.quitting {
+		return m, tea.Quit
+	}
+	m.connLost, m.reconnecting = reason, false
+	// No dialog or wizard may act on the dead service.
+	m.mode = ssmModeSessions
+	m.refreshViewport()
+	return m, nil
+}
+
+// reconnectCmd reaches the daemon again in the background.
+func (m ssmModel) reconnectCmd() tea.Cmd {
+	if m.reconnect == nil {
+		return nil
+	}
+	reconnect, ctx := m.reconnect, m.ctx
+	return func() tea.Msg {
+		service, err := reconnect(ctx)
+		return ssmReconnectedMsg{service: service, err: err}
+	}
+}
+
+func (m ssmModel) handleReconnected(msg ssmReconnectedMsg) (tea.Model, tea.Cmd) {
+	m.reconnecting = false
+	if msg.err != nil {
+		m.connLost = "could not reach the daemon: " + msg.err.Error()
+		m.refreshViewport()
+		return m, nil
+	}
+	// A restarted daemon numbers its sessions from 1 again: the IDs the view waited for mean nothing
+	// there, and closing them could close another session.
+	m.service, m.connLost = msg.service, ""
+	m.discarded, m.pendingSelect = nil, 0
+	m = m.subscribe()
+	return m, waitSSMEvent(m.events)
+}
+
+// sessionCopy returns a copy of session id, nil when unknown.
+func (m ssmModel) sessionCopy(id sessions.ID) *sessions.Session {
+	if s := m.session(id); s != nil {
+		return new(s.Clone())
+	}
+	return nil
+}
+
+// act sends a request to the service in the background; its error is shown after prefix.
+func (m ssmModel) act(prefix string, fn func(ctx context.Context) error) tea.Cmd {
+	ctx := m.ctx
+	return func() tea.Msg { return ssmActionMsg{err: fn(ctx), prefix: prefix} }
+}
+
 func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.connLost != "" {
+		switch msg.String() {
+		case "r":
+			if m.reconnecting {
+				return m, nil
+			}
+			cmd := m.reconnectCmd()
+			m.reconnecting = cmd != nil
+			return m, cmd
+		case "q", "ctrl+c", "Q":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+	if m.detach && !m.quitting {
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "Q":
+			m.mode, m.confirmYes = ssmModeConfirmQuit, true
+			return m, nil
+		}
+	}
 	if m.quitting {
 		// A second ctrl+c skips waiting; remaining processes are terminated on exit.
 		if msg.String() == "ctrl+c" {
@@ -469,7 +576,7 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m.restartSelected()
 	case "m":
-		if s := m.selectedSession(); s != nil && s.mcp != nil {
+		if s := m.selectedSession(); s != nil && s.MCP != nil {
 			m.showQueries = !m.showQueries
 			m.refreshViewport()
 			m.viewport.GotoBottom()
@@ -480,10 +587,11 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s == nil {
 			return m, nil
 		}
-		if !s.active() {
-			return m.removeSelected(), nil
+		if !s.Active() {
+			service, id := m.service, s.ID
+			return m, m.act("Could not close: ", func(ctx context.Context) error { return service.Remove(ctx, id) })
 		}
-		if s.state == ssmSessionStopping {
+		if s.State == sessions.StateStopping {
 			return m, nil
 		}
 		m.mode = ssmModeConfirmStop
@@ -516,7 +624,7 @@ func (m ssmModel) handleSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handlePreparingKey cancels the preparation on esc; ctrl+c cancels it too, then asks to quit. A
-// canceled preparation's session is released when it comes.
+// canceled preparation is released by the service.
 func (m ssmModel) handlePreparingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
@@ -558,6 +666,10 @@ func (m ssmModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.closeDialog(m.confirmYes)
 	case "ctrl+c":
+		if m.detach {
+			// In a daemon view ctrl+c only leaves the view, it never stops the daemon.
+			return m, tea.Quit
+		}
 		// ctrl+c always means quitting: pressed again on the quit dialog, it confirms it.
 		if m.mode == ssmModeConfirmQuit {
 			return m.closeDialog(true)
@@ -574,62 +686,23 @@ func (m ssmModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m ssmModel) closeDialog(confirmed bool) (tea.Model, tea.Cmd) {
 	mode := m.mode
 	m.mode = ssmModeSessions
+	m.refreshViewport()
 	if !confirmed {
-		m.refreshViewport()
 		return m, nil
 	}
+	service := m.service
 	if mode == ssmModeConfirmQuit {
 		m.quitting = true
-		for _, s := range m.sessions {
-			m.stopSession(s)
-		}
-		if !m.hasActiveSessions() {
+		if !m.hasActiveSessions() && !m.detach {
 			return m, tea.Quit
 		}
-	} else if s := m.selectedSession(); s != nil {
-		m.stopSession(s)
+		return m, m.act("Could not stop the sessions: ", service.StopAll)
 	}
-	m.refreshViewport()
+	if s := m.selectedSession(); s != nil {
+		id := s.ID
+		return m, m.act("Could not stop: ", func(ctx context.Context) error { return service.Stop(ctx, id) })
+	}
 	return m, nil
-}
-
-func (m ssmModel) handleFinished(msg ssmFinishedMsg) (tea.Model, tea.Cmd) {
-	s := m.session(msg.id)
-	if s == nil {
-		return m, waitSSMEvent(m.events)
-	}
-
-	m = m.endSession(s, msg.err)
-	reconnect := m.scheduleReconnect(s)
-	m.refreshSelected(s)
-
-	// Only "stop all & quit" leaves on its own: an ended session stays on screen with its logs.
-	if m.quitting && !m.hasActiveSessions() {
-		return m, tea.Quit
-	}
-	return m, tea.Batch(waitSSMEvent(m.events), reconnect)
-}
-
-// endSession marks s ended on err, releases what its preparation reserved (port, MCP server, IDE
-// data source) and stops its sign-in.
-func (m ssmModel) endSession(s *ssmSession, err error) ssmModel {
-	s.state = ssmSessionEnded
-	s.endedAt = time.Now()
-	s.err = err
-	switch {
-	case s.stopRequested:
-		s.appendLines("", "Session stopped.")
-	case err != nil:
-		s.appendLines("", "Session ended with error: "+err.Error())
-	default:
-		s.appendLines("", "Session ended.")
-	}
-	if cleanup := s.session.Release(); cleanup != "" {
-		s.appendLines(cleanup)
-	}
-	m = m.endSignIn(s)
-	m.refreshSelected(s)
-	return m
 }
 
 // wizardDefaults are the options every new connection inherits from the command line.
@@ -656,8 +729,8 @@ func (m ssmModel) startupWizard() ssmModel {
 	return m
 }
 
-func (m ssmModel) showWizard(base jumphost.Options) ssmModel {
-	m.wizard = newJumphostWizardModel(m.ctx, m.runner, base)
+func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic // base is the wizard's copy.
+	m.wizard = newJumphostWizardModel(m.ctx, m.discovery, base)
 	m.wizard.embedded = true
 	m.wizard.hostHasSessions = len(m.sessions) > 0
 	m.wizard.production = m.production
@@ -685,10 +758,18 @@ func (m ssmModel) startWizard() (tea.Model, tea.Cmd) {
 	return m, initCmd
 }
 
+// sessionKey identifies the target of s as the wizard's recent connections do (see connectionKey).
+func sessionKey(s *sessions.Session) string {
+	if s.Direct() {
+		return directConnectionKey(s.Target)
+	}
+	return connectionKey(s.Profile, s.Region, s.ResourceType, s.Target)
+}
+
 // activeSessionIndex returns the position of the running session of key (see connectionKey), or -1.
 func (m ssmModel) activeSessionIndex(key string) int {
-	for index, s := range m.sessions {
-		if s.active() && s.session != nil && s.key() == key {
+	for index := range m.sessions {
+		if s := &m.sessions[index]; s.Active() && sessionKey(s) == key {
 			return index
 		}
 	}
@@ -698,11 +779,10 @@ func (m ssmModel) activeSessionIndex(key string) int {
 // activeConnectionKeys identifies the targets of the running sessions, as connectionKey builds them.
 func (m ssmModel) activeConnectionKeys() map[string]bool {
 	keys := map[string]bool{}
-	for _, s := range m.sessions {
-		if !s.active() || s.session == nil {
-			continue
+	for index := range m.sessions {
+		if s := &m.sessions[index]; s.Active() {
+			keys[sessionKey(s)] = true
 		}
-		keys[s.key()] = true
 	}
 	return keys
 }
@@ -729,61 +809,53 @@ func (m ssmModel) handleWizardDone(msg jumphostWizardDoneMsg) (tea.Model, tea.Cm
 	}
 
 	label := fmt.Sprintf("Preparing %s %s...", strings.ToUpper(msg.options.ResourceType), msg.options.Name)
-	return m.prepare(ssmPreparedMsg{options: msg.options, warning: msg.warning}, label)
+	return m.open(msg.options, msg.warning, label)
+}
+
+// open asks the service for the session of options, showing label while it is prepared.
+func (m ssmModel) open(options jumphost.Options, warning, label string) (tea.Model, tea.Cmd) { //nolint:gocritic // options is modified, then sent.
+	m.mode = ssmModePreparing
+	m.prepareID++
+	prepareID := m.prepareID
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.cancelPrepare = cancel
+	if options.ProjectDir == "" {
+		options.ProjectDir = m.projectDir
+	}
+	service, req := m.service, sessions.OpenRequest{Options: options, Warning: warning, Interactive: m.interactive}
+	return m, tea.Batch(func() tea.Msg {
+		id, err := service.Open(ctx, req)
+		return ssmOpenedMsg{id: id, err: err, prepareID: prepareID}
+	}, m.loadingUI.start(label, prepareLines(options.ResourceType)))
 }
 
 // restartSelected prepares the ended selected session again: same target, profile, region, local
 // port and sign-in choices, so the tools pointed at it reconnect as they were.
 func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
-	if s == nil || s.active() {
+	if s == nil || s.Active() {
 		return m, nil
 	}
-	session := s.session
-	if m.activeSessionIndex(s.key()) >= 0 {
-		m.errorMsg = session.Target + " is already connected in another session"
+	if m.activeSessionIndex(sessionKey(s)) >= 0 {
+		m.errorMsg = s.Target + " is already connected in another session"
 		return m, nil
 	}
-
-	// A restart by hand takes over an automatic reconnection, whose result is then released.
-	s.stopReconnecting()
-	label := fmt.Sprintf("Restarting %s %s...", strings.ToUpper(session.ResourceType), session.Target)
-	return m.prepare(ssmPreparedMsg{options: restartOptions(s), replaces: s.id}, label)
-}
-
-// restartOptions prepares the session of s again: same target, profile, region, local port and
-// sign-in choices, so the tools pointed at it reconnect as they were.
-func restartOptions(s *ssmSession) jumphost.Options {
-	options := s.options
-	options.ResourceType = s.session.ResourceType
-	options.Name = s.session.Target
-	options.AwsProfile = s.session.Profile
-	options.AwsRegion = s.session.Region
-	options.LocalPortNumber = s.session.LocalPort
-	return options
-}
-
-// prepare prepares the session of pending.options in the background; pending carries what the
-// result needs besides the session (warning, replaced session).
-func (m ssmModel) prepare(pending ssmPreparedMsg, label string) (tea.Model, tea.Cmd) {
 	m.mode = ssmModePreparing
 	m.prepareID++
-	pending.id = m.prepareID
-	// Canceled by esc only: a prepared session may keep using its context.
+	prepareID, id := m.prepareID, s.ID
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancelPrepare = cancel
-	prepare := func() tea.Msg {
-		result := pending
-		result.session, result.err = m.runner.Prepare(ctx, pending.options)
-		return result
-	}
-	return m, tea.Batch(prepare, m.loadingUI.start(label, prepareLines(pending.options.ResourceType)))
+	service, interactive := m.service, m.interactive
+	label := fmt.Sprintf("Restarting %s %s...", strings.ToUpper(s.ResourceType), s.Target)
+	return m, tea.Batch(func() tea.Msg {
+		return ssmOpenedMsg{id: id, err: service.Restart(ctx, id, interactive), prepareID: prepareID, restart: true}
+	}, m.loadingUI.start(label, prepareLines(s.ResourceType)))
 }
 
 // prepareLines entertain while a session of resourceType is prepared: a direct database has no
 // local port, jumphost or tunnel.
 func prepareLines(resourceType string) []string {
-	if resourceType == directResourceType {
+	if resourceType == sessions.DirectResourceType {
 		return []string{
 			"Looking up the database's address...",
 			"Setting up a seat for your AI assistant...",
@@ -797,66 +869,56 @@ func prepareLines(resourceType string) []string {
 	}
 }
 
-func (m ssmModel) handlePrepared(msg ssmPreparedMsg) (tea.Model, tea.Cmd) {
-	if msg.background {
-		return m.handleReconnected(msg)
-	}
-	// The user canceled this preparation: free what it reserved rather than open it.
-	if msg.id != m.prepareID {
-		if msg.session != nil {
-			msg.session.Release()
+func (m ssmModel) handleOpened(msg ssmOpenedMsg) (tea.Model, tea.Cmd) {
+	// The user canceled this preparation (esc). When it failed, or the service saw the cancel, it
+	// released what it reserved; an opening that succeeded meanwhile is stopped and closed, as if
+	// it never opened. A restart that succeeded meanwhile keeps running in its slot.
+	if msg.prepareID != m.prepareID {
+		if msg.err != nil || msg.restart {
+			return m, nil
 		}
-		return m, nil
+		return m.discard(msg.id)
 	}
 	m.loadingUI.stop()
 	m.mode = ssmModeSessions
+	// The service detached the session from the request's context: canceling it frees the context.
+	if m.cancelPrepare != nil {
+		m.cancelPrepare()
+	}
+	m.cancelPrepare = nil
 	if msg.err != nil {
 		m.errorMsg = "Could not open connection: " + msg.err.Error()
-		if msg.replaces != 0 {
+		if msg.restart {
 			m.errorMsg = "Could not restart: " + msg.err.Error()
 		}
 		m.refreshViewport()
 		return m, nil
 	}
-
-	appendWarning(msg.session, msg.warning)
-	// A restart takes the slot of the ended session, keeping its logs above the new run.
-	if index := m.sessionIndex(msg.replaces); index >= 0 {
-		s := m.newSession(msg.session, msg.options, m.sessions[index].lines, "Restarting session...")
-		m.sessions[index] = s
+	if index := m.sessionIndex(msg.id); index >= 0 {
 		m = m.selectSession(index)
-		cmd := m.startSession(s)
-		return m, cmd
+	} else {
+		m.pendingSelect = msg.id
 	}
-	m = m.addSession(msg.session, msg.options)
-	cmd := m.startSession(m.sessions[len(m.sessions)-1])
-	return m, cmd
+	return m, nil
 }
 
-func (m *ssmModel) stopSession(s *ssmSession) {
-	if !s.active() || s.state == ssmSessionStopping {
-		return
-	}
-	s.stopRequested = true
-	s.appendLines("", "Stopping session...")
-	switch {
-	case s.direct():
-		// No process to wait for: the session ends here.
-		*m = m.endSession(s, nil)
-	case s.cmd != nil:
-		s.state = ssmSessionStopping
-		terminateProcessGroup(s.cmd)
-	}
-	m.refreshSelected(s)
+// discard stops session id, opened although its preparation was canceled; it is closed once ended
+// (see closeDiscarded).
+func (m ssmModel) discard(id sessions.ID) (tea.Model, tea.Cmd) {
+	m.discarded = append(append([]sessions.ID(nil), m.discarded...), id)
+	service := m.service
+	return m, m.act("", func(ctx context.Context) error { return service.Stop(ctx, id) })
 }
 
-func (m ssmModel) removeSelected() ssmModel {
-	if m.selected < 0 || m.selected >= len(m.sessions) {
-		return m
+// closeDiscarded closes s once it ended when the user canceled its opening; nil otherwise.
+func (m *ssmModel) closeDiscarded(s *sessions.Session) tea.Cmd {
+	index := slices.Index(m.discarded, s.ID)
+	if index < 0 || s.Active() {
+		return nil
 	}
-	m.sessions[m.selected].stopReconnecting()
-	m.sessions = append(append([]*ssmSession{}, m.sessions[:m.selected]...), m.sessions[m.selected+1:]...)
-	return m.selectSession(m.selected)
+	m.discarded = slices.Delete(slices.Clone(m.discarded), index, index+1)
+	service, id := m.service, s.ID
+	return m.act("", func(ctx context.Context) error { return service.Remove(ctx, id) })
 }
 
 func (m ssmModel) selectSession(index int) ssmModel {
@@ -871,52 +933,41 @@ func (m ssmModel) selectSession(index int) ssmModel {
 	return m
 }
 
-func (m ssmModel) session(id int) *ssmSession {
+func (m ssmModel) session(id sessions.ID) *sessions.Session {
 	if index := m.sessionIndex(id); index >= 0 {
-		return m.sessions[index]
+		return &m.sessions[index]
 	}
 	return nil
 }
 
 // sessionIndex returns the position of the session id in the sidebar, or -1.
-func (m ssmModel) sessionIndex(id int) int {
-	for index, s := range m.sessions {
-		if s.id == id {
+func (m ssmModel) sessionIndex(id sessions.ID) int {
+	for index := range m.sessions {
+		if m.sessions[index].ID == id {
 			return index
 		}
 	}
 	return -1
 }
 
-func (m ssmModel) selectedSession() *ssmSession {
+func (m ssmModel) selectedSession() *sessions.Session {
 	if m.selected < 0 || m.selected >= len(m.sessions) {
 		return nil
 	}
-	return m.sessions[m.selected]
+	return &m.sessions[m.selected]
 }
 
 func (m ssmModel) hasActiveSessions() bool {
-	for _, s := range m.sessions {
-		if s.active() {
+	for index := range m.sessions {
+		if m.sessions[index].Active() {
 			return true
 		}
 	}
 	return false
 }
 
-// trackPluginOutput derives readiness and connection count from session-manager-plugin output.
-func trackPluginOutput(s *ssmSession, line string) {
-	switch {
-	case strings.Contains(line, "Waiting for connections"):
-		s.ready = true
-	case strings.Contains(line, "Connection accepted"):
-		s.ready = true
-		s.connections++
-	}
-}
-
 // refreshSelected redraws the log when s is the visible session, following the tail if already at the bottom.
-func (m *ssmModel) refreshSelected(s *ssmSession) {
+func (m *ssmModel) refreshSelected(s *sessions.Session) {
 	if m.selectedSession() != s {
 		return
 	}
@@ -927,98 +978,6 @@ func (m *ssmModel) refreshSelected(s *ssmSession) {
 	}
 }
 
-// startSession launches the aws process of s. A direct database session has none: it runs at once,
-// and its sign-in check starts right away. Like startSignIn, call it before returning m.
-func (m *ssmModel) startSession(s *ssmSession) tea.Cmd {
-	if !s.direct() {
-		m.launchCommand(s)
-		return nil
-	}
-	s.state, s.ready = ssmSessionRunning, true
-	s.appendLines("Connected directly to " + s.session.Details.ConnectedServer + ": no tunnel to wait for.")
-	m.refreshSelected(s)
-	return m.startSignIn(s)
-}
-
-// launchCommand starts the aws process of s and streams its output as tea messages.
-func (m ssmModel) launchCommand(s *ssmSession) {
-	id := s.id
-	awsArgs := append(append([]string{}, s.session.CommandArgs...), s.session.AwsArgs...)
-	events := m.events
-	processes := m.processes
-	ctx := m.ctx
-
-	go func() {
-		// Use exec.Command (not CommandContext) so we can manage the process group
-		// ourselves: aws and its child session-manager-plugin must be stopped together.
-		cmd := exec.Command("aws", awsArgs...) // #nosec G204 -- arguments are built by the jumphost runner.
-		platform.StartInOwnGroup(cmd)
-		stdoutPipe, err := cmd.StdoutPipe()
-		if err != nil {
-			events <- ssmFinishedMsg{id: id, err: err}
-			return
-		}
-		stderrPipe, err := cmd.StderrPipe()
-		if err != nil {
-			events <- ssmFinishedMsg{id: id, err: err}
-			return
-		}
-
-		if err := cmd.Start(); err != nil {
-			events <- ssmFinishedMsg{id: id, err: err}
-			return
-		}
-		processes.started(cmd)
-		defer processes.exited(cmd)
-
-		events <- ssmStartedMsg{id: id, cmd: cmd}
-
-		// Watch for context cancellation and kill the entire process group so
-		// session-manager-plugin (child of aws) is also terminated.
-		ctxDone := make(chan struct{})
-		go func() {
-			select {
-			case <-ctx.Done():
-				terminateProcessGroup(cmd)
-			case <-ctxDone:
-			}
-		}()
-
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go readPipeLines(id, stdoutPipe, &wg, events)
-		go readPipeLines(id, stderrPipe, &wg, events)
-		wg.Wait()
-		close(ctxDone)
-
-		events <- ssmFinishedMsg{id: id, err: cmd.Wait()}
-	}()
-}
-
-func readPipeLines(id int, reader io.Reader, wg *sync.WaitGroup, events chan<- tea.Msg) {
-	defer wg.Done()
-
-	scanner := bufio.NewScanner(reader)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-	for scanner.Scan() {
-		events <- ssmOutputMsg{id: id, line: scanner.Text()}
-	}
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		events <- ssmOutputMsg{id: id, line: "stream error: " + err.Error()}
-	}
-}
-
-func waitSSMEvent(events <-chan tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		return <-events
-	}
-}
-
-func terminateProcessGroup(cmd *exec.Cmd) {
-	platform.TerminateGroup(cmd)
-}
-
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -1026,89 +985,37 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func (m ssmModel) printSessionSummary(out io.Writer) {
-	if out == nil || len(m.sessions) == 0 {
+// printSessionSummary tells what each session of list did, once the dashboard closed.
+func printSessionSummary(out io.Writer, list []sessions.Session) {
+	if out == nil || len(list) == 0 {
 		return
 	}
 
-	_, _ = fmt.Fprintf(out, "\nSession summary:\n")
-	for _, s := range m.sessions {
-		end := s.endedAt
+	printf := func(format string, args ...any) { _, _ = fmt.Fprintf(out, format, args...) } //nolint:errcheck // best-effort terminal output
+	printf("\nSession summary:\n")
+	for index := range list {
+		s := &list[index]
+		end := s.EndedAt
 		if end.IsZero() {
 			end = time.Now()
 		}
-		duration := max(end.Sub(s.startedAt).Round(time.Second), 0)
+		duration := max(end.Sub(s.StartedAt).Round(time.Second), 0)
 
-		server := strings.TrimSpace(s.session.Details.ConnectedServer)
+		server := strings.TrimSpace(s.Details.ConnectedServer)
 		if server == "" {
 			server = "n/a"
 		}
 
-		_, _ = fmt.Fprintf(out, "- %s -> %s\n", s.session.Label, s.address()) //nolint:errcheck // best-effort terminal output
-		_, _ = fmt.Fprintf(out, "  duration: %s\n  server connected: %s\n", duration, server)
-		if s.err != nil && !s.stopRequested {
-			_, _ = fmt.Fprintf(out, "  ended with error: %v\n", s.err)
+		printf("- %s -> %s\n", s.Label, sessionAddress(s))
+		printf("  duration: %s\n  server connected: %s\n", duration, server)
+		if s.Err != "" && !s.StopRequested {
+			printf("  ended with error: %v\n", s.Err)
 		}
-		if cleanup := s.session.Release(); cleanup != "" {
-			_, _ = fmt.Fprintf(out, "  %s\n", cleanup)
+		if s.Cleanup != "" {
+			printf("  %s\n", s.Cleanup)
 		}
-		if strings.TrimSpace(s.session.Details.RestartCommand) != "" {
-			_, _ = fmt.Fprintf(out, "  new session command: %s\n", s.session.Details.RestartCommand)
+		if strings.TrimSpace(s.Details.RestartCommand) != "" {
+			printf("  new session command: %s\n", s.Details.RestartCommand)
 		}
-	}
-}
-
-// appendWarning adds warning, if any, as the last intro line of session.
-func appendWarning(session *jumphost.Session, warning string) {
-	if warning != "" {
-		session.Intro = append(session.Intro, "Warning: "+warning)
-	}
-}
-
-// processTracker remembers running aws processes and prepared sessions so they can be torn down
-// from outside the TUI loop (terminal hangup, program exit).
-type processTracker struct {
-	commands map[*exec.Cmd]struct{}
-	sessions []*jumphost.Session
-	mu       sync.Mutex
-}
-
-func newProcessTracker() *processTracker {
-	return &processTracker{commands: map[*exec.Cmd]struct{}{}}
-}
-
-func (t *processTracker) track(session *jumphost.Session) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.sessions = append(t.sessions, session)
-}
-
-func (t *processTracker) started(cmd *exec.Cmd) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.commands[cmd] = struct{}{}
-}
-
-func (t *processTracker) exited(cmd *exec.Cmd) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	delete(t.commands, cmd)
-}
-
-// shutdown terminates every running aws process and releases every session. Safe to call repeatedly.
-func (t *processTracker) shutdown() {
-	t.mu.Lock()
-	commands := make([]*exec.Cmd, 0, len(t.commands))
-	for cmd := range t.commands {
-		commands = append(commands, cmd)
-	}
-	sessions := append([]*jumphost.Session{}, t.sessions...)
-	t.mu.Unlock()
-
-	for _, cmd := range commands {
-		terminateProcessGroup(cmd)
-	}
-	for _, session := range sessions {
-		session.Release()
 	}
 }

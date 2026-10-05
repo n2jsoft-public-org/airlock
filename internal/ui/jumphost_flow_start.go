@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // jumphostSavedLoadedMsg carries the remembered connections shown on the start screen.
@@ -106,7 +107,7 @@ func (m jumphostWizardModel) updateStartStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 // openRecent reconnects to a remembered target: its region, type and name, and its profile
 // unless --profile gave one; a profile that no longer exists is asked again.
 func (m jumphostWizardModel) openRecent(conn jumphost.SavedConnection) (tea.Model, tea.Cmd) {
-	if conn.Ref.Type == directResourceType {
+	if conn.Ref.Type == sessions.DirectResourceType {
 		return m.openRecentDirect(conn)
 	}
 	m.flow = flowRecent

@@ -10,10 +10,12 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
+	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -56,9 +58,11 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
 	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
 	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
+	cmd.Flags().String("mcp-clients", "", `AI clients the MCP servers are registered in: auto, none, or e.g. claude:user,codex (config "mcpClients", default auto)`)
+	cmd.Flags().String("mode", "", `cli: sessions close with airlock; daemon: a background daemon keeps them (config "mode", default cli)`)
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newDBCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd())
+	cmd.AddCommand(newConfigCmd(), newDBCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd())
 
 	return cmd
 }
@@ -79,6 +83,8 @@ func overridesFromFlags(flags *pflag.FlagSet) config.Overrides {
 		JumphostTag:       value("jumphost-tag"),
 		ReadOnlySecretTag: value("read-only-secret-tag"),
 		MCPServerPrefix:   value("mcp-server-prefix"),
+		MCPClients:        value("mcp-clients"),
+		Mode:              value("mode"),
 	}
 }
 
@@ -124,11 +130,18 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if err != nil {
 		return err
 	}
+	// Every opening registers its IDE data source and MCP servers in the directory airlock was
+	// started in; empty leaves it to the runner (the working directory).
+	projectDir, err := os.Getwd()
+	if err != nil {
+		projectDir = ""
+	}
 
 	// Runners share the registry so parallel sessions never reuse a local port or target,
-	// and the MCP host so all database sessions are served on one localhost listener.
+	// and the MCP host so all database sessions are served on one localhost listener and
+	// registered in the same AI clients.
 	registry := jumphost.NewSessionRegistry()
-	mcpHost := mcpserve.NewHost()
+	mcpHost := mcpserve.NewHostFor(cfg.MCPClientSelection())
 	interactive := isInteractiveInput(cmd.InOrStdin())
 	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()
@@ -154,25 +167,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if err != nil {
 		cmd.PrintErrf("Warning: direct databases are unavailable: %v\n", err)
 	}
-	// A nil store must stay a nil interface: the runner and the dashboard test for nil.
-	var databases jumphost.DirectDatabases
-	if databaseStore != nil {
-		databases = databaseStore
-	}
-
-	shared := jumphost.RunnerOptions{
-		In:                cmd.InOrStdin(),
-		Registry:          registry,
-		MCPHost:           mcpHost,
-		MCPLogDir:         mcpLogDir,
-		DefaultRegion:     cfg.DefaultRegion,
-		DefaultDBUser:     cfg.DefaultDBUser,
-		JumphostTag:       cfg.JumphostTag,
-		ReadOnlySecretTag: cfg.ReadOnlySecretTag,
-		MCPServerPrefix:   cfg.MCPServerPrefix,
-		KubeconfigDir:     kubeconfigDir,
-		Databases:         databases,
-	}
+	shared := sharedRunnerOptions(&cfg, registry, mcpHost, mcpLogDir, kubeconfigDir, databaseStore)
+	shared.In = cmd.InOrStdin()
+	databases := shared.Databases
 
 	// The TUI runner stays silent: its progress would corrupt the full-screen display.
 	tuiOptions := shared
@@ -190,10 +187,16 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
 	}
 	tuiRunner := jumphost.NewRunner(tuiOptions)
+	// The dashboard's sessions live in this process and end with it (CLI mode).
+	manager := sessions.NewManager(cmd.Context(), sessions.Config{Runner: sessions.Fixed(tuiRunner)})
+	dashboard.ProjectDir = projectDir
 
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
-		return ui.RunJumphostSessions(cmd.Context(), tuiRunner, nil, options, cmd.OutOrStdout(), dashboard)
+		if shouldUseDaemon(&cfg, interactive) {
+			return runDaemonView(cmd, &options, false, tuiRunner, &dashboard)
+		}
+		return ui.RunJumphostSessions(cmd.Context(), manager, tuiRunner, 0, options, cmd.OutOrStdout(), dashboard)
 	}
 
 	if latestRelease != "" {
@@ -208,7 +211,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 			return err
 		}
 		return openDirect(cmd, &options, interactive, &directEnv{
-			tuiRunner: tuiRunner, dashboard: &dashboard, shared: &shared, prefsPath: prefsPath,
+			tuiRunner: tuiRunner, manager: manager, dashboard: &dashboard, shared: &shared, cfg: &cfg, prefsPath: prefsPath,
 		})
 	}
 	if len(args) > 1 {
@@ -223,6 +226,11 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 			return fmt.Errorf("invalid local port %q: must be greater than 0", args[2])
 		}
 		options.LocalPortNumber = localPort
+	}
+	// In daemon mode, an interactive run is a view of the daemon, which opens the named target.
+	if shouldUseDaemon(&cfg, interactive) {
+		openFirst := options.ResourceType != "" && options.Name != ""
+		return runDaemonView(cmd, &options, openFirst, tuiRunner, &dashboard)
 	}
 
 	if options.ResourceType == "" {
@@ -245,8 +253,31 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	if err != nil {
 		return err
 	}
+	first := manager.Adopt(session, &options)
 
-	return ui.RunJumphostSessions(cmd.Context(), tuiRunner, session, options, cmd.OutOrStdout(), dashboard)
+	return ui.RunJumphostSessions(cmd.Context(), manager, tuiRunner, first, options, cmd.OutOrStdout(), dashboard)
+}
+
+// sharedRunnerOptions are the runner options of both modes, from the config and the directories
+// airlock found; a nil databaseStore disables the direct databases.
+func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry, mcpHost *mcpserve.Host, mcpLogDir, kubeconfigDir string, databaseStore *directdb.Store) jumphost.RunnerOptions {
+	// A nil store must stay a nil interface: the runner and the dashboard test for nil.
+	var databases jumphost.DirectDatabases
+	if databaseStore != nil {
+		databases = databaseStore
+	}
+	return jumphost.RunnerOptions{
+		Registry:          registry,
+		MCPHost:           mcpHost,
+		MCPLogDir:         mcpLogDir,
+		DefaultRegion:     cfg.DefaultRegion,
+		DefaultDBUser:     cfg.DefaultDBUser,
+		JumphostTag:       cfg.JumphostTag,
+		ReadOnlySecretTag: cfg.ReadOnlySecretTag,
+		MCPServerPrefix:   cfg.MCPServerPrefix,
+		KubeconfigDir:     kubeconfigDir,
+		Databases:         databases,
+	}
 }
 
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {

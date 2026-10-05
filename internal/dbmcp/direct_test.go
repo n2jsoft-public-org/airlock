@@ -23,7 +23,7 @@ func testDirectConfig(t *testing.T, engine Engine) *DirectConfig {
 func TestStartDirectRegistersTheServer(t *testing.T) {
 	useIsolatedLocks(t)
 	cfg := testDirectConfig(t, EngineSQLServer)
-	if err := os.Mkdir(filepath.Join(cfg.ProjectDir, ".claude"), 0o750); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.ProjectDir, ".mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

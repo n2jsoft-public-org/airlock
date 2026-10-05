@@ -1,18 +1,14 @@
 package ui
 
 import (
-	"context"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
-
-// passwordReadTimeout bounds the Secrets Manager calls revealing passwords.
-const passwordReadTimeout = 30 * time.Second
 
 // ssmPasswordReveal is the password dialog of a session reading its credentials from Secrets
 // Manager. The passwords live here only while the dialog is open.
@@ -36,8 +32,8 @@ type ssmPasswordMsg struct {
 }
 
 // canRevealPassword reports whether s reads its credentials from secrets the dashboard can show.
-func canRevealPassword(s *ssmSession) bool {
-	return s != nil && s.session.ReadCredentials != nil
+func canRevealPassword(s *sessions.Session) bool {
+	return s != nil && s.HasCredentials
 }
 
 // revealPassword opens the password dialog of the selected session and reads its secrets.
@@ -53,11 +49,9 @@ func (m ssmModel) revealPassword() (tea.Model, tea.Cmd) {
 	}
 	m.mode = ssmModePassword
 	m.password = ssmPasswordReveal{request: m.password.request + 1, loading: true}
-	parent, read, request := m.ctx, s.session.ReadCredentials, m.password.request
+	ctx, service, id, request := m.ctx, m.service, s.ID, m.password.request
 	return m, func() tea.Msg {
-		ctx, cancel := context.WithTimeout(parent, passwordReadTimeout)
-		defer cancel()
-		creds, err := read(ctx)
+		creds, err := service.Credentials(ctx, id)
 		return ssmPasswordMsg{request: request, creds: creds, err: err}
 	}
 }
@@ -140,7 +134,7 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 		title += "s"
 	}
 	rows := []string{m.styles.Text.Bold(true).Render(title)}
-	if auth := strings.TrimSpace(s.session.Details.Auth); auth != "" {
+	if auth := strings.TrimSpace(s.Details.Auth); auth != "" {
 		rows = append(rows, m.styles.Muted.Render(truncate(auth, inner)))
 	}
 	rows = append(rows, "")

@@ -22,7 +22,7 @@ func TestStartRegistersReadOnlyServer(t *testing.T) {
 	api := httptest.NewTLSServer(newFakeAPI())
 	defer api.Close()
 	project := t.TempDir()
-	if err := os.Mkdir(filepath.Join(project, ".claude"), 0o750); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

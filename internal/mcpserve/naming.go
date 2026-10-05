@@ -39,16 +39,31 @@ func slugify(value string) string {
 	return strings.TrimSuffix(b.String(), "-")
 }
 
-// RelativeTo joins paths, each relative to base when possible, with ", ".
+// RelativeTo joins paths with ", ", each relative to base when inside it, else to the home (~).
 func RelativeTo(base string, paths []string) string {
+	home, err := userHomeDir()
+	if err != nil {
+		home = ""
+	}
 	relative := make([]string, 0, len(paths))
 	for _, path := range paths {
-		if rel, err := filepath.Rel(base, path); err == nil {
+		if rel, ok := within(base, path); ok {
 			path = rel
+		} else if rel, ok := within(home, path); ok && home != "" {
+			path = filepath.Join("~", rel)
 		}
 		relative = append(relative, path)
 	}
 	return strings.Join(relative, ", ")
+}
+
+// within returns path relative to dir when path is inside dir.
+func within(dir, path string) (string, bool) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
 }
 
 // DirectServerName is the stable client-facing name of a direct database's server, e.g.

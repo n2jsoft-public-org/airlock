@@ -25,9 +25,9 @@ func TestProductionMatcher(t *testing.T) {
 
 func TestProductionSessionIsFlagged(t *testing.T) {
 	for _, width := range []int{140, 80} { // sidebar cards, then the compact pills
-		m := newTestSSMModel(t, "dev-db", "prod-db")
+		m, _ := newSessionsModel(t, "dev-db", "prod-db")
 		m.production = productionMatcher{"prod*"}
-		m.sessions[1].session.Profile = "prod-eu"
+		m.sessions[1].Profile = "prod-eu"
 		m = m.selectSession(0)
 		m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 40})
 
@@ -38,7 +38,7 @@ func TestProductionSessionIsFlagged(t *testing.T) {
 }
 
 func TestDashboardPassesProductionProfilesToTheWizard(t *testing.T) {
-	m := newTestSSMModel(t, "db")
+	m, _ := newSessionsModel(t, "db")
 	m.production = productionMatcher{"prod*"}
 	m, _ = update(t, m, key("n"))
 	if !m.wizard.production.matches("prod-eu") {

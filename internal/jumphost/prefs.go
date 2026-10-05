@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/platform"
 )
 
 const (
@@ -125,11 +127,37 @@ func (s *PrefsStore) Load(ref TargetRef) (ConnectionPrefs, bool) {
 	return prefs, ok
 }
 
+// lock holds the cross-process lock of the file while a change reads and rewrites it: the daemon
+// and the dashboards save choices concurrently.
+func (s *PrefsStore) lock() (unlock func(), err error) {
+	dirErr := os.MkdirAll(filepath.Dir(s.path), 0o700)
+	if dirErr != nil {
+		return nil, fmt.Errorf("failed to create %s: %w", filepath.Dir(s.path), dirErr)
+	}
+	file, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- next to the user's own prefs file.
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock connection preferences: %w", err)
+	}
+	if err := platform.LockFile(file); err != nil {
+		_ = file.Close() //nolint:errcheck // ignore close error on failed lock
+		return nil, fmt.Errorf("failed to lock connection preferences: %w", err)
+	}
+	return func() {
+		_ = platform.UnlockFile(file) //nolint:errcheck // ignore unlock error on cleanup
+		_ = file.Close()              //nolint:errcheck // ignore close error on cleanup
+	}, nil
+}
+
 // Save records prefs for ref, keeping the entries of other targets.
 func (s *PrefsStore) Save(ref TargetRef, prefs *ConnectionPrefs) error {
 	if !ref.complete() {
 		return errors.New("connection preferences need an AWS account, a region, a type and a name")
 	}
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	file, err := s.read()
 	if err != nil {
 		// Rewriting would drop every entry of a file we cannot parse.
@@ -166,6 +194,11 @@ func (s *PrefsStore) List() ([]SavedConnection, error) {
 
 // Delete forgets ref, keeping the other entries. Forgetting an unknown target is not an error.
 func (s *PrefsStore) Delete(ref TargetRef) error {
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	file, err := s.read()
 	if err != nil {
 		// Rewriting would drop every entry of a file we cannot parse.

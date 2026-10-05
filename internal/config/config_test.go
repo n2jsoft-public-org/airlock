@@ -18,8 +18,6 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-func strPtr(s string) *string { return &s }
-
 func TestDefaults(t *testing.T) {
 	d := Defaults()
 	if d.JumphostTag != (awstag.Tag{Key: "Usage", Value: "jumphost"}) || d.MCPServerPrefix != "airlock" {
@@ -61,6 +59,8 @@ func TestLoadACMEPreset(t *testing.T) {
 		ReadOnlySecretTag: awstag.Tag{Key: "AccessRole", Value: "ro-access"},
 		MCPServerPrefix:   "acme",
 		DefaultRegion:     "eu-west-3",
+		MCPClients:        "auto",
+		Mode:              ModeCLI,
 	}
 	if cfg != want {
 		t.Fatalf("Load = %+v, want %+v", cfg, want)
@@ -103,9 +103,9 @@ func TestApplyFlagsWinOverFile(t *testing.T) {
 	cfg := Config{JumphostTag: awstag.Tag{Key: "Usage", Value: "jumphost"}, MCPServerPrefix: "acme",
 		ReadOnlySecretTag: awstag.Tag{Key: "A", Value: "b"}}
 	got, err := cfg.Apply(Overrides{
-		JumphostTag:       strPtr("Role=bastion"),
-		ReadOnlySecretTag: strPtr(""),
-		MCPServerPrefix:   strPtr("team"),
+		JumphostTag:       new("Role=bastion"),
+		ReadOnlySecretTag: new(""),
+		MCPServerPrefix:   new("team"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestApplyNilKeepsFile(t *testing.T) {
 
 func TestApplyRejectsMalformedFlag(t *testing.T) {
 	d := Defaults()
-	_, err := d.Apply(Overrides{JumphostTag: strPtr("Usage")})
+	_, err := d.Apply(Overrides{JumphostTag: new("Usage")})
 	if err == nil || !strings.Contains(err.Error(), "--jumphost-tag") {
 		t.Fatalf("Apply(malformed) error = %v, want one naming --jumphost-tag", err)
 	}
@@ -134,10 +134,10 @@ func TestApplyRejectsMalformedFlag(t *testing.T) {
 
 func TestApplyRejectsEmptyJumphostTagAndPrefix(t *testing.T) {
 	d := Defaults()
-	if _, err := d.Apply(Overrides{JumphostTag: strPtr("")}); err == nil {
+	if _, err := d.Apply(Overrides{JumphostTag: new("")}); err == nil {
 		t.Fatal("an empty --jumphost-tag must be rejected: the jumphost lookup needs a tag")
 	}
-	if _, err := d.Apply(Overrides{MCPServerPrefix: strPtr("  ")}); err == nil {
+	if _, err := d.Apply(Overrides{MCPServerPrefix: new("  ")}); err == nil {
 		t.Fatal("an empty --mcp-server-prefix must be rejected")
 	}
 }
@@ -163,5 +163,65 @@ func TestLoadRejectsInvalidProductionPattern(t *testing.T) {
 	_, err := Load(writeConfig(t, `{"productionProfiles": "*prod*,team-["}`))
 	if err == nil || !strings.Contains(err.Error(), "productionProfiles") || !strings.Contains(err.Error(), "team-[") {
 		t.Fatalf("err = %v, want the key and the pattern named", err)
+	}
+}
+
+func TestLoadMCPClients(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"mcpClients": " Codex , claude:USER,codex "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCPClients != "codex,claude:user" {
+		t.Fatalf("MCPClients = %q, want it normalized", cfg.MCPClients)
+	}
+	sel := cfg.MCPClientSelection()
+	if sel.Detect || len(sel.Targets) != 2 {
+		t.Fatalf("selection = %+v", sel)
+	}
+	defaults := Defaults()
+	if sel := defaults.MCPClientSelection(); !sel.Detect || len(sel.Targets) != 0 {
+		t.Fatalf("default selection = %+v, want auto-detection", sel)
+	}
+}
+
+func TestLoadRejectsUnknownMCPClient(t *testing.T) {
+	_, err := Load(writeConfig(t, `{"mcpClients": "claude,emacs"}`))
+	if err == nil || !strings.Contains(err.Error(), "mcpClients") || !strings.Contains(err.Error(), "emacs") {
+		t.Fatalf("err = %v, want the key and the client named", err)
+	}
+}
+
+func TestApplyMCPClientsFlag(t *testing.T) {
+	d := Defaults()
+	cfg, err := d.Apply(Overrides{MCPClients: new("none")})
+	if err != nil || cfg.MCPClients != "none" {
+		t.Fatalf("cfg = %+v, err = %v", cfg, err)
+	}
+	if _, err := d.Apply(Overrides{MCPClients: new("codex:team")}); err == nil || !strings.Contains(err.Error(), "--mcp-clients") {
+		t.Fatalf("err = %v, want the flag named", err)
+	}
+}
+
+func TestModeSetting(t *testing.T) {
+	defaults := Defaults()
+	if defaults.Mode != ModeCLI {
+		t.Fatalf("default mode = %q", defaults.Mode)
+	}
+	cfg, err := Load(writeConfig(t, `{"mode": " Daemon "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != ModeDaemon {
+		t.Fatalf("mode = %q", cfg.Mode)
+	}
+	if _, err := Load(writeConfig(t, `{"mode": "service"}`)); err == nil || !strings.Contains(err.Error(), "mode") {
+		t.Fatalf("err = %v", err)
+	}
+	out, err := defaults.Apply(Overrides{Mode: new("daemon")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Mode != ModeDaemon {
+		t.Fatalf("override = %q", out.Mode)
 	}
 }

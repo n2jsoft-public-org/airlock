@@ -47,7 +47,7 @@ type Handle struct {
 	allowWrites bool
 }
 
-// Serve mounts cfg.Server on host under a unique slug and registers it in the project's AI clients.
+// Serve mounts cfg.Server on host under a unique slug and registers it in the host's AI clients.
 func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 	suffix, err := randomHex(3)
 	if err != nil {
@@ -63,8 +63,8 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 	}
 
 	entry := ClientEntry{Name: cfg.Name, URL: endpoint.URL, Token: endpoint.Token}
-	written, registerErr := RegisterClients(cfg.ProjectDir, entry)
-	where := "no AI client config found; header Authorization: Bearer " + endpoint.Token
+	written, registerErr := RegisterClients(cfg.ProjectDir, host.clients, entry)
+	where := "no AI client config written; header Authorization: Bearer " + endpoint.Token
 	if len(written) > 0 {
 		where = RelativeTo(cfg.ProjectDir, written)
 	}
@@ -83,7 +83,7 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 		display:     display,
 		allowWrites: cfg.AllowWrites,
 		release: func() string {
-			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, entry)
+			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, host.clients, entry)
 			errs := []error{unregisterErr, host.Unmount(slug)}
 			if cfg.Cleanup != nil {
 				errs = append(errs, cfg.Cleanup())

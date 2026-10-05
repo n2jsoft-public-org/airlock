@@ -2,6 +2,7 @@ package ui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // jumphostFlow is the path through the wizard chosen on the start screen.
@@ -25,7 +26,7 @@ func (m jumphostWizardModel) flowSteps() []jumphostStep {
 	case flowNew:
 		steps := []jumphostStep{jumphostStepType}
 		// A direct database has no AWS profile.
-		if m.askProfile && m.options.ResourceType != directResourceType {
+		if m.askProfile && m.options.ResourceType != sessions.DirectResourceType {
 			steps = append(steps, jumphostStepProfile)
 		}
 		return append(steps, jumphostStepTarget, jumphostStepReview)

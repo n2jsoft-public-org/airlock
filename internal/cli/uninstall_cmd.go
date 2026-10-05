@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,15 +17,26 @@ import (
 
 // uninstallEnv is what airlock uninstall takes from the machine; tests replace it.
 type uninstallEnv struct {
-	executable     func() (string, error)
-	home           func() (string, error)
-	getenv         func(string) string
-	dataDir        func() (string, error)
-	keychain       func() keychain.Store
-	userPath       func() (string, error)
-	otherInstances func(exe string) (int, error)
-	interactive    func(io.Reader) bool
-	goos           string
+	executable func() (string, error)
+	home       func() (string, error)
+	getenv     func(string) string
+	dataDir    func() (string, error)
+	keychain   func() keychain.Store
+	userPath   func() (string, error)
+	// otherInstances counts the other airlocks running from exe, the daemon of daemonPID aside.
+	otherInstances func(exe string, daemonPID int) (int, error)
+	// findDaemon describes the daemon of the daemon mode; nil when none runs.
+	findDaemon func(ctx context.Context) *runningDaemon
+	// stopDaemon stops that daemon and its sessions; false when none ran any more.
+	stopDaemon  func(ctx context.Context) (bool, error)
+	interactive func(io.Reader) bool
+	goos        string
+}
+
+// runningDaemon is the daemon airlock uninstall stops once the removal is confirmed.
+type runningDaemon struct {
+	PID      int
+	Sessions int
 }
 
 func defaultUninstallEnv() *uninstallEnv {
@@ -35,7 +47,9 @@ func defaultUninstallEnv() *uninstallEnv {
 		dataDir:        appdir.ConfigDir,
 		keychain:       availableKeychain,
 		userPath:       uninstall.UserPath,
-		otherInstances: uninstall.OtherInstances,
+		otherInstances: func(exe string, daemonPID int) (int, error) { return uninstall.OtherInstances(exe, daemonPID) },
+		findDaemon:     findDaemon,
+		stopDaemon:     stopDaemon,
 		interactive:    isInteractiveInput,
 		goos:           runtime.GOOS,
 	}
@@ -78,7 +92,13 @@ func runUninstall(cmd *cobra.Command, env *uninstallEnv, purge, yes bool) error 
 	if err != nil {
 		return err
 	}
-	others, err := env.otherInstances(machine.Executable)
+	// The daemon may run from this binary too: it is stopped with the removal, not counted here.
+	running := env.findDaemon(cmd.Context())
+	daemonPID := 0
+	if running != nil {
+		daemonPID = running.PID
+	}
+	others, err := env.otherInstances(machine.Executable, daemonPID)
 	if err != nil {
 		return err
 	}
@@ -89,13 +109,24 @@ func runUninstall(cmd *cobra.Command, env *uninstallEnv, purge, yes bool) error 
 	if err != nil {
 		return err
 	}
-	printUninstallPlan(cmd, &plan)
+	printUninstallPlan(cmd, &plan, running)
 	if !yes {
 		if !env.interactive(cmd.InOrStdin()) {
 			return errors.New("airlock uninstall asks before removing anything: run it in a terminal, or pass --yes")
 		}
 		if !confirm(cmd, "Remove airlock? [y/N] ") {
 			return errors.New("nothing removed")
+		}
+	}
+
+	// Its sessions only end once the removal is confirmed.
+	if running != nil {
+		stopped, stopErr := env.stopDaemon(cmd.Context())
+		if stopErr != nil {
+			return fmt.Errorf("failed to stop the airlock daemon: %w", stopErr)
+		}
+		if stopped {
+			outf(cmd, "Stopped the airlock daemon and its sessions.\n")
 		}
 	}
 
@@ -145,10 +176,17 @@ func (e *uninstallEnv) machine() (*uninstall.Env, error) {
 	}, nil
 }
 
-func printUninstallPlan(cmd *cobra.Command, plan *uninstall.Plan) {
+func printUninstallPlan(cmd *cobra.Command, plan *uninstall.Plan, running *runningDaemon) {
 	outf(cmd, "airlock uninstall removes:\n")
 	for _, item := range plan.Remove {
 		outf(cmd, "  - %s\n", item.Describe())
+	}
+	if running != nil {
+		sessions := "sessions"
+		if running.Sessions == 1 {
+			sessions = "session"
+		}
+		outf(cmd, "\nAlso stops the airlock daemon and its %d %s.\n", running.Sessions, sessions)
 	}
 	if len(plan.Kept) > 0 {
 		outf(cmd, "\nIt keeps:\n")

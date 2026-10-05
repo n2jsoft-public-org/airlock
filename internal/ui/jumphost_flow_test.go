@@ -203,9 +203,7 @@ func TestWizardReviewGoesBackToTarget(t *testing.T) {
 }
 
 func TestWizardKeepsDatabaseUserForNewConnections(t *testing.T) {
-	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{DBUser: "app_ro"})
-	m = m.addSession(&jumphost.Session{Label: "db", Target: "db", ResourceType: "rds"}, jumphost.Options{})
-	m.sessions[0].state = ssmSessionRunning
+	m := newSSMModel(t.Context(), newFakeService(testSession(1, "db")), fakeSessionRunner{}, jumphost.Options{DBUser: "app_ro"}).subscribe()
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	m, _ = update(t, m, key("n"))

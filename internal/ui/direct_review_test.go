@@ -260,7 +260,7 @@ func TestWizardOpenDirectUnknownNameShowsError(t *testing.T) {
 }
 
 func TestDashboardOpensDirectOnlyAtStartup(t *testing.T) {
-	m := newSSMModel(context.Background(), fakeSessionRunner{}, newProcessTracker(), jumphost.Options{})
+	m := newSSMModel(context.Background(), newFakeService(), fakeSessionRunner{}, jumphost.Options{})
 	m.openDirect = "legacy-billing"
 
 	m = m.startupWizard()

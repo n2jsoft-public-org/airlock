@@ -2,10 +2,12 @@ package jumphost
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -327,5 +329,27 @@ func TestRunnerWithoutPrefsPathRemembersNothing(t *testing.T) {
 	}
 	if err := disabled.ForgetConnection(context.Background(), TargetRef{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPrefsStoreConcurrentSavesKeepEveryEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "connections.json")
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Separate stores, as the daemon and a view are separate processes.
+			store := NewPrefsStore(path)
+			ref := TargetRef{Account: "123", Region: "eu-west-3", Type: "rds", Name: fmt.Sprintf("db-%d", i)}
+			if err := store.Save(ref, &ConnectionPrefs{Profile: "dev"}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	saved, err := NewPrefsStore(path).List()
+	if err != nil || len(saved) != 20 {
+		t.Fatalf("saved = %d entries, err = %v; want 20", len(saved), err)
 	}
 }

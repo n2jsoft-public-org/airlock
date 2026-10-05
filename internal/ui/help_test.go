@@ -27,7 +27,7 @@ func TestKeyHintsKeepPinnedKeysWhenShort(t *testing.T) {
 }
 
 func TestDashboardFooterKeepsHelpAndQuitOnNarrowTerminals(t *testing.T) {
-	m := newTestSSMModel(t, "db")
+	m, _ := newSessionsModel(t, "db")
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 60, Height: 30})
 	view := plainView(m)
 	for _, want := range []string{"?  help", "q  quit"} {
@@ -38,7 +38,7 @@ func TestDashboardFooterKeepsHelpAndQuitOnNarrowTerminals(t *testing.T) {
 }
 
 func TestDashboardHelpListsEveryKey(t *testing.T) {
-	m := newTestSSMModel(t, "db")
+	m, _ := newSessionsModel(t, "db")
 
 	m, _ = update(t, m, key("?"))
 	if m.mode != ssmModeHelp {
