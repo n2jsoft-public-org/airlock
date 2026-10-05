@@ -107,6 +107,9 @@ func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
 func TestPrepareRDSWithoutIAMUserFailsBeforeReservingAPort(t *testing.T) {
 	installRecordingAWS(t, `{"Engine":"postgres","DBInstanceIdentifier":"archive","DBInstanceArn":"arn:db","Endpoint":{"Address":"archive.rds.amazonaws.com","Port":55432},"IAMDatabaseAuthenticationEnabled":true}`)
 	registry := NewSessionRegistry()
+	// Only the registry's reservation is under test: the real port may be busy on the machine (it
+	// is in the ephemeral range, used by the connections of tests running in parallel).
+	registry.portFree = func(int) bool { return true }
 	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Registry: registry})
 
 	_, _, _, _, _, err := runner.prepareRDS(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, Options{Name: "archive"})

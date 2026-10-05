@@ -15,6 +15,10 @@ import (
 type fakeService struct {
 	openErr  error
 	credsErr error
+	// resolveErr fails ResolveApproval.
+	resolveErr error
+	// resolveInteractive records, per ResolveApproval, whether a sign-in function was passed.
+	resolveInteractive []bool
 	// subscribeErr fails Subscribe; chooseErr fails ChooseSignIn.
 	subscribeErr error
 	chooseErr    error
@@ -162,4 +166,16 @@ func ended(err string) func(s *sessions.Session) {
 	return func(s *sessions.Session) {
 		s.State, s.Err = sessions.StateEnded, err
 	}
+}
+
+func (f *fakeService) ResolveApproval(_ context.Context, id sessions.ApprovalID, approve bool, interactive jumphost.InteractiveFunc) error {
+	f.mu.Lock()
+	f.resolveInteractive = append(f.resolveInteractive, interactive != nil)
+	f.mu.Unlock()
+	verb := "deny"
+	if approve {
+		verb = "approve"
+	}
+	f.record(verb + " " + strconv.FormatUint(uint64(id), 10))
+	return f.resolveErr
 }

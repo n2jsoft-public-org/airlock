@@ -1,6 +1,7 @@
 package mcpserve
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,6 +28,8 @@ type configFormat interface {
 	// remove deletes entry unless another session replaced it (its URL differs); removed is
 	// false when the file is left unchanged.
 	remove(path string, entry ClientEntry) (removed bool, err error)
+	// has reports whether path holds entry: its name with its URL.
+	has(path string, entry ClientEntry) (bool, error)
 }
 
 // clientSpec is where and how one AI client reads its MCP servers.
@@ -226,6 +229,28 @@ func UnregisterClients(projectDir string, clients aiclient.Selection, entry Clie
 	return changed, errors.Join(errs...)
 }
 
+// EntryFiles returns the files of the selected clients holding entry (its name with its URL).
+// Project files are looked up in no project: pass user-level targets.
+func EntryFiles(clients aiclient.Selection, entry ClientEntry) ([]string, error) {
+	files, err := clientFiles("", clients, func(*clientSpec) bool { return false })
+	errs := []error{err}
+	var found []string
+	for _, file := range files {
+		if !exists(file.path) {
+			continue
+		}
+		ok, hasErr := file.format.has(file.path, entry)
+		if hasErr != nil {
+			errs = append(errs, hasErr)
+			continue
+		}
+		if ok {
+			found = append(found, file.path)
+		}
+	}
+	return found, errors.Join(errs...)
+}
+
 // jsonFormat is a JSON file holding the servers in the object under key.
 type jsonFormat struct {
 	// entry is the value written for a server.
@@ -268,9 +293,36 @@ func (f jsonFormat) add(path string, entry ClientEntry) error {
 		return err
 	}
 	return updateConfig(path, f.key, func(servers *orderedObject) bool {
+		if current, ok := servers.get(entry.Name); ok && sameJSON(current, value) {
+			// Unchanged: the file (which its client may rewrite meanwhile) is left alone.
+			return false
+		}
 		servers.set(entry.Name, value)
 		return true
 	})
+}
+
+// sameJSON reports whether a and b encode the same JSON, whitespace aside.
+func sameJSON(a, b []byte) bool {
+	var x, y bytes.Buffer
+	return json.Compact(&x, a) == nil && json.Compact(&y, b) == nil && bytes.Equal(x.Bytes(), y.Bytes())
+}
+
+func (f jsonFormat) has(path string, entry ClientEntry) (bool, error) {
+	found := false
+	err := updateConfig(path, f.key, func(servers *orderedObject) bool {
+		raw, ok := servers.get(entry.Name)
+		if !ok {
+			return false
+		}
+		var current struct {
+			URL     string `json:"url"`
+			HTTPURL string `json:"httpUrl"`
+		}
+		found = json.Unmarshal(raw, &current) == nil && (current.URL == entry.URL || current.HTTPURL == entry.URL)
+		return false
+	})
+	return found, err
 }
 
 func (f jsonFormat) remove(path string, entry ClientEntry) (bool, error) {

@@ -111,6 +111,9 @@ func runDaemonView(cmd *cobra.Command, options *jumphost.Options, openFirst bool
 	}()
 	view := *dashboard
 	view.Detach = true
+	if status, statusErr := client.Status(cmd.Context()); statusErr == nil {
+		view.Notice = gatewayNotice(&status)
+	}
 	view.Reconnect = func(ctx context.Context) (sessions.Service, error) {
 		next, connectErr := connectDaemonQuiet(ctx)
 		if connectErr != nil {

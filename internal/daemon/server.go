@@ -38,6 +38,8 @@ type Status struct {
 	Hello
 	Sessions int `json:"sessions"`
 	Views    int `json:"views"`
+	// Gateway describes the MCP gateway: on, with its URL and files, or off and why.
+	Gateway string `json:"gateway,omitempty"`
 }
 
 // ServerHooks lets the daemon follow its server.
@@ -47,6 +49,11 @@ type ServerHooks struct {
 	// ViewsChanged is called with the number of subscribed connections when it changes. It runs under
 	// the server's lock: it must not block nor call back into the Server.
 	ViewsChanged func(views int)
+	// BeforeStop is called by daemon.stop before the sessions are stopped; it must not call back into
+	// the Server.
+	BeforeStop func()
+	// GatewayStatus describes the MCP gateway for daemon.status; nil reports none.
+	GatewayStatus func() string
 }
 
 // Server serves a sessions.Service on a socket.
@@ -145,6 +152,12 @@ type openParams struct {
 	Interactive bool                 `json:"interactive,omitempty"`
 }
 
+type approvalParams struct {
+	ID          sessions.ApprovalID `json:"id"`
+	Approve     bool                `json:"approve,omitempty"`
+	Interactive bool                `json:"interactive,omitempty"`
+}
+
 type interactiveParams struct {
 	Purpose string   `json:"purpose"`
 	Name    string   `json:"name"`
@@ -167,6 +180,17 @@ func (s *Server) handle(ctx context.Context, sc *serverConn, method string, para
 		return s.subscribe(sc)
 	case "sessions.snapshot":
 		return s.service.Snapshot(ctx)
+	case "approval.resolve":
+		var ap approvalParams
+		if err := json.Unmarshal(params, &ap); err != nil {
+			return nil, err
+		}
+		var interactive jumphost.InteractiveFunc
+		if ap.Approve && ap.Interactive {
+			// The opening this answer allows signs in on the answering view's terminal.
+			interactive = s.relayInteractive(sc, requestID(ctx))
+		}
+		return nil, s.service.ResolveApproval(ctx, ap.ID, ap.Approve, interactive)
 	case "sessions.open":
 		var op openParams
 		if err := json.Unmarshal(params, &op); err != nil {
@@ -190,10 +214,17 @@ func (s *Server) handle(ctx context.Context, sc *serverConn, method string, para
 		if err != nil {
 			return nil, err
 		}
-		return Status{Hello: s.hello, Sessions: len(snapshot.Sessions), Views: s.Views()}, nil
+		status := Status{Hello: s.hello, Sessions: len(snapshot.Sessions), Views: s.Views()}
+		if s.hooks.GatewayStatus != nil {
+			status.Gateway = s.hooks.GatewayStatus()
+		}
+		return status, nil
 	case "daemon.stop":
 		stopCtx, cancel := context.WithTimeout(context.Background(), stopAllTimeout)
 		defer cancel()
+		if s.hooks.BeforeStop != nil {
+			s.hooks.BeforeStop()
+		}
 		// The StopDaemon hook runs once the reply was written (see handleConn).
 		return nil, s.service.StopAll(stopCtx)
 	}

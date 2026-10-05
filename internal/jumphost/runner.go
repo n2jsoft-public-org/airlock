@@ -79,6 +79,11 @@ type Options struct {
 	// Unattended never signs in interactively, as nobody may be there to answer (automatic
 	// reconnections): missing or expired credentials fail with ErrSignInRequired.
 	Unattended bool
+	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
+	OpenedBy string `json:"openedBy,omitempty"`
+	// SkipMCPRegistration serves the MCP server without writing it in the AI client files: the
+	// gateway relays it.
+	SkipMCPRegistration bool `json:"skipMCPRegistration,omitempty"`
 }
 
 // ErrSignInRequired reports AWS credentials that only an interactive sign-in can renew.
@@ -200,6 +205,11 @@ type Session struct {
 // MCPServer is the session's running MCP server, nil when none runs.
 func (s *Session) MCPServer() mcpserve.Session {
 	return s.mcp
+}
+
+// SetMCPServer makes server the session's MCP server: for the fakes of the runner (sessionstest).
+func (s *Session) SetMCPServer(server mcpserve.Session) {
+	s.mcp = server
 }
 
 // attachMCP records the MCP server of session and its display line; a server that did not start
@@ -1840,6 +1850,7 @@ func (r *Runner) startKubeMCP(options *Options, clusterName, endpointHost, caDat
 		AWS: r.awsRunner(cfg), ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
 		Target: clusterName, EndpointHost: endpointHost, ClusterCA: caData, LocalPort: localPort,
 		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
+		SkipRegistration: options.SkipMCPRegistration,
 	})
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
@@ -1887,6 +1898,7 @@ func (r *Runner) startMCP(options *Options, targetName string, localPort int, ta
 		LogDir:             r.mcpLogDir,
 		ServerPrefix:       r.mcpServerPrefix,
 		ReadOnlySecretTag:  r.readOnlySecretTag,
+		SkipRegistration:   options.SkipMCPRegistration,
 	})
 	if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
 		return nil, "not started: set the tag of the read-only SQL Server secrets with `airlock config set readOnlySecretTag Key=Value` (or enable writes)"

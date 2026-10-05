@@ -13,16 +13,18 @@ var ErrReadOnlySecretTagUnset = errors.New(`no read-only secret tag configured f
 
 // SessionConfig describes the tunneled RDS instance of one jumphost session.
 type SessionConfig struct {
-	AWS             AWSRunner
-	ProjectDir      string
-	Profile         string
-	Region          string
-	Target          string
-	AWSEngine       string
-	RDSHost         string
-	DBName          string
-	InstanceARN     string
-	MasterSecretARN string
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
+	AWS              AWSRunner
+	ProjectDir       string
+	Profile          string
+	Region           string
+	Target           string
+	AWSEngine        string
+	RDSHost          string
+	DBName           string
+	InstanceARN      string
+	MasterSecretARN  string
 	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
 	ServerPrefix string
 	// ReadOnlySecretTag marks the read-only per-database secrets of SQL Server instances; zero
@@ -86,7 +88,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 			Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region,
 			Engine: engine, AllowWrites: cfg.AllowWrites,
 		},
-		projectDir: cfg.ProjectDir, logDir: cfg.LogDir,
+		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, skipRegistration: cfg.SkipRegistration,
 	})
 	if err != nil {
 		return nil, err
@@ -98,11 +100,12 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 
 // served is what serveDatabase needs to mount the MCP server of one database.
 type served struct {
-	creds      *switchableProvider
-	projectDir string
-	logDir     string
-	server     ServerConfig
-	addr       Address
+	skipRegistration bool
+	creds            *switchableProvider
+	projectDir       string
+	logDir           string
+	server           ServerConfig
+	addr             Address
 }
 
 // serveDatabase mounts the MCP server of a database on host: audit recording, querier and server.
@@ -121,6 +124,7 @@ func serveDatabase(host *mcpserve.Host, s *served) (*Handle, error) {
 	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
 		Server: NewServer(&s.server, querier), Recorder: recorder, Cleanup: querier.Close,
 		Name: s.server.Name, ProjectDir: s.projectDir, AllowWrites: s.server.AllowWrites,
+		SkipRegistration: s.skipRegistration,
 	})
 	if err != nil {
 		return nil, err

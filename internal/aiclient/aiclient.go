@@ -65,6 +65,27 @@ type Selection struct {
 // AutoDetect is the default selection: the project files of the clients the project uses.
 var AutoDetect = Selection{Detect: true}
 
+// UserOnly returns the user-level targets of s, without detection: what a process outside any
+// project (the daemon) can register in.
+func (s Selection) UserOnly() Selection {
+	var user Selection
+	for _, target := range s.Targets {
+		if target.Scope == ScopeUser {
+			user.Targets = append(user.Targets, target)
+		}
+	}
+	return user
+}
+
+// AllUser selects the user-level file of every client.
+func AllUser() Selection {
+	sel := Selection{Targets: make([]Target, 0, len(Clients))}
+	for _, client := range Clients {
+		sel.Targets = append(sel.Targets, Target{Client: client, Scope: ScopeUser})
+	}
+	return sel
+}
+
 // String renders s in its normalized setting form.
 func (s Selection) String() string {
 	parts := make([]string, 0, len(s.Targets)+1)

@@ -48,11 +48,16 @@ type Manager struct {
 	// ended is closed, then replaced, each time a session ends (StopAll waits on it).
 	ended   chan struct{}
 	entries []*entry
-	seq     uint64
-	nextID  ID
-	closing bool
-	closed  bool
-	mu      sync.Mutex
+	// approvals are the pending agent openings, oldest first; views counts the dashboards able to
+	// answer them (daemon views).
+	approvals    []*pendingApproval
+	nextApproval ApprovalID
+	views        int
+	seq          uint64
+	nextID       ID
+	closing      bool
+	closed       bool
+	mu           sync.Mutex
 }
 
 // entry is the manager's side of a session: its public state (Task 4 adds what runs it).
@@ -122,7 +127,11 @@ func (m *Manager) snapshotLocked() Snapshot {
 	for _, e := range m.entries {
 		list = append(list, e.info.Clone())
 	}
-	return Snapshot{Seq: m.seq, Sessions: list}
+	approvals := make([]Approval, 0, len(m.approvals))
+	for _, p := range m.approvals {
+		approvals = append(approvals, p.info)
+	}
+	return Snapshot{Seq: m.seq, Sessions: list, Approvals: approvals}
 }
 
 // publish numbers ev and hands it to every subscriber, never blocking: a full subscriber is
@@ -231,7 +240,7 @@ func (m *Manager) newEntryLocked(session *jumphost.Session, options *jumphost.Op
 	e.info = Session{
 		ID: id, Label: session.Label, ResourceType: session.ResourceType, Target: session.Target,
 		Profile: session.Profile, Region: session.Region, Details: session.Details, LocalPort: session.LocalPort,
-		Production: session.Production, Options: withoutPassword(*options), State: StateStarting, StartedAt: m.now(),
+		Production: session.Production, OpenedBy: options.OpenedBy, Options: withoutPassword(*options), State: StateStarting, StartedAt: m.now(),
 		Lines: append([]LogLine(nil), history...), HasSignIn: session.SignIn != nil, HasCredentials: session.ReadCredentials != nil,
 	}
 	if server := session.MCPServer(); server != nil {

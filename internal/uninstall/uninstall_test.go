@@ -262,3 +262,34 @@ func TestApplyGoesOnAfterAFailure(t *testing.T) {
 		t.Fatalf("the binary must still be removed after a keychain failure (%v)", statErr)
 	}
 }
+
+func TestUninstallRemovesTheGatewayEntry(t *testing.T) {
+	m := newMachine(t)
+	env := m.env()
+	claude := filepath.Join(m.home, ".claude.json")
+	var removed []string
+	env.GatewayEntries = []string{claude}
+	env.RemoveGatewayEntry = func(path string) error { removed = append(removed, path); return nil }
+	plan, err := NewPlan(env, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range plan.Remove {
+		if item.Kind == GatewayEntry && item.Path == claude {
+			found = true
+			if !strings.Contains(item.Describe(), "MCP gateway entry") {
+				t.Fatalf("describe = %q", item.Describe())
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("plan = %+v", plan.Remove)
+	}
+	if err := Apply(&plan, env, func(Item) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != claude {
+		t.Fatalf("removed = %v", removed)
+	}
+}

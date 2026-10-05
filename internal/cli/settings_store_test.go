@@ -107,3 +107,21 @@ func TestConfigSettingsStoreNamesAnInvalidFile(t *testing.T) {
 		t.Fatalf("err = %v, want the file named", err)
 	}
 }
+
+func TestSettingsStoreOffersTheGatewayChoices(t *testing.T) {
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), pflag.NewFlagSet("t", pflag.ContinueOnError))
+	snapshot, err := store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	views := map[string]ui.SettingView{}
+	for _, view := range snapshot.Settings {
+		views[view.Name] = view
+	}
+	if got := views["agentAutoConnect"].Choices; len(got) != 3 || got[0] != "none" {
+		t.Fatalf("agentAutoConnect choices = %v", got)
+	}
+	if !views["mcpGateway"].NextLaunch || !views["mcpGatewayPort"].NextLaunch || views["agentWrites"].NextLaunch {
+		t.Fatalf("next launch flags = %+v", views)
+	}
+}

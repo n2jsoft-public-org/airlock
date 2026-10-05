@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/awstag"
 )
@@ -61,6 +62,10 @@ func TestLoadACMEPreset(t *testing.T) {
 		DefaultRegion:     "eu-west-3",
 		MCPClients:        "auto",
 		Mode:              ModeCLI,
+		MCPGateway:        true,
+		MCPGatewayPort:    DefaultGatewayPort,
+		AgentAutoConnect:  AutoConnectNone,
+		AgentIdleTimeout:  30 * time.Minute,
 	}
 	if cfg != want {
 		t.Fatalf("Load = %+v, want %+v", cfg, want)

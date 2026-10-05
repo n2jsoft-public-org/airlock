@@ -8,8 +8,12 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/appdir"
+	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft/airlock/internal/gateway"
 	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
 	"github.com/n2jsoft/airlock/internal/uninstall"
 	"github.com/spf13/cobra"
@@ -28,9 +32,11 @@ type uninstallEnv struct {
 	// findDaemon describes the daemon of the daemon mode; nil when none runs.
 	findDaemon func(ctx context.Context) *runningDaemon
 	// stopDaemon stops that daemon and its sessions; false when none ran any more.
-	stopDaemon  func(ctx context.Context) (bool, error)
-	interactive func(io.Reader) bool
-	goos        string
+	stopDaemon func(ctx context.Context) (bool, error)
+	// gatewayEntries returns the files holding the MCP gateway entry and how to remove it.
+	gatewayEntries func() (files []string, remove func(path string) error)
+	interactive    func(io.Reader) bool
+	goos           string
 }
 
 // runningDaemon is the daemon airlock uninstall stops once the removal is confirmed.
@@ -50,6 +56,7 @@ func defaultUninstallEnv() *uninstallEnv {
 		otherInstances: func(exe string, daemonPID int) (int, error) { return uninstall.OtherInstances(exe, daemonPID) },
 		findDaemon:     findDaemon,
 		stopDaemon:     stopDaemon,
+		gatewayEntries: defaultGatewayEntries,
 		interactive:    isInteractiveInput,
 		goos:           runtime.GOOS,
 	}
@@ -166,14 +173,36 @@ func (e *uninstallEnv) machine() (*uninstall.Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &uninstall.Env{
+	env := &uninstall.Env{
 		GOOS:       e.goos,
 		Executable: exe,
 		Profiles:   uninstall.ShellProfiles(home, e.getenv),
 		UserPath:   e.userPath,
 		DataDir:    dataDir,
 		Keychain:   e.keychain(),
-	}, nil
+	}
+	if e.gatewayEntries != nil {
+		env.GatewayEntries, env.RemoveGatewayEntry = e.gatewayEntries()
+	}
+	return env, nil
+}
+
+// defaultGatewayEntries finds the gateway entry config.json names (mcpServerPrefix, mcpGatewayPort)
+// in the user-level file of every AI client.
+func defaultGatewayEntries() (files []string, remove func(string) error) {
+	cfg := config.Defaults()
+	if path, err := appdir.ConfigFile(); err == nil {
+		if loaded, loadErr := config.Load(path); loadErr == nil {
+			cfg = loaded
+		}
+	}
+	entry := mcpserve.ClientEntry{Name: mcpserve.GatewayName(cfg.MCPServerPrefix), URL: gateway.URL(cfg.MCPGatewayPort)}
+	files, _ = mcpserve.EntryFiles(aiclient.AllUser(), entry) //nolint:errcheck // a file airlock cannot read holds no entry it can remove.
+	return files, func(string) error {
+		// One pass removes the entry from every file; the next items find nothing left.
+		_, err := mcpserve.UnregisterClients("", aiclient.AllUser(), entry)
+		return err
+	}
 }
 
 func printUninstallPlan(cmd *cobra.Command, plan *uninstall.Plan, running *runningDaemon) {

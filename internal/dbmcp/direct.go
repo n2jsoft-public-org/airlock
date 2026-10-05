@@ -8,6 +8,8 @@ import (
 
 // DirectConfig describes a database reached directly, without tunnel, signed in with a password.
 type DirectConfig struct {
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
 	// OnPasswordRejected is called once when the database rejects Password, e.g. to forget a
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
@@ -43,7 +45,7 @@ func StartDirect(host *mcpserve.Host, cfg *DirectConfig) (*Handle, error) {
 			Via:    "reached directly at " + cfg.Address.String() + ".",
 			Engine: cfg.Engine, AllowWrites: cfg.AllowWrites,
 		},
-		projectDir: cfg.ProjectDir, logDir: cfg.LogDir,
+		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, skipRegistration: cfg.SkipRegistration,
 	})
 	if err != nil {
 		return nil, err

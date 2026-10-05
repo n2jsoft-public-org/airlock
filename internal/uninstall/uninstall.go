@@ -29,6 +29,8 @@ const (
 	UserData
 	// KeychainSecrets are the database passwords saved in the OS keychain.
 	KeychainSecrets
+	// GatewayEntry is the MCP gateway entry in a user-level AI client file.
+	GatewayEntry
 )
 
 // Item is one thing an uninstall removes.
@@ -53,6 +55,8 @@ func (i Item) Describe() string {
 		return i.Path + " (settings, recent connections, MCP query logs and kubeconfigs)"
 	case KeychainSecrets:
 		return "the database passwords saved in the OS keychain"
+	case GatewayEntry:
+		return "the airlock MCP gateway entry in " + i.Path
 	default:
 		return i.Path
 	}
@@ -71,6 +75,10 @@ type Env struct {
 	DataDir string
 	// Profiles are the shell profiles install.sh may have written to (ShellProfiles).
 	Profiles []string
+	// GatewayEntries are the user-level AI client files holding the MCP gateway entry;
+	// RemoveGatewayEntry removes it from one.
+	GatewayEntries     []string
+	RemoveGatewayEntry func(path string) error
 }
 
 // Plan lists what an uninstall removes, in the order shown, and what it leaves behind.
@@ -101,6 +109,10 @@ func NewPlan(env *Env, purge bool) (Plan, error) {
 		plan.Remove = append(plan.Remove, pathItems...)
 	case len(pathItems) > 0:
 		plan.Kept = append(plan.Kept, "the PATH entry of "+dir+", since other programs are in it")
+	}
+
+	for _, path := range env.GatewayEntries {
+		plan.Remove = append(plan.Remove, Item{Kind: GatewayEntry, Path: path})
 	}
 
 	hasData := exists(env.DataDir)
@@ -195,6 +207,10 @@ func Apply(plan *Plan, env *Env, done func(Item)) error {
 			err = removeFromProfile(item.Path, filepath.Dir(env.Executable))
 		case UserPathEntry:
 			err = removeFromUserPath(item.Path)
+		case GatewayEntry:
+			if env.RemoveGatewayEntry != nil {
+				err = env.RemoveGatewayEntry(item.Path)
+			}
 		case UserData:
 			err = os.RemoveAll(item.Path)
 		case KeychainSecrets:

@@ -277,6 +277,7 @@ func (r *Runner) startCacheMCP(options *Options, cacheName string, localPort int
 		ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region, Target: cacheName,
 		Engine: target.Engine, Endpoint: target.CacheEndpoint, ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
 		LocalPort: localPort, TLS: target.CacheTLS, ClusterMode: target.CacheClusterMode, AllowWrites: allowWrites,
+		SkipRegistration: options.SkipMCPRegistration,
 	})
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)

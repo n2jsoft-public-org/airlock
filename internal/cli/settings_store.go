@@ -59,6 +59,15 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 			view.Choices, view.NextLaunch = []string{config.ModeCLI, config.ModeDaemon}, true
 		case "defaultRegion":
 			view.Region = true
+		case "mcpGateway":
+			// The gateway starts with the daemon: only its next start reads it.
+			view.Choices, view.NextLaunch = []string{"true", "false"}, true
+		case "mcpGatewayPort":
+			view.NextLaunch = true
+		case "agentAutoConnect":
+			view.Choices = []string{config.AutoConnectNone, config.AutoConnectNonProd, config.AutoConnectAll}
+		case "agentWrites":
+			view.Choices = []string{"false", "true"}
 		}
 		views = append(views, view)
 	}

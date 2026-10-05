@@ -111,7 +111,9 @@ type Session struct {
 	// Err is the error the session ended on; empty when none.
 	Err string `json:"err,omitempty"`
 	// Cleanup describes what ending the session removed (IDE data source, MCP entries).
-	Cleanup     string `json:"cleanup,omitempty"`
+	Cleanup string `json:"cleanup,omitempty"`
+	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
+	OpenedBy    string `json:"openedBy,omitempty"`
 	SignIn      SignIn `json:"signIn"`
 	ID          ID     `json:"id"`
 	LocalPort   int    `json:"localPort"`

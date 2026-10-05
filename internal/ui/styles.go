@@ -178,6 +178,11 @@ func (s Styles) WritesBadge() string {
 	return s.Badge.Background(colorDanger).Render("WRITES")
 }
 
+// AgentBadge flags a session an AI agent opened through the MCP gateway.
+func (s Styles) AgentBadge(agent string) string {
+	return s.Badge.Background(lipgloss.Color("61")).Render("AGENT · " + agent)
+}
+
 // KeyHints renders "key description" pairs as key caps within width, always showing the last one.
 func (s Styles) KeyHints(keys [][2]string, width int) string {
 	return s.KeyHintsPinned(keys, 1, width)

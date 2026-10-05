@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +27,11 @@ var Keys = []Key{
 	{Name: "productionProfiles", Description: "Comma-separated patterns (* wildcard, any case) of the AWS profiles flagged as production, e.g. *prod*,*-live"},
 	{Name: "mcpClients", Description: "AI clients the MCP servers are registered in: auto (detected in the project), none, or a comma-separated list of claude, vscode, codex, cursor, gemini, each with :user for its user-level file, e.g. claude:user,codex"},
 	{Name: "mode", Description: "cli: sessions live in each airlock and close with it; daemon: a background daemon keeps them, and airlock is a view of it"},
+	{Name: "mcpGateway", Description: "true: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; false: no gateway"},
+	{Name: "mcpGatewayPort", Description: "Port of the MCP gateway on 127.0.0.1 (1024-65535)"},
+	{Name: "agentAutoConnect", Description: "Agent openings that skip the dashboard prompt: none, non-prod (targets outside productionProfiles and production direct databases) or all"},
+	{Name: "agentWrites", Description: "true: agents may ask for MCP writes, always approved in a dashboard; false: agents only open read-only sessions"},
+	{Name: "agentIdleTimeout", Description: "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)"},
 }
 
 // Source tells where the value of a setting comes from.
@@ -149,6 +155,11 @@ func (c *Config) values() map[string]string {
 		"productionProfiles": c.ProductionProfiles,
 		"mcpClients":         c.MCPClients,
 		"mode":               c.Mode,
+		"mcpGateway":         strconv.FormatBool(c.MCPGateway),
+		"mcpGatewayPort":     strconv.Itoa(c.MCPGatewayPort),
+		"agentAutoConnect":   c.AgentAutoConnect,
+		"agentWrites":        strconv.FormatBool(c.AgentWrites),
+		"agentIdleTimeout":   FormatDuration(c.AgentIdleTimeout),
 	}
 }
 
@@ -171,6 +182,16 @@ func (f *file) field(key string) **string {
 		return &f.MCPClients
 	case "mode":
 		return &f.Mode
+	case "mcpGateway":
+		return &f.MCPGateway
+	case "mcpGatewayPort":
+		return &f.MCPGatewayPort
+	case "agentAutoConnect":
+		return &f.AgentAutoConnect
+	case "agentWrites":
+		return &f.AgentWrites
+	case "agentIdleTimeout":
+		return &f.AgentIdleTimeout
 	default:
 		return nil
 	}

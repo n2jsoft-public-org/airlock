@@ -22,6 +22,14 @@ func ServerName(prefix, profile, target string) string {
 	return name + "-" + slugify(target)
 }
 
+// GatewayName is the client-facing name of the daemon's MCP gateway: the prefix alone, e.g. airlock.
+func GatewayName(prefix string) string {
+	if prefix = slugify(prefix); prefix == "" {
+		return DefaultServerPrefix
+	}
+	return prefix
+}
+
 func slugify(value string) string {
 	var b strings.Builder
 	dash := false
@@ -67,14 +75,15 @@ func within(dir, path string) (string, bool) {
 }
 
 // DirectServerName is the stable client-facing name of a direct database's server, e.g.
-// airlock-legacy-billing. The prefix is not repeated when the name already carries it.
+// airlock-legacy-billing. The prefix is not repeated when the name already starts with it (prefix-…).
 func DirectServerName(prefix, name string) string {
 	prefix = slugify(prefix)
 	if prefix == "" {
 		prefix = DefaultServerPrefix
 	}
 	name = slugify(name)
-	if name == prefix || strings.HasPrefix(name, prefix+"-") {
+	// The bare prefix is the gateway's name (GatewayName): a database named so gets prefix-prefix.
+	if name != prefix && strings.HasPrefix(name, prefix+"-") {
 		return name
 	}
 	return prefix + "-" + name

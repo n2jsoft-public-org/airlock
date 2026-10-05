@@ -96,6 +96,22 @@ func TestSingleCandidateIsCheckedAndRememberedWhenDiscovered(t *testing.T) {
 	waitSaved(t, runner)
 }
 
+// M6: an agent's opening never changes the user's remembered choices.
+func TestAgentSignInIsNotRemembered(t *testing.T) {
+	checker := &fakeSignIn{candidates: []jumphost.SignInCandidate{{Label: "ro", User: "app_ro", Discovered: true}}}
+	m, runner, _ := newManager(t)
+	runner.Direct("billing").SignIn = checker
+	events := subscribe(t, m)
+	id := mustOpen(t, m, &jumphost.Options{Name: "billing", ResourceType: "direct", OpenedBy: "claude-code"})
+	sessionstest.Wait(t, events, signIn(id, sessions.SignInDone))
+	for range 20 {
+		sleep()
+	}
+	if saved := runner.SavedOptions(); len(saved) != 0 {
+		t.Fatalf("saved = %+v, want nothing saved for an agent session", saved)
+	}
+}
+
 func TestSeveralCandidatesWaitForAChoice(t *testing.T) {
 	checker := &fakeSignIn{candidates: []jumphost.SignInCandidate{{Label: "a", User: "u1"}, {Label: "b", User: "u2"}},
 		failures: map[string]error{"a": errors.New("bad password")}}

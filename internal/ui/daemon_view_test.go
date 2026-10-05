@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -202,5 +203,15 @@ func TestRefusedStopAllLeavesTheViewUsable(t *testing.T) {
 	_, cmd := m.Update(keyRunes("q"))
 	if !isQuit(cmd) {
 		t.Fatal("q must leave")
+	}
+}
+
+// F5: DashboardOptions.Notice shows from the start.
+func TestDashboardStartsWithTheNotice(t *testing.T) {
+	service := newFakeService(testSession(1, "archive-db"))
+	m := newDashboardModel(t.Context(), service, fakeSessionRunner{}, 0, jumphost.Options{}, &DashboardOptions{Detach: true, Notice: "MCP gateway off: port in use"})
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	if view := m.View(); !strings.Contains(view, "MCP gateway off: port in use") {
+		t.Fatalf("view lacks the notice:\n%s", view)
 	}
 }

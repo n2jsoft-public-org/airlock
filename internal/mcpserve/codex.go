@@ -16,6 +16,13 @@ type codexFormat struct{}
 
 func (codexFormat) add(path string, entry ClientEntry) error {
 	return updateTOML(path, func(doc string) (string, bool, error) {
+		if servers, err := tomlServers(doc); err == nil {
+			if current, ok := servers[entry.Name].(map[string]any); ok && current["url"] == entry.URL {
+				if headers, isTable := current["http_headers"].(map[string]any); isTable && headers["Authorization"] == "Bearer "+entry.Token {
+					return "", false, nil
+				}
+			}
+		}
 		doc, _ = removeTOMLServer(doc, entry.Name)
 		servers, err := tomlServers(doc)
 		if err != nil {
@@ -52,6 +59,20 @@ func (codexFormat) remove(path string, entry ClientEntry) (bool, error) {
 		return doc, removed, nil
 	})
 	return removed, err
+}
+
+func (codexFormat) has(path string, entry ClientEntry) (bool, error) {
+	found := false
+	err := updateTOML(path, func(doc string) (string, bool, error) {
+		servers, err := tomlServers(doc)
+		if err != nil {
+			return "", false, err
+		}
+		current, ok := servers[entry.Name].(map[string]any)
+		found = ok && current["url"] == entry.URL
+		return "", false, nil
+	})
+	return found, err
 }
 
 // updateTOML applies change to the text of a TOML file under a cross-process lock. change returns

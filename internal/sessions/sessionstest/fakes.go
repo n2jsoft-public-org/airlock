@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -221,3 +224,23 @@ func (r *Runner) SavedOptions() []jumphost.Options {
 func (l *Launcher) Pending() int { return len(l.started) }
 
 func sleepBriefly() { time.Sleep(5 * time.Millisecond) }
+
+// MCPServer is a session MCP server the gateway can relay to.
+type MCPServer struct {
+	S      *mcp.Server
+	Writes bool
+}
+
+func (s *MCPServer) Display() string                    { return "fake MCP server" }
+func (s *MCPServer) Subscribe(func(mcpserve.ToolEvent)) {}
+func (s *MCPServer) QueryLogDir() string                { return "" }
+func (s *MCPServer) AllowsWrites() bool                 { return s.Writes }
+func (s *MCPServer) Close() string                      { return "" }
+func (s *MCPServer) Server() *mcp.Server                { return s.S }
+
+// WithMCP gives the registered session name the MCP server server.
+func (r *Runner) WithMCP(name string, server *MCPServer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Sessions[name].SetMCPServer(server)
+}

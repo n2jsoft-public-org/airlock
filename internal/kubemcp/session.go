@@ -9,10 +9,12 @@ import (
 
 // SessionConfig describes the tunneled cluster of one EKS session.
 type SessionConfig struct {
-	AWS        mcpserve.AWSRunner
-	ProjectDir string
-	Profile    string
-	Region     string
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
+	AWS              mcpserve.AWSRunner
+	ProjectDir       string
+	Profile          string
+	Region           string
 	// Target is the cluster name.
 	Target string
 	// EndpointHost is the real API host the server certificate is checked against.
@@ -44,7 +46,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*mcpserve.Handle, error) {
 	server := NewServer(&ServerConfig{Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region},
 		newAPICluster(client), recorder.Record)
 	return mcpserve.Serve(host, &mcpserve.ServeConfig{
-		Server: server, Recorder: recorder, Name: name, ProjectDir: cfg.ProjectDir,
+		Server: server, Recorder: recorder, Name: name, ProjectDir: cfg.ProjectDir, SkipRegistration: cfg.SkipRegistration,
 		Cleanup: func() error { client.close(); return nil },
 	})
 }

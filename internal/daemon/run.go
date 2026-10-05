@@ -29,6 +29,8 @@ type RunConfig struct {
 	Paths       Paths
 	Version     string
 	IdleTimeout time.Duration
+	// Gateway starts the MCP gateway; nil runs without one.
+	Gateway StartGatewayFunc
 }
 
 // Run is the daemon: it serves the sessions until ctx ends, SIGTERM/SIGINT, daemon.stop or idleness.
@@ -89,13 +91,43 @@ func Run(ctx context.Context, cfg *RunConfig) error {
 	}
 	manager := sessions.NewManager(context.WithoutCancel(ctx), sessions.Config{Runner: cfg.Runner, Launch: store.tracking(launch)})
 	idle := newIdleWatch(cfg.IdleTimeout, cancel)
-	server := NewServer(manager, cfg.Version, ServerHooks{StopDaemon: cancel, ViewsChanged: idle.views})
+	gateway := &gatewayState{off: "off"}
+	// An explicit stop (daemon.stop) removes the gateway entry; a stop on its own (idle, signal)
+	// keeps it, still valid for the next start.
+	closeGateway := func(unregister bool) {
+		if err := gateway.close(unregister); err != nil {
+			logf("MCP gateway stopped with errors: %v", err)
+		}
+	}
+	server := NewServer(manager, cfg.Version, ServerHooks{
+		StopDaemon: cancel,
+		BeforeStop: func() { closeGateway(true) },
+		ViewsChanged: func(views int) {
+			idle.views(views)
+			manager.ViewsChanged(views)
+		},
+		GatewayStatus: gateway.status,
+	})
 	go idle.watch(ctx, manager)
 	go func() { discard(server.Serve(listener)) }()
 	logf("daemon %s started (pid %d)", cfg.Version, os.Getpid())
+	if cfg.Gateway != nil {
+		started, err := cfg.Gateway(ctx, GatewayEnv{Manager: manager, Activity: idle.activity, Log: logf})
+		switch {
+		case err != nil:
+			gateway.set(nil, "off: "+err.Error())
+			logf("MCP gateway not started: %v", err)
+		case started != nil:
+			gateway.set(started, "")
+			logf("MCP gateway started: %s", started.StatusWithoutToken())
+		}
+	}
 
 	<-ctx.Done()
 	logf("daemon stopping")
+	// First, so the gateway opens no session while they stop (daemon.stop already closed it, and
+	// removed its entry, through BeforeStop; closing twice is a no-op).
+	closeGateway(false)
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), stopAllTimeout)
 	defer stopCancel()
 	discard(manager.StopAll(stopCtx))
@@ -106,16 +138,17 @@ func Run(ctx context.Context, cfg *RunConfig) error {
 
 // idleWatch cancels the daemon once it had neither session nor view for its timeout.
 type idleWatch struct {
-	cancel  context.CancelFunc
-	viewsCh chan int
-	timeout time.Duration
+	cancel     context.CancelFunc
+	viewsCh    chan int
+	activityCh chan struct{}
+	timeout    time.Duration
 }
 
 func newIdleWatch(timeout time.Duration, cancel context.CancelFunc) *idleWatch {
 	if timeout <= 0 {
 		timeout = defaultIdleTimeout
 	}
-	return &idleWatch{timeout: timeout, cancel: cancel, viewsCh: make(chan int, 16)}
+	return &idleWatch{timeout: timeout, cancel: cancel, viewsCh: make(chan int, 16), activityCh: make(chan struct{}, 1)}
 }
 
 // views never blocks: it runs under the server's lock.
@@ -126,27 +159,38 @@ func (w *idleWatch) views(n int) {
 	}
 }
 
+// activity tells that the gateway served a request; it never blocks.
+func (w *idleWatch) activity() {
+	select {
+	case w.activityCh <- struct{}{}:
+	default:
+	}
+}
+
 // snapshotter is the part of the sessions the idle watch reads.
 type snapshotter interface {
 	Snapshot(ctx context.Context) (sessions.Snapshot, error)
 }
 
-// watch counts the running sessions only: an ended one (a reconnection that gave up) goes away
-// with the daemon.
+// watch counts the running sessions, the views and the gateway requests: an ended session (a
+// reconnection that gave up) goes away with the daemon.
 func (w *idleWatch) watch(ctx context.Context, manager snapshotter) {
 	tick := time.NewTicker(min(w.timeout/4, time.Minute))
 	defer tick.Stop()
 	views, idleSince := 0, time.Now()
 	for {
+		active := false
 		select {
 		case <-ctx.Done():
 			return
 		case views = <-w.viewsCh:
+		case <-w.activityCh:
+			active = true
 		case <-tick.C:
 		}
 		snapshot, err := manager.Snapshot(ctx)
 		discard(err)
-		if views > 0 || hasActiveSession(snapshot.Sessions) {
+		if active || views > 0 || hasActiveSession(snapshot.Sessions) {
 			idleSince = time.Now()
 			continue
 		}

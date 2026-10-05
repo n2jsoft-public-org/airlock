@@ -252,9 +252,10 @@ airlock uninstall --yes     # do not ask (required without a terminal)
 |---|---|---|
 | The airlock binary | ✅ | ✅ |
 | The installer's PATH entry: the block in your shell profile, or the Windows user PATH entry and folder | ✅ when the folder holds nothing else | ✅ |
-| `~/.config/airlock` (`%AppData%\airlock`): settings, direct databases, recent connections, MCP query logs, kubeconfigs | | ✅ |
+| `~/.config/airlock` (`%AppData%\airlock`): settings, the gateway token (`gateway-token`), direct databases, recent connections, MCP query logs, kubeconfigs | | ✅ |
 | Database passwords saved in the OS keychain | | ✅ |
 
+The MCP gateway entry in the user-level files of your AI clients (`~/.claude.json`…) is removed too.
 The IntelliJ data sources airlock added to your projects' `.idea/dataSources.xml` stay. On
 Windows, `airlock.exe` is deleted right after airlock exits, since Windows cannot delete a running
 program; quit any other airlock first. The installers' `--uninstall` / `-Uninstall` (and `--purge`
@@ -616,6 +617,39 @@ written, it also shows the bearer token so you can configure a client by hand.
 > can be lost if Claude Code saves that file at the same moment. Prefer the project file when
 > Claude Code is open.
 
+**Gateway (daemon mode).** With `"mode": "daemon"`, the daemon also serves the **gateway**: one MCP
+server on `http://127.0.0.1:7821/mcp` (`mcpGatewayPort`), registered as `airlock` (the
+`mcpServerPrefix`) in the **user-level** files of the clients of `mcpClients` (`claude:user`,
+`codex:user`…; project files never get it). Its URL and token stay the same across daemon restarts,
+so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon stops on its own
+(idle stop, a signal): it is still valid at the next start, and agents get connection errors until
+`airlock` starts the daemon again. `airlock daemon stop` (and `Q`, or `airlock daemon restart`) and
+`airlock uninstall` remove it. Through it an agent:
+
+| Tool | Description |
+|---|---|
+| `list_targets` | The saved connections and direct databases, or a live search of an AWS profile, each telling whether it opens at once or after your approval |
+| `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
+| `open_session` | Open a target, with a reason you read |
+| `close_session` | Close a session an agent opened |
+| `db_*`, `k8s_*`, `cache_*` | The tools of the sessions above, with a `session` argument |
+
+An opening asked by an agent shows an **approval dialog** in every open dashboard (`y` allow, `n`
+deny, 2 minutes to answer); with no dashboard open it is refused at once. `agentAutoConnect` lets
+agents open without asking: `non-prod` (targets outside `productionProfiles` and production direct
+databases) or `all`. Agents never get writes unless `agentWrites` is `true`, not even on your own
+sessions opened with writes, and a write request is always approved in a dashboard. A session an agent opened carries `AGENT · <name>`, gets no IntelliJ
+data source nor entry of its own, signs in with the choices saved for that connection, and closes
+after `agentIdleTimeout` (`30m`) without a call through the gateway. An agent opening never signs in
+to AWS in the background: an expired SSO session is refused (or, when approved, signs in in the
+approving dashboard's terminal).
+
+```sh
+airlock config set mcpClients auto,claude:user   # register the gateway for Claude Code
+airlock config set agentAutoConnect non-prod     # let agents open non-production targets alone
+airlock daemon status                            # the gateway line: URL, files, or why it is off
+```
+
 **Credentials.** Nothing is written to disk.
 
 - **PostgreSQL** uses an IAM token for the chosen database user. Read-only mode relies on that user
@@ -664,6 +698,11 @@ unknown key or a malformed value is an error that names the file.
 | `productionProfiles` | none | none | Comma-separated patterns (`*` wildcard, any case) of the AWS profiles flagged as production, e.g. `*prod*,*-live` |
 | `mcpClients` | `--mcp-clients` | `auto` | AI clients the MCP servers are registered in: `auto`, `none`, or e.g. `claude:user,codex` (see [AI access with MCP](#-ai-access-with-mcp)) |
 | `mode` | `--mode` | `cli` | `cli`: sessions live in each `airlock` and close with it; `daemon`: a background daemon keeps them (see [Daemon mode](#daemon-mode)) |
+| `mcpGateway` | none | `true` | `true`: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; `false`: no gateway (see [AI access with MCP](#-ai-access-with-mcp)) |
+| `mcpGatewayPort` | none | `7821` | Port of the MCP gateway on `127.0.0.1` (1024-65535) |
+| `agentAutoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside `productionProfiles` and production direct databases) or `all` |
+| `agentWrites` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
+| `agentIdleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
 
 Profiles matching `productionProfiles` get an orange `PROD` badge everywhere they appear: the
 wizard header, profile list, recent connections and review step, and the dashboard's session
@@ -726,6 +765,13 @@ The daemon takes its settings from `config.json` and reads it again when it chan
 connections use the new values. For that reason, the setting flags `--jumphost-tag`,
 `--read-only-secret-tag`, `--mcp-server-prefix` and `--mcp-clients` are refused in daemon mode: use
 `airlock config set`, or run with `--mode cli`.
+
+The gateway line of `airlock daemon status` (`gateway   on http://127.0.0.1:7821/mcp, registered in …`)
+says where the gateway listens and which client files hold it, or why it is off or not registered.
+When the gateway could not start (its port in use, for example), the dashboard says so too as it
+connects to the daemon.
+`mcpGateway`, `mcpGatewayPort`, `mcpServerPrefix` and `mcpClients` apply to the gateway at the next
+daemon start: run `airlock daemon restart`.
 
 It stops on its own after 10 minutes without running session nor dashboard; ended sessions go
 with it. It listens on a socket only you can open (`~/Library/Caches/airlock/daemon/daemon.sock` on

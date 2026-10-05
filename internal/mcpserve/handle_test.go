@@ -99,3 +99,24 @@ func TestServeReportsCleanupErrors(t *testing.T) {
 		t.Fatalf("close message = %q", msg)
 	}
 }
+
+func TestServeWithoutRegistrationWritesNoFile(t *testing.T) {
+	useIsolatedLocks(t)
+	home := useFakeHome(t, nil)
+	host := NewHostFor(mustParse(t, "claude:user"))
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil)
+	handle, err := Serve(host, &ServeConfig{Server: server, Recorder: NewRecorder(""), Name: "airlock-dev-db", SkipRegistration: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	if handle.Server() != server {
+		t.Fatal("Server must return the mounted server")
+	}
+	if exists(filepath.Join(home, ".claude.json")) {
+		t.Fatal("a server opened for the gateway must not be registered")
+	}
+	if !strings.Contains(handle.Display(), "MCP gateway") {
+		t.Fatalf("display = %q", handle.Display())
+	}
+}

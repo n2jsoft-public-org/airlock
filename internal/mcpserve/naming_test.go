@@ -29,13 +29,22 @@ func TestDirectServerName(t *testing.T) {
 		{"acme", "legacy-billing"}: "acme-legacy-billing",
 		{"", "legacy-billing"}:     "airlock-legacy-billing",
 		{"acme", "acme-billing"}:   "acme-billing",
-		{"acme", "acme"}:           "acme",
+		{"acme", "acme"}:           "acme-acme",
+		{"airlock", "airlock"}:     "airlock-airlock",
 		{"acme", "acmedemo"}:       "acme-acmedemo",
 		{"Team X", "billing"}:      "team-x-billing",
 	}
 	for in, want := range cases {
 		if got := DirectServerName(in[0], in[1]); got != want {
 			t.Fatalf("DirectServerName(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+}
+
+func TestGatewayName(t *testing.T) {
+	for prefix, want := range map[string]string{"": "airlock", "airlock": "airlock", "Team Tools": "team-tools"} {
+		if got := GatewayName(prefix); got != want {
+			t.Errorf("GatewayName(%q) = %q, want %q", prefix, got, want)
 		}
 	}
 }

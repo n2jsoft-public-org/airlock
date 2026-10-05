@@ -288,6 +288,14 @@ func (c *Client) Credentials(ctx context.Context, id sessions.ID) ([]jumphost.DB
 	return creds, err
 }
 
+func (c *Client) ResolveApproval(ctx context.Context, id sessions.ApprovalID, approve bool, interactive jumphost.InteractiveFunc) error {
+	var requestID uint64
+	err := c.peer.callWithID(ctx, "approval.resolve", approvalParams{ID: id, Approve: approve, Interactive: interactive != nil}, nil,
+		c.registerInteractive(interactive, &requestID))
+	c.forgetInteractive(requestID)
+	return err
+}
+
 // StopAll stops the sessions only; StopDaemon also stops the daemon.
 func (c *Client) StopAll(ctx context.Context) error { return c.StopDaemon(ctx) }
 

@@ -34,6 +34,10 @@ type Service interface {
 	RetrySignIn(ctx context.Context, id ID) error
 	// Credentials reads the credentials the password dialog shows.
 	Credentials(ctx context.Context, id ID) ([]jumphost.DBCredentials, error)
+	// ResolveApproval answers the pending approval id: approve allows the opening, whose terminal
+	// commands (aws sso login) run with interactive. An approving answer returns once the opening
+	// was prepared. A request already answered, withdrawn or expired gives ErrApprovalResolved.
+	ResolveApproval(ctx context.Context, id ApprovalID, approve bool, interactive jumphost.InteractiveFunc) error
 	// StopAll stops every session and waits for them to end.
 	StopAll(ctx context.Context) error
 }

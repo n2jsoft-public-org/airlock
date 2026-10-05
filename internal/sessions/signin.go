@@ -135,8 +135,12 @@ func (m *Manager) failSignInLocked(e *entry, err error, prefix string) {
 	m.changed(e)
 }
 
-// savePrefsLocked remembers the sign-in options of e for its target; a failure is a notice.
+// savePrefsLocked remembers the sign-in options of e for its target; a failure is a notice. An
+// agent's session never changes the user's remembered choices.
 func (m *Manager) savePrefsLocked(e *entry) {
+	if e.info.OpenedBy != "" {
+		return
+	}
 	options := restartOptions(e)
 	go func() {
 		runner, err := m.runner()

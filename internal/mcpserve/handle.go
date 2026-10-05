@@ -34,10 +34,14 @@ type ServeConfig struct {
 	ProjectDir string
 	// AllowWrites reports whether Server offers a tool modifying data.
 	AllowWrites bool
+	// SkipRegistration mounts the server without writing it in the AI client files: the MCP
+	// gateway relays it (sessions opened by agents).
+	SkipRegistration bool
 }
 
 // Handle is a mounted and registered session MCP server.
 type Handle struct {
+	server      *mcp.Server
 	recorder    *Recorder
 	release     func() string
 	endpoint    Endpoint
@@ -63,10 +67,16 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 	}
 
 	entry := ClientEntry{Name: cfg.Name, URL: endpoint.URL, Token: endpoint.Token}
-	written, registerErr := RegisterClients(cfg.ProjectDir, host.clients, entry)
+	var written []string
+	var registerErr error
 	where := "no AI client config written; header Authorization: Bearer " + endpoint.Token
-	if len(written) > 0 {
-		where = RelativeTo(cfg.ProjectDir, written)
+	if cfg.SkipRegistration {
+		where = "reached through the airlock MCP gateway"
+	} else {
+		written, registerErr = RegisterClients(cfg.ProjectDir, host.clients, entry)
+		if len(written) > 0 {
+			where = RelativeTo(cfg.ProjectDir, written)
+		}
 	}
 	accessLabel := "read-only"
 	if cfg.AllowWrites {
@@ -78,12 +88,17 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 	}
 
 	return &Handle{
+		server:      cfg.Server,
 		recorder:    cfg.Recorder,
 		endpoint:    endpoint,
 		display:     display,
 		allowWrites: cfg.AllowWrites,
 		release: func() string {
-			removed, unregisterErr := UnregisterClients(cfg.ProjectDir, host.clients, entry)
+			var removed []string
+			var unregisterErr error
+			if !cfg.SkipRegistration {
+				removed, unregisterErr = UnregisterClients(cfg.ProjectDir, host.clients, entry)
+			}
 			errs := []error{unregisterErr, host.Unmount(slug)}
 			if cfg.Cleanup != nil {
 				errs = append(errs, cfg.Cleanup())
@@ -98,6 +113,14 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 		},
 	}, nil
 }
+
+// ServerProvider is a session MCP server the gateway relays to, in-process.
+type ServerProvider interface {
+	Server() *mcp.Server
+}
+
+// Server is the mounted MCP server, for the gateway's in-process relay.
+func (h *Handle) Server() *mcp.Server { return h.server }
 
 // Display describes the server (access mode, name, URL, config files) for the dashboard MCP row.
 func (h *Handle) Display() string { return h.display }

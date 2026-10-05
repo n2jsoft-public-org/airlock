@@ -17,7 +17,7 @@ import (
 )
 
 // ProtocolVersion changes when messages change incompatibly.
-const ProtocolVersion = 1
+const ProtocolVersion = 2
 
 // cancelMethod tells the other side to cancel the request whose ID it carries.
 const cancelMethod = "cancel"
@@ -44,11 +44,12 @@ type wireError struct {
 }
 
 var errorCodes = map[string]error{
-	"sign-in-required": jumphost.ErrSignInRequired,
-	"unknown-session":  sessions.ErrUnknownSession,
-	"closed":           sessions.ErrClosed,
-	"canceled":         context.Canceled,
-	"deadline":         context.DeadlineExceeded,
+	"sign-in-required":  jumphost.ErrSignInRequired,
+	"unknown-session":   sessions.ErrUnknownSession,
+	"closed":            sessions.ErrClosed,
+	"approval-resolved": sessions.ErrApprovalResolved,
+	"canceled":          context.Canceled,
+	"deadline":          context.DeadlineExceeded,
 }
 
 func encodeError(err error) *wireError {

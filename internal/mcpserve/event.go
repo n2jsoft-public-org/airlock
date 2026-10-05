@@ -35,6 +35,9 @@ type ToolEvent struct {
 	// Command is the cache command line, cut at 1 KiB (cache tools only).
 	Command string `json:"command,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Decision is how the gateway answered an opening (gateway tools only): auto, approved, reused,
+	// or refused: <reason>.
+	Decision string `json:"decision,omitempty"`
 	// LogError explains why the event could not be written to the audit log (empty when it was).
 	LogError  string        `json:"-"`
 	Duration  time.Duration `json:"-"`

@@ -54,6 +54,9 @@ func newDaemonStatusCmd() *cobra.Command {
 			}
 			outf(cmd, "The airlock daemon is running.\n  pid       %d\n  version   %s\n  since     %s\n  sessions  %d\n  views     %d\n  socket    %s\n  log       %s\n",
 				status.PID, status.Version, status.StartedAt.Format(time.RFC1123), status.Sessions, status.Views, paths.Socket, daemonLogPath())
+			if status.Gateway != "" {
+				outf(cmd, "  gateway   %s\n", status.Gateway)
+			}
 			if mismatch, ok := errors.AsType[*daemon.VersionMismatchError](err); ok {
 				outf(cmd, "It runs another version than this airlock (%s): `airlock daemon restart` updates it.\n", mismatch.Client)
 			}
@@ -264,10 +267,22 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	} else {
 		prefsPath, databaseStore = saved.Path(), saved.Databases()
 	}
-	source := newRunnerSource(configPath, func(cfg config.Config) (sessionsRunner, error) {
+	source := newRunnerSource(configPath, func(cfg config.Config) (*daemonRunner, error) {
 		options := sharedRunnerOptions(&cfg, registry, mcpserve.NewHostFor(cfg.MCPClientSelection()), mcpLogDir, kubeconfigDir, databaseStore)
 		options.Out, options.Err, options.PrefsPath, options.Keychain = log, log, prefsPath, newKeychain()
-		return jumphost.NewRunner(options), nil
+		return &daemonRunner{Runner: jumphost.NewRunner(options), cfg: cfg}, nil
 	})
-	return daemon.Run(ctx, &daemon.RunConfig{Paths: paths, Version: version.String(), Runner: source.Source(), Log: log})
+	tokenDir, err := appdir.ConfigDir()
+	if err != nil {
+		return err
+	}
+	// A nil store must stay a nil interface: the gateway then reports direct databases unavailable.
+	var databases jumphost.DirectDatabases
+	if databaseStore != nil {
+		databases = databaseStore
+	}
+	return daemon.Run(ctx, &daemon.RunConfig{
+		Paths: paths, Version: version.String(), Runner: source.Source(), Log: log,
+		Gateway: startGatewayFunc(configPath, tokenDir, mcpLogDir, source, databases),
+	})
 }

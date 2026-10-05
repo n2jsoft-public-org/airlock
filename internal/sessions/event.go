@@ -25,6 +25,10 @@ const (
 	// EventPasswordRejected tells that the direct database of session ID rejected the password of
 	// User; the session ended, and the dashboard showing it may ask for the password of Name again.
 	EventPasswordRejected EventKind = "password-rejected"
+	// EventApprovalRequested announces Approval, an opening an AI agent asks the dashboards to allow.
+	EventApprovalRequested EventKind = "approval-requested"
+	// EventApprovalResolved tells that approval ApprovalID was answered (Approved), withdrawn or expired.
+	EventApprovalResolved EventKind = "approval-resolved"
 	// EventResync tells that the subscriber missed events; it takes a new snapshot.
 	EventResync EventKind = "resync"
 	// EventClosed tells that the sessions are gone (daemon stopped, connection lost); Err says why.
@@ -33,22 +37,27 @@ const (
 
 // Event is one change of the sessions. Seq orders the events and snapshots of one service.
 type Event struct {
-	Session *Session            `json:"session,omitempty"`
-	Query   *mcpserve.ToolEvent `json:"query,omitempty"`
-	Kind    EventKind           `json:"kind"`
-	Notice  string              `json:"notice,omitempty"`
-	Name    string              `json:"name,omitempty"`
-	User    string              `json:"user,omitempty"`
-	Err     string              `json:"err,omitempty"`
-	Lines   []LogLine           `json:"lines,omitempty"`
-	Seq     uint64              `json:"seq"`
-	ID      ID                  `json:"id,omitempty"`
+	Session    *Session            `json:"session,omitempty"`
+	Query      *mcpserve.ToolEvent `json:"query,omitempty"`
+	Approval   *Approval           `json:"approval,omitempty"`
+	ApprovalID ApprovalID          `json:"approvalId,omitempty"`
+	Approved   bool                `json:"approved,omitempty"`
+	Kind       EventKind           `json:"kind"`
+	Notice     string              `json:"notice,omitempty"`
+	Name       string              `json:"name,omitempty"`
+	User       string              `json:"user,omitempty"`
+	Err        string              `json:"err,omitempty"`
+	Lines      []LogLine           `json:"lines,omitempty"`
+	Seq        uint64              `json:"seq"`
+	ID         ID                  `json:"id,omitempty"`
 }
 
 // Snapshot is every session at event Seq: apply only the events with a greater Seq.
 type Snapshot struct {
 	Sessions []Session `json:"sessions"`
-	Seq      uint64    `json:"seq"`
+	// Approvals are the pending agent openings, oldest first.
+	Approvals []Approval `json:"approvals,omitempty"`
+	Seq       uint64     `json:"seq"`
 }
 
 // Apply returns list with ev applied: how a subscriber keeps its copy of the sessions in sync.
@@ -91,6 +100,29 @@ func Apply(list []Session, ev *Event) []Session {
 	case EventRemoved:
 		if index >= 0 {
 			list = append(list[:index:index], list[index+1:]...)
+		}
+	}
+	return list
+}
+
+// ApplyApproval returns list with the approval event ev applied; other events leave it unchanged.
+func ApplyApproval(list []Approval, ev *Event) []Approval {
+	switch ev.Kind {
+	case EventApprovalRequested:
+		if ev.Approval == nil {
+			return list
+		}
+		for i := range list {
+			if list[i].ID == ev.Approval.ID {
+				return list
+			}
+		}
+		return append(list, *ev.Approval)
+	case EventApprovalResolved:
+		for i := range list {
+			if list[i].ID == ev.ApprovalID {
+				return append(list[:i:i], list[i+1:]...)
+			}
 		}
 	}
 	return list

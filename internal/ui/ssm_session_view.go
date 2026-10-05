@@ -199,6 +199,9 @@ func (m ssmModel) renderPills(width int) string {
 		if s.MCPWrites() {
 			pill += " " + m.styles.Danger.Render("WRITES")
 		}
+		if s.OpenedBy != "" {
+			pill += " " + m.styles.Muted.Render("AGENT · "+s.OpenedBy)
+		}
 		if idx == m.selected {
 			pills = append(pills, m.styles.SelectedCard.Padding(0, 1).Bold(true).Render(pill))
 		} else {
@@ -225,6 +228,8 @@ func (m ssmModel) renderMain(l ssmLayout) string {
 		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderPasswordDialog(l.mainWidth)))
 	case ssmModeSignIn:
 		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderSignInDialog(l.mainWidth)))
+	case ssmModeApproval:
+		parts = append(parts, lipgloss.Place(l.mainWidth, logHeight, lipgloss.Center, lipgloss.Center, m.renderApprovalDialog(l.mainWidth)))
 	default:
 		parts = append(parts, m.renderLogs(l.mainWidth, logHeight))
 	}
@@ -442,6 +447,8 @@ func (m ssmModel) renderFooter(width int) string {
 		keys = [][2]string{{"c", "copy"}, {"esc", "hide"}, {"↑↓", "move"}, {"←→", "choose"}, {"enter", "select"}}
 	case m.mode == ssmModeSignIn:
 		keys = [][2]string{{"1-9", "choose"}, {"↑↓", "move"}, {"enter", "choose"}, {"esc", "later"}}
+	case m.mode == ssmModeApproval:
+		keys = [][2]string{{"y", "allow"}, {"n", "deny"}, {"←→", "choose"}, {"enter", "select"}}
 	default:
 		keys = [][2]string{{"n", "new"}}
 		switch s := m.selectedSession(); {
@@ -549,6 +556,9 @@ func (m ssmModel) badges(s *sessions.Session) string {
 	}
 	if s.MCPWrites() {
 		badges += " " + m.styles.WritesBadge()
+	}
+	if s.OpenedBy != "" {
+		badges += " " + m.styles.AgentBadge(s.OpenedBy)
 	}
 	return badges
 }

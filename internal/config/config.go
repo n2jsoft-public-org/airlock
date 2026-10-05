@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/awstag"
@@ -36,6 +38,17 @@ type Config struct {
 	MCPClients string
 	// Mode is ModeCLI or ModeDaemon.
 	Mode string
+	// MCPGateway serves the MCP gateway in daemon mode.
+	MCPGateway bool
+	// MCPGatewayPort is the 127.0.0.1 port of the gateway.
+	MCPGatewayPort int
+	// AgentAutoConnect is AutoConnectNone, AutoConnectNonProd or AutoConnectAll: the agent openings
+	// that skip the dashboard prompt.
+	AgentAutoConnect string
+	// AgentWrites lets agents ask for MCP writes (always prompted).
+	AgentWrites bool
+	// AgentIdleTimeout closes an agent-opened session after this long without a relayed call.
+	AgentIdleTimeout time.Duration
 }
 
 // Modes of the mode setting.
@@ -45,6 +58,19 @@ const (
 	// ModeDaemon keeps the sessions in a background daemon; airlock is a view of it.
 	ModeDaemon = "daemon"
 )
+
+// Values of the agentAutoConnect setting.
+const (
+	AutoConnectNone    = "none"
+	AutoConnectNonProd = "non-prod"
+	AutoConnectAll     = "all"
+)
+
+// DefaultGatewayPort is the port of the MCP gateway when mcpGatewayPort is not set.
+const DefaultGatewayPort = 7821
+
+// minAgentIdleTimeout is the shortest agentIdleTimeout accepted.
+const minAgentIdleTimeout = time.Minute
 
 // ProductionProfilePatterns returns the patterns of ProductionProfiles; none when empty.
 func (c *Config) ProductionProfilePatterns() []string {
@@ -71,6 +97,11 @@ func Defaults() Config {
 		MCPServerPrefix: "airlock",
 		MCPClients:      aiclient.Auto,
 		Mode:            ModeCLI,
+
+		MCPGateway:       true,
+		MCPGatewayPort:   DefaultGatewayPort,
+		AgentAutoConnect: AutoConnectNone,
+		AgentIdleTimeout: 30 * time.Minute,
 	}
 }
 
@@ -86,6 +117,11 @@ type file struct {
 	ProductionProfiles *string `json:"productionProfiles,omitempty"`
 	MCPClients         *string `json:"mcpClients,omitempty"`
 	Mode               *string `json:"mode,omitempty"`
+	MCPGateway         *string `json:"mcpGateway,omitempty"`
+	MCPGatewayPort     *string `json:"mcpGatewayPort,omitempty"`
+	AgentAutoConnect   *string `json:"agentAutoConnect,omitempty"`
+	AgentWrites        *string `json:"agentWrites,omitempty"`
+	AgentIdleTimeout   *string `json:"agentIdleTimeout,omitempty"`
 }
 
 // Load reads path over the defaults. A missing file (or an empty path) gives the defaults; invalid
@@ -163,6 +199,31 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.Mode != nil {
 		if cfg.Mode, err = parseMode(*f.Mode); err != nil {
 			return Config{}, fmt.Errorf("mode: %w", err)
+		}
+	}
+	if f.MCPGateway != nil {
+		if cfg.MCPGateway, err = parseBool(*f.MCPGateway); err != nil {
+			return Config{}, fmt.Errorf("mcpGateway: %w", err)
+		}
+	}
+	if f.MCPGatewayPort != nil {
+		if cfg.MCPGatewayPort, err = parsePort(*f.MCPGatewayPort); err != nil {
+			return Config{}, fmt.Errorf("mcpGatewayPort: %w", err)
+		}
+	}
+	if f.AgentAutoConnect != nil {
+		if cfg.AgentAutoConnect, err = parseAutoConnect(*f.AgentAutoConnect); err != nil {
+			return Config{}, fmt.Errorf("agentAutoConnect: %w", err)
+		}
+	}
+	if f.AgentWrites != nil {
+		if cfg.AgentWrites, err = parseBool(*f.AgentWrites); err != nil {
+			return Config{}, fmt.Errorf("agentWrites: %w", err)
+		}
+	}
+	if f.AgentIdleTimeout != nil {
+		if cfg.AgentIdleTimeout, err = parseIdleTimeout(*f.AgentIdleTimeout); err != nil {
+			return Config{}, fmt.Errorf("agentIdleTimeout: %w", err)
 		}
 	}
 	return cfg, nil
@@ -260,4 +321,54 @@ func parsePrefix(s string) (string, error) {
 		return "", errors.New("must not be empty")
 	}
 	return s, nil
+}
+
+func parseBool(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid value %q (valid: true, false)", s)
+	}
+}
+
+func parsePort(s string) (int, error) {
+	port, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || port < 1024 || port > 65535 {
+		return 0, fmt.Errorf("invalid port %q (valid: 1024-65535)", s)
+	}
+	return port, nil
+}
+
+func parseAutoConnect(s string) (string, error) {
+	switch value := strings.ToLower(strings.TrimSpace(s)); value {
+	case AutoConnectNone, AutoConnectNonProd, AutoConnectAll:
+		return value, nil
+	default:
+		return "", fmt.Errorf("unknown value %q (valid: %s, %s, %s)", s, AutoConnectNone, AutoConnectNonProd, AutoConnectAll)
+	}
+}
+
+func parseIdleTimeout(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(strings.TrimSpace(s))
+	if err != nil || d < minAgentIdleTimeout {
+		return 0, fmt.Errorf("invalid duration %q (a duration of at least 1m, e.g. 30m or 2h)", s)
+	}
+	return d, nil
+}
+
+// FormatDuration renders d as config.json writes it: 30m, 2h, 1h30m.
+func FormatDuration(d time.Duration) string {
+	switch {
+	case d%time.Hour == 0:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	case d%time.Minute == 0 && d < time.Hour:
+		return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
+	case d%time.Minute == 0:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h" + strconv.FormatInt(int64(d%time.Hour/time.Minute), 10) + "m"
+	default:
+		return d.String()
+	}
 }

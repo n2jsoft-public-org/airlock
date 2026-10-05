@@ -220,6 +220,7 @@ func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine 
 		LogDir:             r.mcpLogDir,
 		Engine:             engine,
 		AllowWrites:        allowWrites,
+		SkipRegistration:   options.SkipMCPRegistration,
 	})
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)

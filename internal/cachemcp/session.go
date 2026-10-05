@@ -8,6 +8,8 @@ import (
 
 // SessionConfig describes the tunneled cache of one ElastiCache session.
 type SessionConfig struct {
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
 	// Credentials signs the connections in; nil for caches without auth.
 	Credentials CredentialProvider
 	// OnRejected is called once when the cache refuses Credentials, e.g. to forget a password
@@ -70,6 +72,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
 		Server: server, Recorder: recorder, Cleanup: c.clients.close,
 		Name: name, ProjectDir: cfg.ProjectDir, AllowWrites: cfg.AllowWrites,
+		SkipRegistration: cfg.SkipRegistration,
 	})
 	if err != nil {
 		return nil, err

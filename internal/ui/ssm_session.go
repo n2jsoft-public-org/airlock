@@ -36,6 +36,8 @@ const (
 	ssmModePassword
 	// ssmModeSignIn asks which credentials the selected session signs in with.
 	ssmModeSignIn
+	// ssmModeApproval asks whether an AI agent may open a connection through the MCP gateway.
+	ssmModeApproval
 )
 
 // ssmTickMsg animates spinners and refreshes uptimes.
@@ -116,6 +118,13 @@ type ssmModel struct {
 	copyCursor int
 	// signInCursor is the candidate the sign-in dialog chooses on enter.
 	signInCursor int
+	// approvals are the pending agent openings; approvalID is the one the approval dialog shows,
+	// approvalAllow its focused button, answered the approvals this view answered (their
+	// resolution may not have arrived yet).
+	approvals     []sessions.Approval
+	answered      map[sessions.ApprovalID]bool
+	approvalID    sessions.ApprovalID
+	approvalAllow bool
 	// password is the password dialog (ssmModePassword).
 	password ssmPasswordReveal
 	// production flags the AWS profiles of the productionProfiles setting.
@@ -166,6 +175,8 @@ type DashboardOptions struct {
 	Detach bool
 	// Reconnect reaches the daemon again after its connection was lost (daemon views).
 	Reconnect func(ctx context.Context) (sessions.Service, error)
+	// Notice, when not empty, is shown from the start (a daemon view: why the MCP gateway is off).
+	Notice string
 }
 
 // shutdowner is the in-process service, whose sessions end with the dashboard (CLI mode).
@@ -185,15 +196,7 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 	subscribeCtx, unsubscribe := context.WithCancel(ctx)
 	defer unsubscribe()
 
-	model := newSSMModel(subscribeCtx, service, discovery, base)
-	model.production = productionMatcher(opts.ProductionProfiles)
-	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
-	model.settings = opts.Settings
-	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
-	if opts.Handoff != nil {
-		model.interactive = opts.Handoff.Run
-	}
-	model = model.subscribe().startupView(first)
+	model := newDashboardModel(subscribeCtx, service, discovery, first, base, &opts)
 
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	if opts.Handoff != nil {
@@ -226,6 +229,19 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 		}
 	}
 	return nil
+}
+
+// newDashboardModel is the dashboard of RunJumphostSessions, subscribed and on its first screen.
+func newDashboardModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, first sessions.ID, base jumphost.Options, opts *DashboardOptions) ssmModel { //nolint:gocritic // base is kept by the model.
+	model := newSSMModel(ctx, service, discovery, base)
+	model.production = productionMatcher(opts.ProductionProfiles)
+	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
+	model.settings, model.notice = opts.Settings, opts.Notice
+	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
+	if opts.Handoff != nil {
+		model.interactive = opts.Handoff.Run
+	}
+	return model.subscribe().startupView(first)
 }
 
 func newSSMModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, base jumphost.Options) ssmModel { //nolint:gocritic // base is kept by the model.
@@ -266,7 +282,8 @@ func (m ssmModel) subscribe() ssmModel {
 		m.refreshViewport()
 		return m
 	}
-	m.events, m.sessions, m.seq = events, snapshot.Sessions, snapshot.Seq
+	m.events, m.sessions, m.seq, m.approvals = events, snapshot.Sessions, snapshot.Seq, snapshot.Approvals
+	m = m.pruneAnswered()
 	m.refreshViewport()
 	return m
 }
@@ -305,6 +322,7 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ssmTickMsg:
 		m.frame++
+		m = m.settleApprovals()
 		return m, ssmTickCmd()
 	case ssmEventMsg:
 		return m.handleEvent(msg)
@@ -353,6 +371,8 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handlePasswordKey(msg)
 		case ssmModeSignIn:
 			return m.handleSignInKey(msg)
+		case ssmModeApproval:
+			return m.handleApprovalKey(msg)
 		default:
 			return m.handleSessionKey(msg)
 		}
@@ -399,6 +419,10 @@ func (m ssmModel) handleEvent(msg ssmEventMsg) (tea.Model, tea.Cmd) {
 		return m, waitSSMEvent(m.events)
 	}
 	m.seq = ev.Seq
+	if ev.Kind == sessions.EventApprovalRequested || ev.Kind == sessions.EventApprovalResolved {
+		m.approvals = sessions.ApplyApproval(m.approvals, &ev)
+		return m.settleApprovals(), waitSSMEvent(m.events)
+	}
 	before := map[sessions.ID]*sessions.Session{ev.ID: m.sessionCopy(ev.ID)}
 	m.sessions = sessions.Apply(m.sessions, &ev)
 	if ev.Kind == sessions.EventRemoved {
@@ -430,6 +454,7 @@ func (m ssmModel) handleSnapshot(msg ssmSnapshotMsg) (tea.Model, tea.Cmd) {
 		before[m.sessions[index].ID] = m.sessionCopy(m.sessions[index].ID)
 	}
 	m.sessions, m.seq = msg.snapshot.Sessions, msg.snapshot.Seq
+	m.approvals = msg.snapshot.Approvals
 	m.selected = min(m.selected, max(len(m.sessions)-1, 0))
 	m.refreshViewport()
 	changed := make([]sessions.ID, 0, len(m.sessions))
@@ -437,6 +462,7 @@ func (m ssmModel) handleSnapshot(msg ssmSnapshotMsg) (tea.Model, tea.Cmd) {
 		changed = append(changed, m.sessions[index].ID)
 	}
 	m, closeCmd, quit := m.settle(changed, before)
+	m = m.settleApprovals()
 	if quit {
 		return m, tea.Quit
 	}
@@ -478,6 +504,8 @@ func (m ssmModel) loseConnection(reason string) (tea.Model, tea.Cmd) {
 	m.connLost, m.reconnecting = reason, false
 	// No dialog or wizard may act on the dead service.
 	m.mode = ssmModeSessions
+	m.approvals = nil
+	m = m.pruneAnswered()
 	m.refreshViewport()
 	return m, nil
 }

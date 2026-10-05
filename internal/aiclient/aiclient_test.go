@@ -52,3 +52,19 @@ func TestParseRejectsUnknownClientsAndScopes(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestSelectionUserOnly(t *testing.T) {
+	sel, err := Parse("auto,claude:user,codex,cursor:user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sel.UserOnly().String(); got != "claude:user,cursor:user" {
+		t.Fatalf("UserOnly = %q", got)
+	}
+	if got := AutoDetect.UserOnly().String(); got != None {
+		t.Fatalf("auto alone has no user target: %q", got)
+	}
+	if got := AllUser().String(); got != "claude:user,vscode:user,codex:user,cursor:user,gemini:user" {
+		t.Fatalf("AllUser = %q", got)
+	}
+}
