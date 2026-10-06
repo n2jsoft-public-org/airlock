@@ -16,6 +16,7 @@ import (
 func isolateClients(t *testing.T) string {
 	t.Helper()
 	t.Cleanup(mcpserve.IsolateLocks(t.TempDir()))
+	t.Cleanup(mcpserve.IsolateUserConfigDir(t.TempDir()))
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	return dir

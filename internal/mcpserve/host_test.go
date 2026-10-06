@@ -11,15 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// bearerTransport adds an Authorization header to every request.
-type bearerTransport struct{ token string }
-
-func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	r.Header.Set("Authorization", "Bearer "+b.token)
-	return http.DefaultTransport.RoundTrip(r)
-}
-
 func post(t *testing.T, url, authorization string) int {
 	t.Helper()
 	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`)

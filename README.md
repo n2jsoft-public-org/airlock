@@ -580,7 +580,7 @@ name never share one, in the configuration of the AI clients chosen by `mcpClien
 
 | Client | Name | Project file (`<client>`) | User file (`<client>:user`) | Detected by `auto` when |
 |---|---|---|---|---|
-| **Claude Code** | `claude` | `.mcp.json` | `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when set) | `.mcp.json` exists (`.claude/` alone is not enough) |
+| **Claude Code** | `claude` | `.mcp.json` | `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when set), and Claude Desktop's `claude_desktop_config.json` | `.mcp.json` exists (`.claude/` alone is not enough) |
 | **VS Code** | `vscode` | `.vscode/mcp.json` | `mcp.json` of the VS Code user settings directory | `.vscode/` exists |
 | **Codex** | `codex` | `.codex/config.toml` | `~/.codex/config.toml` (`$CODEX_HOME/config.toml` when set) | `.codex/` exists |
 | **Cursor** | `cursor` | `.cursor/mcp.json` | `~/.cursor/mcp.json` | `.cursor/` exists |
@@ -598,6 +598,12 @@ airlock config set mcpClients claude:user,codex   # Claude Code everywhere, Code
 airlock config set mcpClients auto,codex:user     # detected project clients, plus Codex everywhere
 airlock --mcp-clients none                        # this run only: register nowhere
 ```
+
+`claude:user` also registers the servers in **Claude Desktop** when it is installed:
+`claude_desktop_config.json` in `~/Library/Application Support/Claude` (macOS) or `%APPDATA%\Claude`
+(Windows). Claude Desktop only launches stdio servers, so its entry runs `airlock mcp-proxy <url>`,
+which relays the server with the token in `AIRLOCK_MCP_TOKEN`. Claude Desktop reads that file at
+startup: restart it to see a server added while it runs.
 
 A client chosen explicitly gets its project file even when its directory does not exist yet. Project
 files are never written when the working directory is your home directory: use `:user` there. Each

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/aiclient"
@@ -39,8 +40,20 @@ type clientSpec struct {
 	// userPath returns the client's user-level configuration file.
 	userPath func() (string, error)
 	format   configFormat
+	// companion is a user-level file of another app of the same vendor, written along userPath.
+	companion *companionFile
 	// projectPath is the client's configuration file, relative to the project directory.
 	projectPath string
+}
+
+// companionFile is the user-level file of an app sharing a client's servers, written only when the
+// app is installed (its configuration directory exists).
+type companionFile struct {
+	format configFormat
+	// dir returns the app's configuration directory.
+	dir func() (string, error)
+	// name is the file in dir.
+	name string
 }
 
 var clientSpecs = map[aiclient.Client]clientSpec{
@@ -57,6 +70,19 @@ var clientSpecs = map[aiclient.Client]clientSpec{
 			return homePath(".claude.json")
 		},
 		format: jsonFormat{key: "mcpServers", entry: httpEntry},
+		// Claude Desktop keeps its servers in claude_desktop_config.json, in its directory of the
+		// user configuration (Application Support on macOS, AppData on Windows).
+		companion: &companionFile{
+			dir: func() (string, error) {
+				dir, err := userConfigDir()
+				if err != nil {
+					return "", err
+				}
+				return filepath.Join(dir, "Claude"), nil
+			},
+			name:   "claude_desktop_config.json",
+			format: jsonFormat{key: "mcpServers", entry: proxyEntry},
+		},
 	},
 	aiclient.VSCode: {
 		projectPath: filepath.Join(".vscode", "mcp.json"),
@@ -108,11 +134,13 @@ var lockRoot = func() (string, error) {
 	return filepath.Join(cacheDir, "airlock", "mcp-config"), nil
 }
 
-// userHomeDir, userConfigDir and getenv locate the user-level client files; overridden in tests.
+// userHomeDir, userConfigDir and getenv locate the user-level client files, and executable the
+// airlock binary the stdio clients launch; overridden in tests.
 var (
 	userHomeDir   = os.UserHomeDir
 	userConfigDir = os.UserConfigDir
 	getenv        = os.Getenv
+	executable    = os.Executable
 )
 
 func homePath(elem ...string) (string, error) {
@@ -161,13 +189,18 @@ func clientFiles(projectDir string, clients aiclient.Selection, detected func(*c
 	seen := map[string]bool{}
 	var files []clientFile
 	var errs []error
+	add := func(file clientFile) {
+		if !seen[file.path] {
+			seen[file.path] = true
+			files = append(files, file)
+		}
+	}
 	for _, target := range targets {
 		spec, ok := clientSpecs[target.Client]
 		if !ok {
 			errs = append(errs, fmt.Errorf("unknown AI client %q", target.Client))
 			continue
 		}
-		var path string
 		switch target.Scope {
 		case aiclient.ScopeUser:
 			userPath, err := spec.userPath()
@@ -175,19 +208,34 @@ func clientFiles(projectDir string, clients aiclient.Selection, detected func(*c
 				errs = append(errs, fmt.Errorf("%s: failed to locate the user configuration: %w", target, err))
 				continue
 			}
-			path = userPath
+			add(clientFile{format: spec.format, path: userPath})
+			if spec.companion == nil {
+				continue
+			}
+			companion, installed, err := spec.companion.file()
+			switch {
+			case err != nil:
+				errs = append(errs, fmt.Errorf("%s: failed to locate the %s: %w", target, spec.companion.name, err))
+			case installed:
+				add(companion)
+			}
 		default:
 			if inHome {
 				continue
 			}
-			path = filepath.Join(projectDir, spec.projectPath)
-		}
-		if !seen[path] {
-			seen[path] = true
-			files = append(files, clientFile{format: spec.format, path: path})
+			add(clientFile{format: spec.format, path: filepath.Join(projectDir, spec.projectPath)})
 		}
 	}
 	return files, errors.Join(errs...)
+}
+
+// file returns the companion's file; installed is false when the app is not installed.
+func (c *companionFile) file() (file clientFile, installed bool, err error) {
+	dir, err := c.dir()
+	if err != nil {
+		return clientFile{}, false, err
+	}
+	return clientFile{format: c.format, path: filepath.Join(dir, c.name)}, exists(dir), nil
 }
 
 // RegisterClients adds entry to the MCP configuration of the selected AI clients, and returns the
@@ -254,33 +302,47 @@ func EntryFiles(clients aiclient.Selection, entry ClientEntry) ([]string, error)
 // jsonFormat is a JSON file holding the servers in the object under key.
 type jsonFormat struct {
 	// entry is the value written for a server.
-	entry func(ClientEntry) any
+	entry func(ClientEntry) (any, error)
 	key   string
 }
 
 // httpEntry is the server entry of Claude Code and VS Code.
-func httpEntry(e ClientEntry) any {
+func httpEntry(e ClientEntry) (any, error) {
 	return struct {
 		Headers map[string]string `json:"headers"`
 		Type    string            `json:"type"`
 		URL     string            `json:"url"`
-	}{Headers: bearerHeader(e.Token), Type: "http", URL: e.URL}
+	}{Headers: bearerHeader(e.Token), Type: "http", URL: e.URL}, nil
 }
 
 // cursorEntry is the server entry of Cursor, which tells HTTP servers by their url.
-func cursorEntry(e ClientEntry) any {
+func cursorEntry(e ClientEntry) (any, error) {
 	return struct {
 		Headers map[string]string `json:"headers"`
 		URL     string            `json:"url"`
-	}{Headers: bearerHeader(e.Token), URL: e.URL}
+	}{Headers: bearerHeader(e.Token), URL: e.URL}, nil
 }
 
 // geminiEntry is the server entry of Gemini CLI, whose httpUrl selects the streamable HTTP transport.
-func geminiEntry(e ClientEntry) any {
+func geminiEntry(e ClientEntry) (any, error) {
 	return struct {
 		Headers map[string]string `json:"headers"`
 		HTTPURL string            `json:"httpUrl"`
-	}{Headers: bearerHeader(e.Token), HTTPURL: e.URL}
+	}{Headers: bearerHeader(e.Token), HTTPURL: e.URL}, nil
+}
+
+// proxyEntry is the server entry of clients limited to stdio servers (Claude Desktop): airlock
+// mcp-proxy relays the server, with the token in its environment.
+func proxyEntry(e ClientEntry) (any, error) {
+	airlock, err := executable()
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate the airlock binary: %w", err)
+	}
+	return struct {
+		Env     map[string]string `json:"env"`
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+	}{Command: airlock, Args: []string{ProxyCommand, e.URL}, Env: map[string]string{ProxyTokenEnv: e.Token}}, nil
 }
 
 func bearerHeader(token string) map[string]string {
@@ -288,7 +350,11 @@ func bearerHeader(token string) map[string]string {
 }
 
 func (f jsonFormat) add(path string, entry ClientEntry) error {
-	value, err := marshalNoEscape(f.entry(entry))
+	server, err := f.entry(entry)
+	if err != nil {
+		return err
+	}
+	value, err := marshalNoEscape(server)
 	if err != nil {
 		return err
 	}
@@ -308,6 +374,20 @@ func sameJSON(a, b []byte) bool {
 	return json.Compact(&x, a) == nil && json.Compact(&y, b) == nil && bytes.Equal(x.Bytes(), y.Bytes())
 }
 
+// entryHasURL reports whether the server entry raw points at url: in url, httpUrl, or the arguments
+// of airlock mcp-proxy.
+func entryHasURL(raw []byte, url string) bool {
+	var current struct {
+		URL     string   `json:"url"`
+		HTTPURL string   `json:"httpUrl"`
+		Args    []string `json:"args"`
+	}
+	if json.Unmarshal(raw, &current) != nil {
+		return false
+	}
+	return current.URL == url || current.HTTPURL == url || slices.Contains(current.Args, url)
+}
+
 func (f jsonFormat) has(path string, entry ClientEntry) (bool, error) {
 	found := false
 	err := updateConfig(path, f.key, func(servers *orderedObject) bool {
@@ -315,11 +395,7 @@ func (f jsonFormat) has(path string, entry ClientEntry) (bool, error) {
 		if !ok {
 			return false
 		}
-		var current struct {
-			URL     string `json:"url"`
-			HTTPURL string `json:"httpUrl"`
-		}
-		found = json.Unmarshal(raw, &current) == nil && (current.URL == entry.URL || current.HTTPURL == entry.URL)
+		found = entryHasURL(raw, entry.URL)
 		return false
 	})
 	return found, err
@@ -332,11 +408,7 @@ func (f jsonFormat) remove(path string, entry ClientEntry) (bool, error) {
 		if !ok {
 			return false
 		}
-		var current struct {
-			URL     string `json:"url"`
-			HTTPURL string `json:"httpUrl"`
-		}
-		if json.Unmarshal(raw, &current) != nil || (current.URL != entry.URL && current.HTTPURL != entry.URL) {
+		if !entryHasURL(raw, entry.URL) {
 			return false
 		}
 		servers.remove(entry.Name)

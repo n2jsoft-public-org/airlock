@@ -63,7 +63,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", `cli: sessions close with airlock; daemon: a background daemon keeps them (config "mode", default cli)`)
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd())
+	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newMCPProxyCmd())
 
 	return cmd
 }

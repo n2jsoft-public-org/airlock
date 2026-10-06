@@ -25,7 +25,7 @@ var Keys = []Key{
 	{Name: "mcpServerPrefix", Description: "Start of the MCP server names"},
 	{Name: "defaultRegion", Description: "Region used after --region, AWS_REGION and the profile's region"},
 	{Name: "productionProfiles", Description: "Comma-separated patterns (* wildcard, any case) of the AWS profiles flagged as production, e.g. *prod*,*-live"},
-	{Name: "mcpClients", Description: "AI clients the MCP servers are registered in: auto (detected in the project), none, or a comma-separated list of claude, vscode, codex, cursor, gemini, each with :user for its user-level file, e.g. claude:user,codex"},
+	{Name: "mcpClients", Description: "AI clients the MCP servers are registered in: auto (detected in the project), none, or a comma-separated list of claude, vscode, codex, cursor, gemini, each with :user for its user-level file (claude:user also covers Claude Desktop), e.g. claude:user,codex"},
 	{Name: "mode", Description: "cli: sessions live in each airlock and close with it; daemon: a background daemon keeps them, and airlock is a view of it"},
 	{Name: "mcpGateway", Description: "true: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; false: no gateway"},
 	{Name: "mcpGatewayPort", Description: "Port of the MCP gateway on 127.0.0.1 (1024-65535)"},
