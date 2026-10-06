@@ -182,8 +182,12 @@ func TestStopAllWaitsAndRefusesNewSessions(t *testing.T) {
 func TestShutdownRecordsTheCleanup(t *testing.T) {
 	m, runner, launcher := newManager(t)
 	runner.AWS("archive-db", "rds")
-	mustOpen(t, m, &jumphost.Options{ResourceType: "rds", Name: "archive-db"})
+	events := subscribe(t, m)
+	id := mustOpen(t, m, &jumphost.Options{ResourceType: "rds", Name: "archive-db"})
 	process := launcher.Next(t)
+	// Running: the manager holds the process. A Shutdown during the launch also stops it, but
+	// from the launch, once Shutdown has returned.
+	sessionstest.Wait(t, events, sessionstest.State(id, sessions.StateRunning))
 	m.Shutdown()
 	if !process.Terminated() {
 		t.Fatal("Shutdown must terminate the aws processes")

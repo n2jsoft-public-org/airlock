@@ -58,14 +58,15 @@
             "groupName": "github actions"
         },
         {
-            "description": "Auto-merge non-major updates once required CI checks pass (platform-native auto-merge)",
+            "description": "Auto-merge non-major updates once required CI checks pass: Renovate merges them itself, after rebasing and retesting, with its bypass of the review required by the PR ruleset",
             "matchUpdateTypes": [
                 "minor",
                 "patch",
                 "digest",
                 "pin"
             ],
-            "automerge": true
+            "automerge": true,
+            "platformAutomerge": false
         }
     ]
 }
