@@ -347,8 +347,7 @@ func TestWizardSettingsNewDefaultRegionAppliesOnTheStartScreen(t *testing.T) {
 }
 
 func TestWizardSettingsKeepTheChosenRegion(t *testing.T) {
-	region := "eu-west-1"
-	m := newTestWizard(t, regionRunner{historyRunner: newHistoryRunner(), region: &region}, jumphost.Options{AwsRegion: "us-east-1"})
+	m := newTestWizard(t, regionRunner{historyRunner: newHistoryRunner(), region: new("eu-west-1")}, jumphost.Options{AwsRegion: "us-east-1"})
 	m.settings = newFakeSettingsStore()
 	m = pressWizard(t, m, key(","))
 	m, cmd := wizardUpdate(t, m, escKey)

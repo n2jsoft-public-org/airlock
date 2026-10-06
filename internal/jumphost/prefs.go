@@ -34,9 +34,9 @@ type ConnectionPrefs struct {
 	SignIn string `json:"sign_in,omitempty"`
 	// DBSecretARN is the secret holding the password of SignInSecret.
 	DBSecretARN string `json:"db_secret_arn,omitempty"`
+	LocalPort   int    `json:"local_port,omitempty"`
 	// PasswordInKeychain reports that the SignInPassword password of DBUser is in the OS keychain.
 	PasswordInKeychain bool `json:"password_in_keychain,omitempty"`
-	LocalPort          int  `json:"local_port,omitempty"`
 	MCPAllowWrites     bool `json:"mcp_allow_writes"`
 }
 

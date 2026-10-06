@@ -112,134 +112,171 @@ var directCard = resourceTypeOption{
 }
 
 type jumphostWizardModel struct {
-	ctx        context.Context
-	runner     JumphostDiscovery
-	styles     Styles
-	step       jumphostStep
-	askProfile bool
-	flow       jumphostFlow
-	// base are the options the wizard was opened with; every flow starts from them.
-	base jumphost.Options
-	// hasHistory reports saved connections, which make the start screen the root of every flow.
-	hasHistory bool
-	// recentNeedsProfile asks a profile for a recent connection whose saved profile is gone.
-	recentNeedsProfile bool
-	// recentAccount is the AWS account the recent connection was saved in.
-	recentAccount string
-	// awaitingRegion starts the flow's discovery once the default region of the profile is known.
-	awaitingRegion bool
-	// searchWarnings names the types a search could not list.
-	searchWarnings string
-	profilesLoaded bool
-	errorMsg       string
-	loading        bool
-	loadingUI      loadingState
-	canceled       bool
-	// showHelp lists the keys of the current step in place of its body.
-	showHelp bool
-	// loadID identifies the result the loading waits for: a canceled loading's result carries an
-	// older one and is dropped. pending reports that such a result is awaited, which esc cancels.
-	loadID  int
-	pending bool
-	// cancelLoad cancels the context of the awaited loading, stopping its AWS calls.
-	cancelLoad context.CancelFunc
-	// loadReplacesTargets reports that the awaited result replaces the listed targets, which a
-	// canceled loading must not leave on screen (they belong to the previous region).
-	loadReplacesTargets bool
-	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
-	embedded bool
-	// switchTo is the connectionKey of the running session the dashboard shows instead of opening a new one.
-	switchTo string
-	// production flags the AWS profiles of the productionProfiles setting.
-	production productionMatcher
-	// updateNotice, when not empty, is shown under the breadcrumb: a newer airlock release exists.
-	updateNotice string
+	profileList list.Model
+	targetList  list.Model
+	styles      Styles
+	ctx         context.Context
+	runner      JumphostDiscovery
+
 	// databases holds the direct database definitions; nil hides the Direct database card.
 	databases DirectDatabaseStore
+
+	// settings reads and writes config.json; nil hides the Settings screen.
+	settings SettingsStore
+
+	// cancelLoad cancels the context of the awaited loading, stopping its AWS calls.
+	cancelLoad context.CancelFunc
+
+	// active holds the connectionKey of the dashboard's running sessions, which cannot be reopened.
+	active map[string]bool
+
 	// directList is the target step of a direct database; directDB the database the review
 	// step connects to.
 	directList directList
-	directDB   directdb.Database
-	// directForm adds or edits a direct database (jumphostStepDirectForm).
-	directForm directForm
+
+	// recentAccount is the AWS account the recent connection was saved in.
+	recentAccount string
+
+	// searchWarnings names the types a search could not list.
+	searchWarnings string
+	errorMsg       string
+
+	// switchTo is the connectionKey of the running session the dashboard shows instead of opening a new one.
+	switchTo string
+
+	// updateNotice, when not empty, is shown under the breadcrumb: a newer airlock release exists.
+	updateNotice string
+
 	// openDirect is the direct database whose review the wizard opens on once the history is
 	// loaded (`airlock direct <name>`); "" otherwise.
 	openDirect string
+
 	// openDirectError is shown on the review openDirect opens: why it asks the password again.
 	openDirectError string
-	// directChoicesLoaded reports that the choices remembered for directDB are known.
-	directChoicesLoaded bool
-	// settings reads and writes config.json; nil hides the Settings screen.
-	settings SettingsStore
-	// settingsEditor is the Settings screen (jumphostStepSettings).
-	settingsEditor settingsEditor
-	// settingsReturn is the step esc returns to from the Settings screen.
-	settingsReturn jumphostStep
-	// settingsLeavesToHost makes esc on the Settings screen return to the dashboard that opened it.
-	settingsLeavesToHost bool
-	// settingsAtStart opens the Settings screen once the history is loaded (`,` in the dashboard).
-	settingsAtStart bool
-	// regionForSettings makes the region picker choose a setting instead of the connection's region.
-	regionForSettings bool
-	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
-	hostHasSessions bool
-	// warning is shown in the session log once connected (e.g. the keychain failed).
-	warning string
 
-	options     jumphost.Options
-	profileList list.Model
-	recent      recentPicker
-	// active holds the connectionKey of the dashboard's running sessions, which cannot be reopened.
-	active        map[string]bool
-	targetList    list.Model
-	portInput     textinput.Model
-	userInput     textinput.Model
-	passwordInput textinput.Model
-	// targetIAMAuth reports whether the selected target accepts AWS IAM; targetEngine is its RDS engine.
-	targetIAMAuth bool
-	targetEngine  string
+	// warning is shown in the session log once connected (e.g. the keychain failed).
+	warning      string
+	targetEngine string
+
 	// targetCacheAuth is how the selected ElastiCache target signs clients in.
 	targetCacheAuth string
+
 	// signIn is the chosen RDS sign-in method (jumphost.SignIn*).
 	signIn string
-	// remember keeps the typed password in the OS keychain; keychainAvailable offers it.
-	remember          bool
-	keychainAvailable bool
+
 	// prefilledFor is the user whose keychain password fills the password field; "" once the user
 	// typed a password, or when none was prefilled.
 	prefilledFor string
-	// secret is the picked Secrets Manager secret; a zero ARN means none.
-	secret jumphost.SecretSummary
-	// mcpWrites lets the MCP server modify data; off, it is read-only.
-	mcpWrites     bool
-	resourceIndex int
-	// reviewFocus is the focused review field (reviewFieldPort, ...).
-	reviewFocus int
 
 	// defaultRegion is the region the runner falls back to while options.AwsRegion is empty; "" until resolved.
 	defaultRegion string
+	recent        recentPicker
+
+	// base are the options the wizard was opened with; every flow starts from them.
+	base    jumphost.Options
+	options jumphost.Options
+
+	// secret is the picked Secrets Manager secret; a zero ARN means none.
+	secret jumphost.SecretSummary
+
+	// production flags the AWS profiles of the productionProfiles setting.
+	production    productionMatcher
+	portInput     textinput.Model
+	userInput     textinput.Model
+	passwordInput textinput.Model
+	directDB      directdb.Database
+	regionPicker  regionPicker
+
+	// settingsEditor is the Settings screen (jumphostStepSettings).
+	settingsEditor settingsEditor
+	secretPicker   secretPicker
+	loadingUI      loadingState
+
+	// directForm adds or edits a direct database (jumphostStepDirectForm).
+	directForm directForm
+	step       jumphostStep
+	flow       jumphostFlow
+
+	// loadID identifies the result the loading waits for: a canceled loading's result carries an
+	// older one and is dropped. pending reports that such a result is awaited, which esc cancels.
+	loadID int
+
+	// settingsReturn is the step esc returns to from the Settings screen.
+	settingsReturn jumphostStep
+	resourceIndex  int
+
+	// reviewFocus is the focused review field (reviewFieldPort, ...).
+	reviewFocus int
+	width       int
+	height      int
+	askProfile  bool
+
+	// hasHistory reports saved connections, which make the start screen the root of every flow.
+	hasHistory bool
+
+	// recentNeedsProfile asks a profile for a recent connection whose saved profile is gone.
+	recentNeedsProfile bool
+
+	// awaitingRegion starts the flow's discovery once the default region of the profile is known.
+	awaitingRegion bool
+	profilesLoaded bool
+	loading        bool
+	canceled       bool
+
+	// showHelp lists the keys of the current step in place of its body.
+	showHelp bool
+	pending  bool
+
+	// loadReplacesTargets reports that the awaited result replaces the listed targets, which a
+	// canceled loading must not leave on screen (they belong to the previous region).
+	loadReplacesTargets bool
+
+	// embedded wizards report completion with jumphostWizardDoneMsg instead of quitting the program.
+	embedded bool
+
+	// directChoicesLoaded reports that the choices remembered for directDB are known.
+	directChoicesLoaded bool
+
+	// settingsLeavesToHost makes esc on the Settings screen return to the dashboard that opened it.
+	settingsLeavesToHost bool
+
+	// settingsAtStart opens the Settings screen once the history is loaded (`,` in the dashboard).
+	settingsAtStart bool
+
+	// regionForSettings makes the region picker choose a setting instead of the connection's region.
+	regionForSettings bool
+
+	// hostHasSessions reports that the embedded wizard's dashboard shows sessions to return to.
+	hostHasSessions bool
+
+	// targetIAMAuth reports whether the selected target accepts AWS IAM; targetEngine is its RDS engine.
+	targetIAMAuth bool
+
+	// remember keeps the typed password in the OS keychain; keychainAvailable offers it.
+	remember          bool
+	keychainAvailable bool
+
+	// mcpWrites lets the MCP server modify data; off, it is read-only.
+	mcpWrites bool
+
 	// regionResolved reports that defaultRegion holds the runner's answer, even an empty one.
 	regionResolved bool
-	regionPicker   regionPicker
 	pickingRegion  bool
-	secretPicker   secretPicker
 	pickingSecret  bool
+
 	// regionUnblocks continues the discovery the region picker was opened for, once a region is picked.
 	regionUnblocks bool
-
-	width  int
-	height int
 }
 
 type jumphostListItem struct {
-	name    string
-	desc    string
-	iamAuth bool
-	engine  string
+	name   string
+	desc   string
+	engine string
 	// cacheAuth is how an ElastiCache target signs clients in (jumphost.CacheAuth*).
 	cacheAuth string
 	// resourceType is set on search results, which mix types.
 	resourceType string
+	iamAuth      bool
 	// production flags a profile of the productionProfiles setting.
 	production bool
 }
@@ -257,23 +294,23 @@ func (i jumphostListItem) Title() string       { return i.name }
 func (i jumphostListItem) Description() string { return i.desc }
 
 type jumphostTargetsLoadedMsg struct {
-	targets []jumphost.ResourceSummary
 	err     error
+	targets []jumphost.ResourceSummary
 }
 
 type jumphostProfilesLoadedMsg struct {
-	profiles []jumphost.AWSProfileSummary
 	err      error
+	profiles []jumphost.AWSProfileSummary
 }
 
 type jumphostDefaultPortLoadedMsg struct {
 	err error
-	// prefs are the choices saved at the last connection to the target; saved is false without any.
-	prefs jumphost.ConnectionPrefs
-	port  int
-	saved bool
 	// keychainPassword is the remembered password of the saved user; "" when none.
-	keychainPassword  string
+	keychainPassword string
+	// prefs are the choices saved at the last connection to the target; saved is false without any.
+	prefs             jumphost.ConnectionPrefs
+	port              int
+	saved             bool
 	keychainAvailable bool
 }
 
@@ -297,11 +334,11 @@ type awaitedMsg struct {
 
 // jumphostWizardDoneMsg is emitted by an embedded wizard once the user confirmed or canceled.
 type jumphostWizardDoneMsg struct {
-	options  jumphost.Options
-	canceled bool
-	warning  string
+	warning string
 	// switchTo, set on a canceled wizard, is the connectionKey of the running session to show.
 	switchTo string
+	options  jumphost.Options
+	canceled bool
 }
 
 // newJumphostWizardModel is the wizard on the dark palette (tests, and callers without a terminal).
@@ -885,6 +922,8 @@ func (m jumphostWizardModel) updateReviewStep(msg tea.Msg) (tea.Model, tea.Cmd) 
 		}
 	case reviewFieldPort:
 		m.portInput, cmd = m.portInput.Update(msg)
+	default:
+		// The other fields are toggles and pickers, changed by toggleReviewField.
 	}
 	return m, cmd
 }
@@ -898,6 +937,8 @@ func (m jumphostWizardModel) toggleReviewField(delta int) jumphostWizardModel {
 		m.remember = !m.remember
 	case reviewFieldMCPWrites:
 		m.mcpWrites = !m.mcpWrites
+	default:
+		// The text fields take keys instead (updateReviewInput); the secret opens its picker.
 	}
 	m.errorMsg = ""
 	return m
@@ -990,6 +1031,8 @@ func (m jumphostWizardModel) focusReviewField(field int) jumphostWizardModel {
 		m.passwordInput.Focus()
 	case reviewFieldPort:
 		m.portInput.Focus()
+	default:
+		// Toggles have no input to focus.
 	}
 	return m
 }

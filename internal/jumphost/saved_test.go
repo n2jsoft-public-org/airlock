@@ -64,7 +64,7 @@ func TestFilterSavedConnectionsFlagsMissingProfiles(t *testing.T) {
 
 func TestRunnerForgetConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "saved-connections.json")
-	runner := NewRunner(RunnerOptions{PrefsPath: path})
+	runner := NewRunner(&RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{ResourceType: "eks", Name: "cluster", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 9444}
 	if err := runner.SaveConnectionPrefs(context.Background(), options); err != nil {
@@ -100,7 +100,7 @@ func TestListSavedConnectionsFlagsRemovedDirectDatabases(t *testing.T) {
 	}
 	missing := func(databases DirectDatabases) map[string]bool {
 		t.Helper()
-		runner := NewRunner(RunnerOptions{PrefsPath: path, Databases: databases})
+		runner := NewRunner(&RunnerOptions{PrefsPath: path, Databases: databases})
 		saved, err := runner.ListSavedConnections(context.Background(), "", "")
 		if err != nil {
 			t.Fatal(err)

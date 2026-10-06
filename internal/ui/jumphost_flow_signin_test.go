@@ -151,7 +151,7 @@ func TestWizardSwitchingSignInDropsTypedPassword(t *testing.T) {
 }
 
 func TestWizardHidesSignInWhereAirlockDoesNotUseCredentials(t *testing.T) {
-	cases := []struct {
+	cases := []struct { //nolint:govet // test struct
 		name    string
 		base    jumphost.Options
 		target  jumphost.ResourceSummary

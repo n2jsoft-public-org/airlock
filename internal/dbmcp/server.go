@@ -113,11 +113,10 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 	})
 
 	if cfg.AllowWrites {
-		destructive := true
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "execute",
 			Description: fmt.Sprintf("Run a single %s statement that may modify data or schema. Confirm with the user first.", cfg.Engine.Dialect()),
-			Annotations: &mcp.ToolAnnotations{DestructiveHint: &destructive},
+			Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true)},
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in executeInput) (*mcp.CallToolResult, executeOutput, error) {
 			affected, err := q.Exec(ctx, in.Database, in.SQL)
 			return nil, executeOutput{RowsAffected: affected}, err

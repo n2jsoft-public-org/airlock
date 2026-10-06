@@ -45,7 +45,8 @@ func (m ssmModel) renderQueryLines(s *sessions.Session, width int) string {
 			{m.styles.Danger, e.Error},
 			{m.styles.Warning, prefixed("not saved to the audit log: ", e.LogError)},
 		}
-		for _, part := range body {
+		for i := range body {
+			part := &body[i]
 			if part.text == "" {
 				continue
 			}

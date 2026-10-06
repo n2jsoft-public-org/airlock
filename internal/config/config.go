@@ -21,11 +21,11 @@ import (
 type Config struct {
 	// JumphostTag finds the running EC2 instance used as SSM jumphost.
 	JumphostTag awstag.Tag
-	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means ask.
-	DefaultDBUser string
 	// ReadOnlySecretTag marks the per-database read-only Secrets Manager secrets of SQL Server
 	// instances; zero disables read-only SQL Server MCP access.
 	ReadOnlySecretTag awstag.Tag
+	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means ask.
+	DefaultDBUser string
 	// MCPServerPrefix starts the MCP server names, e.g. <prefix>-<profile>-<instance>.
 	MCPServerPrefix string
 	// DefaultRegion is used after --region, AWS_REGION and the profile's region; empty means none.
@@ -38,17 +38,17 @@ type Config struct {
 	MCPClients string
 	// Mode is ModeCLI or ModeDaemon.
 	Mode string
-	// MCPGateway serves the MCP gateway in daemon mode.
-	MCPGateway bool
-	// MCPGatewayPort is the 127.0.0.1 port of the gateway.
-	MCPGatewayPort int
 	// AgentAutoConnect is AutoConnectNone, AutoConnectNonProd or AutoConnectAll: the agent openings
 	// that skip the dashboard prompt.
 	AgentAutoConnect string
-	// AgentWrites lets agents ask for MCP writes (always prompted).
-	AgentWrites bool
+	// MCPGatewayPort is the 127.0.0.1 port of the gateway.
+	MCPGatewayPort int
 	// AgentIdleTimeout closes an agent-opened session after this long without a relayed call.
 	AgentIdleTimeout time.Duration
+	// MCPGateway serves the MCP gateway in daemon mode.
+	MCPGateway bool
+	// AgentWrites lets agents ask for MCP writes (always prompted).
+	AgentWrites bool
 }
 
 // Modes of the mode setting.
@@ -124,39 +124,38 @@ type file struct {
 	AgentIdleTimeout   *string `json:"agentIdleTimeout,omitempty"`
 }
 
-// Load reads path over the defaults. A missing file (or an empty path) gives the defaults; invalid
+// Load reads configPath over the defaults. A missing file (or an empty path) gives the defaults; invalid
 // JSON, an unknown key or a malformed value is an error naming the file.
-func Load(path string) (Config, error) {
-	f, err := readFile(path)
+func Load(configPath string) (Config, error) {
+	f, err := readFile(configPath)
 	if err != nil {
 		return Config{}, err
 	}
-	defaults := Defaults()
-	cfg, err := f.apply(&defaults)
+	cfg, err := f.apply(new(Defaults()))
 	if err != nil {
-		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
+		return Config{}, fmt.Errorf("invalid config %s: %w", configPath, err)
 	}
 	return cfg, nil
 }
 
-// readFile decodes path; a missing file (or an empty path) has no key. Invalid JSON or an unknown
+// readFile decodes configPath; a missing file (or an empty path) has no key. Invalid JSON or an unknown
 // key is an error naming the file.
-func readFile(path string) (file, error) {
+func readFile(configPath string) (file, error) {
 	var f file
-	if path == "" {
+	if configPath == "" {
 		return f, nil
 	}
-	raw, err := os.ReadFile(path) // #nosec G304 -- the path is the user's own config file.
+	raw, err := os.ReadFile(configPath) // #nosec G304 -- the path is the user's own config file.
 	if errors.Is(err, fs.ErrNotExist) {
 		return f, nil
 	}
 	if err != nil {
-		return file{}, fmt.Errorf("failed to read %s: %w", path, err)
+		return file{}, fmt.Errorf("failed to read %s: %w", configPath, err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&f); err != nil {
-		return file{}, fmt.Errorf("invalid config %s: %w", path, err)
+		return file{}, fmt.Errorf("invalid config %s: %w", configPath, err)
 	}
 	return f, nil
 }

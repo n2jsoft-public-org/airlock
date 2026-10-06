@@ -8,7 +8,7 @@ import (
 
 func TestSSOLoginUsesTheInteractiveOfTheContext(t *testing.T) {
 	var fromRunner, fromContext []string
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard,
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard,
 		Interactive: func(_ context.Context, _, name string, args ...string) error {
 			fromRunner = append([]string{name}, args...)
 			return nil

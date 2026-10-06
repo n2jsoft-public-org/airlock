@@ -43,7 +43,11 @@ func (q *recordingQuerier) Describe(ctx context.Context, database, schema, table
 	e, done := q.start("describe_table")
 	e.Database, e.Schema, e.Table = database, schema, table
 	description, err := q.inner.Describe(ctx, database, schema, table)
-	done(int64(len(description.Columns)), err)
+	var columns int
+	if err == nil {
+		columns = len(description.Columns)
+	}
+	done(int64(columns), err)
 	return description, err
 }
 
@@ -51,8 +55,11 @@ func (q *recordingQuerier) Query(ctx context.Context, database, query string, ma
 	e, done := q.start("query")
 	e.Database, e.SQL, e.MaxRows = database, query, maxRows
 	result, err := q.inner.Query(ctx, database, query, maxRows)
-	e.Truncated = result.Truncated
-	done(int64(result.RowCount), err)
+	var rows int
+	if err == nil {
+		e.Truncated, rows = result.Truncated, result.RowCount
+	}
+	done(int64(rows), err)
 	return result, err
 }
 

@@ -20,7 +20,7 @@ func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]Resou
 		return nil, nil, err
 	}
 	// One identity check up front: concurrent ones could each start an SSO login.
-	cfg, err := r.resolveAWSConfig(ctx, *options)
+	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {
 		return nil, nil, err
 	}

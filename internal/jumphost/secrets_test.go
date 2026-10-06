@@ -132,7 +132,7 @@ func installSecretsAWS(t *testing.T, secretsJSON string) {
 
 func TestListDBSecretsNamesAccountAndRegionWhenEmpty(t *testing.T) {
 	installSecretsAWS(t, "[]")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	_, err := runner.ListDBSecrets(context.Background(), &Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3"})
 	if err == nil || err.Error() != "no secret in 111111111111/eu-west-3" {
 		t.Fatalf("err = %v, want the account and the region named", err)
@@ -141,7 +141,7 @@ func TestListDBSecretsNamesAccountAndRegionWhenEmpty(t *testing.T) {
 
 func TestSecretCredentialsReaderReadsThePickedSecretOnEachCall(t *testing.T) {
 	logPath := installRecordingAWS(t, `{"username":"app_rw","password":"s3cr3t-Pa55"}`)
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
 	read := runner.secretCredentialsReader(runner.awsRunner(awsConfig{Args: []string{"--profile", "dev", "--region", "eu-west-3"}}), "archive",
 		&ideTarget{DBUser: "app_rw", DBSecretARN: "arn:secret", InstanceARN: secretsInstanceARN})
 
@@ -179,7 +179,7 @@ func TestSecretCredentialsReaderReadsTheReadOnlySecretsOfEachDatabase(t *testing
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
 
 	read := runner.secretCredentialsReader(runner.awsRunner(awsConfig{}), "archive", &ideTarget{InstanceARN: secretsInstanceARN, MasterSecretARN: "arn:master"})
 	if read == nil {
@@ -196,7 +196,7 @@ func TestSecretCredentialsReaderReadsTheReadOnlySecretsOfEachDatabase(t *testing
 }
 
 func TestSecretCredentialsReaderNeedsSecrets(t *testing.T) {
-	tagged := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	tagged := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
 	for name, target := range map[string]*ideTarget{
 		"AWS IAM":        {IAMAuth: true, DBUser: "app_ro", InstanceARN: secretsInstanceARN},
 		"typed password": {DBUser: "app_rw", DBPassword: "typed", InstanceARN: secretsInstanceARN},
@@ -205,7 +205,7 @@ func TestSecretCredentialsReaderNeedsSecrets(t *testing.T) {
 			t.Errorf("%s session offers to show secrets", name)
 		}
 	}
-	untagged := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	untagged := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if untagged.secretCredentialsReader(untagged.awsRunner(awsConfig{}), "archive", &ideTarget{InstanceARN: secretsInstanceARN}) != nil {
 		t.Error("session offers read-only secrets without readOnlySecretTag")
 	}

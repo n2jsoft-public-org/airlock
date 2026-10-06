@@ -51,12 +51,18 @@ func TestMigrateCopiesConnectionsAndLogs(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(filepath.Join(target, "connections.json"))
-		if err != nil || info.Mode().Perm() != 0o600 {
-			t.Fatalf("connections.json mode = %v, %v; want 0600", info.Mode().Perm(), err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("connections.json mode = %v; want 0600", info.Mode().Perm())
 		}
 		dirInfo, err := os.Stat(filepath.Join(target, "logs"))
-		if err != nil || dirInfo.Mode().Perm() != 0o700 {
-			t.Fatalf("logs mode = %v, %v; want 0700", dirInfo.Mode().Perm(), err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dirInfo.Mode().Perm() != 0o700 {
+			t.Fatalf("logs mode = %v; want 0700", dirInfo.Mode().Perm())
 		}
 	}
 }

@@ -16,8 +16,7 @@ func testBaseEvent() mcpserve.ToolEvent {
 // recorded wraps inner with a recorder collecting its events.
 func recorded(inner Querier) (Querier, *[]mcpserve.ToolEvent) {
 	var events []mcpserve.ToolEvent
-	base := testBaseEvent()
-	return newRecordingQuerier(inner, &base, func(e *mcpserve.ToolEvent) { events = append(events, *e) }), &events
+	return newRecordingQuerier(inner, new(testBaseEvent()), func(e *mcpserve.ToolEvent) { events = append(events, *e) }), &events
 }
 
 func onlyEvent(t *testing.T, events []mcpserve.ToolEvent) mcpserve.ToolEvent {

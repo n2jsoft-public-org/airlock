@@ -31,14 +31,14 @@ type wizardFrame struct {
 	hint     string
 	body     string
 	errorMsg string
+	// notice, when not empty, takes the blank line under the breadcrumb, so the chrome keeps its height.
+	notice string
 	// chips are pre-rendered context values shown at the right of the header (profile, region).
 	chips []string
 	steps []string
 	keys  [][2]string
 	// current is the index of the active step in steps.
 	current int
-	// notice, when not empty, takes the blank line under the breadcrumb, so the chrome keeps its height.
-	notice string
 }
 
 // frameBodySize returns the size left to the body of a frame showing errorMsg, which takes up
@@ -193,9 +193,9 @@ type cardDelegate struct {
 	styles Styles
 }
 
-func (d cardDelegate) Height() int                         { return 2 }
-func (d cardDelegate) Spacing() int                        { return 1 }
-func (d cardDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
+func (d cardDelegate) Height() int                             { return 2 }
+func (d cardDelegate) Spacing() int                            { return 1 }
+func (d cardDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
 func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	entry, ok := item.(list.DefaultItem)
@@ -235,5 +235,5 @@ func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 			rows[idx] = d.styles.SelectedCard.Width(width).Render(row)
 		}
 	}
-	_, _ = fmt.Fprint(w, strings.Join(rows, "\n"))
+	_, _ = fmt.Fprint(w, strings.Join(rows, "\n")) //nolint:errcheck // best-effort terminal output
 }

@@ -35,11 +35,11 @@ type Hello struct {
 
 // Status describes a running daemon.
 type Status struct {
+	// Gateway describes the MCP gateway: on, with its URL and files, or off and why.
+	Gateway string `json:"gateway,omitempty"`
 	Hello
 	Sessions int `json:"sessions"`
 	Views    int `json:"views"`
-	// Gateway describes the MCP gateway: on, with its URL and files, or off and why.
-	Gateway string `json:"gateway,omitempty"`
 }
 
 // ServerHooks lets the daemon follow its server.

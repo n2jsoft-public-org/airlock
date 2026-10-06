@@ -476,6 +476,8 @@ func (m ssmModel) renderFooter(width int) string {
 			switch s.SignIn.State {
 			case sessions.SignInChoosing, sessions.SignInSkipped, sessions.SignInFailed:
 				keys = append(keys, [2]string{"a", "sign in"})
+			default:
+				// Nothing to choose while idle, listing, checking or signed in.
 			}
 		}
 		keys = append(keys, [2]string{"tab", "switch"}, [2]string{"1-9", "jump"}, [2]string{"↑↓", "scroll"})

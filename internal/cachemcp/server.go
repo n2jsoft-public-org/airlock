@@ -104,11 +104,10 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 	})
 
 	if cfg.AllowWrites {
-		destructive := true
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "execute",
 			Description: "Run one command that may modify data (SET, DEL, HSET, EXPIRE…). FLUSHALL, KEYS, scripts and blocking commands are refused. Confirm with the user first.",
-			Annotations: &mcp.ToolAnnotations{DestructiveHint: &destructive},
+			Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true)},
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in commandInput) (*mcp.CallToolResult, commandOutput, error) {
 			ctx, cancel := context.WithTimeout(ctx, callTimeout)
 			defer cancel()

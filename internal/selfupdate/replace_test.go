@@ -38,8 +38,11 @@ func TestReplaceSwapsTheBinaryAndKeepsItsMode(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" {
 		info, statErr := os.Stat(target)
-		if statErr != nil || info.Mode().Perm() != 0o750 {
-			t.Fatalf("mode = %v, %v, want 0750", info.Mode().Perm(), statErr)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if info.Mode().Perm() != 0o750 {
+			t.Fatalf("mode = %v, want 0750", info.Mode().Perm())
 		}
 	}
 	if left := leftovers(t, dir); len(left) != 0 {

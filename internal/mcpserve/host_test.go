@@ -23,7 +23,10 @@ func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func post(t *testing.T, url, authorization string) int {
 	t.Helper()
 	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`)
-	request, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, url, body)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	if authorization != "" {
@@ -33,14 +36,28 @@ func post(t *testing.T, url, authorization string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = response.Body.Close()
+	if err = response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return response.StatusCode
+}
+
+// unmountOnCleanup unmounts slugs when the test ends.
+func unmountOnCleanup(t *testing.T, host *Host, slugs ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		for _, slug := range slugs {
+			if err := host.Unmount(slug); err != nil {
+				t.Errorf("unmount %s: %v", slug, err)
+			}
+		}
+	})
 }
 
 func TestHostServesMountedServerToAuthorizedClient(t *testing.T) {
 	host := NewHost()
 	endpoint := mountTestServer(t, host, "acme-dev-app-abc123")
-	t.Cleanup(func() { _ = host.Unmount("acme-dev-app-abc123") })
+	unmountOnCleanup(t, host, "acme-dev-app-abc123")
 
 	if !strings.HasPrefix(endpoint.URL, "http://127.0.0.1:") || !strings.HasSuffix(endpoint.URL, "/mcp/acme-dev-app-abc123") {
 		t.Fatalf("endpoint URL = %s", endpoint.URL)
@@ -57,7 +74,11 @@ func TestHostServesMountedServerToAuthorizedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = session.Close() }()
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			t.Errorf("closing the client session: %v", closeErr)
+		}
+	}()
 	if names := toolNames(t, session); len(names) != 1 {
 		t.Fatalf("tools = %v", names)
 	}
@@ -66,7 +87,7 @@ func TestHostServesMountedServerToAuthorizedClient(t *testing.T) {
 func TestHostRejectsMissingOrWrongToken(t *testing.T) {
 	host := NewHost()
 	endpoint := mountTestServer(t, host, "a")
-	t.Cleanup(func() { _ = host.Unmount("a") })
+	unmountOnCleanup(t, host, "a")
 
 	if status := post(t, endpoint.URL, ""); status != http.StatusUnauthorized {
 		t.Fatalf("no token: status = %d, want 401", status)
@@ -83,7 +104,7 @@ func TestHostTokensArePerRoute(t *testing.T) {
 	host := NewHost()
 	first := mountTestServer(t, host, "a")
 	second := mountTestServer(t, host, "b")
-	t.Cleanup(func() { _ = host.Unmount("a"); _ = host.Unmount("b") })
+	unmountOnCleanup(t, host, "a", "b")
 
 	if first.Token == second.Token {
 		t.Fatal("routes must not share a token")
@@ -96,7 +117,7 @@ func TestHostTokensArePerRoute(t *testing.T) {
 func TestHostUnknownRouteIsNotFound(t *testing.T) {
 	host := NewHost()
 	endpoint := mountTestServer(t, host, "a")
-	t.Cleanup(func() { _ = host.Unmount("a") })
+	unmountOnCleanup(t, host, "a")
 
 	unknown := strings.TrimSuffix(endpoint.URL, "/a") + "/nope"
 	if status := post(t, unknown, "Bearer "+endpoint.Token); status != http.StatusNotFound {
@@ -107,7 +128,7 @@ func TestHostUnknownRouteIsNotFound(t *testing.T) {
 func TestHostRejectsDuplicateSlug(t *testing.T) {
 	host := NewHost()
 	mountTestServer(t, host, "a")
-	t.Cleanup(func() { _ = host.Unmount("a") })
+	unmountOnCleanup(t, host, "a")
 
 	if _, err := host.Mount("a", testServer()); err == nil {
 		t.Fatal("expected duplicate slug error")
@@ -125,15 +146,15 @@ func TestHostStopsListeningAfterLastUnmount(t *testing.T) {
 	}
 	if conn, err := net.Dial("tcp", address); err != nil {
 		t.Fatalf("listener must stay up while a route remains: %v", err)
-	} else {
-		_ = conn.Close()
+	} else if err = conn.Close(); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := host.Unmount("b"); err != nil {
 		t.Fatal(err)
 	}
 	if conn, err := net.Dial("tcp", address); err == nil {
-		_ = conn.Close()
+		_ = conn.Close() //nolint:errcheck // the test fails either way.
 		t.Fatal("listener must be closed after the last unmount")
 	}
 }

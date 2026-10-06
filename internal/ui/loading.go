@@ -14,12 +14,12 @@ const (
 type loadingTickMsg time.Time
 
 type loadingState struct {
-	active      bool
 	label       string
 	funnyLines  []string
 	frameIndex  int
 	phraseIndex int
 	tickCount   int
+	active      bool
 }
 
 func loadingTickCmd() tea.Cmd {

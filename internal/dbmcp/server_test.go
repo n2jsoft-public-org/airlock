@@ -58,7 +58,11 @@ func connect(t *testing.T, cfg *ServerConfig, q Querier) *mcp.ClientSession {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = session.Close() })
+	t.Cleanup(func() {
+		if err := session.Close(); err != nil {
+			t.Errorf("closing the client session: %v", err)
+		}
+	})
 	return session
 }
 
@@ -118,7 +122,10 @@ func TestServerExposesExecuteOnlyWithWrites(t *testing.T) {
 	if got := strings.Join(toolNames(t, session), ","); !strings.Contains(got, "execute") {
 		t.Fatalf("tools = %s, want execute", got)
 	}
-	tools, _ := session.ListTools(context.Background(), nil)
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tool := range tools.Tools {
 		if tool.Name == "execute" && (tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint) {
 			t.Fatal("execute must be annotated as destructive")
@@ -146,8 +153,11 @@ func TestQueryToolDefaultsAndClampsRows(t *testing.T) {
 		t.Fatalf("max rows = %d, want %d", q.lastMaxRows, defaultMaxRows)
 	}
 	var structured Result
-	raw, _ := json.Marshal(result.StructuredContent)
-	if err := json.Unmarshal(raw, &structured); err != nil || structured.RowCount != 1 {
+	raw, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &structured); err != nil || structured.RowCount != 1 {
 		t.Fatalf("structured content = %s", raw)
 	}
 

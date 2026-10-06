@@ -352,32 +352,26 @@ func writeDocument(doc *etree.Document, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temporary file: %w", err)
 	}
+	// The file is written and closed here, on every path, before it replaces path.
 	tmpPath := tmp.Name()
-
-	if err := writeAndReplace(doc, tmp, path, mode); err != nil {
-		if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return errors.Join(err, removeErr)
-		}
-		return err
+	_, writeErr := doc.WriteTo(tmp)
+	if err := errors.Join(writeErr, tmp.Close()); err != nil {
+		return errors.Join(fmt.Errorf("failed to write %s: %w", path, err), removeTemp(tmpPath))
 	}
-
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		return errors.Join(fmt.Errorf("failed to set permissions on %s: %w", path, err), removeTemp(tmpPath))
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return errors.Join(fmt.Errorf("failed to replace %s: %w", path, err), removeTemp(tmpPath))
+	}
 	return nil
 }
 
-func writeAndReplace(doc *etree.Document, tmp *os.File, path string, mode os.FileMode) error {
-	if _, err := doc.WriteTo(tmp); err != nil {
-		return errors.Join(fmt.Errorf("failed to write %s: %w", path, err), tmp.Close())
+// removeTemp removes the temporary file of a failed write; one already gone is no error.
+func removeTemp(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("failed to write %s: %w", path, err)
-	}
-	if err := os.Chmod(tmp.Name(), mode); err != nil {
-		return fmt.Errorf("failed to set permissions on %s: %w", path, err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("failed to replace %s: %w", path, err)
-	}
-
 	return nil
 }
 

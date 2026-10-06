@@ -35,7 +35,7 @@ func installEKSAWS(t *testing.T, caData string) {
 
 func prepareEKS(t *testing.T, kubeconfigDir string) *Session {
 	t.Helper()
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, KubeconfigDir: kubeconfigDir, ProjectDir: t.TempDir()})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, KubeconfigDir: kubeconfigDir, ProjectDir: t.TempDir()})
 	session, err := runner.Prepare(context.Background(), Options{ResourceType: "eks", Name: "platform", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 15443, SkipIDEDataSource: true})
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func testCA(t *testing.T) string {
 func TestPrepareEKSStartsReadOnlyMCPServer(t *testing.T) {
 	installEKSAWS(t, testCA(t))
 	project := t.TempDir()
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})
 	session, err := runner.Prepare(context.Background(), Options{ResourceType: "eks", Name: "platform", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 15443, SkipIDEDataSource: true})
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestPrepareEKSStartsReadOnlyMCPServer(t *testing.T) {
 
 func TestPrepareEKSWithoutMCP(t *testing.T) {
 	installEKSAWS(t, testCA(t))
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	session, err := runner.Prepare(context.Background(), Options{ResourceType: "eks", Name: "platform", AwsProfile: "dev", AwsRegion: "eu-west-3", LocalPortNumber: 15443, SkipIDEDataSource: true, SkipMCP: true})
 	if err != nil {
 		t.Fatal(err)

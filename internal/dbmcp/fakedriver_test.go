@@ -109,7 +109,7 @@ func (c fakeConn) ExecContext(_ context.Context, query string, _ []driver.NamedV
 func (c fakeConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	entry := query
 	for _, arg := range args {
-		entry += " | " + arg.Value.(string)
+		entry += " | " + fmt.Sprint(arg.Value)
 	}
 	c.db.record(entry)
 	answer, ok := c.db.lookup(query)

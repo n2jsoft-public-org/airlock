@@ -14,7 +14,8 @@ type member struct {
 }
 
 // orderedObject is a JSON object that keeps its keys in file order, so rewriting a user's
-// config file does not reshuffle it.
+// config file does not reshuffle it. Its methods take a pointer: encode a *orderedObject, as
+// encoding/json does not call MarshalJSON on a value it cannot address.
 type orderedObject []member
 
 func (o *orderedObject) UnmarshalJSON(data []byte) error {
@@ -46,10 +47,10 @@ func (o *orderedObject) UnmarshalJSON(data []byte) error {
 	return err
 }
 
-func (o orderedObject) MarshalJSON() ([]byte, error) {
+func (o *orderedObject) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte('{')
-	for i, m := range o {
+	for i, m := range *o {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
@@ -91,8 +92,8 @@ func marshalIndentNoEscape(v any, indent string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (o orderedObject) get(key string) (json.RawMessage, bool) {
-	for _, m := range o {
+func (o *orderedObject) get(key string) (json.RawMessage, bool) {
+	for _, m := range *o {
 		if m.Key == key {
 			return m.Value, true
 		}

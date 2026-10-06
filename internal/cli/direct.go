@@ -76,7 +76,7 @@ func openDirect(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 	runnerOptions.Out, runnerOptions.Err = cmd.OutOrStdout(), cmd.ErrOrStderr()
 	// Without the dashboard, the password can only come from the keychain.
 	runnerOptions.PrefsPath, runnerOptions.Keychain = env.prefsPath, newKeychain()
-	return directRunError(options.Name, jumphost.NewRunner(runnerOptions).Run(cmd.Context(), *options))
+	return directRunError(options.Name, jumphost.NewRunner(&runnerOptions).Run(cmd.Context(), options))
 }
 
 // directRunError explains a direct session that cannot start without the dashboard.

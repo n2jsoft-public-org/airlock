@@ -58,7 +58,7 @@ func (m jumphostWizardModel) handleSettingsLoaded(msg settingsLoadedMsg) (tea.Mo
 	}
 	m.settingsEditor = m.settingsEditor.loaded(msg.snapshot, msg.err)
 	if msg.err == nil {
-		m.production = productionMatcher(msg.snapshot.ProductionProfiles)
+		m.production = msg.snapshot.ProductionProfiles
 	}
 	return m, nil
 }

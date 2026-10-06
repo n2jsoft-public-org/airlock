@@ -76,8 +76,10 @@ func TestCheckAccount(t *testing.T) {
 	}
 
 	err := checkAccount("prod", "222222222222", "111111111111")
-	var mismatch *AccountMismatchError
-	if !errors.As(err, &mismatch) || mismatch.Profile != "prod" {
+	if err == nil {
+		t.Fatal("another account must be refused")
+	}
+	if mismatch, ok := errors.AsType[*AccountMismatchError](err); !ok || mismatch.Profile != "prod" {
 		t.Fatalf("err = %v, want an AccountMismatchError for prod", err)
 	}
 	if want := "profile prod is account 222222222222, this entry is account 111111111111"; err.Error() != want {

@@ -94,7 +94,7 @@ func flagValue(cmd *cobra.Command, name string) string {
 
 // completeProfiles completes the AWS CLI profiles.
 func completeProfiles(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-	runner := jumphost.NewRunner(jumphost.RunnerOptions{Out: io.Discard, Err: io.Discard})
+	runner := jumphost.NewRunner(&jumphost.RunnerOptions{Out: io.Discard, Err: io.Discard})
 	profiles, err := runner.ListAWSProfileNames(cmd.Context())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp

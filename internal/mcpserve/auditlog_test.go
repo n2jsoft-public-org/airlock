@@ -13,12 +13,11 @@ import (
 func TestAuditLogAppendsJSONLinesPerDay(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	log := NewAuditLog(dir)
-	rows := int64(3)
 	at := time.Date(2026, 9, 29, 14, 5, 0, 0, time.Local)
 
 	first := testBaseEvent()
 	first.Time, first.Tool, first.Database, first.SQL, first.MaxRows = at, "query", "archive", "SELECT * FROM users", 200
-	first.Rows, first.Duration = &rows, 1500*time.Microsecond
+	first.Rows, first.Duration = new(int64(3)), 1500*time.Microsecond
 	second := testBaseEvent()
 	second.Time, second.Tool, second.SQL, second.Error = at.Add(time.Minute), "query", "DELETE FROM users", "rejected"
 

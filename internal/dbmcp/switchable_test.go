@@ -38,8 +38,12 @@ func TestSwitchingCredentialsDropsThePoolsOpenedWithTheFormerOnes(t *testing.T) 
 	if !reflect.DeepEqual(*opened, []string{"app", ""}) {
 		t.Fatalf("opened = %q, want a new pool for the new credentials", *opened)
 	}
-	if got, err := creds.Credentials(ctx, ""); err != nil || got.User != "app_ro_integ" {
-		t.Fatalf("user = %q, %v, want the new credentials", got.User, err)
+	got, err := creds.Credentials(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.User != "app_ro_integ" {
+		t.Fatalf("user = %q, want the new credentials", got.User)
 	}
 }
 

@@ -431,6 +431,8 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 				rows = append(rows, m.reviewInput(reviewFieldRemember, "Remember", m.rememberToggle(), rememberHelp, inner)...)
 			case reviewFieldSecret:
 				rows = append(rows, m.reviewInput(reviewFieldSecret, "Secret", m.secretValue(), secretHelp, inner)...)
+			default:
+				// The other fields have their own rows.
 			}
 		}
 		if m.signIn == jumphost.SignInPassword && !m.keychainAvailable {

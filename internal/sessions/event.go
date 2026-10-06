@@ -40,16 +40,16 @@ type Event struct {
 	Session    *Session            `json:"session,omitempty"`
 	Query      *mcpserve.ToolEvent `json:"query,omitempty"`
 	Approval   *Approval           `json:"approval,omitempty"`
-	ApprovalID ApprovalID          `json:"approvalId,omitempty"`
-	Approved   bool                `json:"approved,omitempty"`
 	Kind       EventKind           `json:"kind"`
 	Notice     string              `json:"notice,omitempty"`
 	Name       string              `json:"name,omitempty"`
 	User       string              `json:"user,omitempty"`
 	Err        string              `json:"err,omitempty"`
 	Lines      []LogLine           `json:"lines,omitempty"`
+	ApprovalID ApprovalID          `json:"approvalId,omitempty"`
 	Seq        uint64              `json:"seq"`
 	ID         ID                  `json:"id,omitempty"`
+	Approved   bool                `json:"approved,omitempty"`
 }
 
 // Snapshot is every session at event Seq: apply only the events with a greater Seq.

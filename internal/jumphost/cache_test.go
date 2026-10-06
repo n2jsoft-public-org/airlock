@@ -84,7 +84,7 @@ func prepareCache(t *testing.T, options *Options) (*Session, error) {
 	if err := os.WriteFile(filepath.Join(project, ".mcp.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})
 	options.ResourceType, options.Name, options.AwsProfile, options.AwsRegion = "elasticache", "sessions", "dev", "eu-west-3"
 	options.LocalPortNumber, options.SkipIDEDataSource = 16379, true
 	session, err := runner.Prepare(context.Background(), *options)
@@ -292,7 +292,7 @@ func installCacheNodeAWS(t *testing.T) {
 
 func TestPrepareCacheNodeOfAReplicationGroupUsesItsUserGroups(t *testing.T) {
 	installCacheNodeAWS(t)
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	session, err := runner.Prepare(context.Background(), Options{
 		ResourceType: "elasticache", Name: "sessions-0001-001", AwsProfile: "dev", AwsRegion: "eu-west-3",
 		LocalPortNumber: 16379, SkipIDEDataSource: true, SkipMCP: true, DBUser: "app-iam", SignIn: SignInIAM,

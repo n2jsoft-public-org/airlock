@@ -97,7 +97,7 @@ func TestCopyMenuOffersKubeconfigAndLastQuery(t *testing.T) {
 	if (*copied)[0] != "SELECT id FROM users" {
 		t.Fatalf("copied = %q, want the last MCP call", *copied)
 	}
-	m = copyChosen(t, m, "c", "4")
+	copyChosen(t, m, "c", "4")
 	if (*copied)[1] != "export KUBECONFIG=/home/dev/.config/airlock/kube/platform.json" {
 		t.Fatalf("copied = %q, want the KUBECONFIG export", *copied)
 	}

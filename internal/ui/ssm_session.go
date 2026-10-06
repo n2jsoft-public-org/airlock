@@ -81,18 +81,52 @@ type ssmActionMsg struct {
 
 // ssmModel is the dashboard: it shows the sessions of its service and asks it for every change.
 type ssmModel struct {
+	styles    Styles
 	ctx       context.Context
 	service   sessions.Service
 	discovery JumphostDiscovery
+	// databases holds the direct database definitions (DashboardOptions.Databases).
+	databases DirectDatabaseStore
+	// settings reads and writes config.json (DashboardOptions.Settings); nil hides the Settings screen.
+	settings SettingsStore
 	// events delivers the service's changes; nil until subscribe.
-	events      <-chan sessions.Event
-	wizard      jumphostWizardModel
-	styles      Styles
+	events        <-chan sessions.Event
+	cancelPrepare context.CancelFunc
+	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
+	copier   func(text string) error
+	answered map[sessions.ApprovalID]bool
+	// interactive runs the terminal commands of the openings (aws sso login); projectDir is set on
+	// every opening.
+	interactive jumphost.InteractiveFunc
+	reconnect   func(ctx context.Context) (sessions.Service, error)
 	errorMsg    string
-	sessions    []sessions.Session
-	loadingUI   loadingState
+	// notice is a neutral message shown above the key hints until the next key.
+	notice string
+	// updateNotice, when not empty, tells the wizard a newer airlock release exists.
+	updateNotice string
+	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
+	openDirect string
+	projectDir string
+	// connLost, when not empty, says why the daemon is out of reach; r calls reconnect.
+	connLost string
+	// exitNotice is printed once the dashboard left the screen.
+	exitNotice  string
 	baseOptions jumphost.Options
-	viewport    viewport.Model
+	sessions    []sessions.Session
+	// discarded are the sessions opened after the user canceled their preparation: stopped, then
+	// closed once ended.
+	discarded []sessions.ID
+	// approvals are the pending agent openings; approvalID is the one the approval dialog shows,
+	// approvalAllow its focused button, answered the approvals this view answered (their
+	// resolution may not have arrived yet).
+	approvals []sessions.Approval
+	// production flags the AWS profiles of the productionProfiles setting.
+	production productionMatcher
+	viewport   viewport.Model
+	loadingUI  loadingState
+	// password is the password dialog (ssmModePassword).
+	password ssmPasswordReveal
+	wizard   jumphostWizardModel
 	// seq is the Seq of the last snapshot or event applied.
 	seq      uint64
 	selected int
@@ -102,83 +136,49 @@ type ssmModel struct {
 	mode     ssmViewMode
 	// pendingSelect is the session an opening returned, selected once its EventAdded arrives.
 	pendingSelect sessions.ID
-	// discarded are the sessions opened after the user canceled their preparation: stopped, then
-	// closed once ended.
-	discarded  []sessions.ID
-	confirmYes bool
-	quitting   bool
-	// showQueries shows the MCP queries of the selected session instead of its logs.
-	showQueries bool
-	// notice is a neutral message shown above the key hints until the next key.
-	notice string
 	// prepareID identifies the opening the dashboard waits for (see ssmOpenedMsg.prepareID);
 	// cancelPrepare cancels its context, which makes the service release it.
-	prepareID     int
-	cancelPrepare context.CancelFunc
-	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
-	copier     func(text string) error
+	prepareID  int
 	copyCursor int
 	// signInCursor is the candidate the sign-in dialog chooses on enter.
 	signInCursor int
-	// approvals are the pending agent openings; approvalID is the one the approval dialog shows,
-	// approvalAllow its focused button, answered the approvals this view answered (their
-	// resolution may not have arrived yet).
-	approvals     []sessions.Approval
-	answered      map[sessions.ApprovalID]bool
-	approvalID    sessions.ApprovalID
+	approvalID   sessions.ApprovalID
+	confirmYes   bool
+	quitting     bool
+	// showQueries shows the MCP queries of the selected session instead of its logs.
+	showQueries   bool
 	approvalAllow bool
-	// password is the password dialog (ssmModePassword).
-	password ssmPasswordReveal
-	// production flags the AWS profiles of the productionProfiles setting.
-	production productionMatcher
-	// updateNotice, when not empty, tells the wizard a newer airlock release exists.
-	updateNotice string
-	// databases holds the direct database definitions (DashboardOptions.Databases).
-	databases DirectDatabaseStore
-	// settings reads and writes config.json (DashboardOptions.Settings); nil hides the Settings screen.
-	settings SettingsStore
-	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
-	openDirect string
-	// interactive runs the terminal commands of the openings (aws sso login); projectDir is set on
-	// every opening.
-	interactive jumphost.InteractiveFunc
-	projectDir  string
 	// detach makes q leave the view only (daemon mode).
 	detach bool
-	// connLost, when not empty, says why the daemon is out of reach; r calls reconnect.
-	connLost string
 	// reconnecting is set while a reconnection runs, so that r starts only one.
 	reconnecting bool
-	// exitNotice is printed once the dashboard left the screen.
-	exitNotice string
-	reconnect  func(ctx context.Context) (sessions.Service, error)
 }
 
 // DashboardOptions are the optional settings of RunJumphostSessions.
 type DashboardOptions struct {
-	// Handoff, when not nil, suspends the dashboard while it runs a command needing the terminal
-	// (the runner's sign-ins).
-	Handoff *TerminalHandoff
-	// ProductionProfiles are the patterns (* wildcard, any case) of the AWS profiles to flag.
-	ProductionProfiles []string
-	// UpdateNotice, when not empty, is shown in the wizard: a newer airlock release exists.
-	UpdateNotice string
 	// Databases holds the direct database definitions the wizard lists and edits; nil hides the
 	// Direct database card.
 	Databases DirectDatabaseStore
 	// Settings reads and writes config.json for the Settings screen; nil hides it.
 	Settings SettingsStore
+	// Handoff, when not nil, suspends the dashboard while it runs a command needing the terminal
+	// (the runner's sign-ins).
+	Handoff *TerminalHandoff
+	// Reconnect reaches the daemon again after its connection was lost (daemon views).
+	Reconnect func(ctx context.Context) (sessions.Service, error)
+	// UpdateNotice, when not empty, is shown in the wizard: a newer airlock release exists.
+	UpdateNotice string
 	// OpenDirect, when not empty, opens the startup wizard on the review step of that direct
 	// database (`airlock direct <name>`).
 	OpenDirect string
 	// ProjectDir is set on every opening's Options.ProjectDir.
 	ProjectDir string
-	// Detach marks a daemon view: q detaches (Task 13).
-	Detach bool
-	// Reconnect reaches the daemon again after its connection was lost (daemon views).
-	Reconnect func(ctx context.Context) (sessions.Service, error)
 	// Notice, when not empty, is shown from the start (a daemon view: why the MCP gateway is off).
 	Notice string
+	// ProductionProfiles are the patterns (* wildcard, any case) of the AWS profiles to flag.
+	ProductionProfiles []string
+	// Detach marks a daemon view: q detaches (Task 13).
+	Detach bool
 	// lightBackground selects the palette for a terminal with a light background; RunJumphostSessions
 	// asks the terminal before starting (false, a dark background, when it cannot tell).
 	lightBackground bool
@@ -241,7 +241,7 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 func newDashboardModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, first sessions.ID, base jumphost.Options, opts *DashboardOptions) ssmModel { //nolint:gocritic // base is kept by the model.
 	model := newSSMModel(ctx, service, discovery, base)
 	model.styles = NewStyles(!opts.lightBackground)
-	model.production = productionMatcher(opts.ProductionProfiles)
+	model.production = opts.ProductionProfiles
 	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
 	model.settings, model.notice = opts.Settings, opts.Notice
 	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect

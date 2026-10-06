@@ -660,8 +660,6 @@ func findMsg[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
 		t.Fatalf("no command returning %T", zero)
 	}
 	switch msg := unwrapAwaited(cmd()).(type) {
-	case T:
-		return msg
 	case tea.BatchMsg:
 		for _, inner := range msg {
 			if inner == nil {
@@ -671,6 +669,8 @@ func findMsg[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
 				return found
 			}
 		}
+	case T:
+		return msg
 	}
 	t.Fatalf("no command returning %T", zero)
 	return zero

@@ -13,8 +13,7 @@ import (
 
 func testRelease(t *testing.T) *selfupdatetest.Release {
 	t.Helper()
-	release := selfupdatetest.NewRelease(t, "20261005-3f9a1c2", "linux", "amd64", []byte("new airlock"))
-	return &release
+	return new(selfupdatetest.NewRelease(t, "20261005-3f9a1c2", "linux", "amd64", []byte("new airlock")))
 }
 
 func TestLatestRelease(t *testing.T) {

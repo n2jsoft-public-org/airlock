@@ -53,7 +53,7 @@ func TestRunnerSourceLastKeepsTheValidRunner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"defaultDbUser": "one"}`)
 	source := newRunnerSource(path, func(cfg config.Config) (*jumphost.Runner, error) {
-		return jumphost.NewRunner(jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
+		return jumphost.NewRunner(&jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
 	})
 	if _, ok := source.Last(); ok {
 		t.Fatal("Last reports a runner before the first opening")
@@ -76,7 +76,7 @@ func TestRunnerSourceNeverReturnsANilRunnerInterface(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"defaultDbUser": `)
 	source := newRunnerSource(path, func(config.Config) (*jumphost.Runner, error) {
-		return jumphost.NewRunner(jumphost.RunnerOptions{}), nil
+		return jumphost.NewRunner(&jumphost.RunnerOptions{}), nil
 	})
 	runner, err := source.Source()()
 	if err == nil || runner != nil {

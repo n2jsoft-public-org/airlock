@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -38,10 +39,12 @@ type route struct {
 // It is safe for concurrent use.
 type Host struct {
 	// listen opens the listener on a random localhost port.
-	listen  func() (net.Listener, error)
-	server  *http.Server
-	routes  map[string]route
-	baseURL string
+	listen func() (net.Listener, error)
+	// listener is closed by Unmount itself: server.Close misses it until Serve has started.
+	listener net.Listener
+	server   *http.Server
+	routes   map[string]route
+	baseURL  string
 	// clients are the AI clients the servers are registered in.
 	clients aiclient.Selection
 	mu      sync.Mutex
@@ -98,7 +101,10 @@ func (h *Host) Unmount(slug string) error {
 		return nil
 	}
 	err := h.server.Close()
-	h.server, h.baseURL = nil, ""
+	if closeErr := h.listener.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+		err = errors.Join(err, closeErr)
+	}
+	h.server, h.listener, h.baseURL = nil, nil, ""
 	return err
 }
 
@@ -107,10 +113,11 @@ func (h *Host) startLocked() error {
 	if err != nil {
 		return fmt.Errorf("failed to listen for MCP clients: %w", err)
 	}
+	h.listener = listener
 	h.server = &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
 	h.baseURL = "http://" + listener.Addr().String()
 	server := h.server
-	go func() { _ = server.Serve(listener) }()
+	go func() { _ = server.Serve(listener) }() //nolint:errcheck // Serve only returns once the host is closed.
 	return nil
 }
 

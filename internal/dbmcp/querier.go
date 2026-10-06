@@ -171,7 +171,7 @@ func (q *sqlQuerier) dropPool(db *sql.DB) {
 	for name, pool := range q.pools {
 		if pool == db {
 			delete(q.pools, name)
-			_ = db.Close()
+			_ = db.Close() //nolint:errcheck // the pool is dropped either way.
 		}
 	}
 }
@@ -194,7 +194,7 @@ func (q *sqlQuerier) readFrom(ctx context.Context, db *sql.DB, maxRows int, quer
 	if err != nil {
 		return Result{}, q.connectionError(err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback() }() //nolint:errcheck // the transaction only reads; ending it is all that matters.
 
 	for _, statement := range q.dialect.txSetup {
 		if _, setupErr := tx.ExecContext(ctx, statement); setupErr != nil {
@@ -206,13 +206,13 @@ func (q *sqlQuerier) readFrom(ctx context.Context, db *sql.DB, maxRows int, quer
 		return Result{}, err
 	}
 	result, collectErr := collectRows(rows, maxRows)
-	if result.Truncated {
+	if collectErr == nil && result.Truncated {
 		// Cancel before Close: some drivers (pgx) otherwise drain every remaining row on Close,
 		// streaming the rest of a capped result through the tunnel until the statement times out.
 		// The connection is left broken and discarded by the pool; the truncated result still stands.
 		cancel()
 	}
-	_ = rows.Close()
+	_ = rows.Close() //nolint:errcheck // a truncated result fails Close with the cancellation; collectErr has the real error.
 	if collectErr != nil {
 		return Result{}, collectErr
 	}
@@ -307,8 +307,7 @@ func isAuthFailure(err error) bool {
 // isAuthFailure does not tell apart on SQL Server: a login to an unknown or inaccessible database
 // (error 4060) always comes with 18456 "Login failed", although the password was accepted.
 func isPasswordRejected(err error) bool {
-	var sqlErr mssql.Error
-	if errors.As(err, &sqlErr) {
+	if sqlErr, ok := errors.AsType[mssql.Error](err); ok {
 		chain := sqlErr.All
 		if len(chain) == 0 {
 			chain = []mssql.Error{sqlErr}
@@ -407,8 +406,7 @@ func (q *sqlQuerier) Describe(ctx context.Context, database, schema, table strin
 	for _, row := range columns.Rows {
 		column := Column{Name: text(row[0]), Type: text(row[1]), Nullable: strings.EqualFold(text(row[2]), "YES")}
 		if row[3] != nil {
-			value := text(row[3])
-			column.Default = &value
+			column.Default = new(text(row[3]))
 		}
 		description.Columns = append(description.Columns, column)
 	}

@@ -13,23 +13,24 @@ var ErrReadOnlySecretTagUnset = errors.New(`no read-only secret tag configured f
 
 // SessionConfig describes the tunneled RDS instance of one jumphost session.
 type SessionConfig struct {
-	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
-	SkipRegistration bool
-	AWS              AWSRunner
-	ProjectDir       string
-	Profile          string
-	Region           string
-	Target           string
-	AWSEngine        string
-	RDSHost          string
-	DBName           string
-	InstanceARN      string
-	MasterSecretARN  string
-	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
-	ServerPrefix string
+	AWS AWSRunner
+	// OnPasswordRejected is called once when the database rejects DBPassword, e.g. to forget a
+	// password remembered in the keychain. Nil when unused.
+	OnPasswordRejected func()
 	// ReadOnlySecretTag marks the read-only per-database secrets of SQL Server instances; zero
 	// disables read-only SQL Server access.
 	ReadOnlySecretTag awstag.Tag
+	ProjectDir        string
+	Profile           string
+	Region            string
+	Target            string
+	AWSEngine         string
+	RDSHost           string
+	DBName            string
+	InstanceARN       string
+	MasterSecretARN   string
+	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
+	ServerPrefix string
 	// LogDir receives the audit log of the MCP tool calls; empty disables it.
 	LogDir string
 	// DBUser signs in with RDS IAM tokens (PostgreSQL), or with DBPassword when it is set.
@@ -39,11 +40,10 @@ type SessionConfig struct {
 	// DBSecretARN names the Secrets Manager secret holding the password (RDS JSON or plain text);
 	// it wins over DBPassword and the automatic secrets. Empty when unused.
 	DBSecretARN string
-	// OnPasswordRejected is called once when the database rejects DBPassword, e.g. to forget a
-	// password remembered in the keychain. Nil when unused.
-	OnPasswordRejected func()
-	RDSPort            int
-	LocalPort          int
+	RDSPort     int
+	LocalPort   int
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
 	// IAMAuth reports whether the RDS instance has AWS IAM database authentication enabled.
 	// PostgreSQL access needs it unless DBPassword is set.
 	IAMAuth bool
@@ -100,12 +100,12 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 
 // served is what serveDatabase needs to mount the MCP server of one database.
 type served struct {
-	skipRegistration bool
 	creds            *switchableProvider
 	projectDir       string
 	logDir           string
 	server           ServerConfig
 	addr             Address
+	skipRegistration bool
 }
 
 // serveDatabase mounts the MCP server of a database on host: audit recording, querier and server.

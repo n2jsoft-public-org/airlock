@@ -33,7 +33,7 @@ func signInAWS(_ context.Context, args ...string) (string, error) {
 }
 
 func newTestSignIn(target *ideTarget) *sessionSignIn {
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
 	return &sessionSignIn{
 		runner: runner, session: &Session{}, aws: signInAWS,
 		cfg:          awsConfig{Profile: "dev", Region: "eu-west-3", Args: []string{"--profile", "dev", "--region", "eu-west-3"}},
@@ -43,7 +43,7 @@ func newTestSignIn(target *ideTarget) *sessionSignIn {
 }
 
 func TestSignInCandidatesFollowTheSignInMethod(t *testing.T) {
-	for name, tc := range map[string]struct {
+	for name, tc := range map[string]struct { //nolint:govet // test struct
 		target ideTarget
 		want   []SignInCandidate
 	}{

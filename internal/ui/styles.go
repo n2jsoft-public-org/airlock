@@ -37,8 +37,6 @@ var colorOnBadge = lipgloss.Color("231")
 
 // Styles groups shared lipgloss styles used by the TUI.
 type Styles struct {
-	// Dark tells which palette the styles use; components with their own styles (lists) follow it.
-	Dark bool
 	// AccentColor, WarningColor and DangerColor are palette colors views apply to borders and labels directly.
 	AccentColor, WarningColor, DangerColor color.Color
 
@@ -80,6 +78,9 @@ type Styles struct {
 	KeyDesc     lipgloss.Style
 	Button      lipgloss.Style
 	ButtonFocus lipgloss.Style
+
+	// Dark tells which palette the styles use; components with their own styles (lists) follow it.
+	Dark bool
 }
 
 func NewStyles(dark bool) Styles {

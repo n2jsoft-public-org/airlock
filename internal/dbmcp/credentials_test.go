@@ -3,6 +3,7 @@ package dbmcp
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func TestIAMTokenProviderCachesAndRefreshesToken(t *testing.T) {
 			if argAfter(args, "--hostname") != "db.rds.amazonaws.com" || argAfter(args, "--port") != "5432" || argAfter(args, "--username") != "acme_ro" {
 				t.Fatalf("unexpected args: %v", args)
 			}
-			return "token-" + string(rune('0'+issued)) + "\n", nil
+			return "token-" + strconv.Itoa(issued) + "\n", nil
 		},
 	}}
 	now := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
@@ -58,13 +59,19 @@ func TestIAMTokenProviderCachesAndRefreshesToken(t *testing.T) {
 	}
 
 	now = now.Add(9 * time.Minute)
-	second, _ := provider.Credentials(context.Background(), "other")
+	second, err := provider.Credentials(context.Background(), "other")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if second.Password != "token-1" || second.Database != "other" {
 		t.Fatalf("expected cached token for other database, got %+v", second)
 	}
 
 	now = now.Add(time.Minute)
-	third, _ := provider.Credentials(context.Background(), "")
+	third, err := provider.Credentials(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if third.Password != "token-2" {
 		t.Fatalf("expected refreshed token after 10 minutes, got %q", third.Password)
 	}
@@ -132,14 +139,14 @@ func TestSupportSecretsProviderSeveralDatabases(t *testing.T) {
 		t.Fatalf("databases = %v", names)
 	}
 
-	if _, err := provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "Accounts, Archive") {
+	if _, err = provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "Accounts, Archive") {
 		t.Fatalf("expected an error listing databases, got %v", err)
 	}
 	creds, err := provider.Credentials(context.Background(), "Accounts")
 	if err != nil || creds.User != "u2" {
 		t.Fatalf("Accounts credentials = %+v, %v", creds, err)
 	}
-	if _, err := provider.Credentials(context.Background(), "Nope"); err == nil || !strings.Contains(err.Error(), "available: Accounts, Archive") {
+	if _, err = provider.Credentials(context.Background(), "Nope"); err == nil || !strings.Contains(err.Error(), "available: Accounts, Archive") {
 		t.Fatalf("expected unknown database error, got %v", err)
 	}
 }
@@ -152,7 +159,9 @@ func TestSupportSecretsProviderNoSecretIsActionableAndRetried(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no usable read-only secret (AccessRole=ro-access) found for mssql-1") || !strings.Contains(err.Error(), `tag from "readOnlySecretTag", see `+"`airlock config show`") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	_, _ = provider.Credentials(context.Background(), "")
+	if _, err = provider.Credentials(context.Background(), ""); err == nil {
+		t.Fatal("expected the retried lookup to fail again")
+	}
 	if len(aws.calls) != 2 {
 		t.Fatalf("a failed lookup must be retried, got %d calls", len(aws.calls))
 	}
@@ -176,7 +185,9 @@ func TestMasterSecretProvider(t *testing.T) {
 	if creds != (Credentials{User: "admin", Password: "secret", Database: "postgres"}) {
 		t.Fatalf("unexpected credentials: %+v", creds)
 	}
-	_, _ = provider.Credentials(context.Background(), "app")
+	if _, err = provider.Credentials(context.Background(), "app"); err != nil {
+		t.Fatal(err)
+	}
 	if len(aws.calls) != 1 {
 		t.Fatalf("master secret must be read once, got %d calls", len(aws.calls))
 	}

@@ -8,8 +8,6 @@ import (
 
 // SessionConfig describes the tunneled cache of one ElastiCache session.
 type SessionConfig struct {
-	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
-	SkipRegistration bool
 	// Credentials signs the connections in; nil for caches without auth.
 	Credentials CredentialProvider
 	// OnRejected is called once when the cache refuses Credentials, e.g. to forget a password
@@ -29,7 +27,9 @@ type SessionConfig struct {
 	// LogDir receives the audit log of the tool calls; empty disables it.
 	LogDir    string
 	LocalPort int
-	TLS       bool
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
+	TLS              bool
 	// ClusterMode reports a cluster-mode-enabled replication group: one shard is reachable.
 	ClusterMode bool
 	// AllowWrites exposes the execute tool; the cache user's ACL still decides what is allowed.

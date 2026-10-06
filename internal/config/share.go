@@ -66,8 +66,7 @@ func Export(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defaults := Defaults()
-	if _, err = f.apply(&defaults); err != nil {
+	if _, err = f.apply(new(Defaults())); err != nil {
 		return "", fmt.Errorf("invalid config %s: %w", path, err)
 	}
 	if f.empty() {
@@ -163,8 +162,7 @@ func decodeShare(shared string) (file, error) {
 		}
 		return file{}, ErrInvalidShare
 	}
-	defaults := Defaults()
-	if _, err := f.apply(&defaults); err != nil {
+	if _, err := f.apply(new(Defaults())); err != nil {
 		return file{}, fmt.Errorf("the config string has an invalid value: %w", err)
 	}
 	return f, nil

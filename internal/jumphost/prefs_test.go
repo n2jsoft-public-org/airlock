@@ -82,7 +82,7 @@ func TestPrefsStoreKeepsUnreadableFile(t *testing.T) {
 	if err := store.Save(devArchive, &ConnectionPrefs{}); err == nil {
 		t.Fatal("saving must not overwrite a file it cannot parse")
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- test file.
 	if err != nil || string(data) != "{not json" {
 		t.Fatalf("file was rewritten: %q (%v)", data, err)
 	}
@@ -235,7 +235,7 @@ func TestPrefsStoreRoundTripsSecretAndKeychainChoices(t *testing.T) {
 
 func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "saved-connections.json")
-	runner := NewRunner(RunnerOptions{PrefsPath: path})
+	runner := NewRunner(&RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "arn:aws:sts::111111111111:assumed-role/AWSReservedSSO_dev/me@example.com")
 	options := Options{
 		ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3",
@@ -249,7 +249,7 @@ func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 	if !ok || prefs.DBUser != "app_user" || prefs.SignInMethod() != SignInPassword || prefs.LocalPort != 5434 || !prefs.MCPAllowWrites {
 		t.Fatalf("prefs = %+v, %v", prefs, ok)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- test file.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestRunnerSavesConnectionPrefsWithoutPassword(t *testing.T) {
 }
 
 func TestRunnerSavesSecretChoice(t *testing.T) {
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json")})
+	runner := NewRunner(&RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json")})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3",
 		DBSecretARN: "arn:secret", SignIn: SignInSecret}
@@ -276,7 +276,7 @@ func TestRunnerSavesSecretChoice(t *testing.T) {
 }
 
 func TestRememberAccountAcceptsIdentityARNOrAccountID(t *testing.T) {
-	runner := NewRunner(RunnerOptions{})
+	runner := NewRunner(&RunnerOptions{})
 	runner.rememberAccount("dev", "arn:aws:sts::111111111111:assumed-role/role/session\n")
 	runner.rememberAccount("prod", "222222222222\n")
 	if runner.accounts["dev"] != "111111111111" || runner.accounts["prod"] != "222222222222" {
@@ -286,7 +286,7 @@ func TestRememberAccountAcceptsIdentityARNOrAccountID(t *testing.T) {
 
 func TestRunnerSavesEKSConnectionWithoutDatabaseFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "saved-connections.json")
-	runner := NewRunner(RunnerOptions{PrefsPath: path})
+	runner := NewRunner(&RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{
 		ResourceType: "eks", Name: "cluster", AwsProfile: "dev", AwsRegion: "eu-west-3",
@@ -305,7 +305,7 @@ func TestRunnerSavesEKSConnectionWithoutDatabaseFields(t *testing.T) {
 
 func TestRunnerSavesProfileAndTypeOfRDSConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "saved-connections.json")
-	runner := NewRunner(RunnerOptions{PrefsPath: path})
+	runner := NewRunner(&RunnerOptions{PrefsPath: path})
 	runner.rememberAccount("dev", "111111111111")
 	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3", DBUser: "app"}
 
@@ -319,7 +319,7 @@ func TestRunnerSavesProfileAndTypeOfRDSConnection(t *testing.T) {
 }
 
 func TestRunnerWithoutPrefsPathRemembersNothing(t *testing.T) {
-	disabled := NewRunner(RunnerOptions{})
+	disabled := NewRunner(&RunnerOptions{})
 	rds := Options{ResourceType: "rds", Name: "archive", AwsRegion: "eu-west-3"}
 	if err := disabled.SaveConnectionPrefs(context.Background(), rds); err != nil {
 		t.Fatal(err)

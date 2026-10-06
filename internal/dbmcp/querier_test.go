@@ -285,11 +285,10 @@ func TestDescribeDefaultsSchemaAndMapsCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defaultValue := "nextval('users_id_seq')"
 	want := TableDescription{
 		Schema: "public", Table: "users",
 		Columns: []Column{
-			{Name: "id", Type: "integer", Nullable: false, Default: &defaultValue},
+			{Name: "id", Type: "integer", Nullable: false, Default: new("nextval('users_id_seq')")},
 			{Name: "team_id", Type: "integer", Nullable: true},
 		},
 		PrimaryKey:  []string{"id"},
@@ -324,7 +323,7 @@ func TestConnectionErrorExplainsRejectedCredentials(t *testing.T) {
 	}
 
 	other := errors.New("relation users does not exist")
-	if err := iam.connectionError(other); err != other {
+	if err := iam.connectionError(other); !errors.Is(err, other) {
 		t.Fatalf("unrelated error rewritten: %v", err)
 	}
 }

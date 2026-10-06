@@ -14,7 +14,7 @@ const archiveKeychainAccount = "111111111111/eu-west-3/rds/archive/app_user"
 func keychainRunner(t *testing.T) (*Runner, *keychain.MemoryStore) {
 	t.Helper()
 	store := keychain.NewMemoryStore()
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: store})
+	runner := NewRunner(&RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: store})
 	runner.rememberAccount("dev", "111111111111")
 	return runner, store
 }
@@ -119,7 +119,7 @@ func TestForgetConnectionDeletesKeychainEntry(t *testing.T) {
 }
 
 func TestKeychainDisabledWithoutStore(t *testing.T) {
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json")})
+	runner := NewRunner(&RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json")})
 	runner.rememberAccount("dev", "111111111111")
 	if runner.KeychainAvailable() {
 		t.Fatal("no store must not be available")
@@ -184,7 +184,7 @@ func unavailableKeychainRunner(t *testing.T, runner *Runner) *Runner {
 	t.Helper()
 	broken := keychain.NewMemoryStore()
 	broken.Err = errors.New("no secret service")
-	other := NewRunner(RunnerOptions{PrefsPath: runner.prefs.store.Path(), Keychain: broken})
+	other := NewRunner(&RunnerOptions{PrefsPath: runner.prefs.store.Path(), Keychain: broken})
 	other.rememberAccount("dev", "111111111111")
 	if other.KeychainAvailable() {
 		t.Fatal("the broken keychain must be unavailable")

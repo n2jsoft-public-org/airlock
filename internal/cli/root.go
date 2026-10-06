@@ -42,7 +42,8 @@ func NewRootCmd() *cobra.Command {
 		// main prints the returned error once.
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return executeJumphost(cmd, args, options)
+			// new copies options: the run fills in the arguments, the flags keep their values.
+			return executeJumphost(cmd, args, new(options))
 		},
 	}
 
@@ -103,7 +104,7 @@ func loadConfig(cmd *cobra.Command) (config.Config, string, error) {
 	return cfg, path, err
 }
 
-func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options) error {
+func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Options) error {
 	// A previous airlock update may leave the replaced binary behind (Windows); then the notice
 	// comes from the last release check, refreshed in the background once a day.
 	updates := defaultUpdateEnv()
@@ -141,7 +142,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()
 	if err != nil {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: MCP queries will not be logged: %v\n", err)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: MCP queries will not be logged: %v\n", err) //nolint:errcheck // best-effort terminal output
 	}
 	// Each EKS session gets a kubeconfig in ~/.config/airlock/kube; a lookup failure only disables it.
 	kubeconfigDir, err := appdir.KubeconfigDir()
@@ -177,7 +178,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		tuiOptions.In = cmd.InOrStdin()
 		tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
 		tuiOptions.Keychain, tuiOptions.Interactive = keychainStore, handoff.Run
-		return jumphost.NewRunner(tuiOptions), nil
+		return jumphost.NewRunner(&tuiOptions), nil
 	}))
 	// Built once now, so the wizard always has a last valid runner to fall back on.
 	if _, err = tuiRunners.Current(); err != nil {
@@ -201,9 +202,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
 		if shouldUseDaemon(&cfg, interactive) {
-			return runDaemonView(cmd, &options, false, discovery, &dashboard)
+			return runDaemonView(cmd, options, false, discovery, &dashboard)
 		}
-		return ui.RunJumphostSessions(cmd.Context(), manager, discovery, 0, options, cmd.OutOrStdout(), dashboard)
+		return ui.RunJumphostSessions(cmd.Context(), manager, discovery, 0, *options, cmd.OutOrStdout(), dashboard)
 	}
 
 	if latestRelease != "" {
@@ -217,7 +218,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		if options.Name, err = checkDirectTarget(cmd, args, databases); err != nil {
 			return err
 		}
-		return openDirect(cmd, &options, interactive, &directEnv{
+		return openDirect(cmd, options, interactive, &directEnv{
 			discovery: discovery, manager: manager, dashboard: &dashboard, shared: &shared, cfg: &cfg, prefsPath: prefsPath,
 		})
 	}
@@ -225,9 +226,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 		options.Name = strings.TrimSpace(args[1])
 	}
 	if len(args) > 2 {
-		localPort, err := strconv.Atoi(args[2])
-		if err != nil {
-			return fmt.Errorf("invalid local port %q: %w", args[2], err)
+		localPort, convErr := strconv.Atoi(args[2])
+		if convErr != nil {
+			return fmt.Errorf("invalid local port %q: %w", args[2], convErr)
 		}
 		if localPort <= 0 {
 			return fmt.Errorf("invalid local port %q: must be greater than 0", args[2])
@@ -237,32 +238,32 @@ func executeJumphost(cmd *cobra.Command, args []string, options jumphost.Options
 	// In daemon mode, an interactive run is a view of the daemon, which opens the named target.
 	if shouldUseDaemon(&cfg, interactive) {
 		openFirst := options.ResourceType != "" && options.Name != ""
-		return runDaemonView(cmd, &options, openFirst, discovery, &dashboard)
+		return runDaemonView(cmd, options, openFirst, discovery, &dashboard)
 	}
 
 	if options.ResourceType == "" {
-		resourceType, err := promptResourceType(cmd.InOrStdin(), cmd.OutOrStdout())
-		if err != nil {
-			return err
+		resourceType, promptErr := promptResourceType(cmd.InOrStdin(), cmd.OutOrStdout())
+		if promptErr != nil {
+			return promptErr
 		}
 		options.ResourceType = resourceType
 	}
 
 	runnerOptions := shared
 	runnerOptions.Out, runnerOptions.Err = cmd.OutOrStdout(), cmd.ErrOrStderr()
-	runner := jumphost.NewRunner(runnerOptions)
+	runner := jumphost.NewRunner(&runnerOptions)
 
 	if !interactive {
 		return runner.Run(cmd.Context(), options)
 	}
 
-	session, err := runner.Prepare(cmd.Context(), options)
+	session, err := runner.Prepare(cmd.Context(), *options)
 	if err != nil {
 		return err
 	}
-	first := manager.Adopt(session, &options)
+	first := manager.Adopt(session, options)
 
-	return ui.RunJumphostSessions(cmd.Context(), manager, discovery, first, options, cmd.OutOrStdout(), dashboard)
+	return ui.RunJumphostSessions(cmd.Context(), manager, discovery, first, *options, cmd.OutOrStdout(), dashboard)
 }
 
 // sharedRunnerOptions are the runner options of both modes, from the config and the directories
@@ -293,7 +294,7 @@ func promptResourceType(in io.Reader, out io.Writer) (string, error) {
 		return "", fmt.Errorf("resource type is required (expected eks, rds or elasticache): airlock <type> [name] [local-port]")
 	}
 
-	_, _ = fmt.Fprint(out, "Please specify resource type (eks|rds|elasticache): ")
+	_, _ = fmt.Fprint(out, "Please specify resource type (eks|rds|elasticache): ") //nolint:errcheck // best-effort terminal output
 	var value string
 	_, err := fmt.Fscanln(in, &value)
 	if err != nil {

@@ -49,18 +49,10 @@ func supportedResourceType(resourceType string) bool {
 }
 
 type Options struct {
-	ResourceType    string
-	Name            string
-	LocalPortNumber int
-	AwsProfile      string
-	AwsRegion       string
-	// SkipIDEDataSource disables registering the connection in ./.idea/dataSources.xml.
-	SkipIDEDataSource bool
-	// SkipMCP disables the MCP server giving AI assistants access to the tunneled database, cluster or cache.
-	SkipMCP bool
-	// MCPAllowWrites exposes the MCP tools modifying data (databases and caches; EKS is always read-only). PostgreSQL writes as DBUser; SQL Server, without
-	// AWS IAM sign-in, uses the master user secret.
-	MCPAllowWrites bool
+	ResourceType string
+	Name         string
+	AwsProfile   string
+	AwsRegion    string
 	// DBUser is the database user signing in with AWS IAM on RDS (defaults to RunnerOptions.DefaultDBUser).
 	DBUser string
 	// DBPassword signs DBUser in with a password instead of an AWS IAM token. It is only kept in
@@ -71,16 +63,24 @@ type Options struct {
 	// DBSecretARN names the Secrets Manager secret holding the password (ARN or name, from the
 	// wizard or --db-secret).
 	DBSecretARN string
-	// RememberPassword keeps DBPassword in the OS keychain for the next connections.
-	RememberPassword bool
 	// ProjectDir is where the IDE data source and the MCP client files of this opening are written;
 	// empty uses RunnerOptions.ProjectDir, else the working directory.
 	ProjectDir string `json:"projectDir,omitempty"`
+	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
+	OpenedBy        string `json:"openedBy,omitempty"`
+	LocalPortNumber int
+	// SkipIDEDataSource disables registering the connection in ./.idea/dataSources.xml.
+	SkipIDEDataSource bool
+	// SkipMCP disables the MCP server giving AI assistants access to the tunneled database, cluster or cache.
+	SkipMCP bool
+	// MCPAllowWrites exposes the MCP tools modifying data (databases and caches; EKS is always read-only). PostgreSQL writes as DBUser; SQL Server, without
+	// AWS IAM sign-in, uses the master user secret.
+	MCPAllowWrites bool
+	// RememberPassword keeps DBPassword in the OS keychain for the next connections.
+	RememberPassword bool
 	// Unattended never signs in interactively, as nobody may be there to answer (automatic
 	// reconnections): missing or expired credentials fail with ErrSignInRequired.
 	Unattended bool
-	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
-	OpenedBy string `json:"openedBy,omitempty"`
 	// SkipMCPRegistration serves the MCP server without writing it in the AI client files: the
 	// gateway relays it.
 	SkipMCPRegistration bool `json:"skipMCPRegistration,omitempty"`
@@ -106,14 +106,14 @@ func (o *Options) SignInMethod() string {
 type ResourceSummary struct {
 	Name        string
 	Description string
-	// IAMAuth reports whether the RDS instance accepts AWS IAM authentication.
-	IAMAuth bool
 	// Type is the resource type (rds, eks, elasticache) the summary was listed as.
 	Type string
 	// Engine is the RDS engine (postgres, sqlserver-se, ...) or the ElastiCache engine (redis, valkey, memcached); empty for EKS.
 	Engine string
 	// CacheAuth is how an ElastiCache target signs clients in (CacheAuth*); empty for other types.
 	CacheAuth string
+	// IAMAuth reports whether the RDS instance accepts AWS IAM authentication.
+	IAMAuth bool
 }
 
 type AWSProfileSummary struct {
@@ -125,36 +125,36 @@ type RunnerOptions struct {
 	In  io.Reader
 	Out io.Writer
 	Err io.Writer
+	// Keychain remembers the passwords the user asks to keep; nil disables it. It only works
+	// together with PrefsPath, which records which targets have one.
+	Keychain keychain.Store
+	// Databases finds the direct databases; nil disables them.
+	Databases DirectDatabases
 	// Registry tracks ports and targets of parallel sessions; share it between runners of one process.
 	Registry *SessionRegistry
 	// MCPHost serves the MCP servers of database sessions; share it between runners of one process.
 	MCPHost *mcpserve.Host
+	// Interactive runs a command needing the user's terminal (aws sso login), purpose saying why;
+	// nil runs it on In, Out and Err.
+	Interactive InteractiveFunc
+	// JumphostTag finds the SSM jumphost instance (Usage=jumphost when zero).
+	JumphostTag awstag.Tag
+	// ReadOnlySecretTag marks the read-only secrets of SQL Server instances; zero disables them.
+	ReadOnlySecretTag awstag.Tag
 	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
 	// PrefsPath is the saved-connections.json remembering the Connect step choices per target; empty disables it.
 	PrefsPath string
-	// Keychain remembers the passwords the user asks to keep; nil disables it. It only works
-	// together with PrefsPath, which records which targets have one.
-	Keychain keychain.Store
 	// DefaultRegion is used after AWS_REGION and the profile's region; empty means none.
 	DefaultRegion string
 	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means one is required.
 	DefaultDBUser string
-	// JumphostTag finds the SSM jumphost instance (Usage=jumphost when zero).
-	JumphostTag awstag.Tag
-	// ReadOnlySecretTag marks the read-only secrets of SQL Server instances; zero disables them.
-	ReadOnlySecretTag awstag.Tag
 	// MCPServerPrefix starts MCP server names (mcpserve.DefaultServerPrefix when empty).
 	MCPServerPrefix string
 	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
 	KubeconfigDir string
-	// Databases finds the direct databases; nil disables them.
-	Databases DirectDatabases
-	// Interactive runs a command needing the user's terminal (aws sso login), purpose saying why;
-	// nil runs it on In, Out and Err.
-	Interactive InteractiveFunc
 }
 
 type SessionDetails struct {
@@ -174,32 +174,32 @@ type SessionDetails struct {
 // Session is a prepared port-forwarding session: its local port and target are reserved
 // in the registry until Release is called.
 type Session struct {
-	release    func() string
-	mcp        mcpserve.Session
-	releaseMsg string
-	Label      string
+	mcp mcpserve.Session
+	// SignIn resolves and checks the database credentials once the tunnel is up; nil when airlock
+	// cannot query the session's database.
+	SignIn  SignInChecker
+	release func() string
+	// ReadCredentials reads the database credentials of the session from Secrets Manager, again on
+	// each call: the picked secret, or the read-only secrets of each database; nil when the session
+	// signs in otherwise.
+	ReadCredentials func(ctx context.Context) ([]DBCredentials, error)
+	Details         SessionDetails
+	releaseMsg      string
+	Label           string
 	// ResourceType (eks, rds, elasticache), Target, Profile and Region describe the connection for display.
 	ResourceType string
 	Target       string
 	Profile      string
 	Region       string
-	Details      SessionDetails
 	AwsArgs      []string
 	CommandArgs  []string
 	// Intro describes the connection (display name, connection hints, IDE data source).
-	Intro []string
-	// ReadCredentials reads the database credentials of the session from Secrets Manager, again on
-	// each call: the picked secret, or the read-only secrets of each database; nil when the session
-	// signs in otherwise.
-	ReadCredentials func(ctx context.Context) ([]DBCredentials, error)
-	// SignIn resolves and checks the database credentials once the tunnel is up; nil when airlock
-	// cannot query the session's database.
-	SignIn    SignInChecker
-	LocalPort int
+	Intro       []string
+	LocalPort   int
+	releaseOnce sync.Once
 	// Production is the production flag of a direct database's definition (AWS sessions are
 	// flagged by profile in the dashboard).
-	Production  bool
-	releaseOnce sync.Once
+	Production bool
 }
 
 // MCPServer is the session's running MCP server, nil when none runs.
@@ -210,19 +210,6 @@ func (s *Session) MCPServer() mcpserve.Session {
 // SetMCPServer makes server the session's MCP server: for the fakes of the runner (sessionstest).
 func (s *Session) SetMCPServer(server mcpserve.Session) {
 	s.mcp = server
-}
-
-// attachMCP records the MCP server of session and its display line; a server that did not start
-// (nil, typed or not) only leaves its display, so MCPServer stays a nil interface.
-func (r *Runner) attachMCP(session *Session, server mcpserve.Session, display string) {
-	if display != "" {
-		session.Details.MCP = display
-		session.Intro = append(session.Intro, "MCP "+display)
-	}
-	if v := reflect.ValueOf(server); server == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
-		return
-	}
-	session.mcp = server
 }
 
 // Release frees the session's port and target and removes its IDE data source.
@@ -245,14 +232,15 @@ type Runner struct {
 	// prefs is nil when connection preferences are not remembered.
 	prefs *PrefsStore
 	// keychain is nil when passwords cannot be remembered; keychainOK caches its availability.
-	keychain     keychain.Store
-	keychainOnce sync.Once
-	keychainOK   bool
-	// accounts caches the AWS account ID of each profile, learned from the identity check.
-	accounts   map[string]string
-	accountsMu sync.Mutex
-	projectDir string
-	mcpLogDir  string
+	keychain keychain.Store
+	// accounts caches the AWS account ID of each profile, learned from the identity check;
+	// accountsMu guards it.
+	accounts map[string]string
+	// databases finds the direct databases; nil when they are disabled.
+	databases   DirectDatabases
+	interactive InteractiveFunc
+	projectDir  string
+	mcpLogDir   string
 	// defaultRegion and defaultDBUser are used when none is given; empty when not configured.
 	defaultRegion string
 	defaultDBUser string
@@ -262,11 +250,34 @@ type Runner struct {
 	mcpServerPrefix   string
 	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
 	kubeconfigDir string
-	// databases finds the direct databases; nil when they are disabled.
-	databases   DirectDatabases
-	interactive InteractiveFunc
+	accountsMu    sync.Mutex
 	// loginMu serializes the SSO sign-ins of expired identities.
-	loginMu sync.Mutex
+	loginMu      sync.Mutex
+	keychainOnce sync.Once
+	keychainOK   bool
+}
+
+// attachMCP records the MCP server of session and its display line; a server that did not start
+// (nil, typed or not) only leaves its display, so MCPServer stays a nil interface.
+func (r *Runner) attachMCP(session *Session, server mcpserve.Session, display string) {
+	if display != "" {
+		session.Details.MCP = display
+		session.Intro = append(session.Intro, "MCP "+display)
+	}
+	if v := reflect.ValueOf(server); server == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
+		return
+	}
+	session.mcp = server
+}
+
+// preparedTarget is what the prepare step of a resource type resolved: the target name, the
+// session's display name and intro lines, the SSM port-forwarding parameters and the IDE target.
+type preparedTarget struct {
+	ssmParameters map[string][]string
+	name          string
+	display       string
+	info          []string
+	target        ideTarget
 }
 
 // ideTarget carries what is needed to register the forwarded connection in the IDE.
@@ -286,7 +297,6 @@ type ideTarget struct {
 	DBSecretARN string
 	// KeychainAccount is the keychain entry DBPassword was remembered in; empty when not remembered.
 	KeychainAccount string
-	RDSPort         int
 	// ClusterCA is the base64 certificate authority of an EKS cluster, for its kubeconfig.
 	ClusterCA string
 	// CacheEndpoint is the real cache host, the TLS server name of an ElastiCache session.
@@ -296,6 +306,7 @@ type ideTarget struct {
 	// CacheReplicationGroup is the replication group of a cache node reached by its node id, which
 	// IAM tokens are signed for; empty otherwise.
 	CacheReplicationGroup string
+	RDSPort               int
 	// CacheTLS reports in-transit encryption; CacheServerless a serverless cache; CacheClusterMode a
 	// cluster-mode-enabled replication group, whose other shards the tunnel cannot reach.
 	CacheTLS         bool
@@ -312,7 +323,7 @@ type awsConfig struct {
 	Args    []string
 }
 
-func NewRunner(opts RunnerOptions) *Runner {
+func NewRunner(opts *RunnerOptions) *Runner {
 	in := opts.In
 	if in == nil {
 		in = os.Stdin
@@ -355,8 +366,8 @@ func NewRunner(opts RunnerOptions) *Runner {
 }
 
 // Run prepares a single session and streams it in the current terminal until it ends.
-func (r *Runner) Run(ctx context.Context, options Options) error {
-	session, err := r.Prepare(ctx, options)
+func (r *Runner) Run(ctx context.Context, options *Options) error {
+	session, err := r.Prepare(ctx, *options)
 	if err != nil {
 		return err
 	}
@@ -386,7 +397,7 @@ func (r *Runner) Run(ctx context.Context, options Options) error {
 
 // Prepare resolves the target, reserves a free local port and registers the IDE data source.
 // The caller starts the returned session (aws CommandArgs + AwsArgs; none for a direct database) and must Release it once finished.
-func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error) {
+func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error) { //nolint:gocritic // signature fixed by sessions.Runner.
 	// A direct database is reached without AWS: no CLI, identity, jumphost nor local port.
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDirect) {
 		return r.prepareDirect(ctx, &options)
@@ -400,7 +411,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
-	cfg, err := r.resolveAWSConfig(ctx, options)
+	cfg, err := r.resolveAWSConfig(ctx, &options)
 	if err != nil {
 		return nil, err
 	}
@@ -410,23 +421,19 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		return nil, err
 	}
 
-	var sessionDisplayName string
-	var sessionInfo []string
-	var ssmParameters map[string][]string
-	var target ideTarget
-	var resolvedTargetName string
-
+	var prepared preparedTarget
 	switch resourceType {
 	case resourceRDS:
-		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareRDS(ctx, cfg, options)
+		prepared, err = r.prepareRDS(ctx, cfg, &options)
 	case resourceEKS:
-		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareEKS(ctx, cfg, options)
-	case resourceElastiCache:
-		resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target, err = r.prepareElastiCache(ctx, cfg, options)
+		prepared, err = r.prepareEKS(ctx, cfg, &options)
+	default: // resourceElastiCache, the last of the types checked above.
+		prepared, err = r.prepareElastiCache(ctx, cfg, &options)
 	}
 	if err != nil {
 		return nil, err
 	}
+	resolvedTargetName, sessionDisplayName, sessionInfo, ssmParameters, target := prepared.name, prepared.display, prepared.info, prepared.ssmParameters, prepared.target
 
 	// A remembered password the database rejects is forgotten, so the next connection asks again.
 	if (resourceType == resourceRDS || resourceType == resourceElastiCache) && target.DBPassword != "" && options.RememberPassword && r.KeychainAvailable() {
@@ -558,13 +565,13 @@ func (r *Runner) ListAWSProfiles(ctx context.Context) ([]string, error) {
 	return profiles, nil
 }
 
-// listProfileNames returns the sorted AWS CLI profile names, without the default fallback.
 // ListAWSProfileNames returns the AWS CLI profile names, sorted, with a single aws call: fast
 // enough for shell completion, unlike ListAWSProfileSummaries.
 func (r *Runner) ListAWSProfileNames(ctx context.Context) ([]string, error) {
 	return r.listProfileNames(ctx)
 }
 
+// listProfileNames returns the sorted AWS CLI profile names, without the default fallback.
 func (r *Runner) listProfileNames(ctx context.Context) ([]string, error) {
 	rawProfiles, err := r.runAWSCapture(ctx, nil, "configure", "list-profiles")
 	if err != nil {
@@ -620,8 +627,8 @@ func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSumma
 }
 
 // ListResourceNames returns available resource names for the given type.
-func (r *Runner) ListResourceNames(ctx context.Context, options Options) ([]string, error) {
-	resources, err := r.ListResourceSummaries(ctx, &options)
+func (r *Runner) ListResourceNames(ctx context.Context, options *Options) ([]string, error) {
+	resources, err := r.ListResourceSummaries(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -664,9 +671,9 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 			Engine        string `json:"engine"`
 			EngineVersion string `json:"engineVersion"`
 			Host          string `json:"host"`
+			Status        string `json:"status"`
 			Port          int    `json:"port"`
 			SizeGiB       int    `json:"size"`
-			Status        string `json:"status"`
 			IAMAuth       bool   `json:"iamAuth"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
@@ -744,7 +751,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options *Options) ([
 		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
 	}
 
-	cfg, err := r.resolveAWSConfig(ctx, *options)
+	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -776,7 +783,7 @@ func formatElastiCacheResourceDescription(host string, port int, status string) 
 	return strings.Join(parts, " | ")
 }
 
-func formatRDSResourceDescription(engine string, engineVersion string, host string, port int, sizeGiB int, status string) string {
+func formatRDSResourceDescription(engine, engineVersion, host string, port, sizeGiB int, status string) string {
 	parts := make([]string, 0, 4)
 
 	engine = strings.TrimSpace(engine)
@@ -812,8 +819,8 @@ func formatRDSResourceDescription(engine string, engineVersion string, host stri
 
 // ResolveDefaultLocalPort computes the recommended local port for a selected target:
 // the remote port when it is free locally, otherwise the next free port above it.
-func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (int, error) {
-	port, err := r.resolvePreferredLocalPort(ctx, options)
+func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (int, error) { //nolint:gocritic // signature fixed by ui.JumphostDiscovery.
+	port, err := r.resolvePreferredLocalPort(ctx, &options)
 	if err != nil {
 		return 0, err
 	}
@@ -821,7 +828,7 @@ func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (
 }
 
 // LoadConnectionPrefs returns the Connect step choices saved for the target of options, if any.
-func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (ConnectionPrefs, bool) {
+func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (ConnectionPrefs, bool) { //nolint:gocritic // signature fixed by ui.JumphostDiscovery.
 	target, ok := r.prefsTarget(ctx, &options)
 	if !ok {
 		return ConnectionPrefs{}, false
@@ -833,7 +840,7 @@ func (r *Runner) LoadConnectionPrefs(ctx context.Context, options Options) (Conn
 // plus user, sign-in method, secret and MCP write access for RDS, ElastiCache and direct databases. The password itself is never
 // written to the file: with RememberPassword it goes to the OS keychain. Keychain failures are
 // returned wrapped in ErrKeychain, after the choices are saved.
-func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error {
+func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error { //nolint:gocritic // signature fixed by sessions.Runner and ui.JumphostDiscovery.
 	target, ok := r.prefsTarget(ctx, &options)
 	if !ok {
 		return nil
@@ -963,7 +970,7 @@ func (r *Runner) CheckLocalPort(port int) error {
 	return r.registry.CheckPort(port)
 }
 
-func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options Options) (int, error) {
+func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options) (int, error) {
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	switch resourceType {
 	case resourceEKS:
@@ -1071,7 +1078,7 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options Options)
 	}
 }
 
-func (r *Runner) resolveAWSConfig(ctx context.Context, options Options) (awsConfig, error) {
+func (r *Runner) resolveAWSConfig(ctx context.Context, options *Options) (awsConfig, error) {
 	profile := resolveProfileName(options.AwsProfile)
 
 	region := strings.TrimSpace(options.AwsRegion)
@@ -1170,10 +1177,10 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 		return fmt.Errorf("%w: the AWS credentials of profile %s are missing or expired", ErrSignInRequired, cfg.Profile)
 	}
 	fprintf(r.out, "Failed. Reauthorize...\n")
-	parentProfile, _ := r.runAWSCapture(ctx, nil, "configure", "get", "source_profile", "--profile", cfg.Profile)
-	loginProfile := strings.TrimSpace(parentProfile)
-	if loginProfile == "" {
-		loginProfile = cfg.Profile
+	// A profile without source_profile signs in itself.
+	loginProfile := cfg.Profile
+	if parentProfile, lookupErr := r.runAWSCapture(ctx, nil, "configure", "get", "source_profile", "--profile", cfg.Profile); lookupErr == nil && strings.TrimSpace(parentProfile) != "" {
+		loginProfile = strings.TrimSpace(parentProfile)
 	}
 	if loginProfile == "" {
 		loginProfile = defaultAwsProfile
@@ -1214,7 +1221,7 @@ func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, erro
 	return jumphostID, nil
 }
 
-func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
+func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options) (preparedTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -1223,7 +1230,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			"--output", "json",
 		)
 		if err != nil {
-			return "", "", nil, nil, ideTarget{}, err
+			return preparedTarget{}, err
 		}
 
 		var instances []struct {
@@ -1232,10 +1239,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			Port    int    `json:"port"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse RDS instances: %w", err)
+			return preparedTarget{}, fmt.Errorf("failed to parse RDS instances: %w", err)
 		}
 		if len(instances) == 0 {
-			return "", "", nil, nil, ideTarget{}, errors.New("no RDS instance found")
+			return preparedTarget{}, errors.New("no RDS instance found")
 		}
 		if len(instances) == 1 {
 			name = instances[0].Name
@@ -1247,10 +1254,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			sort.Strings(names)
 			selectedName, err := r.selectName("RDS instances", names, "Please specify the RDS instance name to connect to")
 			if err != nil {
-				return "", "", nil, nil, ideTarget{}, err
+				return preparedTarget{}, err
 			}
 			if selectedName == "" {
-				return "", "", nil, nil, ideTarget{}, errors.New("RDS instance name is required")
+				return preparedTarget{}, errors.New("RDS instance name is required")
 			}
 			name = selectedName
 		}
@@ -1263,7 +1270,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		"--output", "json",
 	)
 	if err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+		return preparedTarget{}, err
 	}
 
 	var instance struct {
@@ -1282,19 +1289,19 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		IAMDatabaseAuthenticationEnabled bool `json:"IAMDatabaseAuthenticationEnabled"`
 	}
 	if err = json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse RDS instance details: %w", err)
+		return preparedTarget{}, fmt.Errorf("failed to parse RDS instance details: %w", err)
 	}
 	if instance.Endpoint.Address == "" || instance.Endpoint.Port == 0 {
-		return "", "", nil, nil, ideTarget{}, errors.New("RDS instance endpoint is missing")
+		return preparedTarget{}, errors.New("RDS instance endpoint is missing")
 	}
 
 	secretID := strings.TrimSpace(options.DBSecretARN)
 	if secretID == "" && options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
-		return "", "", nil, nil, ideTarget{}, errors.New("a database user is required to sign in with a password")
+		return preparedTarget{}, errors.New("a database user is required to sign in with a password")
 	}
 	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == "" && secretID == "" && options.SignIn != SignInAuto
 	if iamAuth && r.ResolveDBUser(options.DBUser) == "" {
-		return "", "", nil, nil, ideTarget{}, fmt.Errorf(
+		return preparedTarget{}, fmt.Errorf(
 			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set a default with `airlock config set defaultDbUser <user>`",
 			instance.DBInstanceIdentifier)
 	}
@@ -1304,13 +1311,13 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 			return r.runAWSCapture(ctx, cfg.Args, args...)
 		}
 		if secretUser, err = resolveSecretSignIn(ctx, aws, secretID, options.DBUser); err != nil {
-			return "", "", nil, nil, ideTarget{}, err
+			return preparedTarget{}, err
 		}
 	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
 	if err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+		return preparedTarget{}, err
 	}
 
 	displayName := fmt.Sprintf(
@@ -1349,7 +1356,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		password = ""
 	}
 
-	return instance.DBInstanceIdentifier, displayName, sessionInfo, params, ideTarget{
+	return preparedTarget{name: instance.DBInstanceIdentifier, display: displayName, info: sessionInfo, ssmParameters: params, target: ideTarget{
 		Engine:          instance.Engine,
 		Database:        instance.DBName,
 		RDSHost:         instance.Endpoint.Address,
@@ -1360,7 +1367,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options Options)
 		DBUser:          dbUser,
 		DBPassword:      password,
 		DBSecretARN:     secretID,
-	}, nil
+	}}, nil
 }
 
 // rdsSecretSessionInfo explains how to sign in with the password of the picked secret.
@@ -1425,7 +1432,7 @@ func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUs
 	)
 }
 
-func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
+func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options) (preparedTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
@@ -1434,17 +1441,17 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 			"--output", "json",
 		)
 		if err != nil {
-			return "", "", nil, nil, ideTarget{}, err
+			return preparedTarget{}, err
 		}
 
 		var clusters []struct {
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse EKS clusters: %w", err)
+			return preparedTarget{}, fmt.Errorf("failed to parse EKS clusters: %w", err)
 		}
 		if len(clusters) == 0 {
-			return "", "", nil, nil, ideTarget{}, errors.New("no EKS cluster found")
+			return preparedTarget{}, errors.New("no EKS cluster found")
 		}
 		if len(clusters) == 1 {
 			name = clusters[0].Name
@@ -1456,10 +1463,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 			sort.Strings(names)
 			selectedName, err := r.selectName("EKS clusters", names, "Please specify the EKS cluster name to connect to")
 			if err != nil {
-				return "", "", nil, nil, ideTarget{}, err
+				return preparedTarget{}, err
 			}
 			if selectedName == "" {
-				return "", "", nil, nil, ideTarget{}, errors.New("EKS cluster name is required")
+				return preparedTarget{}, errors.New("EKS cluster name is required")
 			}
 			name = selectedName
 		}
@@ -1472,7 +1479,7 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"--output", "json",
 	)
 	if err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+		return preparedTarget{}, err
 	}
 
 	var cluster struct {
@@ -1483,15 +1490,15 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		} `json:"certificateAuthority"`
 	}
 	if err = json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
-		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse EKS cluster details: %w", err)
+		return preparedTarget{}, fmt.Errorf("failed to parse EKS cluster details: %w", err)
 	}
 	if cluster.Endpoint == "" {
-		return "", "", nil, nil, ideTarget{}, errors.New("EKS cluster endpoint is missing")
+		return preparedTarget{}, errors.New("EKS cluster endpoint is missing")
 	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceEKS, cluster.Name, cfg), options.LocalPortNumber, defaultEKSLocalPort)
 	if err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+		return preparedTarget{}, err
 	}
 
 	displayName := fmt.Sprintf("EKS %s (%s) -> localhost:%d", cluster.Name, cluster.Endpoint, localPort)
@@ -1501,7 +1508,7 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options Options)
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return cluster.Name, displayName, nil, params, ideTarget{ClusterCA: strings.TrimSpace(cluster.CertificateAuthority.Data)}, nil
+	return preparedTarget{name: cluster.Name, display: displayName, ssmParameters: params, target: ideTarget{ClusterCA: strings.TrimSpace(cluster.CertificateAuthority.Data)}}, nil
 }
 
 // writeKubeconfig writes the kubeconfig pointing Kubernetes clients at the tunnel of an EKS
@@ -1547,15 +1554,15 @@ func eksSessionInfo(localPort int, endpointHost, kubeconfigPath string) []string
 	}
 }
 
-func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options Options) (string, string, []string, map[string][]string, ideTarget, error) {
+func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options *Options) (preparedTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
 		resources, err := r.listElastiCacheResources(ctx, cfg)
 		if err != nil {
-			return "", "", nil, nil, ideTarget{}, err
+			return preparedTarget{}, err
 		}
 		if len(resources) == 0 {
-			return "", "", nil, nil, ideTarget{}, errors.New("no ElastiCache cluster found")
+			return preparedTarget{}, errors.New("no ElastiCache cluster found")
 		}
 		if len(resources) == 1 {
 			name = resources[0].Name
@@ -1566,10 +1573,10 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 			}
 			selectedName, err := r.selectName("ElastiCache clusters", names, "Please specify the cluster name to connect to")
 			if err != nil {
-				return "", "", nil, nil, ideTarget{}, err
+				return preparedTarget{}, err
 			}
 			if selectedName == "" {
-				return "", "", nil, nil, ideTarget{}, errors.New("ElastiCache cluster name is required")
+				return preparedTarget{}, errors.New("ElastiCache cluster name is required")
 			}
 			name = selectedName
 		}
@@ -1609,7 +1616,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 				endpoint = group.NodeGroups[0].PrimaryEndpoint
 			}
 			if endpoint.Address != "" {
-				return r.prepareCacheTarget(ctx, cfg, &options, group.ReplicationGroupId, endpoint.Address, endpoint.Port, &ideTarget{
+				return r.prepareCacheTarget(ctx, cfg, options, group.ReplicationGroupId, endpoint.Address, endpoint.Port, &ideTarget{
 					Engine:           elastiCacheEngine(group.Engine),
 					CacheAuth:        cacheAuthMode(group.AuthTokenEnabled, group.UserGroupIDs),
 					CacheTLS:         group.TransitEncryptionEnabled,
@@ -1656,10 +1663,10 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 			if cluster.ReplicationGroupId != "" {
 				// A node of a replication group signs in as its group does.
 				if groupErr := r.applyNodeReplicationGroup(ctx, cfg, cluster.ReplicationGroupId, target); groupErr != nil {
-					return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to describe the replication group %s of cache node %s: %w", cluster.ReplicationGroupId, cluster.CacheClusterId, groupErr)
+					return preparedTarget{}, fmt.Errorf("failed to describe the replication group %s of cache node %s: %w", cluster.ReplicationGroupId, cluster.CacheClusterId, groupErr)
 				}
 			}
-			return r.prepareCacheTarget(ctx, cfg, &options, cluster.CacheClusterId, endpoint.Address, endpoint.Port, target, func(localPort int) string {
+			return r.prepareCacheTarget(ctx, cfg, options, cluster.CacheClusterId, endpoint.Address, endpoint.Port, target, func(localPort int) string {
 				return fmt.Sprintf("ElastiCache %s (%s %s) %s:%d -> localhost:%d",
 					cluster.CacheClusterId, cluster.Engine, cluster.EngineVersion, endpoint.Address, endpoint.Port, localPort)
 			})
@@ -1674,7 +1681,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		"--output", "json",
 	)
 	if err != nil {
-		return "", "", nil, nil, ideTarget{}, fmt.Errorf("ElastiCache cluster %q not found: %w", name, err)
+		return preparedTarget{}, fmt.Errorf("ElastiCache cluster %q not found: %w", name, err)
 	}
 
 	var sc struct {
@@ -1689,17 +1696,17 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		} `json:"Endpoint"`
 	}
 	if err = json.Unmarshal([]byte(rawServerless), &sc); err != nil {
-		return "", "", nil, nil, ideTarget{}, fmt.Errorf("failed to parse serverless cache details: %w", err)
+		return preparedTarget{}, fmt.Errorf("failed to parse serverless cache details: %w", err)
 	}
 	if sc.Endpoint.Address == "" {
-		return "", "", nil, nil, ideTarget{}, fmt.Errorf("serverless cache %q endpoint is missing", name)
+		return preparedTarget{}, fmt.Errorf("serverless cache %q endpoint is missing", name)
 	}
 
 	var userGroups []string
 	if sc.UserGroupID != "" {
 		userGroups = []string{sc.UserGroupID}
 	}
-	return r.prepareCacheTarget(ctx, cfg, &options, sc.ServerlessCacheName, sc.Endpoint.Address, sc.Endpoint.Port, &ideTarget{
+	return r.prepareCacheTarget(ctx, cfg, options, sc.ServerlessCacheName, sc.Endpoint.Address, sc.Endpoint.Port, &ideTarget{
 		Engine:          elastiCacheEngine(sc.Engine),
 		CacheAuth:       cacheAuthMode(false, userGroups),
 		CacheTLS:        true,
@@ -1731,7 +1738,7 @@ func (r *Runner) registerIDEDataSource(options *Options, resourceType, targetNam
 		Host:       "localhost",
 		Port:       port,
 		Database:   target.Database,
-		Properties: awsIAMProperties(*target, cfg),
+		Properties: awsIAMProperties(target, cfg),
 	}
 	dataSource.User = target.DBUser
 	if target.IAMAuth {
@@ -1790,7 +1797,7 @@ func (r *Runner) ResolveDBUser(user string) string {
 }
 
 // awsIAMProperties prefills the AWS Toolkit settings used by IntelliJ's "AWS IAM" authentication.
-func awsIAMProperties(target ideTarget, cfg awsConfig) map[string]string {
+func awsIAMProperties(target *ideTarget, cfg awsConfig) map[string]string {
 	if !target.IAMAuth {
 		return nil
 	}
@@ -2080,13 +2087,13 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	var resources []ResourceSummary
 
 	// Replication groups (Redis/Valkey with replication).
-	rgOutput, err := r.runAWSCapture(ctx, cfg.Args,
+	rgOutput, rgErr := r.runAWSCapture(ctx, cfg.Args,
 		"elasticache", "describe-replication-groups",
 		"--query", "ReplicationGroups[*].{name:ReplicationGroupId,status:Status,engine:Engine,authToken:AuthTokenEnabled,userGroups:UserGroupIds,"+
 			"host:NodeGroups[0].PrimaryEndpoint.Address,port:NodeGroups[0].PrimaryEndpoint.Port,cfgHost:ConfigurationEndpoint.Address,cfgPort:ConfigurationEndpoint.Port}",
 		"--output", "json",
 	)
-	if err == nil {
+	if rgErr == nil {
 		var groups []struct {
 			Name       string   `json:"name"`
 			Status     string   `json:"status"`
@@ -2099,7 +2106,8 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 			AuthToken  bool     `json:"authToken"`
 		}
 		if json.Unmarshal([]byte(rgOutput), &groups) == nil {
-			for _, g := range groups {
+			for i := range groups {
+				g := &groups[i]
 				name := strings.TrimSpace(g.Name)
 				if name == "" {
 					continue
@@ -2119,13 +2127,13 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	}
 
 	// Standalone cache clusters (no replication group — includes single-node Valkey/Redis).
-	clOutput, err := r.runAWSCapture(ctx, cfg.Args,
+	clOutput, clErr := r.runAWSCapture(ctx, cfg.Args,
 		"elasticache", "describe-cache-clusters",
 		"--show-cache-node-info",
 		"--query", "CacheClusters[?!ReplicationGroupId].{name:CacheClusterId,status:CacheClusterStatus,engine:Engine,authToken:AuthTokenEnabled,host:CacheNodes[0].Endpoint.Address,port:CacheNodes[0].Endpoint.Port}",
 		"--output", "json",
 	)
-	if err == nil {
+	if clErr == nil {
 		var clusters []struct {
 			Name      string `json:"name"`
 			Status    string `json:"status"`
@@ -2151,12 +2159,12 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	}
 
 	// Serverless caches (Valkey/Redis serverless — different API entirely).
-	scOutput, err := r.runAWSCapture(ctx, cfg.Args,
+	scOutput, scErr := r.runAWSCapture(ctx, cfg.Args,
 		"elasticache", "describe-serverless-caches",
 		"--query", "ServerlessCaches[*].{name:ServerlessCacheName,status:Status,engine:Engine,userGroup:UserGroupId,host:Endpoint.Address,port:Endpoint.Port}",
 		"--output", "json",
 	)
-	if err == nil {
+	if scErr == nil {
 		var serverless []struct {
 			Name      string `json:"name"`
 			Status    string `json:"status"`
@@ -2182,6 +2190,11 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 			}
 		}
 	}
+	// One listing may fail on its own (a region without serverless caches); all failing means
+	// the caches could not be listed at all.
+	if rgErr != nil && clErr != nil && scErr != nil {
+		return nil, fmt.Errorf("failed to list ElastiCache caches: %w", errors.Join(rgErr, clErr, scErr))
+	}
 
 	sort.Slice(resources, func(i, j int) bool {
 		return resources[i].Name < resources[j].Name
@@ -2205,7 +2218,7 @@ func (r *Runner) selectName(title string, names []string, prompt string) (string
 	for _, name := range names {
 		fprintf(tw, "%s\n", name)
 	}
-	_ = tw.Flush()
+	_ = tw.Flush() //nolint:errcheck // best-effort terminal output
 
 	fprintf(r.out, "%s: ", prompt)
 	reader := bufio.NewReader(r.in)
@@ -2228,7 +2241,7 @@ func (r *Runner) runAWSCapture(ctx context.Context, awsArgs []string, commandArg
 	args := append([]string{}, commandArgs...)
 	args = append(args, awsArgs...)
 
-	cmd := exec.CommandContext(ctx, "aws", args...)
+	cmd := exec.CommandContext(ctx, "aws", args...) // #nosec G204 G702 -- the aws CLI with airlock's own arguments, no shell.
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -2254,7 +2267,7 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	// Use exec.Command (not CommandContext) and start aws in its own process group,
 	// so that it and its child process session-manager-plugin are both stopped
 	// when the context is cancelled.
-	cmd := exec.Command("aws", args...)
+	cmd := exec.Command("aws", args...) // #nosec G204 G702 -- the aws CLI with airlock's own arguments, no shell.
 	platform.StartInOwnGroup(cmd)
 	cmd.Stdin = r.in
 	cmd.Stdout = r.out
@@ -2292,5 +2305,5 @@ func isInteractive(in io.Reader) bool {
 }
 
 func fprintf(w io.Writer, format string, args ...any) {
-	_, _ = fmt.Fprintf(w, format, args...)
+	_, _ = fmt.Fprintf(w, format, args...) //nolint:errcheck // best-effort terminal output
 }

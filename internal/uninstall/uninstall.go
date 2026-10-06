@@ -67,8 +67,9 @@ type Env struct {
 	// Keychain is the OS keychain; nil when it does not answer.
 	Keychain keychain.Store
 	// UserPath reads the Windows user PATH; nil elsewhere.
-	UserPath func() (string, error)
-	GOOS     string
+	UserPath           func() (string, error)
+	RemoveGatewayEntry func(path string) error
+	GOOS               string
 	// Executable is the running airlock, symlinks resolved.
 	Executable string
 	// DataDir is airlock's config folder.
@@ -77,8 +78,7 @@ type Env struct {
 	Profiles []string
 	// GatewayEntries are the user-level AI client files holding the MCP gateway entry;
 	// RemoveGatewayEntry removes it from one.
-	GatewayEntries     []string
-	RemoveGatewayEntry func(path string) error
+	GatewayEntries []string
 }
 
 // Plan lists what an uninstall removes, in the order shown, and what it leaves behind.

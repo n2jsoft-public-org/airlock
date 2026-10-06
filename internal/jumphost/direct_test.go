@@ -60,7 +60,7 @@ func directKeychainRunner(t *testing.T, dbs ...directdb.Database) (*Runner, *key
 		}
 	}
 	store := keychain.NewMemoryStore()
-	runner := NewRunner(RunnerOptions{PrefsPath: path, Keychain: store, Databases: saved})
+	runner := NewRunner(&RunnerOptions{PrefsPath: path, Keychain: store, Databases: saved})
 	return runner, store
 }
 
@@ -142,7 +142,7 @@ func directRunner(t *testing.T, opts *RunnerOptions) *Runner {
 		opts.Out = io.Discard
 	}
 	opts.Err, opts.MCPHost, opts.MCPServerPrefix = io.Discard, mcpserve.NewHost(), "acme"
-	return NewRunner(*opts)
+	return NewRunner(opts)
 }
 
 // stubDirectMCP records the config of the direct MCP servers instead of starting them.
@@ -389,7 +389,7 @@ func TestRunDirectReleasesOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Ctrl+C: the context ends.
 
-	if err := runner.Run(ctx, Options{ResourceType: "direct", Name: "legacy-billing", DBPassword: "s3cret"}); err != nil {
+	if err := runner.Run(ctx, &Options{ResourceType: "direct", Name: "legacy-billing", DBPassword: "s3cret"}); err != nil {
 		t.Fatal(err)
 	}
 	output := out.String()
@@ -520,7 +520,7 @@ func TestPrepareDirectCarriesTLSToTheIDEDataSource(t *testing.T) {
 
 func TestForgetDirectPasswordDeletesThePasswordOfTheNamedUser(t *testing.T) {
 	store := keychain.NewMemoryStore()
-	runner := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: store})
+	runner := NewRunner(&RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: store})
 	for _, flagged := range []bool{true, false} {
 		if err := store.Set(billingKeychainAccount, "s3cret"); err != nil {
 			t.Fatal(err)
@@ -539,7 +539,7 @@ func TestForgetDirectPasswordDeletesThePasswordOfTheNamedUser(t *testing.T) {
 		t.Fatalf("no user, nothing to forget: %v", err)
 	}
 
-	locked := NewRunner(RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: undeletableKeychain{store}})
+	locked := NewRunner(&RunnerOptions{PrefsPath: filepath.Join(t.TempDir(), "saved-connections.json"), Keychain: undeletableKeychain{store}})
 	if err := locked.ForgetDirectPassword("legacy-billing", "mcp_ro", true); !errors.Is(err, ErrKeychain) {
 		t.Fatalf("err = %v, want ErrKeychain", err)
 	}

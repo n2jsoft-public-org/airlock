@@ -219,7 +219,7 @@ func TestModeSetting(t *testing.T) {
 	if cfg.Mode != ModeDaemon {
 		t.Fatalf("mode = %q", cfg.Mode)
 	}
-	if _, err := Load(writeConfig(t, `{"mode": "service"}`)); err == nil || !strings.Contains(err.Error(), "mode") {
+	if _, err = Load(writeConfig(t, `{"mode": "service"}`)); err == nil || !strings.Contains(err.Error(), "mode") {
 		t.Fatalf("err = %v", err)
 	}
 	out, err := defaults.Apply(Overrides{Mode: new("daemon")})

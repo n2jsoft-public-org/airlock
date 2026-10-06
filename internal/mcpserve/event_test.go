@@ -23,10 +23,9 @@ func readFile(t *testing.T, path string) string {
 }
 
 func TestToolEventSQLJSONIsUnchanged(t *testing.T) {
-	rows := int64(3)
 	e := testBaseEvent()
 	e.Time = time.Date(2026, 9, 29, 14, 5, 0, 0, time.UTC)
-	e.Tool, e.Database, e.Schema, e.SQL, e.MaxRows, e.Rows, e.Truncated = "query", "archive", "public", "SELECT 1", 200, &rows, true
+	e.Tool, e.Database, e.Schema, e.SQL, e.MaxRows, e.Rows, e.Truncated = "query", "archive", "public", "SELECT 1", 200, new(int64(3)), true
 
 	raw, err := json.Marshal(&e)
 	if err != nil {
@@ -41,8 +40,7 @@ func TestToolEventSQLJSONIsUnchanged(t *testing.T) {
 }
 
 func TestToolEventNewKindsJSON(t *testing.T) {
-	db := 0
-	e := ToolEvent{Tool: "command", DB: &db, Command: "GET user:1", Engine: "valkey"}
+	e := ToolEvent{Tool: "command", DB: new(0), Command: "GET user:1", Engine: "valkey"}
 	raw, err := json.Marshal(&e)
 	if err != nil {
 		t.Fatal(err)

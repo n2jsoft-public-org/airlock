@@ -348,12 +348,12 @@ func (f jsonFormat) remove(path string, entry ClientEntry) (bool, error) {
 
 // updateConfig applies change to the servers object of a config file under a cross-process lock.
 // change returns false when nothing needs to be written.
-func updateConfig(path, key string, change func(servers *orderedObject) bool) error {
+func updateConfig(path, key string, change func(servers *orderedObject) bool) (err error) {
 	unlock, err := lockConfig(path)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = unlock() }()
+	defer func() { err = errors.Join(err, unlock()) }()
 
 	root := orderedObject{}
 	indent := defaultIndent
@@ -378,13 +378,13 @@ func updateConfig(path, key string, change func(servers *orderedObject) bool) er
 	if !change(&servers) {
 		return nil
 	}
-	encodedServers, err := marshalNoEscape(servers)
+	encodedServers, err := marshalNoEscape(&servers)
 	if err != nil {
 		return err
 	}
 	root.set(key, encodedServers)
 
-	output, err := marshalIndentNoEscape(root, indent)
+	output, err := marshalIndentNoEscape(&root, indent)
 	if err != nil {
 		return err
 	}
@@ -422,8 +422,7 @@ func writeFileAtomic(path string, data []byte) error {
 	_, writeErr := tmp.Write(data)
 	closeErr := tmp.Close()
 	if err := errors.Join(writeErr, closeErr, os.Chmod(tmp.Name(), mode)); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
+		return errors.Join(err, os.Remove(tmp.Name()))
 	}
 	return os.Rename(tmp.Name(), path)
 }

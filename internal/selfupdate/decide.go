@@ -10,15 +10,15 @@ import (
 type Status string
 
 const (
-	// StatusUpToDate: the running build is the latest release.
+	// StatusUpToDate means the running build is the latest release.
 	StatusUpToDate Status = "up-to-date"
-	// StatusAvailable: the latest release is newer than the running build.
+	// StatusAvailable means the latest release is newer than the running build.
 	StatusAvailable Status = "available"
-	// StatusNewer: the running build is newer than the latest release (built from a later commit).
+	// StatusNewer means the running build is newer than the latest release (built from a later commit).
 	StatusNewer Status = "newer"
-	// StatusDiverged: the running build comes from a commit that is not on the release branch.
+	// StatusDiverged means the running build comes from a commit that is not on the release branch.
 	StatusDiverged Status = "diverged"
-	// StatusDev: the running build has no version (go run).
+	// StatusDev means the running build has no version (go run).
 	StatusDev Status = "dev"
 )
 

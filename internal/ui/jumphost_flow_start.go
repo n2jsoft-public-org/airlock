@@ -158,9 +158,8 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 func (m jumphostWizardModel) handleLookup(msg jumphostLookupMsg) (tea.Model, tea.Cmd) {
 	m.loading = false
 	m.loadingUI.stop()
-	var mismatch *jumphost.AccountMismatchError
-	if errors.As(msg.err, &mismatch) && m.step == jumphostStepProfile {
-		m.errorMsg = msg.err.Error()
+	if mismatch, ok := errors.AsType[*jumphost.AccountMismatchError](msg.err); ok && m.step == jumphostStepProfile {
+		m.errorMsg = mismatch.Error()
 		return m, nil
 	}
 	if msg.err != nil {

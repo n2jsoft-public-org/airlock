@@ -9,12 +9,10 @@ import (
 
 // SessionConfig describes the tunneled cluster of one EKS session.
 type SessionConfig struct {
-	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
-	SkipRegistration bool
-	AWS              mcpserve.AWSRunner
-	ProjectDir       string
-	Profile          string
-	Region           string
+	AWS        mcpserve.AWSRunner
+	ProjectDir string
+	Profile    string
+	Region     string
 	// Target is the cluster name.
 	Target string
 	// EndpointHost is the real API host the server certificate is checked against.
@@ -26,6 +24,8 @@ type SessionConfig struct {
 	// LogDir receives the audit log of the tool calls; empty disables it.
 	LogDir    string
 	LocalPort int
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
 }
 
 // Start mounts the read-only Kubernetes MCP server of an EKS session on host and registers it in

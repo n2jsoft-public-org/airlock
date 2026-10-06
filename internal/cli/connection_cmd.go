@@ -49,7 +49,7 @@ func openDatabases(cmd *cobra.Command) (*connections.Databases, error) {
 // newConnectionRunner returns a runner reaching the connection prefs and the direct databases of store and
 // the keychain, printing nothing.
 func newConnectionRunner(cmd *cobra.Command, store *connections.Databases) *jumphost.Runner {
-	return jumphost.NewRunner(jumphost.RunnerOptions{
+	return jumphost.NewRunner(&jumphost.RunnerOptions{
 		In: cmd.InOrStdin(), Out: io.Discard, Err: io.Discard,
 		PrefsPath: store.Path(), Keychain: newKeychain(), Databases: store,
 	})

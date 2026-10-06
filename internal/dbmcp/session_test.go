@@ -180,7 +180,7 @@ func connectEndpoint(t *testing.T, endpoint mcpserve.Endpoint) *mcp.ClientSessio
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = session.Close() })
+	t.Cleanup(func() { _ = session.Close() }) //nolint:errcheck // the test may have stopped the server already.
 	return session
 }
 

@@ -222,6 +222,8 @@ func (m jumphostWizardModel) updateSecretPicker(msg tea.Msg) (tea.Model, tea.Cmd
 		m.pickingSecret = false
 		m.secret, _ = picker.choice()
 		return m.focusReviewField(reviewFieldUser), nil
+	default:
+		// secretPickerOpen: still picking.
 	}
 	return m, cmd
 }

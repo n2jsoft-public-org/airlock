@@ -34,7 +34,7 @@ func installExpiredAWS(t *testing.T) (signedIn string) {
 func TestExpiredIdentitySignsInThroughTheInteractiveRunner(t *testing.T) {
 	signedIn := installExpiredAWS(t)
 	var got []string
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(_ context.Context, purpose, name string, args ...string) error {
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(_ context.Context, purpose, name string, args ...string) error {
 		if purpose == "" {
 			t.Error("the sign-in does not say why the terminal is needed")
 		}
@@ -53,7 +53,7 @@ func TestExpiredIdentitySignsInThroughTheInteractiveRunner(t *testing.T) {
 func TestConcurrentExpiredIdentityChecksSignInOnce(t *testing.T) {
 	signedIn := installExpiredAWS(t)
 	var logins atomic.Int32
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
 		logins.Add(1)
 		time.Sleep(50 * time.Millisecond)
 		return os.WriteFile(signedIn, nil, 0o600)
@@ -76,12 +76,12 @@ func TestConcurrentExpiredIdentityChecksSignInOnce(t *testing.T) {
 func TestUnattendedExpiredIdentityNeverSignsIn(t *testing.T) {
 	installExpiredAWS(t)
 	var logins atomic.Int32
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
 		logins.Add(1)
 		return nil
 	}})
 
-	_, err := runner.resolveAWSConfig(context.Background(), Options{AwsProfile: "dev", AwsRegion: "eu-west-3", Unattended: true})
+	_, err := runner.resolveAWSConfig(context.Background(), &Options{AwsProfile: "dev", AwsRegion: "eu-west-3", Unattended: true})
 	if !errors.Is(err, ErrSignInRequired) || !strings.Contains(err.Error(), "dev") {
 		t.Fatalf("err = %v, want ErrSignInRequired naming the profile", err)
 	}

@@ -59,8 +59,7 @@ func Settings(path string) ([]Setting, error) {
 	if err != nil {
 		return nil, err
 	}
-	defaults := Defaults()
-	cfg, err := f.apply(&defaults)
+	cfg, err := f.apply(new(Defaults()))
 	if err != nil {
 		return nil, fmt.Errorf("invalid config %s: %w", path, err)
 	}
@@ -138,8 +137,7 @@ func WriteTemplate(path string, force bool) error {
 	values := defaults.values()
 	var f file
 	for _, key := range Keys {
-		value := values[key.Name]
-		*f.field(key.Name) = &value
+		*f.field(key.Name) = new(values[key.Name])
 	}
 	return writeFile(path, &f)
 }

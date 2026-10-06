@@ -12,14 +12,14 @@ import (
 )
 
 func TestRunnerResolveDBUser(t *testing.T) {
-	withDefault := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultDBUser: "acme_ro"})
+	withDefault := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultDBUser: "acme_ro"})
 	if got := withDefault.ResolveDBUser("  "); got != "acme_ro" {
 		t.Fatalf("blank user resolved to %q, want the configured default", got)
 	}
 	if got := withDefault.ResolveDBUser(" app_ro "); got != "app_ro" {
 		t.Fatalf("explicit user resolved to %q", got)
 	}
-	without := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	without := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if got := without.ResolveDBUser(""); got != "" {
 		t.Fatalf("blank user without default resolved to %q, want empty", got)
 	}
@@ -42,7 +42,7 @@ func installRecordingAWS(t *testing.T, output string) (logPath string) {
 
 func TestGetJumphostIDUsesConfiguredTag(t *testing.T) {
 	logPath := installRecordingAWS(t, "i-0123")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, JumphostTag: awstag.Tag{Key: "Role", Value: "bastion"}})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, JumphostTag: awstag.Tag{Key: "Role", Value: "bastion"}})
 
 	id, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
 	if err != nil || id != "i-0123" {
@@ -59,7 +59,7 @@ func TestGetJumphostIDUsesConfiguredTag(t *testing.T) {
 
 func TestGetJumphostIDDefaultsToUsageJumphost(t *testing.T) {
 	logPath := installRecordingAWS(t, "i-0123")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if _, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestGetJumphostIDDefaultsToUsageJumphost(t *testing.T) {
 
 func TestGetJumphostIDNotFoundNamesTag(t *testing.T) {
 	installRecordingAWS(t, "None")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	_, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
 	if err == nil || !strings.Contains(err.Error(), "Usage=jumphost") || !strings.Contains(err.Error(), "eu-west-3") {
 		t.Fatalf("error = %v, want the tag and region named", err)
@@ -93,7 +93,7 @@ func TestSecretsSessionInfoWithoutTagOmitsReadOnlyHint(t *testing.T) {
 }
 
 func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	target := ideTarget{Engine: "sqlserver-se", InstanceARN: "arn:db"}
 	handle, display := runner.startMCP(&Options{}, "mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
 	if handle != nil {
@@ -110,9 +110,9 @@ func TestPrepareRDSWithoutIAMUserFailsBeforeReservingAPort(t *testing.T) {
 	// Only the registry's reservation is under test: the real port may be busy on the machine (it
 	// is in the ephemeral range, used by the connections of tests running in parallel).
 	registry.portFree = func(int) bool { return true }
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, Registry: registry})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Registry: registry})
 
-	_, _, _, _, _, err := runner.prepareRDS(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, Options{Name: "archive"})
+	_, err := runner.prepareRDS(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, &Options{Name: "archive"})
 	if err == nil {
 		t.Fatal("IAM sign-in without a database user must fail")
 	}

@@ -53,10 +53,10 @@ func directConnectionKey(name string) string {
 
 // recentItem is one remembered connection of the start screen.
 type recentItem struct {
-	age  string
-	conn jumphost.SavedConnection
+	age string
 	// db is the definition of a direct entry, when its store could be read.
 	db        directdb.Database
+	conn      jumphost.SavedConnection
 	connected bool
 	// production reports that the entry's profile, or its direct database, is flagged as production.
 	production bool

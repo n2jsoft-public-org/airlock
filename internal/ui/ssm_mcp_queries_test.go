@@ -13,10 +13,9 @@ import (
 )
 
 func queryEvent(tool, sql string) mcpserve.ToolEvent {
-	rows := int64(3)
 	return mcpserve.ToolEvent{
 		Time: time.Date(2026, 9, 29, 14, 5, 7, 0, time.Local), Tool: tool, Database: "archive", SQL: sql,
-		Rows: &rows, Duration: 18 * time.Millisecond,
+		Rows: new(int64(3)), Duration: 18 * time.Millisecond,
 	}
 }
 
@@ -146,11 +145,9 @@ func TestFooterHintsQueriesKeyForMCPSessions(t *testing.T) {
 
 func TestQueriesPanelShowsKubernetesAndCacheCalls(t *testing.T) {
 	m := newMCPTestModel(t)
-	five, two := int64(5), int64(2)
-	db := 0
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.Local)
-	m = sendQuery(t, m, mcpserve.ToolEvent{Time: at, Tool: "list_resources", Engine: "kubernetes", Namespace: "web", Resource: "pods", Rows: &five})
-	m = sendQuery(t, m, mcpserve.ToolEvent{Time: at, Tool: "command", Engine: "redis", DB: &db, Command: "HGETALL user:1", Rows: &two})
+	m = sendQuery(t, m, mcpserve.ToolEvent{Time: at, Tool: "list_resources", Engine: "kubernetes", Namespace: "web", Resource: "pods", Rows: new(int64(5))})
+	m = sendQuery(t, m, mcpserve.ToolEvent{Time: at, Tool: "command", Engine: "redis", DB: new(0), Command: "HGETALL user:1", Rows: new(int64(2))})
 	m, _ = update(t, m, key("m"))
 
 	view := plainView(m)

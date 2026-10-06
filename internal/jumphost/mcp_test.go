@@ -18,7 +18,7 @@ var acmeSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
 
 func testRunner(t *testing.T) *Runner {
 	t.Helper()
-	return NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(),
+	return NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(),
 		MCPServerPrefix: "acme", ReadOnlySecretTag: acmeSecretTag})
 }
 
@@ -115,10 +115,10 @@ func TestRDSSecretsSessionInfoWithoutMasterSecret(t *testing.T) {
 
 func TestAWSIAMPropertiesOnlyForIAMInstances(t *testing.T) {
 	cfg := awsConfig{Profile: "dev", Region: "eu-west-3"}
-	if props := awsIAMProperties(ideTarget{RDSHost: "mssql.rds.amazonaws.com", RDSPort: 1433}, cfg); props != nil {
+	if props := awsIAMProperties(&ideTarget{RDSHost: "mssql.rds.amazonaws.com", RDSPort: 1433}, cfg); props != nil {
 		t.Fatalf("instance without IAM auth must not get AWS IAM properties: %v", props)
 	}
-	props := awsIAMProperties(ideTarget{RDSHost: "pg.rds.amazonaws.com", RDSPort: 5432, IAMAuth: true}, cfg)
+	props := awsIAMProperties(&ideTarget{RDSHost: "pg.rds.amazonaws.com", RDSPort: 5432, IAMAuth: true}, cfg)
 	if props["AWS.RdsSigningHost"] != "pg.rds.amazonaws.com" || props["AWS.CredentialId"] != "profile:dev" {
 		t.Fatalf("props = %v", props)
 	}
@@ -153,7 +153,7 @@ func TestBuildRestartCommandKeepsCustomDBUser(t *testing.T) {
 
 func TestStartMCPLogsQueriesToTheRunnerLogDir(t *testing.T) {
 	logDir := filepath.Join(t.TempDir(), "logs")
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(), MCPLogDir: logDir,
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(), MCPLogDir: logDir,
 		ReadOnlySecretTag: acmeSecretTag})
 
 	handle, _ := runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)

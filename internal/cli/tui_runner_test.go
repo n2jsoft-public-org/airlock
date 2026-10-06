@@ -49,7 +49,7 @@ func TestReloadingDiscoveryFollowsTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"defaultDbUser": "one"}`)
 	source := newRunnerSource(path, func(cfg config.Config) (*jumphost.Runner, error) {
-		return jumphost.NewRunner(jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
+		return jumphost.NewRunner(&jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
 	})
 	discovery := reloadingDiscovery{source: source}
 	if got := discovery.ResolveDBUser(""); got != "one" {

@@ -39,7 +39,7 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 	if err := requireAWSCLI(); err != nil {
 		return nil, err
 	}
-	cfg, err := r.resolveAWSConfig(ctx, *options)
+	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {
 		return nil, err
 	}

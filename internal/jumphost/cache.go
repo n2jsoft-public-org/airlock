@@ -131,7 +131,7 @@ func cacheSessionInfo(localPort int, target *ideTarget) []string {
 
 // ListCacheIAMUsers lists, sorted, the users of the cache of options that sign in with AWS IAM.
 func (r *Runner) ListCacheIAMUsers(ctx context.Context, options *Options) ([]string, error) {
-	cfg, err := r.resolveAWSConfig(ctx, *options)
+	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -185,17 +185,15 @@ func iamUsersOf(groupsJSON, usersJSON, cacheName string) ([]string, error) {
 
 // prepareCacheTarget ends the preparation of a cache reached at address:port: it resolves the
 // sign-in, reserves the local port and describes the session. display names the session.
-//
-//nolint:gocritic // the six results are those of prepareElastiCache, which returns them as they are.
 func (r *Runner) prepareCacheTarget(ctx context.Context, cfg awsConfig, options *Options, name, address string, port int,
-	target *ideTarget, display func(localPort int) string) (string, string, []string, map[string][]string, ideTarget, error) {
+	target *ideTarget, display func(localPort int) string) (preparedTarget, error) {
 	target.CacheEndpoint = address
 	if err := r.resolveCacheSignIn(ctx, cfg, options, name, target); err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+		return preparedTarget{}, err
 	}
 	localPort, err := r.reservePort(sessionLabel(resourceElastiCache, name, cfg), options.LocalPortNumber, port, defaultRedisPort)
 	if err != nil {
-		return "", "", nil, nil, ideTarget{}, err
+		return preparedTarget{}, err
 	}
 	sessionInfo := append([]string{
 		fmt.Sprintf("host:port  = localhost:%d", localPort),
@@ -206,7 +204,7 @@ func (r *Runner) prepareCacheTarget(ctx context.Context, cfg awsConfig, options 
 		"portNumber":      {strconv.Itoa(port)},
 		"localPortNumber": {strconv.Itoa(localPort)},
 	}
-	return name, display(localPort), sessionInfo, params, *target, nil
+	return preparedTarget{name: name, display: display(localPort), info: sessionInfo, ssmParameters: params, target: *target}, nil
 }
 
 // cachemcpStart starts a cache session's MCP server; a package variable so tests can force a failure.

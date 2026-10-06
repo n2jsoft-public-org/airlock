@@ -261,9 +261,9 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	log.warnLookup("EKS sessions will not get a kubeconfig", err)
 	var prefsPath string
 	var databaseStore *connections.Databases
-	if saved, err := openSavedConnections(log); err != nil {
+	if saved, openErr := openSavedConnections(log); openErr != nil {
 		// The daemon reads the file (and migrates the old ones) only once, at its start.
-		log.warnLookup("saved connections are unavailable until the file is fixed and `airlock daemon restart` is run", err)
+		log.warnLookup("saved connections are unavailable until the file is fixed and `airlock daemon restart` is run", openErr)
 	} else {
 		prefsPath, databaseStore = saved.Path(), saved.Databases()
 	}
@@ -272,7 +272,7 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	source := newRunnerSource(configPath, func(cfg config.Config) (*daemonRunner, error) {
 		options := sharedRunnerOptions(&cfg, registry, mcpserve.NewHostFor(cfg.MCPClientSelection()), mcpLogDir, kubeconfigDir, databaseStore)
 		options.Out, options.Err, options.PrefsPath, options.Keychain = runnerLog, runnerLog, prefsPath, newKeychain()
-		return &daemonRunner{Runner: jumphost.NewRunner(options), cfg: cfg}, nil
+		return &daemonRunner{Runner: jumphost.NewRunner(&options), cfg: cfg}, nil
 	})
 	tokenDir, err := appdir.ConfigDir()
 	if err != nil {

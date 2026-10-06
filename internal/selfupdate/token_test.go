@@ -37,8 +37,7 @@ func TestTokenFallsBackToGitHubToken(t *testing.T) {
 }
 
 func TestTokenFallsBackToGh(t *testing.T) {
-	called := false
-	got, err := token(context.Background(), fakeEnv(nil), fakeGh("from-gh\n", nil, &called))
+	got, err := token(context.Background(), fakeEnv(nil), fakeGh("from-gh\n", nil, new(false)))
 	if err != nil || got != "from-gh" {
 		t.Fatalf("token = %q, %v, want the gh token", got, err)
 	}

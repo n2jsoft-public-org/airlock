@@ -25,7 +25,7 @@ func TestResolveRegionPrefersEnvironment(t *testing.T) {
 	installFakeAWS(t, "us-east-1")
 	t.Setenv("AWS_REGION", "ap-northeast-1")
 
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if got := runner.ResolveRegion(context.Background(), "dev"); got != "ap-northeast-1" {
 		t.Fatalf("region = %q, want AWS_REGION", got)
 	}
@@ -35,7 +35,7 @@ func TestResolveRegionUsesProfileRegion(t *testing.T) {
 	installFakeAWS(t, "us-east-1")
 	t.Setenv("AWS_REGION", "")
 
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if got := runner.ResolveRegion(context.Background(), "dev"); got != "us-east-1" {
 		t.Fatalf("region = %q, want the profile region", got)
 	}
@@ -48,7 +48,7 @@ func TestResolveRegionFallsBackToConfiguredDefault(t *testing.T) {
 	installFakeAWS(t, "us-east-1")
 	t.Setenv("AWS_REGION", "")
 
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultRegion: "eu-west-3"})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultRegion: "eu-west-3"})
 	if got := runner.ResolveRegion(context.Background(), "prod"); got != "eu-west-3" {
 		t.Fatalf("region = %q, want the configured default", got)
 	}
@@ -61,8 +61,8 @@ func TestResolveAWSConfigWithoutRegionErrors(t *testing.T) {
 	installFakeAWS(t, "")
 	t.Setenv("AWS_REGION", "")
 
-	runner := NewRunner(RunnerOptions{Out: io.Discard, Err: io.Discard})
-	_, err := runner.resolveAWSConfig(context.Background(), Options{AwsProfile: "prod"})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
+	_, err := runner.resolveAWSConfig(context.Background(), &Options{AwsProfile: "prod"})
 	if err == nil {
 		t.Fatal("resolveAWSConfig without any region must fail")
 	}

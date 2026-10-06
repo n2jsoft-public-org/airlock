@@ -8,8 +8,6 @@ import (
 
 // DirectConfig describes a database reached directly, without tunnel, signed in with a password.
 type DirectConfig struct {
-	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
-	SkipRegistration bool
 	// OnPasswordRejected is called once when the database rejects Password, e.g. to forget a
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
@@ -23,10 +21,12 @@ type DirectConfig struct {
 	User     string
 	Password string
 	// LogDir receives the audit log of the MCP tool calls; empty disables it.
-	LogDir      string
-	Engine      Engine
-	Address     Address
-	AllowWrites bool
+	LogDir  string
+	Engine  Engine
+	Address Address
+	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
+	SkipRegistration bool
+	AllowWrites      bool
 }
 
 // StartDirect mounts the MCP server of a direct database on host and registers it in the

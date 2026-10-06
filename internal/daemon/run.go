@@ -23,14 +23,14 @@ const defaultIdleTimeout = 10 * time.Minute
 
 // RunConfig is what the daemon runs with; internal/cli builds it from config.json.
 type RunConfig struct {
-	Log         io.Writer
-	Runner      sessions.RunnerSource
-	Launch      sessions.Launcher
+	Log    io.Writer
+	Runner sessions.RunnerSource
+	Launch sessions.Launcher
+	// Gateway starts the MCP gateway; nil runs without one.
+	Gateway     StartGatewayFunc
 	Paths       Paths
 	Version     string
 	IdleTimeout time.Duration
-	// Gateway starts the MCP gateway; nil runs without one.
-	Gateway StartGatewayFunc
 }
 
 // Run is the daemon: it serves the sessions until ctx ends, SIGTERM/SIGINT, daemon.stop or idleness.
