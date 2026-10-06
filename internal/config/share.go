@@ -59,9 +59,9 @@ func (p *Plan) HasChanges() bool {
 	return false
 }
 
-// Export encodes the keys set in path as one opaque string; keys left to airlock's defaults are not
-// part of it.
-func Export(path string) (string, error) {
+// Export encodes the keys set in path as one opaque string, only those of keys when any is given;
+// keys left to airlock's defaults are not part of it.
+func Export(path string, keys ...string) (string, error) {
 	f, err := readFile(path)
 	if err != nil {
 		return "", err
@@ -71,6 +71,11 @@ func Export(path string) (string, error) {
 	}
 	if f.empty() {
 		return "", fmt.Errorf("nothing to export: %s sets no key (airlock's defaults apply)", path)
+	}
+	if len(keys) > 0 {
+		if f, err = f.only(path, keys); err != nil {
+			return "", err
+		}
 	}
 	data, err := json.Marshal(&f)
 	if err != nil {
@@ -166,6 +171,22 @@ func decodeShare(shared string) (file, error) {
 		return file{}, fmt.Errorf("the config string has an invalid value: %w", err)
 	}
 	return f, nil
+}
+
+// only keeps the keys of f named in keys, each of which f must set.
+func (f *file) only(path string, keys []string) (file, error) {
+	var kept file
+	for _, key := range keys {
+		field, err := f.knownField(key)
+		if err != nil {
+			return file{}, err
+		}
+		if *field == nil {
+			return file{}, fmt.Errorf("%s does not set %s (airlock's default applies)", path, key)
+		}
+		*kept.field(key) = *field
+	}
+	return kept, nil
 }
 
 // empty reports whether f sets no key.

@@ -59,6 +59,18 @@ func TestConfigExportPrintsOnlyTheString(t *testing.T) {
 	}
 }
 
+func TestConfigExportAllSkipsThePicker(t *testing.T) {
+	path := testConfigFile(t)
+	writeTestFile(t, path, `{"defaultRegion": "eu-west-3", "mode": "daemon"}`)
+	out, err := runAirlock(t, "config", "export", "--all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, exportErr := config.Export(path); exportErr != nil || strings.TrimSuffix(out, "\n") != want {
+		t.Fatalf("out = %q, want %q (%v)", out, want, exportErr)
+	}
+}
+
 func TestConfigImportShowsTheChangesAndAbortsWithoutYes(t *testing.T) {
 	shared := shareString(t, `{"jumphostTag": "Env=bastion", "defaultRegion": "eu-west-3", "mcpServerPrefix": "acme"}`)
 	path := testConfigFile(t)

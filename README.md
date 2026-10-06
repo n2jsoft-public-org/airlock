@@ -441,7 +441,10 @@ never do: you type the password on the review step, and **Remember** keeps it in
 of `airlock connection …`.
 
 **Sharing.** `airlock connection export [name…]` prints the definitions as one `airlockdb1:` string, without
-any password. `airlock connection import <string>` lists every database it adds (`+`), changes (`~`, field
+any password. Without names, a terminal first lists every database, all selected: `space` unchecks
+the ones to leave out, `a` toggles them all, `enter` prints the string. The list is drawn on stderr, so
+`airlock connection export | pbcopy` still works; `--all`, or no terminal, exports them all without
+asking. `airlock connection import <string>` lists every database it adds (`+`), changes (`~`, field
 by field) or keeps (`=`), then asks before writing; `--yes` skips the question. A database whose
 connection changes is marked `(remembered password will be forgotten)`: its password is forgotten
 once the import is applied. A name held by an entry airlock cannot read is marked `(replaces an
@@ -818,6 +821,10 @@ A team usually sets the same few keys, for example:
 airlock config export            # prints the keys set in your file as one string: airlock1:…
 airlock config import <string>   # shows what changes, then asks before writing
 ```
+
+In a terminal, `export` first lists the keys set in your file, all selected: `space` unchecks the ones
+to leave out, `a` toggles them all, `enter` prints the string. The list is drawn on stderr, so
+`airlock config export | pbcopy` still works; `--all`, or no terminal, exports every key without asking.
 
 `import` lists every key it adds (`+`), changes (`~`) or keeps (`=`), with what each key does. `--yes`
 skips the question. Keys in your file that the string does not set are kept, unless you pass

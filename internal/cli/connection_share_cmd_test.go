@@ -43,6 +43,27 @@ func TestConnectionExportPrintsOnlyTheString(t *testing.T) {
 	}
 }
 
+func TestConnectionExportAllSkipsThePicker(t *testing.T) {
+	store, _ := testDatabases(t)
+	putDatabase(t, store, &archive)
+	putDatabase(t, store, &billing)
+
+	out, err := runAirlock(t, "db", "export", "--all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := directdb.PlanImport(nil, strings.TrimSpace(out))
+	if err != nil || len(plan.Changes) != 2 {
+		t.Fatalf("plan = %+v, %v; want both databases", plan, err)
+	}
+}
+
+func TestDescribeExport(t *testing.T) {
+	if got := describeExport(&reporting); got != "postgres · reporting.internal:6432 · bi" {
+		t.Fatalf("describeExport = %q", got)
+	}
+}
+
 func TestConnectionExportNamedDatabases(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &archive)

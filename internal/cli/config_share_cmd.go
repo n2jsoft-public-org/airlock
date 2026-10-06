@@ -8,22 +8,31 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 func newConfigExportCmd() *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Print the settings of config.json as one string to share",
 		Long: "Prints the keys set in config.json as one string, for teammates to import with " +
-			"`airlock config import <string>`, which shows every change before applying it.",
+			"`airlock config import <string>`, which shows every change before applying it. A terminal first " +
+			"lists every key set, all selected, to uncheck those to leave out; --all, or no terminal, exports them all.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, err := appdir.ConfigFile()
 			if err != nil {
 				return err
 			}
-			shared, err := config.Export(path)
+			var keys []string
+			if !all {
+				if keys, err = pickSettings(cmd, path); err != nil {
+					return err
+				}
+			}
+			shared, err := config.Export(path, keys...)
 			if err != nil {
 				return err
 			}
@@ -31,6 +40,36 @@ func newConfigExportCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "Export every key set without asking")
+	return cmd
+}
+
+// pickSettings lets the user uncheck the keys of path to leave out; nil, every key, without a
+// terminal or when path sets none, which config.Export then reports.
+func pickSettings(cmd *cobra.Command, path string) ([]string, error) {
+	settings, err := config.Settings(path)
+	if err != nil {
+		return nil, err
+	}
+	var set []config.Setting
+	for idx := range settings {
+		if settings[idx].Source == config.SourceFile {
+			set = append(set, settings[idx])
+		}
+	}
+	choices := make([]ui.ExportChoice, len(set))
+	for idx := range set {
+		choices[idx] = ui.ExportChoice{Name: set[idx].Name, Detail: set[idx].Value}
+	}
+	indexes, asked, err := pickExports(cmd, "Export config.json settings", choices)
+	if err != nil || !asked {
+		return nil, err
+	}
+	keys := make([]string, len(indexes))
+	for pos, idx := range indexes {
+		keys[pos] = set[idx].Name
+	}
+	return keys, nil
 }
 
 func newConfigImportCmd() *cobra.Command {

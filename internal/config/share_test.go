@@ -49,6 +49,34 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExportKeepsTheNamedKeys(t *testing.T) {
+	source := writeConfig(t, `{"mcpServerPrefix": "acme", "defaultRegion": "eu-west-3", "mode": "daemon"}`)
+	shared, err := Export(source, "defaultRegion", "mode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanImport(filepath.Join(t.TempDir(), "config.json"), shared, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 2 {
+		t.Fatalf("changes = %+v, want defaultRegion and mode only", plan.Changes)
+	}
+	if changeOf(t, &plan, "defaultRegion").New != "eu-west-3" || changeOf(t, &plan, "mode").New != "daemon" {
+		t.Fatalf("changes = %+v", plan.Changes)
+	}
+}
+
+func TestExportRefusesKeysNotInTheFile(t *testing.T) {
+	source := writeConfig(t, `{"mcpServerPrefix": "acme"}`)
+	if _, err := Export(source, "defaultRegion"); err == nil || !strings.Contains(err.Error(), "does not set defaultRegion") {
+		t.Fatalf("err = %v, want defaultRegion refused", err)
+	}
+	if _, err := Export(source, "nope"); err == nil || !strings.Contains(err.Error(), `unknown setting "nope"`) {
+		t.Fatalf("err = %v, want the unknown key refused", err)
+	}
+}
+
 func TestExportNeedsAKeyInTheFile(t *testing.T) {
 	if _, err := Export(filepath.Join(t.TempDir(), "config.json")); err == nil || !strings.Contains(err.Error(), "nothing to export") {
 		t.Fatalf("err = %v, want nothing to export", err)
