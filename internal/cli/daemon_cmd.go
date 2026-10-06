@@ -267,9 +267,11 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	} else {
 		prefsPath, databaseStore = saved.Path(), saved.Databases()
 	}
+	// The runner's progress lines get the time the daemon's own lines have.
+	runnerLog := newStampedWriter(log)
 	source := newRunnerSource(configPath, func(cfg config.Config) (*daemonRunner, error) {
 		options := sharedRunnerOptions(&cfg, registry, mcpserve.NewHostFor(cfg.MCPClientSelection()), mcpLogDir, kubeconfigDir, databaseStore)
-		options.Out, options.Err, options.PrefsPath, options.Keychain = log, log, prefsPath, newKeychain()
+		options.Out, options.Err, options.PrefsPath, options.Keychain = runnerLog, runnerLog, prefsPath, newKeychain()
 		return &daemonRunner{Runner: jumphost.NewRunner(options), cfg: cfg}, nil
 	})
 	tokenDir, err := appdir.ConfigDir()

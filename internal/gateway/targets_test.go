@@ -42,6 +42,10 @@ func (d *fakeDiscovery) ListSavedConnections(_ context.Context, profile, region 
 }
 func (d *fakeDiscovery) SearchResources(_ context.Context, options *jumphost.Options) ([]jumphost.ResourceSummary, map[string]error, error) {
 	d.searched = append(d.searched, *options)
+	// Like the runner, the search reports the region it resolved for the profile.
+	if options.AwsRegion == "" {
+		options.AwsRegion = "eu-west-3"
+	}
 	return d.found, d.failures, d.searchErr
 }
 func (d *fakeDiscovery) LoadKeychainPassword(_ context.Context, options jumphost.Options) (string, bool) { //nolint:gocritic // signature fixed by Discovery.
@@ -157,7 +161,7 @@ func TestListTargetsSearchIsUnattended(t *testing.T) {
 	if isError {
 		t.Fatal(text)
 	}
-	if reply := decodeText[targetsReply](t, text); len(reply.Targets) != 1 || reply.Targets[0].Name != "orders-db" || reply.Targets[0].Opens != "auto" {
+	if reply := decodeText[targetsReply](t, text); len(reply.Targets) != 1 || reply.Targets[0].Name != "orders-db" || reply.Targets[0].Opens != "auto" || reply.Targets[0].Region != "eu-west-3" {
 		t.Fatalf("reply = %+v", reply)
 	}
 	if len(d.searched) != 1 || !d.searched[0].Unattended || d.searched[0].AwsProfile != "dev" {

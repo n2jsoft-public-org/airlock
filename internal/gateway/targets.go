@@ -138,7 +138,8 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 		}
 		return jsonResult(out)
 	}
-	found, failures, err := discovery.SearchResources(ctx, &jumphost.Options{AwsProfile: profile, Unattended: true})
+	search := jumphost.Options{AwsProfile: profile, Unattended: true}
+	found, failures, err := discovery.SearchResources(ctx, &search)
 	if err != nil {
 		return signInFailure(err, profile), nil, nil
 	}
@@ -148,7 +149,7 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 			continue
 		}
 		out.Targets = append(out.Targets, targetInfo{
-			Type: r.Type, Name: r.Name, Description: r.Description, Profile: profile,
+			Type: r.Type, Name: r.Name, Description: r.Description, Profile: profile, Region: search.AwsRegion,
 			Saved: isSaved(saved, r.Type, r.Name), Production: production, Opens: opens(&settings, production, views),
 		})
 	}

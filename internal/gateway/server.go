@@ -98,6 +98,7 @@ func Start(ctx context.Context, cfg *Config) (*Gateway, error) {
 		recorder.Record(e)
 		logf("MCP gateway %s %q: %s", e.Tool, e.Target, e.Decision)
 	}
+	g.relay.audit(cfg.Name, record)
 	g.tools = &toolset{
 		manager: cfg.Manager, relay: g.relay, settings: cfg.Settings, discovery: cfg.Discovery, databases: cfg.Databases,
 		record: record, now: now, name: cfg.Name, startTimeout: defaultStartTimeout,

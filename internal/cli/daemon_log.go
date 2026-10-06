@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -78,6 +80,39 @@ func (l *daemonLog) Close() error {
 	err := l.file.Close()
 	l.file, l.err = nil, os.ErrClosed
 	return err
+}
+
+// stampedWriter writes to w with the time at the start of every line, as the daemon's own lines
+// have it: the runner writes its progress lines without one.
+type stampedWriter struct {
+	w   io.Writer
+	now func() time.Time
+	mu  sync.Mutex
+	// midLine is set while the last write did not end its line.
+	midLine bool
+}
+
+func newStampedWriter(w io.Writer) *stampedWriter { return &stampedWriter{w: w, now: time.Now} }
+
+func (s *stampedWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []byte
+	for rest := p; len(rest) > 0; {
+		if !s.midLine {
+			out = append(out, s.now().Format(time.RFC3339)+" "...)
+		}
+		line, after, found := bytes.Cut(rest, []byte("\n"))
+		out = append(out, line...)
+		if found {
+			out = append(out, '\n')
+		}
+		s.midLine, rest = !found, after
+	}
+	if _, err := s.w.Write(out); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 func rotateDaemonLog(path string) (*os.File, error) {

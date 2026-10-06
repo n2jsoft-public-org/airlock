@@ -14,7 +14,7 @@ var searchableResourceTypes = []string{resourceRDS, resourceEKS, resourceElastiC
 // SearchResources lists the targets of every type in the profile and region of options. The
 // region and identity are resolved once, then each type is listed concurrently: a type whose
 // listing fails is reported in failures, keyed by type, and the others still return. err is set
-// only when nothing could be listed at all.
+// only when nothing could be listed at all. options.AwsRegion is set to the region searched.
 func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]ResourceSummary, map[string]error, error) {
 	if err := requireAWSCLI(); err != nil {
 		return nil, nil, err
@@ -24,6 +24,7 @@ func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]Resou
 	if err != nil {
 		return nil, nil, err
 	}
+	options.AwsRegion = cfg.Region
 	resources, failures := searchResources(searchableResourceTypes, func(resourceType string) ([]ResourceSummary, error) {
 		return r.listResources(ctx, cfg, resourceType)
 	})

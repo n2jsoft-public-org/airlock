@@ -267,7 +267,7 @@ func (e settingsEditor) row(styles Styles, idx, width int) string {
 	var value string
 	switch {
 	case idx == e.cursor && e.editing:
-		value = e.input.View()
+		value = inputView(e.input)
 	case setting.Value == "":
 		value = styles.Muted.Render("none")
 	default:

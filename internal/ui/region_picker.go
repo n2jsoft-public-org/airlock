@@ -115,7 +115,7 @@ func (p regionPicker) View(styles Styles, width, height int) string {
 	)
 	p.input.SetWidth(maxInt(inner-lipgloss.Width(p.input.Prompt)-1, 5))
 
-	lines := []string{title, "", p.input.View(), styles.Rule.Render(strings.Repeat("─", inner))}
+	lines := []string{title, "", inputView(p.input), styles.Rule.Render(strings.Repeat("─", inner))}
 	lines = append(lines, p.renderRows(styles, inner, rows)...)
 	lines = append(lines, "", styles.KeyHints([][2]string{{"↑↓", "move"}, {"enter", "switch"}, {"esc", "close"}}, inner))
 

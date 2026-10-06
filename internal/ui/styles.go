@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // palette is the set of 256-color codes every screen uses, with darker variants for terminals
@@ -240,11 +241,17 @@ func textInputStyles() textinput.Styles {
 	return textinput.Styles{Focused: state, Blurred: state, Cursor: textinput.CursorStyle{Shape: tea.CursorBlock, Blink: true}}
 }
 
-// inputView renders in as Bubbles v1 did without a width: v2 cuts the placeholder of an input with
-// no width to its first character, so an empty one gets a width that just fits its placeholder.
+// inputView renders the placeholder of an empty input as Bubbles v1 did. Without a width, v2 cuts
+// it to its first character, so the input gets a width that just fits it; with a width, v2 cuts a
+// placeholder too long mid-word, so it is shortened with "…" to the width v1 gave it.
 func inputView(in textinput.Model) string {
-	if in.Width() == 0 && in.Value() == "" && in.Placeholder != "" {
+	if in.Value() != "" || in.Placeholder == "" {
+		return in.View()
+	}
+	if in.Width() == 0 {
 		in.SetWidth(max(1, lipgloss.Width(in.Placeholder)-1))
+	} else if limit := in.Width() - lipgloss.Width(in.Prompt); limit > 0 && lipgloss.Width(in.Placeholder) > limit {
+		in.Placeholder = ansi.Truncate(in.Placeholder, limit, "…")
 	}
 	return in.View()
 }

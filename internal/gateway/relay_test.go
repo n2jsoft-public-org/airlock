@@ -12,6 +12,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
 )
@@ -130,12 +131,19 @@ func TestRelayExecuteFollowsAgentWrites(t *testing.T) {
 	id := openDirect(t, m, runner, "billing", dbmcp.NewServer(&dbmcp.ServerConfig{Name: "airlock-billing", Target: "billing", AllowWrites: true}, q), true, "")
 	args := map[string]any{"session": int(id), "sql": "delete from t"}
 
-	_, off := relayServer(t, m, Settings{})
+	r, off := relayServer(t, m, Settings{})
+	var audited []mcpserve.ToolEvent
+	r.audit("airlock", func(e *mcpserve.ToolEvent) { audited = append(audited, *e) })
 	if text, isError := callTool(t, off, "db_execute", args); !isError || !strings.Contains(text, "agent writes are off") {
 		t.Fatalf("execute with agentWrites false = %q (error %v)", text, isError)
 	}
 	if got := q.executed(); len(got) != 0 {
 		t.Fatalf("executed = %v", got)
+	}
+	// The refused attempt is in the audit log, with what the agent tried.
+	if len(audited) != 1 || audited[0].Tool != "db_execute" || audited[0].Server != "airlock" || audited[0].Target != "billing" ||
+		audited[0].SQL != "delete from t" || !strings.HasPrefix(audited[0].Decision, "refused: agent writes are off") {
+		t.Fatalf("audited = %+v", audited)
 	}
 	_, on := relayServer(t, m, Settings{AgentWrites: true})
 	if text, isError := callTool(t, on, "db_execute", args); isError {

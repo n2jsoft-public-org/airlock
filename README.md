@@ -679,6 +679,14 @@ jq -r 'select(.sql) | "\(.time) \(.server) \(.sql)"' ~/.config/airlock/logs/mcp-
 jq -r 'select(.command) | "\(.time) \(.server) db\(.db) \(.command)"' ~/.config/airlock/logs/mcp-queries-*.jsonl
 ```
 
+In daemon mode the MCP gateway adds its own lines: each `open_session` and `close_session` with its
+`decision`, and the calls it refuses before they reach a session (a write while `agentWrites` is
+off, a read-only session, the wrong kind of tool) as `refused: <reason>`, with the SQL tried:
+
+```sh
+jq -r 'select(.decision) | "\(.time) \(.tool) \(.target) \(.decision)"' ~/.config/airlock/logs/mcp-queries-*.jsonl
+```
+
 Result rows are never logged. The files are readable by your user only, since statements may
 contain sensitive values.
 

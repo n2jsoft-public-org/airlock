@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -32,8 +35,19 @@ func TestDashboardUsesTheDetectedBackground(t *testing.T) {
 	if m.styles.Dark {
 		t.Fatal("a light terminal got the dark palette")
 	}
-	m.wizard = newStyledWizardModel(t.Context(), fakeSessionRunner{}, jumphost.Options{AwsProfile: "dev"}, m.styles)
-	if m.wizard.styles.Dark {
+	// Without a first session, the dashboard opens on the wizard it built itself.
+	if m.mode != ssmModeWizard || m.wizard.styles.Dark {
 		t.Fatal("the wizard did not inherit the dashboard palette")
+	}
+}
+
+// A placeholder wider than its input ends with "…", as with Bubbles v1, instead of a cut word.
+func TestInputViewShortensALongPlaceholder(t *testing.T) {
+	in := textinput.New()
+	in.SetStyles(textInputStyles())
+	in.Prompt, in.Placeholder = "› ", "Search: paris, eu-west, tokyo"
+	in.SetWidth(12)
+	if got := strings.TrimRight(ansi.Strip(inputView(in)), " "); got != "› Search: p…" {
+		t.Fatalf("view = %q, want %q", got, "› Search: p…")
 	}
 }

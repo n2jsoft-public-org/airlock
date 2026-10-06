@@ -16,6 +16,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/kubemcp"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -84,7 +85,37 @@ type relay struct {
 	settings func() Settings
 	clients  map[sessions.ID]*relayClient
 	lastCall map[sessions.ID]time.Time
-	mu       sync.Mutex
+	// record writes the calls the gateway refuses itself to the audit log, as server name; nil
+	// records nothing. The calls it relays are audited by the session servers.
+	record func(*mcpserve.ToolEvent)
+	name   string
+	mu     sync.Mutex
+}
+
+// audit has the refused calls recorded by record, as the gateway server name.
+func (r *relay) audit(name string, record func(*mcpserve.ToolEvent)) {
+	r.name, r.record = name, record
+}
+
+// recordRefusal writes the refused call of tool to session id in the audit log, with the SQL of a
+// database tool (never the arguments of a cache command, which may hold a password).
+func (r *relay) recordRefusal(tool string, id sessions.ID, args map[string]any, reason string) {
+	if r.record == nil {
+		return
+	}
+	e := &mcpserve.ToolEvent{Time: r.now(), Server: r.name, Tool: tool, Decision: "refused: " + reason}
+	if snapshot, err := r.manager.Snapshot(r.ctx); err == nil {
+		for idx := range snapshot.Sessions {
+			if s := &snapshot.Sessions[idx]; s.ID == id {
+				e.Target, e.Profile, e.Region = s.Target, s.Profile, s.Region
+			}
+		}
+	}
+	if strings.HasPrefix(tool, string(kindDB)+"_") {
+		e.SQL, _ = args["sql"].(string)           //nolint:errcheck // absent or not text: none.
+		e.Database, _ = args["database"].(string) //nolint:errcheck // absent or not text: none.
+	}
+	r.record(e)
 }
 
 type relayClient struct {
@@ -192,35 +223,40 @@ func (r *relay) handler(k kind, name string) mcp.ToolHandler {
 		if err != nil {
 			return refusal("%v", err), nil
 		}
+		refuse := func(format string, a ...any) *mcp.CallToolResult {
+			reason := fmt.Sprintf(format, a...)
+			r.recordRefusal(string(k)+"_"+name, id, args, reason)
+			return refusal("%s", reason)
+		}
 		access, err := r.manager.MCPServer(id)
 		switch {
 		case errors.Is(err, sessions.ErrUnknownSession):
-			return refusal("no session %d; call list_sessions", id), nil
+			return refuse("no session %d; call list_sessions", id), nil
 		case errors.Is(err, sessions.ErrSessionEnded):
 			r.forget(id)
-			return refusal("session %d ended%s", id, strings.TrimPrefix(err.Error(), sessions.ErrSessionEnded.Error())), nil
+			return refuse("session %d ended%s", id, strings.TrimPrefix(err.Error(), sessions.ErrSessionEnded.Error())), nil
 		case errors.Is(err, sessions.ErrNoMCPServer):
-			return refusal("session %d has no MCP server (its mcp line in list_sessions tells why)", id), nil
+			return refuse("session %d has no MCP server (its mcp line in list_sessions tells why)", id), nil
 		case err != nil:
-			return refusal("session %d: %v", id, err), nil
+			return refuse("session %d: %v", id, err), nil
 		}
 		if got := kindOf(access.ResourceType); got != k {
-			return refusal("session %d is a %s session: use the %s_ tools", id, access.ResourceType, got), nil
+			return refuse("session %d is a %s session: use the %s_ tools", id, access.ResourceType, got), nil
 		}
 		if name == "execute" && !r.settings().AgentWrites {
-			return refusal("%s", reasonWritesOff), nil
+			return refuse("%s", reasonWritesOff), nil
 		}
 		if name == "execute" && !access.Writes {
-			return refusal("session %d is read-only: open it with writes, or ask the user", id), nil
+			return refuse("session %d is read-only: open it with writes, or ask the user", id), nil
 		}
 		cs, err := r.client(id, access.Server)
 		if err != nil {
-			return refusal("session %d: %v", id, err), nil
+			return refuse("session %d: %v", id, err), nil
 		}
 		r.touch(id)
 		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 		if err != nil {
-			return refusal("%v", err), nil
+			return refuse("%v", err), nil
 		}
 		return res, nil
 	}

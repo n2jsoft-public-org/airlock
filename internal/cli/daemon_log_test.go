@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDaemonLogRotatesOnItsFirstWriteOnly(t *testing.T) {
@@ -77,5 +78,22 @@ func TestDaemonLogWithoutPathDiscards(t *testing.T) {
 	}
 	if err := log.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The runner's progress lines get the time the daemon's own lines have, even when a line arrives
+// in several writes.
+func TestStampedWriterTimesEveryLine(t *testing.T) {
+	var b strings.Builder
+	w := newStampedWriter(&b)
+	w.now = func() time.Time { return time.Date(2026, 10, 5, 16, 15, 6, 0, time.UTC) }
+	for _, chunk := range []string{"Using AWS profile/region... dev/eu-west-3\nUsing ", "jumphost... i-1\n"} {
+		if n, err := w.Write([]byte(chunk)); err != nil || n != len(chunk) {
+			t.Fatalf("Write(%q) = %d, %v", chunk, n, err)
+		}
+	}
+	want := "2026-10-05T16:15:06Z Using AWS profile/region... dev/eu-west-3\n2026-10-05T16:15:06Z Using jumphost... i-1\n"
+	if got := b.String(); got != want {
+		t.Fatalf("log = %q, want %q", got, want)
 	}
 }

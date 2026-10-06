@@ -353,6 +353,8 @@ func readiness(s *sessions.Session) (bool, error) {
 		return true, errors.New("this target needs a choice of credentials: ask the user to open it once from the airlock dashboard")
 	case sessions.SignInIdle, sessions.SignInListing, sessions.SignInChecking:
 		return false, nil
+	case sessions.SignInFailed:
+		return true, fmt.Errorf("could not sign in to %s: %s", s.Target, orName(s.SignIn.Err, "the test query failed"))
 	default:
 		return true, nil
 	}

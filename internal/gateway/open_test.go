@@ -350,3 +350,35 @@ func TestOpenSessionApprovedThenRefusedReleasesTheView(t *testing.T) {
 		t.Fatalf("decision = %q", got)
 	}
 }
+
+// failingSignIn is a sign-in check that always fails with err, like an unreachable database.
+type failingSignIn struct{ err error }
+
+func (failingSignIn) Candidates(context.Context) ([]jumphost.SignInCandidate, error) {
+	return []jumphost.SignInCandidate{{Label: "password", User: "app"}}, nil
+}
+func (f failingSignIn) Check(context.Context, jumphost.SignInCandidate) error { return f.err }
+func (failingSignIn) Use(jumphost.SignInCandidate, *jumphost.Options)         {}
+func (failingSignIn) Forget(jumphost.SignInCandidate, *jumphost.Options) bool { return false }
+
+// A database the session cannot sign in to (unreachable host, refused password) is a failed
+// opening: the agent learns why, and the useless session it opened is stopped.
+func TestOpenSessionFailsWhenTheSignInFails(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	runner.Direct("billing").SignIn = failingSignIn{err: fmt.Errorf("billing.internal:5432 is not reachable (VPN or firewall?)")}
+	m, _ := newTestManager(t, runner)
+	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
+	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "direct", "name": "billing"})
+	if !isError || !strings.Contains(text, "not reachable (VPN or firewall?)") {
+		t.Fatalf("isError = %v, text = %q", isError, text)
+	}
+	snapshot, err := m.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range snapshot.Sessions {
+		if s.Active() {
+			t.Fatalf("session %d still runs after its sign-in failed", s.ID)
+		}
+	}
+}
