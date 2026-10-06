@@ -85,8 +85,8 @@ func (d reloadingDiscovery) ResolveRegion(ctx context.Context, profile string) s
 	return d.runner().ResolveRegion(ctx, profile)
 }
 
-func (d reloadingDiscovery) ResolveDBUser(user string) string {
-	return d.runner().ResolveDBUser(user)
+func (d reloadingDiscovery) ResolveDBUser(engine, user string) string {
+	return d.runner().ResolveDBUser(engine, user)
 }
 
 func (d reloadingDiscovery) LoadConnectionPrefs(ctx context.Context, options jumphost.Options) (jumphost.ConnectionPrefs, bool) { //nolint:gocritic // signature fixed by ui.JumphostDiscovery.

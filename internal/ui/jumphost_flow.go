@@ -24,8 +24,9 @@ type JumphostDiscovery interface {
 	CheckLocalPort(port int) error
 	// ResolveRegion returns the region used for profile when none is chosen explicitly.
 	ResolveRegion(ctx context.Context, profile string) string
-	// ResolveDBUser returns user, else the default database user; "" when none is configured.
-	ResolveDBUser(user string) string
+	// ResolveDBUser returns user, else the default database user of engine (an AWS RDS engine
+	// name); "" when none is configured.
+	ResolveDBUser(engine, user string) string
 	// LoadConnectionPrefs returns the Connect step choices saved for the database of options, if any.
 	LoadConnectionPrefs(ctx context.Context, options jumphost.Options) (jumphost.ConnectionPrefs, bool)
 	// SaveConnectionPrefs remembers the Connect step choices of options (never the password, remembered
@@ -367,9 +368,6 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 	userInput := textinput.New()
 	userInput.SetStyles(textInputStyles())
 	userInput.Placeholder = "Database user"
-	if def := runner.ResolveDBUser(""); def != "" {
-		userInput.Placeholder = def
-	}
 	userInput.Prompt = ""
 	userInput.CharLimit = 63
 
@@ -591,7 +589,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			user = msg.prefs.DBUser
 		}
 		if m.options.ResourceType == "rds" {
-			user = m.runner.ResolveDBUser(user)
+			user = m.runner.ResolveDBUser(m.targetEngine, user)
 		}
 		m.userInput.SetValue(user)
 		m.userInput.CursorEnd()

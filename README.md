@@ -320,7 +320,8 @@ the MCP server. Elsewhere (MySQL, or `--no-mcp`) only IAM token is shown when en
 asks for the password as before.
 
 - **IAM token.** airlock signs in without a password, generating short-lived AWS IAM tokens. The user
-  is prefilled with `--db-user`, then the user saved for that database, then `defaultDbUser`.
+  is prefilled with `--db-user`, then the user saved for that database, then the `defaultDbUser` of
+  its engine.
 - **Password.** Enter a user and its password. It stays in memory for the MCP server; the IntelliJ
   data source switches to user & password (the IDE asks for the password), and the restart command
   falls back to IAM sign-in. The **Remember** toggle (off by default) stores the password in the OS
@@ -702,7 +703,7 @@ unknown key or a malformed value is an error that names the file.
 | Key | Flag | Default | Meaning |
 |---|---|---|---|
 | `jumphostTag` | `--jumphost-tag` | `Usage=jumphost` | Tag (`Key=Value`) of the running SSM jumphost EC2 instance |
-| `defaultDbUser` | `--db-user` | none (asked) | Database user signing in with AWS IAM |
+| `defaultDbUser` | `--db-user` | none (asked) | Database user prefilled on RDS: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or `engine=user` pairs (`postgres`, `mysql`, `sqlserver`), e.g. `app_ro,sqlserver=mcp_ro` (see below) |
 | `readOnlySecretTag` | `--read-only-secret-tag` | none (SQL Server read-only MCP off) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets |
 | `mcpServerPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
 | `defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
@@ -714,6 +715,11 @@ unknown key or a malformed value is an error that names the file.
 | `agentAutoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside `productionProfiles` and production direct databases) or `all` |
 | `agentWrites` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
 | `agentIdleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
+
+`defaultDbUser` takes comma-separated entries. A bare user (`app_ro`) is the AWS IAM user of
+PostgreSQL and MySQL; an `engine=user` pair sets the user of one engine and wins over the bare user.
+SQL Server has no AWS IAM sign-in, so a bare user never applies to it: `sqlserver=mcp_ro` prefills
+the user of its password and Secrets Manager sign-in instead.
 
 Profiles matching `productionProfiles` get an orange `PROD` badge everywhere they appear: the
 wizard header, profile list, recent connections and review step, and the dashboard's session
@@ -810,7 +816,7 @@ A team usually sets the same few keys, for example:
 ```json
 {
   "defaultRegion": "eu-west-1",
-  "defaultDbUser": "app_ro",
+  "defaultDbUser": "app_ro,sqlserver=mcp_ro",
   "readOnlySecretTag": "Role=read-only",
   "mcpServerPrefix": "team",
   "productionProfiles": "*prod*"

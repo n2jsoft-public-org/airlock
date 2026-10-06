@@ -20,7 +20,7 @@ type Key struct {
 // Keys lists the settings of config.json, in the order the file is written in.
 var Keys = []Key{
 	{Name: "jumphostTag", Description: "Tag (Key=Value) of the running SSM jumphost EC2 instance"},
-	{Name: "defaultDbUser", Description: "Database user signing in with AWS IAM when none is chosen"},
+	{Name: "defaultDbUser", Description: "Database user prefilled on RDS when none is chosen: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or engine=user pairs (postgres, mysql, sqlserver; SQL Server signs in with a password), e.g. app_ro,sqlserver=mcp_ro"},
 	{Name: "readOnlySecretTag", Description: "Tag (Key=Value) of the per-database read-only Secrets Manager secrets of SQL Server"},
 	{Name: "mcpServerPrefix", Description: "Start of the MCP server names"},
 	{Name: "defaultRegion", Description: "Region used after --region, AWS_REGION and the profile's region"},
@@ -146,7 +146,7 @@ func WriteTemplate(path string, force bool) error {
 func (c *Config) values() map[string]string {
 	return map[string]string{
 		"jumphostTag":        c.JumphostTag.String(),
-		"defaultDbUser":      c.DefaultDBUser,
+		"defaultDbUser":      c.DefaultDBUser.String(),
 		"readOnlySecretTag":  c.ReadOnlySecretTag.String(),
 		"mcpServerPrefix":    c.MCPServerPrefix,
 		"defaultRegion":      c.DefaultRegion,

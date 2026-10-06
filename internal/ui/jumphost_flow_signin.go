@@ -167,7 +167,7 @@ func (m jumphostWizardModel) applySignIn() (next jumphostWizardModel, field int,
 	case jumphost.SignInIAM:
 		resolved := user
 		if m.options.ResourceType == "rds" {
-			resolved = m.runner.ResolveDBUser(user)
+			resolved = m.runner.ResolveDBUser(m.targetEngine, user)
 		}
 		if resolved == "" {
 			if m.options.ResourceType == "elasticache" {

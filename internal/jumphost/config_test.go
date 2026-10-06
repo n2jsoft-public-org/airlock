@@ -9,18 +9,27 @@ import (
 	"testing"
 
 	"github.com/n2jsoft/airlock/internal/awstag"
+	"github.com/n2jsoft/airlock/internal/dbuser"
 )
 
 func TestRunnerResolveDBUser(t *testing.T) {
-	withDefault := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultDBUser: "acme_ro"})
-	if got := withDefault.ResolveDBUser("  "); got != "acme_ro" {
+	defaults := dbuser.Defaults{IAM: "acme_ro", SQLServer: "mcp_ro"}
+	withDefault := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultDBUser: defaults})
+	if got := withDefault.ResolveDBUser("aurora-postgresql", "  "); got != "acme_ro" {
 		t.Fatalf("blank user resolved to %q, want the configured default", got)
 	}
-	if got := withDefault.ResolveDBUser(" app_ro "); got != "app_ro" {
+	if got := withDefault.ResolveDBUser("sqlserver-se", ""); got != "mcp_ro" {
+		t.Fatalf("blank SQL Server user resolved to %q, want the SQL Server default", got)
+	}
+	if got := withDefault.ResolveDBUser("postgres", " app_ro "); got != "app_ro" {
 		t.Fatalf("explicit user resolved to %q", got)
 	}
+	iamOnly := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultDBUser: dbuser.Defaults{IAM: "acme_ro"}})
+	if got := iamOnly.ResolveDBUser("sqlserver-ee", ""); got != "" {
+		t.Fatalf("blank SQL Server user resolved to %q, want empty: the IAM user must not apply", got)
+	}
 	without := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
-	if got := without.ResolveDBUser(""); got != "" {
+	if got := without.ResolveDBUser("postgres", ""); got != "" {
 		t.Fatalf("blank user without default resolved to %q, want empty", got)
 	}
 }

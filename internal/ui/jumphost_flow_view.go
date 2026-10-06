@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
@@ -361,6 +362,18 @@ func (m jumphostWizardModel) renderReview(width, height int) string {
 	return panel + "\n\n" + button
 }
 
+// reviewUserInput is the user input as the review shows it: with AWS IAM, an empty user signs in
+// as the default user of the engine, which is then its placeholder.
+func (m jumphostWizardModel) reviewUserInput() textinput.Model {
+	input := m.userInput
+	if m.signIn == jumphost.SignInIAM {
+		if def := m.runner.ResolveDBUser(m.targetEngine, ""); def != "" {
+			input.Placeholder = def
+		}
+	}
+	return input
+}
+
 func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 	if m.isDirect() {
 		return m.renderDirectReviewPanel(width, compact)
@@ -392,7 +405,7 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 	switch m.signIn {
 	case jumphost.SignInIAM:
 		userHelp = "Signs in with AWS IAM."
-		if def := m.runner.ResolveDBUser(""); def != "" {
+		if def := m.runner.ResolveDBUser(m.targetEngine, ""); def != "" {
 			userHelp = "Signs in with AWS IAM. Leave empty for " + def + "."
 		}
 	case jumphost.SignInSecret:
@@ -424,7 +437,7 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 		for _, field := range m.signInFields() {
 			switch field {
 			case reviewFieldUser:
-				rows = append(rows, m.reviewInput(reviewFieldUser, "User", inputView(m.userInput), userHelp, inner)...)
+				rows = append(rows, m.reviewInput(reviewFieldUser, "User", inputView(m.reviewUserInput()), userHelp, inner)...)
 			case reviewFieldPassword:
 				rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", inputView(m.passwordInput), passwordHelp, inner)...)
 			case reviewFieldRemember:

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/awstag"
+	"github.com/n2jsoft/airlock/internal/dbuser"
 )
 
 func writeConfig(t *testing.T, content string) string {
@@ -24,7 +25,7 @@ func TestDefaults(t *testing.T) {
 	if d.JumphostTag != (awstag.Tag{Key: "Usage", Value: "jumphost"}) || d.MCPServerPrefix != "airlock" {
 		t.Fatalf("Defaults = %+v", d)
 	}
-	if d.DefaultDBUser != "" || !d.ReadOnlySecretTag.IsZero() || d.DefaultRegion != "" {
+	if !d.DefaultDBUser.IsZero() || !d.ReadOnlySecretTag.IsZero() || d.DefaultRegion != "" {
 		t.Fatalf("Defaults must leave the user, secret tag and region unset: %+v", d)
 	}
 }
@@ -56,7 +57,7 @@ func TestLoadACMEPreset(t *testing.T) {
 	}
 	want := Config{
 		JumphostTag:       awstag.Tag{Key: "Usage", Value: "jumphost"},
-		DefaultDBUser:     "acme_ro",
+		DefaultDBUser:     dbuser.Defaults{IAM: "acme_ro"},
 		ReadOnlySecretTag: awstag.Tag{Key: "AccessRole", Value: "ro-access"},
 		MCPServerPrefix:   "acme",
 		DefaultRegion:     "eu-west-3",
@@ -69,6 +70,28 @@ func TestLoadACMEPreset(t *testing.T) {
 	}
 	if cfg != want {
 		t.Fatalf("Load = %+v, want %+v", cfg, want)
+	}
+}
+
+func TestLoadDefaultDBUserPerEngine(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"defaultDbUser": "app_ro,SQLServer=mcp_ro"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultDBUser != (dbuser.Defaults{IAM: "app_ro", SQLServer: "mcp_ro"}) {
+		t.Fatalf("DefaultDBUser = %+v", cfg.DefaultDBUser)
+	}
+	values := cfg.values()
+	if values["defaultDbUser"] != "app_ro,sqlserver=mcp_ro" {
+		t.Fatalf("defaultDbUser value = %q, want the normalized form", values["defaultDbUser"])
+	}
+}
+
+func TestLoadRejectsMalformedDefaultDBUser(t *testing.T) {
+	path := writeConfig(t, `{"defaultDbUser": "oracle=ora_ro"}`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "defaultDbUser") || !strings.Contains(err.Error(), path) {
+		t.Fatalf("Load(malformed defaultDbUser) error = %v", err)
 	}
 }
 

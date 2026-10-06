@@ -91,6 +91,34 @@ func TestWizardReviewPrefillsPortAndDatabaseUser(t *testing.T) {
 	}
 }
 
+func TestWizardReviewPrefillsTheUserOfTheEngine(t *testing.T) {
+	cases := []struct {
+		want   string
+		target jumphost.ResourceSummary
+	}{
+		{testDefaultDBUser, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "aurora-postgresql"}},
+		{testDefaultSQLServerUser, jumphost.ResourceSummary{Name: "mssql", Engine: "sqlserver-se"}},
+	}
+	for _, c := range cases {
+		m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, c.target)
+		if got := m.userInput.Value(); got != c.want {
+			t.Fatalf("%s: user input = %q, want prefilled with %q", c.target.Engine, got, c.want)
+		}
+	}
+}
+
+func TestWizardReviewUserPlaceholderIsTheIAMDefaultOfTheEngine(t *testing.T) {
+	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
+	if got := m.reviewUserInput().Placeholder; got != testDefaultDBUser {
+		t.Fatalf("placeholder = %q, want the AWS IAM default %q", got, testDefaultDBUser)
+	}
+	// SQL Server signs in with a password: an empty user is never replaced by a default.
+	m = wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "mssql", Engine: "sqlserver-se"})
+	if got := m.reviewUserInput().Placeholder; got != "Database user" {
+		t.Fatalf("SQL Server placeholder = %q, want the generic one", got)
+	}
+}
+
 func TestWizardReviewConnectsWithDefaults(t *testing.T) {
 	m := wizardAtReview(t, fakeSessionRunner{}, jumphost.Options{}, jumphost.ResourceSummary{Name: "archive", IAMAuth: true, Engine: "postgres"})
 
@@ -730,7 +758,7 @@ type noDefaultsRunner struct {
 	fakeSessionRunner
 }
 
-func (noDefaultsRunner) ResolveDBUser(user string) string { return strings.TrimSpace(user) }
+func (noDefaultsRunner) ResolveDBUser(_, user string) string { return strings.TrimSpace(user) }
 
 func (noDefaultsRunner) ResolveRegion(context.Context, string) string { return "" }
 

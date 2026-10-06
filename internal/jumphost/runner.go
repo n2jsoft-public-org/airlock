@@ -22,6 +22,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/dbuser"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
@@ -53,7 +54,8 @@ type Options struct {
 	Name         string
 	AwsProfile   string
 	AwsRegion    string
-	// DBUser is the database user signing in with AWS IAM on RDS (defaults to RunnerOptions.DefaultDBUser).
+	// DBUser is the database user signing in with AWS IAM on RDS (defaults to the engine's user of
+	// RunnerOptions.DefaultDBUser).
 	DBUser string
 	// DBPassword signs DBUser in with a password instead of an AWS IAM token. It is only kept in
 	// memory (the MCP server uses it; the IDE asks for it) and is never written to disk.
@@ -149,8 +151,9 @@ type RunnerOptions struct {
 	PrefsPath string
 	// DefaultRegion is used after AWS_REGION and the profile's region; empty means none.
 	DefaultRegion string
-	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means one is required.
-	DefaultDBUser string
+	// DefaultDBUser are the users per engine signing in on RDS when none is chosen; with none for the
+	// engine, one is required.
+	DefaultDBUser dbuser.Defaults
 	// MCPServerPrefix starts MCP server names (mcpserve.DefaultServerPrefix when empty).
 	MCPServerPrefix string
 	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
@@ -243,7 +246,7 @@ type Runner struct {
 	mcpLogDir   string
 	// defaultRegion and defaultDBUser are used when none is given; empty when not configured.
 	defaultRegion string
-	defaultDBUser string
+	defaultDBUser dbuser.Defaults
 	// jumphostTag finds the SSM jumphost instance; readOnlySecretTag the read-only SQL Server secrets.
 	jumphostTag       awstag.Tag
 	readOnlySecretTag awstag.Tag
@@ -352,7 +355,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 	runner := &Runner{
 		in: in, out: out, err: err, registry: registry, mcpHost: mcpHost,
 		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
-		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: strings.TrimSpace(opts.DefaultDBUser),
+		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: opts.DefaultDBUser,
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
 		databases:   opts.Databases,
@@ -1300,7 +1303,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		return preparedTarget{}, errors.New("a database user is required to sign in with a password")
 	}
 	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == "" && secretID == "" && options.SignIn != SignInAuto
-	if iamAuth && r.ResolveDBUser(options.DBUser) == "" {
+	if iamAuth && r.ResolveDBUser(instance.Engine, options.DBUser) == "" {
 		return preparedTarget{}, fmt.Errorf(
 			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set a default with `airlock config set defaultDbUser <user>`",
 			instance.DBInstanceIdentifier)
@@ -1339,7 +1342,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		dbUser = strings.TrimSpace(options.DBUser)
 		sessionInfo = rdsPasswordSessionInfo(localPort, dbUser)
 	case iamAuth:
-		dbUser = r.ResolveDBUser(options.DBUser)
+		dbUser = r.ResolveDBUser(instance.Engine, options.DBUser)
 		sessionInfo = rdsIAMSessionInfo(localPort, instance.Endpoint.Address, instance.Endpoint.Port, dbUser, cfg, awsArgsHint)
 	default:
 		sessionInfo = rdsSecretsSessionInfo(localPort, instance.DBInstanceArn, instance.MasterUserSecret.SecretArn, instance.MasterUsername, r.readOnlySecretTag, awsArgsHint)
@@ -1787,13 +1790,13 @@ func (r *Runner) registerDataSource(options *Options, dataSource *ideadatasource
 // awsIAMAuthProvider is the IntelliJ authentication method "AWS IAM".
 const awsIAMAuthProvider = "aws.rds.iam"
 
-// ResolveDBUser returns the database user signing in with AWS IAM: user, else the configured
-// default user; "" when neither is set.
-func (r *Runner) ResolveDBUser(user string) string {
+// ResolveDBUser returns the database user of an RDS instance of engine (an AWS RDS engine name):
+// user, else the configured default user of the engine; "" when neither is set.
+func (r *Runner) ResolveDBUser(engine, user string) string {
 	if user = strings.TrimSpace(user); user != "" {
 		return user
 	}
-	return r.defaultDBUser
+	return r.defaultDBUser.For(engine)
 }
 
 // awsIAMProperties prefills the AWS Toolkit settings used by IntelliJ's "AWS IAM" authentication.

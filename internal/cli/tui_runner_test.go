@@ -52,18 +52,18 @@ func TestReloadingDiscoveryFollowsTheFile(t *testing.T) {
 		return jumphost.NewRunner(&jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
 	})
 	discovery := reloadingDiscovery{source: source}
-	if got := discovery.ResolveDBUser(""); got != "one" {
+	if got := discovery.ResolveDBUser("postgres", ""); got != "one" {
 		t.Fatalf("user = %q, want one", got)
 	}
 	later := time.Now().Add(time.Second)
 	writeTestFile(t, path, `{"defaultDbUser": "two"}`)
 	setModTime(t, path, later)
-	if got := discovery.ResolveDBUser(""); got != "two" {
+	if got := discovery.ResolveDBUser("postgres", ""); got != "two" {
 		t.Fatalf("user = %q, want the changed file's two", got)
 	}
 	writeTestFile(t, path, `{"defaultDbUser": `)
 	setModTime(t, path, later.Add(time.Second))
-	if got := discovery.ResolveDBUser(""); got != "two" {
+	if got := discovery.ResolveDBUser("postgres", ""); got != "two" {
 		t.Fatalf("user = %q, want the last valid two", got)
 	}
 }

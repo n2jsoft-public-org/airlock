@@ -159,7 +159,7 @@ func TestPlanImportMergesByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg, err := Load(target)
-	if err != nil || cfg.DefaultDBUser != "acme_ro" || cfg.JumphostTag.String() != "Env=bastion" || cfg.DefaultRegion != "eu-west-3" {
+	if err != nil || cfg.DefaultDBUser.String() != "acme_ro" || cfg.JumphostTag.String() != "Env=bastion" || cfg.DefaultRegion != "eu-west-3" {
 		t.Fatalf("merged cfg = %+v, %v", cfg, err)
 	}
 }

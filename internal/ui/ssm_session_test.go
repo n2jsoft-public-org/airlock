@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/dbuser"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -32,14 +33,18 @@ func (fakeSessionRunner) CheckLocalPort(int) error {
 	return nil
 }
 
-// testDefaultDBUser is the default database user of fakeSessionRunner.
-const testDefaultDBUser = "default_ro"
+// testDefaultDBUser and testDefaultSQLServerUser are the default database users of
+// fakeSessionRunner: the AWS IAM user of PostgreSQL and MySQL, the user of SQL Server.
+const (
+	testDefaultDBUser        = "default_ro"
+	testDefaultSQLServerUser = "mssql_ro"
+)
 
-func (fakeSessionRunner) ResolveDBUser(user string) string {
+func (fakeSessionRunner) ResolveDBUser(engine, user string) string {
 	if user = strings.TrimSpace(user); user != "" {
 		return user
 	}
-	return testDefaultDBUser
+	return dbuser.Defaults{IAM: testDefaultDBUser, SQLServer: testDefaultSQLServerUser}.For(engine)
 }
 
 func (fakeSessionRunner) ResolveRegion(context.Context, string) string {

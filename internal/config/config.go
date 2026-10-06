@@ -15,6 +15,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/awstag"
+	"github.com/n2jsoft/airlock/internal/dbuser"
 )
 
 // Config holds the settings merged from the built-in defaults, the config file and the flags.
@@ -24,8 +25,9 @@ type Config struct {
 	// ReadOnlySecretTag marks the per-database read-only Secrets Manager secrets of SQL Server
 	// instances; zero disables read-only SQL Server MCP access.
 	ReadOnlySecretTag awstag.Tag
-	// DefaultDBUser signs in with AWS IAM on RDS when no user is chosen; empty means ask.
-	DefaultDBUser string
+	// DefaultDBUser are the users prefilled per engine on RDS when none is chosen: the AWS IAM user
+	// of PostgreSQL and MySQL, the password user of SQL Server; zero means ask.
+	DefaultDBUser dbuser.Defaults
 	// MCPServerPrefix starts the MCP server names, e.g. <prefix>-<profile>-<instance>.
 	MCPServerPrefix string
 	// DefaultRegion is used after --region, AWS_REGION and the profile's region; empty means none.
@@ -180,7 +182,9 @@ func (f *file) apply(base *Config) (Config, error) {
 		}
 	}
 	if f.DefaultDBUser != nil {
-		cfg.DefaultDBUser = strings.TrimSpace(*f.DefaultDBUser)
+		if cfg.DefaultDBUser, err = dbuser.Parse(*f.DefaultDBUser); err != nil {
+			return Config{}, fmt.Errorf("defaultDbUser: %w", err)
+		}
 	}
 	if f.DefaultRegion != nil {
 		cfg.DefaultRegion = strings.TrimSpace(*f.DefaultRegion)

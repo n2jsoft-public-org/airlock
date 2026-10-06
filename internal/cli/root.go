@@ -53,7 +53,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&options.SkipIDEDataSource, "no-ide-datasource", false, "Do not register the connection in ./.idea/dataSources.xml")
 	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, "Do not serve an MCP server giving AI assistants access to the database, cluster or cache")
 	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data of databases and caches (EKS stays read-only)")
-	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database or cache user signing in with AWS IAM (RDS: defaults to \"defaultDbUser\" of the config file)")
+	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database or cache user signing in with AWS IAM (RDS: defaults to the engine's user in \"defaultDbUser\" of the config file)")
 	cmd.Flags().StringVar(&options.DBSecretARN, "db-secret", "", "Secrets Manager secret (ARN or name) holding the database or cache password, as JSON or plain text")
 
 	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
