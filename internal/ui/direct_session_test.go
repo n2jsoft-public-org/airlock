@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -231,5 +232,22 @@ func TestPreparingDirectSessionTalksNoTunnel(t *testing.T) {
 	updated, _ = newServiceModel(t, newFakeService()).open(jumphost.Options{ResourceType: "rds", Name: "archive"}, "", "Connecting...")
 	if rds, ok := updated.(ssmModel); !ok || !slices.Contains(rds.loadingUI.funnyLines, "Reserving a cozy local port...") {
 		t.Fatalf("lines = %v, want the tunnel lines for RDS", rds.loadingUI.funnyLines)
+	}
+}
+
+func TestDirectSessionLongServerDoesNotPushFooterOff(t *testing.T) {
+	long := directTestSession()
+	long.Details.ConnectedServer = "toolsbd-legacy.billing.corp.local:1433"
+	m := newServiceModel(t, newFakeService(testSession(1, "db"), long))
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	if got := lipgloss.Height(m.render()); got != 30 {
+		t.Fatalf("view height = %d, want the terminal's 30:\n%s", got, plainView(m))
+	}
+	view := plainView(m)
+	for _, want := range []string{"● Ready", "q  quit"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view lacks %q:\n%s", want, view)
+		}
 	}
 }

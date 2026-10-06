@@ -164,6 +164,11 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 	}
 	lines = append(lines, newHint)
 
+	// A line wider than the panel would wrap and push the footer off the screen.
+	for idx, line := range lines {
+		lines[idx] = truncate(line, inner)
+	}
+
 	return m.styles.Panel.Width(l.sidebarWidth).Height(innerHeight + 2).Render(strings.Join(lines, "\n"))
 }
 
@@ -172,9 +177,12 @@ func (m ssmModel) renderCard(s *sessions.Session, selected bool, width int) []st
 	contentWidth := width - 2
 
 	badges := m.badges(s)
+	status := style.Render(icon + " " + label)
+	// A long address (a direct server) gives way to the status rather than wrapping the card.
+	address := truncate(sessionAddress(s), maxInt(0, contentWidth-lipgloss.Width(status)-1))
 	rows := []string{
 		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.Target, contentWidth-lipgloss.Width(badges)-1)),
-		spread(style.Render(icon+" "+label), m.styles.Text.Render(sessionAddress(s)), contentWidth),
+		spread(status, m.styles.Text.Render(address), contentWidth),
 		m.styles.Muted.Render(truncate(sessionOrigin(s)+" · "+formatUptime(s), contentWidth)),
 	}
 
@@ -596,6 +604,7 @@ func spread(left, right string, width int) string {
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		left = truncate(left, maxInt(0, width-lipgloss.Width(right)-1))
+		right = truncate(right, maxInt(0, width-lipgloss.Width(left)-1))
 		gap = maxInt(1, width-lipgloss.Width(left)-lipgloss.Width(right))
 	}
 	return left + strings.Repeat(" ", gap) + right
