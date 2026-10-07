@@ -209,8 +209,8 @@ func (m ssmModel) renderPills(width int) string {
 		if !s.Direct() {
 			pill += fmt.Sprintf(" :%d", s.LocalPort)
 		}
-		if m.isProduction(s) {
-			pill += " " + m.styles.Warning.Bold(true).Render("PROD")
+		if env := m.sessionEnvironment(s); !env.IsZero() {
+			pill += " " + m.styles.EnvPillStyle(env).Render(strings.ToUpper(env.Name))
 		}
 		if s.MCPWrites() {
 			pill += " " + m.styles.Danger.Render("WRITES")
@@ -569,8 +569,8 @@ func (m ssmModel) badge(resourceType string) string {
 // badges renders the resource type of s, flagged when its MCP server may modify data.
 func (m ssmModel) badges(s *sessions.Session) string {
 	badges := m.badge(s.ResourceType)
-	if m.isProduction(s) {
-		badges += " " + m.styles.ProdBadge()
+	if envBadge := m.styles.EnvBadge(m.sessionEnvironment(s)); envBadge != "" {
+		badges += " " + envBadge
 	}
 	if s.MCPWrites() {
 		badges += " " + m.styles.WritesBadge()

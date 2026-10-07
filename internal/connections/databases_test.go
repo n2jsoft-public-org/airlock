@@ -16,7 +16,7 @@ func testDatabase(name string) directdb.Database {
 func TestDatabasesPutGetListRoundTrip(t *testing.T) {
 	store := newTestStore(t)
 	dbs := store.Databases()
-	billing := directdb.Database{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", Production: true}
+	billing := directdb.Database{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", Environment: "prod"}
 	for _, db := range []directdb.Database{billing, testDatabase("archive")} {
 		if err := dbs.Put("", db); err != nil {
 			t.Fatal(err)
@@ -41,7 +41,7 @@ func TestDatabasesPutGetListRoundTrip(t *testing.T) {
 		t.Fatal("the view must work on its store")
 	}
 	data := readStoreFile(t, store)
-	for _, want := range []string{`"legacy-billing": {`, `"engine": "sqlserver"`, `"host": "billing.db.internal"`, `"user": "mcp_ro"`, `"production": true`} {
+	for _, want := range []string{`"legacy-billing": {`, `"engine": "sqlserver"`, `"host": "billing.db.internal"`, `"user": "mcp_ro"`, `"environment": "prod"`} {
 		if !strings.Contains(data, want) {
 			t.Fatalf("file lacks %s:\n%s", want, data)
 		}
@@ -76,13 +76,13 @@ func TestDatabasesPutKeepsTheChoicesOnlyWhileTheConnectionIsTheSame(t *testing.T
 	}
 
 	production := testDatabase("analytics")
-	production.Production = true
+	production.Environment = "prod"
 	if err := dbs.Put("analytics", production); err != nil {
 		t.Fatal(err)
 	}
 	if entry, _, err := store.Get("analytics"); err != nil {
 		t.Fatal(err)
-	} else if withoutDate(&entry.Choices) != choices || !entry.Direct.Production {
+	} else if withoutDate(&entry.Choices) != choices || entry.Direct.Environment != "prod" {
 		t.Fatalf("entry = %+v, want the choices kept on a production-only change", entry)
 	}
 
@@ -164,13 +164,13 @@ func TestDatabasesPutAllKeepsChoicesAndOtherEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := testDatabase("analytics")
-	changed.Production = true
+	changed.Environment = "prod"
 	if err := dbs.PutAll([]directdb.Database{changed, testDatabase("events")}); err != nil {
 		t.Fatal(err)
 	}
 
 	list, err := dbs.List()
-	if err != nil || len(list) != 3 || !list[0].Production || list[1].Name != "archive" || list[2].Name != "events" {
+	if err != nil || len(list) != 3 || list[0].Environment != "prod" || list[1].Name != "archive" || list[2].Name != "events" {
 		t.Fatalf("List = %+v, %v; want analytics changed, archive kept, events added", list, err)
 	}
 	if entry, _, err := store.Get("analytics"); err != nil {

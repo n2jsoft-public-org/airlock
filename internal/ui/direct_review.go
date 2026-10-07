@@ -126,9 +126,8 @@ func (m jumphostWizardModel) renderDirectReviewPanel(width int, compact bool) st
 	db := &m.directDB
 
 	name := m.styles.Text.Bold(true).Render(db.Name)
-	if db.Production {
-		name = m.styles.ProdBadge() + " " + name
-	}
+	env := m.environments.Lookup(db.Environment)
+	name = m.envPrefix(env) + name
 	var rows []string
 	if compact {
 		rows = append(rows, m.reviewRow("Target", m.styles.ResourceBadge(sessions.DirectResourceType)+" "+name, inner))
@@ -164,7 +163,7 @@ func (m jumphostWizardModel) renderDirectReviewPanel(width int, compact bool) st
 	}
 
 	card := m.styles.Card
-	if db.Production {
+	if env.Production {
 		card = card.BorderForeground(m.styles.WarningColor)
 	}
 	return card.Width(panelWidth).Render(strings.Join(rows, "\n"))

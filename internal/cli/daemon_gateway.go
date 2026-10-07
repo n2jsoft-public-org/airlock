@@ -35,10 +35,10 @@ type daemonRunner struct {
 // gatewaySettings are the settings of cfg each gateway request applies.
 func gatewaySettings(cfg *config.Config) gateway.Settings {
 	return gateway.Settings{
-		ProductionProfiles: cfg.ProductionProfilePatterns(),
-		AutoConnect:        gateway.AutoConnect(cfg.AgentAutoConnect),
-		IdleTimeout:        cfg.AgentIdleTimeout,
-		AgentWrites:        cfg.AgentWrites,
+		Environments: cfg.EnvironmentSet(),
+		AutoConnect:  gateway.AutoConnect(cfg.AgentAutoConnect),
+		IdleTimeout:  cfg.AgentIdleTimeout,
+		AgentWrites:  cfg.AgentWrites,
 	}
 }
 

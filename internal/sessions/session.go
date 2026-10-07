@@ -119,12 +119,14 @@ type Session struct {
 	LocalPort   int    `json:"localPort"`
 	Connections int    `json:"connections"`
 	// Reconnects counts the automatic reconnections in a row.
-	Reconnects    int   `json:"reconnects"`
-	State         State `json:"state"`
-	Production    bool  `json:"production,omitempty"`
-	Ready         bool  `json:"ready"`
-	StopRequested bool  `json:"stopRequested,omitempty"`
-	Reconnecting  bool  `json:"reconnecting,omitempty"`
+	Reconnects int   `json:"reconnects"`
+	State      State `json:"state"`
+	// Environment is a direct database's environment; Production stays for the dashboards of earlier versions.
+	Environment   string `json:"environment,omitempty"`
+	Production    bool   `json:"production,omitempty"`
+	Ready         bool   `json:"ready"`
+	StopRequested bool   `json:"stopRequested,omitempty"`
+	Reconnecting  bool   `json:"reconnecting,omitempty"`
 	// HasSignIn reports a database sign-in to check; HasCredentials, credentials the password
 	// dialog can read.
 	HasSignIn      bool `json:"hasSignIn,omitempty"`

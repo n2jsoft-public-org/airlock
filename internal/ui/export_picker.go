@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // ErrExportCanceled is returned by PickExports when the user leaves without exporting.
@@ -15,9 +16,9 @@ var ErrExportCanceled = errors.New("not exported")
 
 // ExportChoice is one item PickExports offers.
 type ExportChoice struct {
-	Name       string
-	Detail     string
-	Production bool
+	Name        string
+	Detail      string
+	Environment environment.Env
 }
 
 const exportPickerMaxWidth = 100
@@ -176,8 +177,8 @@ func (p exportPicker) renderRow(idx, nameWidth, width int) string {
 		name = p.styles.Text.Render(name)
 	}
 	row := marker + box + " " + name + "  " + p.styles.Muted.Render(choice.Detail)
-	if choice.Production {
-		row += " " + p.styles.ProdBadge()
+	if badge := p.styles.EnvBadge(choice.Environment); badge != "" {
+		row += " " + badge
 	}
 	row = truncate(row, width)
 	if current {

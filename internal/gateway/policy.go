@@ -6,7 +6,7 @@ package gateway
 import (
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // AutoConnect is which agent openings skip the dashboard prompt (agentAutoConnect).
@@ -20,8 +20,8 @@ const (
 
 // Settings are the settings of config.json each gateway request applies.
 type Settings struct {
-	AutoConnect        AutoConnect
-	ProductionProfiles sessions.ProductionProfiles
+	AutoConnect  AutoConnect
+	Environments environment.Set
 	// IdleTimeout closes an agent-opened session without relayed call for that long.
 	IdleTimeout time.Duration
 	// AgentWrites lets agents ask for MCP writes, always prompted.

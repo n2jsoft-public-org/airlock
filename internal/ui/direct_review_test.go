@@ -157,7 +157,7 @@ func TestRecentDirectEntries(t *testing.T) {
 	gone := jumphost.SavedConnection{Ref: jumphost.DirectTargetRef("old-crm"), TargetMissing: true}
 	unknown := jumphost.SavedConnection{Ref: jumphost.DirectTargetRef("reports")}
 	p := newRecentPicker(NewStyles(true), []jumphost.SavedConnection{connected, gone, unknown},
-		map[string]bool{directConnectionKey("legacy-billing"): true}, productionMatcher{"*"},
+		map[string]bool{directConnectionKey("legacy-billing"): true}, mustEnvironments(t, "prod!=*"),
 		map[string]directdb.Database{"legacy-billing": billing}, time.Now())
 
 	items := p.list.Items()
@@ -165,13 +165,13 @@ func TestRecentDirectEntries(t *testing.T) {
 		t.Fatalf("items = %d, want the three entries", len(items))
 	}
 	first := recentItemOf(t, items[0])
-	if first.Description() != "direct · billing.db.internal:1433" || !first.connected || !first.isProduction() || first.isDimmed() {
-		t.Fatalf("first = %q connected = %v prod = %v, want the connected production server", first.Description(), first.connected, first.isProduction())
+	if first.Description() != "direct · billing.db.internal:1433" || !first.connected || !first.environment().Production || first.isDimmed() {
+		t.Fatalf("first = %q connected = %v prod = %v, want the connected production server", first.Description(), first.connected, first.environment().Production)
 	}
 	second := recentItemOf(t, items[1])
-	if second.Description() != "direct · definition removed" || !second.isDimmed() || second.isProduction() {
+	if second.Description() != "direct · definition removed" || !second.isDimmed() || second.environment().Production {
 		t.Fatalf("second = %q dimmed = %v prod = %v, want a faded entry, never matched by profile patterns",
-			second.Description(), second.isDimmed(), second.isProduction())
+			second.Description(), second.isDimmed(), second.environment().Production)
 	}
 	third := recentItemOf(t, items[2])
 	if third.Description() != "direct" {

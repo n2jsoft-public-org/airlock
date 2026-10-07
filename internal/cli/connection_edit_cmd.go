@@ -13,8 +13,8 @@ func newConnectionEditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit <name>",
 		Short: "Change a direct database: only the given flags change",
-		Long: "Changes only the flags given. --port 0 and --database \"\" restore their defaults, --production=false clears the flag, " +
-			"--name renames the database; any change but --production (name, engine, host, port, database, user, TLS) " +
+		Long: "Changes only the flags given. --port 0 and --database \"\" restore their defaults, --environment \"\" clears the environment, " +
+			"--name renames the database; any change but --environment (name, engine, host, port, database, user, TLS) " +
 			"forgets the password remembered before.",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeDirectDatabase,
@@ -31,7 +31,7 @@ func newConnectionEditCmd() *cobra.Command {
 			if !flags.applyTo(cmd, &db) {
 				return errors.New("nothing to change: give at least one flag (see airlock connection edit --help)")
 			}
-			if err := validDatabase(&db); err != nil {
+			if err := validDatabase(cmd, &db, cmd.Flags().Changed("environment") || cmd.Flags().Changed("production")); err != nil {
 				return err
 			}
 			// A rename onto an existing name fails in Put: refuse before forgetting anything.

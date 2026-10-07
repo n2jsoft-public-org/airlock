@@ -61,6 +61,7 @@ func TestLoadACMEPreset(t *testing.T) {
 		ReadOnlySecretTag: awstag.Tag{Key: "AccessRole", Value: "ro-access"},
 		MCPServerPrefix:   "acme",
 		DefaultRegion:     "eu-west-3",
+		Environments:      "prod!=",
 		MCPClients:        "auto",
 		Mode:              ModeCLI,
 		MCPGateway:        true,
@@ -170,27 +171,49 @@ func TestApplyRejectsEmptyJumphostTagAndPrefix(t *testing.T) {
 	}
 }
 
-func TestLoadProductionProfiles(t *testing.T) {
+func TestLoadEnvironments(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"environments": " Staging=*stg* ; prod!=*prod* "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Environments != "prod!=*prod*; staging=*stg*" {
+		t.Fatalf("Environments = %q, want the normalized setting", cfg.Environments)
+	}
+	if env := cfg.EnvironmentSet().Match("team-stg"); env.Name != "staging" {
+		t.Fatalf("Match = %+v", env)
+	}
+	if d := Defaults(); d.Environments != "prod!=" || !d.EnvironmentSet().Match("team-prod").IsZero() {
+		t.Fatalf("default = %q: no profile is production until a team sets its patterns", d.Environments)
+	}
+}
+
+func TestLoadEnvironmentsMigratesProductionProfiles(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `{"productionProfiles": " *PROD*, ,*-live "}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ProductionProfiles != "*PROD*,*-live" {
-		t.Fatalf("ProductionProfiles = %q, want the patterns trimmed, empty ones dropped", cfg.ProductionProfiles)
-	}
-	if got := cfg.ProductionProfilePatterns(); len(got) != 2 || got[0] != "*PROD*" || got[1] != "*-live" {
-		t.Fatalf("patterns = %q", got)
-	}
-	defaults := Defaults()
-	if got := defaults.ProductionProfilePatterns(); len(got) != 0 {
-		t.Fatalf("default patterns = %q, want none: naming conventions belong to each team", got)
+	if cfg.Environments != "prod!=*PROD*,*-live" || !cfg.EnvironmentSet().Match("shop-live").Production {
+		t.Fatalf("Environments = %q, want productionProfiles read as prod!=<patterns>", cfg.Environments)
 	}
 }
 
-func TestLoadRejectsInvalidProductionPattern(t *testing.T) {
-	_, err := Load(writeConfig(t, `{"productionProfiles": "*prod*,team-["}`))
-	if err == nil || !strings.Contains(err.Error(), "productionProfiles") || !strings.Contains(err.Error(), "team-[") {
-		t.Fatalf("err = %v, want the key and the pattern named", err)
+func TestLoadEnvironmentsWinOverProductionProfiles(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `{"environments": "live!=*-live", "productionProfiles": "*prod*,team-["}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Environments != "live!=*-live" {
+		t.Fatalf("Environments = %q; want environments, the deprecated key ignored", cfg.Environments)
+	}
+}
+
+func TestLoadRejectsInvalidEnvironments(t *testing.T) {
+	path := writeConfig(t, `{"environments": "prod=*prod*"}`)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "environments") || !strings.Contains(err.Error(), path) {
+		t.Fatalf("err = %v, want the key and the file named", err)
+	}
+	if _, err := Load(writeConfig(t, `{"productionProfiles": "*prod*,team-["}`)); err == nil || !strings.Contains(err.Error(), "productionProfiles") {
+		t.Fatalf("err = %v, want an invalid productionProfiles named while it is read", err)
 	}
 }
 

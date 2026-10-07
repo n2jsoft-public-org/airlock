@@ -2,6 +2,8 @@ package cli
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -165,13 +167,13 @@ func TestConnectionImportConnectionChangeForgetsTheConnection(t *testing.T) {
 	rememberDirectPassword(t, memory, "archive", "reader")
 	moved, flagged := billing, archive
 	moved.Host, moved.TLS = "evil.example", directdb.TLSDisable
-	flagged.Production = true
+	flagged.Environment = "prod"
 
 	out, err := runAirlock(t, "db", "import", exportString(t, moved, flagged), "--yes")
 	if err != nil {
 		t.Fatalf("out = %q, err = %v", out, err)
 	}
-	if !strings.Contains(out, "  ~ archive (changed): production false -> true\n") {
+	if !strings.Contains(out, "  ~ archive (changed): environment - -> prod\n") {
 		t.Fatalf("a production-only change must not announce a forgotten password:\n%s", out)
 	}
 	if _, found := testConnections(t).Load(jumphost.DirectTargetRef("legacy-billing")); found {
@@ -231,5 +233,47 @@ func TestConnectionImportOverAnInvalidEntryImportsNothingWhenItsPasswordStays(t 
 	}
 	if password, err := memory.Get(traceDBKeychainAccount); err != nil || password != "s3cret" {
 		t.Fatalf("keychain = %q, %v; want the password still there", password, err)
+	}
+}
+
+func TestConnectionImportWarnsOfAnUnknownEnvironment(t *testing.T) {
+	testDatabases(t)
+	shared, err := directdb.Export([]directdb.Database{{Name: "orders", Engine: directdb.EnginePostgres, Host: "h", User: "u", Environment: "qa"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runAirlock(t, "connection", "import", shared, "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "environment qa is not in your environments setting: shown gray, not production") {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestConnectionImportSavesTheProductionEnvironmentUnderItsAlias(t *testing.T) {
+	store, _ := testDatabases(t)
+	writeTestFile(t, filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airlock", "config.json"), `{"environments": "live!=*-live"}`)
+	shared, err := directdb.Export([]directdb.Database{{Name: "billing", Engine: directdb.EnginePostgres, Host: "h", User: "u", Environment: "live"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runAirlock(t, "connection", "import", shared, "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	db, found, err := store.Get("billing")
+	if err != nil || !found || db.Environment != "prod" {
+		t.Fatalf("billing = %+v (found %v, err %v), want its environment saved as prod", db, found, err)
+	}
+}
+
+func TestConnectionExportAllDoesNotReadTheConfig(t *testing.T) {
+	store, _ := testDatabases(t)
+	if err := store.Put("", archive); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airlock", "config.json"), `{"jumphost": "x"}`)
+	if _, err := runAirlock(t, "connection", "export", "--all"); err != nil {
+		t.Fatalf("export --all = %v, want the config left unread", err)
 	}
 }

@@ -7,13 +7,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 func newTestExportPicker() exportPicker {
 	return newExportPicker(NewStyles(true), "Export direct databases", []ExportChoice{
 		{Name: "archive", Detail: "postgres · archive.internal:5432 · reader"},
-		{Name: "billing", Detail: "sqlserver · billing.internal:1433 · app", Production: true},
-		{Name: "reporting", Detail: "postgres · reporting.internal:6432 · bi"},
+		{Name: "billing", Detail: "sqlserver · billing.internal:1433 · app", Environment: environment.Env{Name: "prod", Production: true, Configured: true}},
+		{Name: "reporting", Detail: "postgres · reporting.internal:6432 · bi", Environment: environment.Env{Name: "dev", Configured: true}},
 	})
 }
 
@@ -86,7 +87,7 @@ func TestExportPickerCancels(t *testing.T) {
 func TestExportPickerShowsTheChoices(t *testing.T) {
 	p, _ := exportKeys(t, newTestExportPicker(), "down", "space")
 	view := ansi.Strip(p.render())
-	for _, want := range []string{"Export direct databases", "2/3 selected", "[x] archive", "[ ] billing", "PROD", "reporting.internal:6432"} {
+	for _, want := range []string{"Export direct databases", "2/3 selected", "[x] archive", "[ ] billing", "PROD", "DEV", "reporting.internal:6432"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view lacks %q:\n%s", want, view)
 		}

@@ -49,6 +49,9 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 	}
 	views := make([]ui.SettingView, 0, len(settings))
 	for _, setting := range settings {
+		if setting.Source == config.SourceDeprecated {
+			continue
+		}
 		view := ui.SettingView{
 			Name: setting.Name, Description: setting.Description, Value: setting.Value,
 			FromFile: setting.Source == config.SourceFile, OverriddenBy: s.overriddenBy[setting.Name],
@@ -71,7 +74,7 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 		}
 		views = append(views, view)
 	}
-	return ui.SettingsSnapshot{Path: s.path, Settings: views, ProductionProfiles: cfg.ProductionProfilePatterns()}, nil
+	return ui.SettingsSnapshot{Path: s.path, Settings: views, Environments: cfg.EnvironmentSet()}, nil
 }
 
 // Set validates value and writes it for key, keeping the other keys of the file.

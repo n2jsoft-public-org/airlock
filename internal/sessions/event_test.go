@@ -70,7 +70,7 @@ func TestSessionAndEventSurviveJSON(t *testing.T) {
 		Label:        "db",
 		ResourceType: "rds", Target: "db", Profile: "dev", Region: "eu-west-1", Err: "ended", Cleanup: "done",
 		ID: 7, LocalPort: 5432, Connections: 2, Reconnects: 1, State: StateRunning,
-		Production: true, Ready: true, StopRequested: true, Reconnecting: true, HasSignIn: true, HasCredentials: true,
+		Environment: "staging", Production: true, Ready: true, StopRequested: true, Reconnecting: true, HasSignIn: true, HasCredentials: true,
 	}
 	event := Event{
 		Kind: EventUpdated, Seq: 42, ID: 7, Session: &session, Lines: []LogLine{{At: at, Text: "line"}},

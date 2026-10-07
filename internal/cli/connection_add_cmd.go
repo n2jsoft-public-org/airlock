@@ -9,7 +9,7 @@ func newConnectionAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "add <name>",
 		Short:   "Add a direct database to saved-connections.json",
-		Example: "  airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --production",
+		Example: "  airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --environment prod",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := openDatabases(cmd)
@@ -17,7 +17,7 @@ func newConnectionAddCmd() *cobra.Command {
 				return err
 			}
 			db := flags.definition(args[0])
-			if err := validDatabase(&db); err != nil {
+			if err := validDatabase(cmd, &db, true); err != nil {
 				return err
 			}
 			if err := store.Put("", db); err != nil {

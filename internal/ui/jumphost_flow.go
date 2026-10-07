@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -180,8 +181,8 @@ type jumphostWizardModel struct {
 	// secret is the picked Secrets Manager secret; a zero ARN means none.
 	secret jumphost.SecretSummary
 
-	// production flags the AWS profiles of the productionProfiles setting.
-	production    productionMatcher
+	// environments names the AWS profiles' environments (environments setting).
+	environments  environment.Set
 	portInput     textinput.Model
 	userInput     textinput.Model
 	passwordInput textinput.Model
@@ -278,11 +279,12 @@ type jumphostListItem struct {
 	// resourceType is set on search results, which mix types.
 	resourceType string
 	iamAuth      bool
-	// production flags a profile of the productionProfiles setting.
-	production bool
+	// env is the environment of the profile under the environments setting.
+	env environment.Env
 }
 
-func (i jumphostListItem) isProduction() bool { return i.production }
+// environment is the environment of the profile.
+func (i jumphostListItem) environment() environment.Env { return i.env }
 
 func (i jumphostListItem) FilterValue() string {
 	return strings.Join(strings.Fields(strings.Join([]string{i.name, i.resourceType, i.desc}, " ")), " ")
@@ -394,9 +396,9 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 		portInput:     portInput,
 		userInput:     userInput,
 		passwordInput: passwordInput,
-		recent:        newRecentPicker(styles, nil, nil, nil, nil, time.Now()),
+		recent:        newRecentPicker(styles, nil, nil, environment.Set{}, nil, time.Now()),
 		// fitLists sizes it on every update: a zero-value list has no delegate and would panic.
-		directList: newDirectList(styles, nil, nil, nil),
+		directList: newDirectList(styles, nil, nil, nil, environment.Set{}),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
 	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
@@ -528,7 +530,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if currentProfile != "" && profile.Name == currentProfile {
 				selectedIndex = idx
 			}
-			items = append(items, jumphostListItem{name: profile.Name, desc: profile.Description, production: m.production.matches(profile.Name)})
+			items = append(items, jumphostListItem{name: profile.Name, desc: profile.Description, env: m.environments.Match(profile.Name)})
 		}
 		m.profileList.SetItems(items)
 		m.profileList.Select(selectedIndex)

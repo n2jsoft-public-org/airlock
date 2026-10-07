@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
@@ -90,7 +91,7 @@ func TestOpenSessionApprovedInADashboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs, audit := newToolset(t, m, Settings{AutoConnect: AutoConnectNone}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing", Production: true}})
+	cs, audit := newToolset(t, m, Settings{AutoConnect: AutoConnectNone}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing", Environment: "prod"}})
 	type result struct {
 		text    string
 		isError bool
@@ -101,7 +102,7 @@ func TestOpenSessionApprovedInADashboard(t *testing.T) {
 		done <- result{text, isError}
 	}()
 	ev := sessionstest.Wait(t, events, func(ev sessions.Event) bool { return ev.Kind == sessions.EventApprovalRequested })
-	if a := ev.Approval; a.Agent != "agent" || a.Target != "billing" || a.Reason != "check invoices" || !a.Production || a.Writes {
+	if a := ev.Approval; a.Agent != "agent" || a.Target != "billing" || a.Reason != "check invoices" || !a.Production || a.Environment != "prod" || a.Writes {
 		t.Fatalf("approval = %+v", a)
 	}
 	go func() {
@@ -272,7 +273,7 @@ func TestOpenSessionCleansTheAgentText(t *testing.T) {
 func TestOpenSessionNonProdPromptsForAProductionProfile(t *testing.T) {
 	runner := sessionstest.NewRunner()
 	m, _ := newTestManager(t, runner)
-	settings := Settings{AutoConnect: AutoConnectNonProd, ProductionProfiles: sessions.ProductionProfiles{"prod*"}}
+	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "prod!=prod*")}
 	cs, _ := newToolset(t, m, settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "prod-eu")}}, nil)
 	args := map[string]any{"type": "rds", "name": "orders-db"}
 	if text, isError := callTool(t, cs, "open_session", args); !isError || !strings.Contains(text, "no airlock dashboard is open") {
@@ -380,5 +381,63 @@ func TestOpenSessionFailsWhenTheSignInFails(t *testing.T) {
 		if s.Active() {
 			t.Fatalf("session %d still runs after its sign-in failed", s.ID)
 		}
+	}
+}
+
+func mustEnvironments(t *testing.T, s string) environment.Set {
+	t.Helper()
+	set, err := environment.Parse(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+func TestOpenSessionNonProdPromptsForALegacyProductionDatabase(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	runner.Direct("orders")
+	m, _ := newTestManager(t, runner)
+	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}
+	cs, _ := newToolset(t, m, settings, &fakeDiscovery{}, fakeDatabases{
+		"billing": {Name: "billing", Environment: "prod"},
+		"orders":  {Name: "orders", Environment: "staging"},
+	})
+	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "direct", "name": "billing"})
+	if !isError || !strings.Contains(text, "no airlock dashboard is open") {
+		t.Fatalf("billing = %q, want production (prod is live's alias) to need a dashboard", text)
+	}
+	if text, isError = callTool(t, cs, "open_session", map[string]any{"type": "direct", "name": "orders"}); isError {
+		t.Fatalf("orders = %q, want staging to open alone under non-prod", text)
+	}
+}
+
+func TestOpenSessionNonProdPromptsForAProfileOfAProductionNamedLive(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}
+	cs, _ := newToolset(t, m, settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-live")}}, nil)
+	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"})
+	if !isError || !strings.Contains(text, "no airlock dashboard is open") {
+		t.Fatalf("shop-live = %q, want production (live) to need a dashboard", text)
+	}
+	if len(runner.PreparedOptions()) != 0 {
+		t.Fatal("nothing opens without the approval")
+	}
+}
+
+func TestOpenSessionNonProdOpensAStagingProfileAlone(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	runner.AWS("orders-db", "rds")
+	m, _ := newTestManager(t, runner)
+	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}
+	cs, _ := newToolset(t, m, settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-stg")}}, nil)
+	// The fake AWS session never reports running, so the call may time out waiting for it: what
+	// matters is that it went ahead without a dashboard.
+	text, _ := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"})
+	if strings.Contains(text, "dashboard") {
+		t.Fatalf("shop-stg = %q, want staging to open alone under non-prod", text)
+	}
+	if len(runner.PreparedOptions()) != 1 {
+		t.Fatalf("prepared = %+v", runner.PreparedOptions())
 	}
 }

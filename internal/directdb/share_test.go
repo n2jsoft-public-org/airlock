@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/sharecode"
 )
 
 func TestExportImportRoundTrip(t *testing.T) {
-	billing := Database{Name: "legacy-billing", Engine: EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", TLS: TLSVerify, Port: 14330, Production: true}
+	billing := Database{Name: "legacy-billing", Engine: EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", TLS: TLSVerify, Port: 14330, Environment: "prod"}
 	archive := testDatabase("archive")
 	shared, err := Export([]Database{billing, archive})
 	if err != nil {
@@ -92,7 +93,7 @@ func TestExportRefusesAnInvalidDatabase(t *testing.T) {
 func TestPlanImportListsTheChangedFields(t *testing.T) {
 	local := testDatabase("billing")
 	incoming := local
-	incoming.Host, incoming.Port, incoming.Production = "db2.internal", 6432, true
+	incoming.Host, incoming.Port, incoming.Environment = "db2.internal", 6432, "prod"
 	shared, err := Export([]Database{incoming})
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +108,7 @@ func TestPlanImportListsTheChangedFields(t *testing.T) {
 	want := []FieldChange{
 		{Field: "host", Old: "db.internal", New: "db2.internal"},
 		{Field: "port", Old: "-", New: "6432"},
-		{Field: "production", Old: "false", New: "true"},
+		{Field: "environment", Old: "-", New: "prod"},
 	}
 	if !reflect.DeepEqual(plan.Changes[0].Fields, want) {
 		t.Fatalf("fields = %+v, want %+v", plan.Changes[0].Fields, want)
@@ -230,7 +231,7 @@ func TestImportChangeConnectionChanged(t *testing.T) {
 	local := []Database{testDatabase("billing"), testDatabase("flagged"), testDatabase("same")}
 	moved, flagged := local[0], local[1]
 	moved.Host, moved.TLS = "evil.example", TLSDisable
-	flagged.Production = true
+	flagged.Environment = "prod"
 	shared, err := Export([]Database{moved, flagged, local[2], testDatabase("added")})
 	if err != nil {
 		t.Fatal(err)
@@ -246,5 +247,20 @@ func TestImportChangeConnectionChanged(t *testing.T) {
 	want := map[string]bool{"added": false, "billing": true, "flagged": false, "same": false}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("connection changed = %v, want %v", got, want)
+	}
+}
+
+func TestImportOfALegacyProductionDatabaseIsProduction(t *testing.T) {
+	legacy := sharecode.Encode(sharePrefix, []byte(`{"version": 1, "databases": {"billing": {"engine": "postgres", "host": "h", "user": "u", "production": true}}}`))
+	plan, err := PlanImport(nil, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := environment.Parse("live!=*-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if db := plan.Changes[0].Database; db.Environment != "prod" || !live.Lookup(db.Environment).Production {
+		t.Fatalf("Environment = %q: a production database must stay production where production is named live", db.Environment)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/n2jsoft/airlock/internal/connections"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +18,10 @@ func newConnectionListCmd() *cobra.Command {
 		Short: "List the saved connections, most recently used first",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, _, err := loadConfig(cmd)
+			if err != nil {
+				return err
+			}
 			store, err := openSavedConnections(cmd.ErrOrStderr())
 			if err != nil {
 				return err
@@ -31,7 +36,7 @@ func newConnectionListCmd() *cobra.Command {
 				return nil
 			}
 			sortConnections(entries)
-			return printConnections(cmd.OutOrStdout(), entries)
+			return printConnections(cmd.OutOrStdout(), entries, cfg.EnvironmentSet())
 		},
 	}
 	cmd.Flags().BoolVar(&directOnly, "direct", false, "List only the direct databases")
@@ -81,13 +86,13 @@ func sortConnections(entries []connections.Entry) {
 }
 
 // printConnections writes the table of entries; a short name several entries share gives way to the key.
-func printConnections(w io.Writer, entries []connections.Entry) error {
+func printConnections(w io.Writer, entries []connections.Entry, envs environment.Set) error {
 	shared := map[string]int{}
 	for idx := range entries {
 		shared[entries[idx].ShortName()]++
 	}
 	table := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
-	if _, err := fmt.Fprintln(table, "NAME\tVIA\tTYPE\tTARGET\tUSER\tLAST USED\tPRODUCTION"); err != nil {
+	if _, err := fmt.Fprintln(table, "NAME\tVIA\tTYPE\tTARGET\tUSER\tLAST USED\tENV"); err != nil {
 		return err
 	}
 	for idx := range entries {
@@ -100,25 +105,22 @@ func printConnections(w io.Writer, entries []connections.Entry) error {
 		if !entry.Choices.UsedAt.IsZero() {
 			lastUsed = entry.Choices.UsedAt.Local().Format("2006-01-02 15:04")
 		}
-		via, kind, target, user, production := connectionColumns(entry)
-		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, via, kind, target, user, lastUsed, production); err != nil {
+		via, kind, target, user, env := connectionColumns(entry, envs)
+		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, via, kind, target, user, lastUsed, env); err != nil {
 			return err
 		}
 	}
 	return table.Flush()
 }
 
-// connectionColumns are the VIA, TYPE, TARGET, USER and PRODUCTION columns of entry.
-func connectionColumns(entry *connections.Entry) (via, kind, target, user, production string) {
+// connectionColumns are the VIA, TYPE, TARGET, USER and ENV columns of entry.
+func connectionColumns(entry *connections.Entry, envs environment.Set) (via, kind, target, user, env string) {
 	switch {
 	case entry.Direct != nil:
-		if entry.Direct.Production {
-			production = "yes"
-		}
-		return "direct", string(entry.Direct.Engine), entry.Direct.Address(), entry.Direct.User, production
+		return "direct", string(entry.Direct.Engine), entry.Direct.Address(), entry.Direct.User, envs.Lookup(entry.Direct.Environment).Name
 	case entry.Jumphost != nil:
 		where := entry.Jumphost.Target + " @ " + entry.Jumphost.Account + "/" + entry.Jumphost.Region
-		return "jumphost", entry.Jumphost.Type, where, entry.Choices.User, ""
+		return "jumphost", entry.Jumphost.Type, where, entry.Choices.User, envs.Match(entry.Jumphost.Profile).Name
 	default:
 		return "?", "?", "invalid: " + entry.Invalid.Error(), "", ""
 	}

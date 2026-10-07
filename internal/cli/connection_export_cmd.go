@@ -6,6 +6,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +39,12 @@ func newConnectionExportCmd() *cobra.Command {
 				return err
 			}
 			if len(args) == 0 && !all {
-				if selected, err = pickDatabases(cmd, selected); err != nil {
+				// Only the picker badges environments: --all and explicit names need no config.
+				cfg, _, cfgErr := loadConfig(cmd)
+				if cfgErr != nil {
+					return cfgErr
+				}
+				if selected, err = pickDatabases(cmd, selected, cfg.EnvironmentSet()); err != nil {
 					return err
 				}
 			}
@@ -55,10 +61,10 @@ func newConnectionExportCmd() *cobra.Command {
 }
 
 // pickDatabases lets the user uncheck the databases to leave out; all of dbs without a terminal.
-func pickDatabases(cmd *cobra.Command, dbs []directdb.Database) ([]directdb.Database, error) {
+func pickDatabases(cmd *cobra.Command, dbs []directdb.Database, envs environment.Set) ([]directdb.Database, error) {
 	choices := make([]ui.ExportChoice, len(dbs))
 	for idx := range dbs {
-		choices[idx] = ui.ExportChoice{Name: dbs[idx].Name, Detail: describeExport(&dbs[idx]), Production: dbs[idx].Production}
+		choices[idx] = ui.ExportChoice{Name: dbs[idx].Name, Detail: describeExport(&dbs[idx]), Environment: envs.Lookup(dbs[idx].Environment)}
 	}
 	indexes, asked, err := pickExports(cmd, "Export direct databases", choices)
 	if err != nil || !asked {

@@ -45,7 +45,7 @@ func (m jumphostWizardModel) writeSetting(label string, write func() error) (tea
 	}, m.loadingUI.start(label, []string{"Writing it down in config.json..."}))
 }
 
-// handleSettingsLoaded shows the snapshot; the PROD badges follow its productionProfiles. A
+// handleSettingsLoaded shows the snapshot; the environment badges follow its environments. A
 // snapshot arriving after the wizard left the screen is ignored, as is its loading.
 func (m jumphostWizardModel) handleSettingsLoaded(msg settingsLoadedMsg) (tea.Model, tea.Cmd) {
 	if m.step != jumphostStepSettings {
@@ -58,7 +58,7 @@ func (m jumphostWizardModel) handleSettingsLoaded(msg settingsLoadedMsg) (tea.Mo
 	}
 	m.settingsEditor = m.settingsEditor.loaded(msg.snapshot, msg.err)
 	if msg.err == nil {
-		m.production = msg.snapshot.ProductionProfiles
+		m.environments = msg.snapshot.Environments
 	}
 	return m, nil
 }
@@ -117,7 +117,7 @@ func (m jumphostWizardModel) updateSettingsRegionPicker(msg tea.Msg) (tea.Model,
 
 // leaveSettings returns where the Settings screen was opened from. The default region is resolved
 // again, unless one was chosen, so the next connection follows defaultRegion. The start screen
-// loads the recent connections again, so their PROD badges follow productionProfiles.
+// loads the recent connections again, so their environment badges follow environments.
 func (m jumphostWizardModel) leaveSettings() (tea.Model, tea.Cmd) {
 	if m.settingsLeavesToHost {
 		m.canceled = true

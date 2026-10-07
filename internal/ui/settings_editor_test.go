@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // testSettings is a snapshot with one key of each kind, in this order: a default text key, a
@@ -23,7 +25,7 @@ func testSettings() SettingsSnapshot {
 			{Name: "productionProfiles", Description: "Patterns of the production profiles"},
 			{Name: "mode", Description: "cli or daemon", Value: "cli", Choices: []string{"cli", "daemon"}, NextLaunch: true},
 		},
-		ProductionProfiles: []string{"*prod*"},
+		Environments: environment.FromProductionProfiles([]string{"*prod*"}),
 	}
 }
 

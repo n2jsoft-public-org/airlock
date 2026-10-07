@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 const (
@@ -216,14 +217,16 @@ func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	if faded, ok := item.(interface{ isDimmed() bool }); ok && faded.isDimmed() {
 		title, desc = d.styles.Faint, d.styles.Faint
 	}
-	// Items mixing resource types show theirs as a badge before the title, and items of a
-	// production profile a PROD badge.
+	// Items mixing resource types show theirs as a badge before the title, and items with
+	// an environment show its badge.
 	badge := ""
 	if typed, ok := item.(interface{ itemType() string }); ok && typed.itemType() != "" {
 		badge = d.styles.ResourceBadge(typed.itemType()) + " "
 	}
-	if flagged, ok := item.(interface{ isProduction() bool }); ok && flagged.isProduction() {
-		badge += d.styles.ProdBadge() + " "
+	if envItem, ok := item.(interface{ environment() environment.Env }); ok {
+		if envBadge := d.styles.EnvBadge(envItem.environment()); envBadge != "" {
+			badge += envBadge + " "
+		}
 	}
 
 	rows := []string{

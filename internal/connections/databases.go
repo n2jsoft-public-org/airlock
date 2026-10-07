@@ -90,7 +90,7 @@ func (d *Databases) Put(previousName string, db directdb.Database) error { //nol
 }
 
 // PutAll writes dbs in one write, each in place of the entry of the same name: the remembered
-// choices of a direct database are kept while its connection is the same (only production may
+// choices of a direct database are kept while its connection is the same (only the environment may
 // differ), else dropped; an invalid entry is replaced. Every database is normalized and validated
 // first; an invalid one writes nothing.
 func (d *Databases) PutAll(dbs []directdb.Database) error {

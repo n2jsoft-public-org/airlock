@@ -20,9 +20,9 @@ import (
 
 func TestGatewaySettingsFromConfig(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.ProductionProfiles, cfg.AgentAutoConnect, cfg.AgentWrites, cfg.AgentIdleTimeout = "*prod*", config.AutoConnectNonProd, true, time.Hour
+	cfg.Environments, cfg.AgentAutoConnect, cfg.AgentWrites, cfg.AgentIdleTimeout = "prod!=*prod*", config.AutoConnectNonProd, true, time.Hour
 	s := gatewaySettings(&cfg)
-	if s.AutoConnect != gateway.AutoConnectNonProd || !s.AgentWrites || s.IdleTimeout != time.Hour || !s.ProductionProfiles.Matches("team-prod") {
+	if s.AutoConnect != gateway.AutoConnectNonProd || !s.AgentWrites || s.IdleTimeout != time.Hour || !s.Environments.Match("team-prod").Production {
 		t.Fatalf("settings = %+v", s)
 	}
 }

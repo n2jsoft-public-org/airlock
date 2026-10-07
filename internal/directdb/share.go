@@ -44,13 +44,13 @@ type ImportChange struct {
 }
 
 // ConnectionChanged reports whether the import changes how a database already defined is reached:
-// a changed field other than production. Its remembered password must then be forgotten.
+// a changed field other than environment. Its remembered password must then be forgotten.
 func (c *ImportChange) ConnectionChanged() bool {
 	if c.Kind != ChangeUpdated {
 		return false
 	}
 	for i := range c.Fields {
-		if c.Fields[i].Field != "production" {
+		if c.Fields[i].Field != "environment" {
 			return true
 		}
 	}
@@ -195,6 +195,6 @@ func writtenFields(db *Database) [][2]string {
 		{"database", orDash(db.Database)},
 		{"user", db.User},
 		{"tls", orDash(string(db.TLS))},
-		{"production", strconv.FormatBool(db.Production)},
+		{"environment", orDash(db.Environment)},
 	}
 }

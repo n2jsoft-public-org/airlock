@@ -38,13 +38,15 @@ type Approval struct {
 	Agent  string `json:"agent"`
 	Reason string `json:"reason,omitempty"`
 	// Type (rds, eks, elasticache, direct), Target, Profile and Region describe the connection.
-	Type       string     `json:"type"`
-	Target     string     `json:"target"`
-	Profile    string     `json:"profile,omitempty"`
-	Region     string     `json:"region,omitempty"`
-	ID         ApprovalID `json:"id"`
-	Production bool       `json:"production,omitempty"`
-	Writes     bool       `json:"writes,omitempty"`
+	Type    string     `json:"type"`
+	Target  string     `json:"target"`
+	Profile string     `json:"profile,omitempty"`
+	Region  string     `json:"region,omitempty"`
+	ID      ApprovalID `json:"id"`
+	// Environment is the target's environment; Production stays for the dashboards of earlier versions.
+	Environment string `json:"environment,omitempty"`
+	Production  bool   `json:"production,omitempty"`
+	Writes      bool   `json:"writes,omitempty"`
 }
 
 // Grant is an approved opening. Interactive runs its terminal commands in the approving view (nil

@@ -16,6 +16,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbuser"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // Config holds the settings merged from the built-in defaults, the config file and the flags.
@@ -32,9 +33,9 @@ type Config struct {
 	MCPServerPrefix string
 	// DefaultRegion is used after --region, AWS_REGION and the profile's region; empty means none.
 	DefaultRegion string
-	// ProductionProfiles lists, comma-separated, the patterns (* wildcard, any case) of the AWS
-	// profiles flagged as production; empty flags none.
-	ProductionProfiles string
+	// Environments is the normalized environments setting (environment.Set.String): the names
+	// given to AWS profiles by patterns, one of them production.
+	Environments string
 	// MCPClients selects, in the aiclient.Parse form, the AI clients the MCP servers are
 	// registered in (normalized; auto by default).
 	MCPClients string
@@ -74,12 +75,14 @@ const DefaultGatewayPort = 7821
 // minAgentIdleTimeout is the shortest agentIdleTimeout accepted.
 const minAgentIdleTimeout = time.Minute
 
-// ProductionProfilePatterns returns the patterns of ProductionProfiles; none when empty.
-func (c *Config) ProductionProfilePatterns() []string {
-	if c.ProductionProfiles == "" {
-		return nil
+// EnvironmentSet returns the parsed Environments.
+func (c *Config) EnvironmentSet() environment.Set {
+	set, err := environment.Parse(c.Environments)
+	if err != nil {
+		// Load only keeps valid values; a hand-built Config falls back to the default.
+		return environment.Default()
 	}
-	return strings.Split(c.ProductionProfiles, ",")
+	return set
 }
 
 // MCPClientSelection returns the AI clients selected by MCPClients.
@@ -97,6 +100,7 @@ func Defaults() Config {
 	return Config{
 		JumphostTag:     awstag.Tag{Key: "Usage", Value: "jumphost"},
 		MCPServerPrefix: "airlock",
+		Environments:    environment.Default().String(),
 		MCPClients:      aiclient.Auto,
 		Mode:            ModeCLI,
 
@@ -115,15 +119,17 @@ type file struct {
 	ReadOnlySecretTag *string `json:"readOnlySecretTag,omitempty"`
 	MCPServerPrefix   *string `json:"mcpServerPrefix,omitempty"`
 	DefaultRegion     *string `json:"defaultRegion,omitempty"`
-	// ProductionProfiles is last: it was added after the others.
+	Environments      *string `json:"environments,omitempty"`
+	MCPClients        *string `json:"mcpClients,omitempty"`
+	Mode              *string `json:"mode,omitempty"`
+	MCPGateway        *string `json:"mcpGateway,omitempty"`
+	MCPGatewayPort    *string `json:"mcpGatewayPort,omitempty"`
+	AgentAutoConnect  *string `json:"agentAutoConnect,omitempty"`
+	AgentWrites       *string `json:"agentWrites,omitempty"`
+	AgentIdleTimeout  *string `json:"agentIdleTimeout,omitempty"`
+	// ProductionProfiles is the deprecated key environments replaces: read while environments is
+	// not set, never written by airlock.
 	ProductionProfiles *string `json:"productionProfiles,omitempty"`
-	MCPClients         *string `json:"mcpClients,omitempty"`
-	Mode               *string `json:"mode,omitempty"`
-	MCPGateway         *string `json:"mcpGateway,omitempty"`
-	MCPGatewayPort     *string `json:"mcpGatewayPort,omitempty"`
-	AgentAutoConnect   *string `json:"agentAutoConnect,omitempty"`
-	AgentWrites        *string `json:"agentWrites,omitempty"`
-	AgentIdleTimeout   *string `json:"agentIdleTimeout,omitempty"`
 }
 
 // Load reads configPath over the defaults. A missing file (or an empty path) gives the defaults; invalid
@@ -189,10 +195,19 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.DefaultRegion != nil {
 		cfg.DefaultRegion = strings.TrimSpace(*f.DefaultRegion)
 	}
-	if f.ProductionProfiles != nil {
-		if cfg.ProductionProfiles, err = parseProfilePatterns(*f.ProductionProfiles); err != nil {
-			return Config{}, fmt.Errorf("productionProfiles: %w", err)
+	switch {
+	case f.Environments != nil:
+		set, parseErr := environment.Parse(*f.Environments)
+		if parseErr != nil {
+			return Config{}, fmt.Errorf("environments: %w", parseErr)
 		}
+		cfg.Environments = set.String()
+	case f.ProductionProfiles != nil:
+		patterns, parseErr := parseProfilePatterns(*f.ProductionProfiles)
+		if parseErr != nil {
+			return Config{}, fmt.Errorf("productionProfiles: %w", parseErr)
+		}
+		cfg.Environments = environment.FromProductionProfiles(patterns).String()
 	}
 	if f.MCPClients != nil {
 		if cfg.MCPClients, err = parseMCPClients(*f.MCPClients); err != nil {
@@ -284,20 +299,20 @@ func parseRequiredTag(s string) (awstag.Tag, error) {
 	return tag, nil
 }
 
-// parseProfilePatterns normalizes comma-separated profile patterns: trimmed, empty ones dropped,
-// each a valid path.Match pattern.
-func parseProfilePatterns(s string) (string, error) {
+// parseProfilePatterns reads the comma-separated patterns of the deprecated productionProfiles:
+// trimmed, empty ones dropped, each a valid path.Match pattern.
+func parseProfilePatterns(s string) ([]string, error) {
 	var patterns []string
-	for _, pattern := range strings.Split(s, ",") {
+	for pattern := range strings.SplitSeq(s, ",") {
 		if pattern = strings.TrimSpace(pattern); pattern == "" {
 			continue
 		}
 		if _, err := path.Match(pattern, ""); err != nil {
-			return "", fmt.Errorf("invalid pattern %q (use * as wildcard, e.g. *prod*)", pattern)
+			return nil, fmt.Errorf("invalid pattern %q (use * as wildcard, e.g. *prod*)", pattern)
 		}
 		patterns = append(patterns, pattern)
 	}
-	return strings.Join(patterns, ","), nil
+	return patterns, nil
 }
 
 // parseMCPClients normalizes a client selection (see aiclient.Parse).

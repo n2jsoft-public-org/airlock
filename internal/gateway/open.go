@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -42,12 +43,12 @@ type openOutput struct {
 
 // target is a resolved open_session target.
 type target struct {
-	typ        string
-	name       string
-	profile    string
-	region     string
-	prefs      jumphost.ConnectionPrefs
-	production bool
+	typ     string
+	name    string
+	profile string
+	region  string
+	prefs   jumphost.ConnectionPrefs
+	env     environment.Env
 }
 
 func (t *toolset) openSession(ctx context.Context, req *mcp.CallToolRequest, in openInput) (*mcp.CallToolResult, any, error) { //nolint:gocritic // signature fixed by mcp.ToolHandlerFor.
@@ -89,13 +90,13 @@ func (t *toolset) openSession(ctx context.Context, req *mcp.CallToolRequest, in 
 	}
 
 	var grant sessions.Grant
-	switch decision := Decide(in.Writes, &settings, tg.production, t.manager.Views()); decision.Verdict {
+	switch decision := Decide(in.Writes, &settings, tg.env.Production, t.manager.Views()); decision.Verdict {
 	case Refuse:
 		return refuse("%s", decision.Reason)
 	case Prompt:
 		grant, err = t.manager.RequestApproval(ctx, sessions.Approval{
 			Agent: agent, Reason: in.Reason, Type: tg.typ, Target: tg.name, Profile: tg.profile, Region: tg.region,
-			Production: tg.production, Writes: in.Writes,
+			Environment: tg.env.Name, Production: tg.env.Production, Writes: in.Writes,
 		})
 		switch {
 		case errors.Is(err, sessions.ErrNoView):
@@ -189,7 +190,7 @@ func (t *toolset) resolve(ctx context.Context, discovery Discovery, settings *Se
 			return target{}, fmt.Errorf("no direct database named %q; call list_targets", in.Name)
 		}
 		tg.name = orName(db.Name, tg.name)
-		tg.profile, tg.region, tg.production = "", "", db.Production
+		tg.profile, tg.region, tg.env = "", "", settings.Environments.Lookup(db.Environment)
 		for idx := range saved {
 			if saved[idx].Ref.Type == tg.typ && strings.EqualFold(saved[idx].Ref.Name, tg.name) {
 				tg.prefs = saved[idx].Prefs
@@ -218,7 +219,7 @@ func (t *toolset) resolve(ctx context.Context, discovery Discovery, settings *Se
 		slices.Sort(profiles)
 		return target{}, fmt.Errorf("%s %s is saved in several profiles (%s): pass profile", tg.typ, tg.name, strings.Join(profiles, ", "))
 	}
-	tg.production = settings.ProductionProfiles.Matches(tg.profile)
+	tg.env = settings.Environments.Match(tg.profile)
 	return tg, nil
 }
 

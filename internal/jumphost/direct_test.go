@@ -22,7 +22,7 @@ const billingKeychainAccount = "local/local/direct/legacy-billing/mcp_ro"
 
 // billingDatabase is a SQL Server database reached directly, flagged production.
 func billingDatabase() directdb.Database {
-	return directdb.Database{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", Production: true}
+	return directdb.Database{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", Environment: "prod"}
 }
 
 // fakeDirectDatabases is a DirectDatabases over a map; a non-nil err fails every lookup.
@@ -168,7 +168,7 @@ func TestPrepareDirectNeedsNoAWS(t *testing.T) {
 	}
 	defer session.Release()
 	if session.Label != "DIRECT legacy-billing" || session.ResourceType != "direct" || session.Target != "legacy-billing" ||
-		session.Profile != "" || session.Region != "" || !session.Production || session.LocalPort != 0 ||
+		session.Profile != "" || session.Region != "" || !session.Production || session.Environment != "prod" || session.LocalPort != 0 ||
 		len(session.CommandArgs) != 0 || len(session.AwsArgs) != 0 {
 		t.Fatalf("session = %+v", session)
 	}

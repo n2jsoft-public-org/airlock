@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // Key describes one setting of config.json.
@@ -24,12 +26,12 @@ var Keys = []Key{
 	{Name: "readOnlySecretTag", Description: "Tag (Key=Value) of the per-database read-only Secrets Manager secrets of SQL Server"},
 	{Name: "mcpServerPrefix", Description: "Start of the MCP server names"},
 	{Name: "defaultRegion", Description: "Region used after --region, AWS_REGION and the profile's region"},
-	{Name: "productionProfiles", Description: "Comma-separated patterns (* wildcard, any case) of the AWS profiles flagged as production, e.g. *prod*,*-live"},
+	{Name: "environments", Description: "Environments badged in the TUI, separated by ;, each name=patterns of AWS profiles (* wildcard, any case); ! marks production, e.g. prod!=*prod*,*-live; staging=*stg*; dev=*dev*"},
 	{Name: "mcpClients", Description: "AI clients the MCP servers are registered in: auto (detected in the project), none, or a comma-separated list of claude, vscode, codex, cursor, gemini, each with :user for its user-level file (claude:user also covers Claude Desktop), e.g. claude:user,codex"},
 	{Name: "mode", Description: "cli: sessions live in each airlock and close with it; daemon: a background daemon keeps them, and airlock is a view of it"},
 	{Name: "mcpGateway", Description: "true: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; false: no gateway"},
 	{Name: "mcpGatewayPort", Description: "Port of the MCP gateway on 127.0.0.1 (1024-65535)"},
-	{Name: "agentAutoConnect", Description: "Agent openings that skip the dashboard prompt: none, non-prod (targets outside productionProfiles and production direct databases) or all"},
+	{Name: "agentAutoConnect", Description: "Agent openings that skip the dashboard prompt: none, non-prod (targets outside the production environment) or all"},
 	{Name: "agentWrites", Description: "true: agents may ask for MCP writes, always approved in a dashboard; false: agents only open read-only sessions"},
 	{Name: "agentIdleTimeout", Description: "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)"},
 }
@@ -41,6 +43,18 @@ const (
 	SourceDefault Source = "default"
 	SourceFile    Source = "file"
 )
+
+// SourceDeprecated marks a deprecated key the file still sets.
+const SourceDeprecated Source = "deprecated"
+
+// legacyProductionProfiles is the key environments replaces.
+const legacyProductionProfiles = "productionProfiles"
+
+// deprecatedProductionProfiles describes productionProfiles in Settings.
+var deprecatedProductionProfiles = Key{
+	Name:        legacyProductionProfiles,
+	Description: "Deprecated: replaced by environments (read as prod!=<patterns> while environments is not set)",
+}
 
 // Setting is the effective value of one key; an empty Value means none.
 type Setting struct {
@@ -67,10 +81,17 @@ func Settings(path string) ([]Setting, error) {
 	settings := make([]Setting, 0, len(Keys))
 	for _, key := range Keys {
 		source := SourceDefault
-		if *f.field(key.Name) != nil {
+		if f.sets(key.Name) {
 			source = SourceFile
 		}
 		settings = append(settings, Setting{Key: key, Value: values[key.Name], Source: source})
+	}
+	if f.ProductionProfiles != nil {
+		value := strings.TrimSpace(*f.ProductionProfiles)
+		if f.Environments != nil {
+			value += " (ignored: environments is set)"
+		}
+		settings = append(settings, Setting{Key: deprecatedProductionProfiles, Value: value, Source: SourceDeprecated})
 	}
 	return settings, nil
 }
@@ -83,12 +104,20 @@ func Set(path, key, value string) error {
 	if err != nil {
 		return err
 	}
+	if key == legacyProductionProfiles {
+		return fmt.Errorf("productionProfiles is replaced by environments: airlock config set environments 'prod!=%s'", strings.TrimSpace(value))
+	}
 	field, err := f.knownField(key)
 	if err != nil {
 		return err
 	}
 	defaults := Defaults()
 	*field = nil
+	legacy := f.ProductionProfiles
+	if key == "environments" {
+		// environments replaces the deprecated key: it leaves the file with it.
+		f.ProductionProfiles = nil
+	}
 	if _, err = f.apply(&defaults); err != nil {
 		return fmt.Errorf("invalid config %s: %w", path, err)
 	}
@@ -97,7 +126,30 @@ func Set(path, key, value string) error {
 	if _, err = f.apply(&defaults); err != nil {
 		return err
 	}
+	if key == "environments" {
+		if keepErr := keepsLegacyProduction(legacy, value); keepErr != nil {
+			return keepErr
+		}
+	}
 	return writeFile(path, &f)
+}
+
+// keepsLegacyProduction refuses an environments value that would drop the production patterns of
+// the productionProfiles the file still sets: they would silently stop flagging production.
+func keepsLegacyProduction(legacy *string, value string) error {
+	if legacy == nil {
+		return nil
+	}
+	patterns, err := parseProfilePatterns(*legacy)
+	if err != nil || len(patterns) == 0 {
+		return nil //nolint:nilerr // an invalid or empty productionProfiles flags nothing to keep.
+	}
+	set, err := environment.Parse(value)
+	if err != nil || len(set.ProductionPatterns()) > 0 {
+		return nil //nolint:nilerr // apply validated value; production keeps its own patterns.
+	}
+	return fmt.Errorf("your productionProfiles flags %s: keep them as production, e.g. airlock config set environments '%s', "+
+		"or drop them with airlock config unset productionProfiles", strings.Join(patterns, ","), set.WithProductionPatterns(patterns))
 }
 
 // Unset removes key from path, so that its default applies again; removed is false when the key
@@ -111,10 +163,14 @@ func Unset(path, key string) (removed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if *field == nil {
+	if !f.sets(key) {
 		return false, nil
 	}
 	*field = nil
+	if key == "environments" {
+		// environments also covers the deprecated key it replaces.
+		f.ProductionProfiles = nil
+	}
 	return true, writeFile(path, &f)
 }
 
@@ -145,19 +201,19 @@ func WriteTemplate(path string, force bool) error {
 // values renders every setting of c as written in config.json.
 func (c *Config) values() map[string]string {
 	return map[string]string{
-		"jumphostTag":        c.JumphostTag.String(),
-		"defaultDbUser":      c.DefaultDBUser.String(),
-		"readOnlySecretTag":  c.ReadOnlySecretTag.String(),
-		"mcpServerPrefix":    c.MCPServerPrefix,
-		"defaultRegion":      c.DefaultRegion,
-		"productionProfiles": c.ProductionProfiles,
-		"mcpClients":         c.MCPClients,
-		"mode":               c.Mode,
-		"mcpGateway":         strconv.FormatBool(c.MCPGateway),
-		"mcpGatewayPort":     strconv.Itoa(c.MCPGatewayPort),
-		"agentAutoConnect":   c.AgentAutoConnect,
-		"agentWrites":        strconv.FormatBool(c.AgentWrites),
-		"agentIdleTimeout":   FormatDuration(c.AgentIdleTimeout),
+		"jumphostTag":       c.JumphostTag.String(),
+		"defaultDbUser":     c.DefaultDBUser.String(),
+		"readOnlySecretTag": c.ReadOnlySecretTag.String(),
+		"mcpServerPrefix":   c.MCPServerPrefix,
+		"defaultRegion":     c.DefaultRegion,
+		"environments":      c.Environments,
+		"mcpClients":        c.MCPClients,
+		"mode":              c.Mode,
+		"mcpGateway":        strconv.FormatBool(c.MCPGateway),
+		"mcpGatewayPort":    strconv.Itoa(c.MCPGatewayPort),
+		"agentAutoConnect":  c.AgentAutoConnect,
+		"agentWrites":       strconv.FormatBool(c.AgentWrites),
+		"agentIdleTimeout":  FormatDuration(c.AgentIdleTimeout),
 	}
 }
 
@@ -174,8 +230,8 @@ func (f *file) field(key string) **string {
 		return &f.MCPServerPrefix
 	case "defaultRegion":
 		return &f.DefaultRegion
-	case "productionProfiles":
-		return &f.ProductionProfiles
+	case "environments":
+		return &f.Environments
 	case "mcpClients":
 		return &f.MCPClients
 	case "mode":
@@ -190,9 +246,20 @@ func (f *file) field(key string) **string {
 		return &f.AgentWrites
 	case "agentIdleTimeout":
 		return &f.AgentIdleTimeout
+	case legacyProductionProfiles:
+		return &f.ProductionProfiles
 	default:
 		return nil
 	}
+}
+
+// sets reports whether f sets key; environments is also set by the deprecated productionProfiles.
+func (f *file) sets(key string) bool {
+	if key == "environments" && f.ProductionProfiles != nil {
+		return true
+	}
+	field := f.field(key)
+	return field != nil && *field != nil
 }
 
 // knownField is field, with an error listing the valid keys for any other key.

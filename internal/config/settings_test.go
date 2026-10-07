@@ -183,7 +183,7 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"productionProfiles\": \"\",\n  \"mcpClients\": \"auto\",\n  \"mode\": \"cli\",\n  \"mcpGateway\": \"true\",\n  \"mcpGatewayPort\": \"7821\",\n  \"agentAutoConnect\": \"none\",\n  \"agentWrites\": \"false\",\n  \"agentIdleTimeout\": \"30m\"\n}\n"
+	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"environments\": \"prod!=\",\n  \"mcpClients\": \"auto\",\n  \"mode\": \"cli\",\n  \"mcpGateway\": \"true\",\n  \"mcpGatewayPort\": \"7821\",\n  \"agentAutoConnect\": \"none\",\n  \"agentWrites\": \"false\",\n  \"agentIdleTimeout\": \"30m\"\n}\n"
 	if string(data) != want {
 		t.Fatalf("template = %q, want %q", data, want)
 	}
@@ -221,5 +221,103 @@ func TestSetNamesTheFileWhenAnotherKeyIsInvalid(t *testing.T) {
 	}
 	if cfg, err := Load(path); err != nil || cfg.JumphostTag.String() != "Env=bastion" {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+}
+
+func TestSetEnvironmentsRemovesProductionProfiles(t *testing.T) {
+	path := writeConfig(t, `{"defaultRegion": "eu-west-3", "productionProfiles": "*prod*"}`)
+	if err := Set(path, "environments", "prod!=*prod*; dev=*dev*"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "productionProfiles") || !strings.Contains(string(raw), `"environments": "prod!=*prod*; dev=*dev*"`) {
+		t.Fatalf("file = %s", raw)
+	}
+}
+
+func TestSetProductionProfilesIsRefused(t *testing.T) {
+	path := writeConfig(t, `{}`)
+	err := Set(path, "productionProfiles", "*prod*,*-live")
+	if err == nil || !strings.Contains(err.Error(), "airlock config set environments 'prod!=*prod*,*-live'") {
+		t.Fatalf("err = %v, want the equivalent command", err)
+	}
+	if removed, err := Unset(writeConfig(t, `{"productionProfiles": "*prod*"}`), "productionProfiles"); err != nil || !removed {
+		t.Fatalf("Unset = %v, %v; the deprecated key must stay removable", removed, err)
+	}
+}
+
+func TestSettingsListProductionProfilesAsDeprecated(t *testing.T) {
+	settings, err := Settings(writeConfig(t, `{"productionProfiles": "*prod*"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := settingOf(t, settings, "environments"); s.Value != "prod!=*prod*" || s.Source != SourceFile {
+		t.Fatalf("environments = %+v, want the migrated value from the file", s)
+	}
+	if s := settingOf(t, settings, "productionProfiles"); s.Source != SourceDeprecated || s.Value != "*prod*" {
+		t.Fatalf("productionProfiles = %+v, want it listed as deprecated", s)
+	}
+	clean, err := Settings(writeConfig(t, `{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range clean {
+		if s.Name == "productionProfiles" {
+			t.Fatal("productionProfiles is listed although the file does not set it")
+		}
+	}
+}
+
+func TestSetEnvironmentsRefusesToDropTheProductionPatterns(t *testing.T) {
+	const content = `{"productionProfiles": "*prod*,*-live"}`
+	path := writeConfig(t, content)
+	err := Set(path, "environments", "staging=*stg*")
+	if err == nil || !strings.Contains(err.Error(), "productionProfiles flags *prod*,*-live") ||
+		!strings.Contains(err.Error(), "airlock config set environments 'prod!=*prod*,*-live; staging=*stg*'") ||
+		!strings.Contains(err.Error(), "airlock config unset productionProfiles") {
+		t.Fatalf("err = %v, want the refusal with both ways out", err)
+	}
+	if raw, readErr := os.ReadFile(path); readErr != nil || string(raw) != content { // #nosec G304 -- test file under t.TempDir.
+		t.Fatalf("file = %q (%v), want it unchanged", raw, readErr)
+	}
+	if err = Set(path, "environments", "live!=; staging=*stg*"); err == nil || !strings.Contains(err.Error(), "live!=*prod*,*-live; staging=*stg*") {
+		t.Fatalf("err = %v, want the suggestion to keep the production name", err)
+	}
+}
+
+func TestSetEnvironmentsAllowedWhenProductionKeepsPatterns(t *testing.T) {
+	path := writeConfig(t, `{"productionProfiles": "*prod*"}`)
+	if err := Set(path, "environments", "prod!=*prod*,*-live; staging=*stg*"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := Load(path); err != nil || cfg.Environments != "prod!=*prod*,*-live; staging=*stg*" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+}
+
+func TestSetEnvironmentsAllowedWithoutProductionProfiles(t *testing.T) {
+	for _, content := range []string{`{}`, `{"productionProfiles": " , "}`} {
+		path := writeConfig(t, content)
+		if err := Set(path, "environments", "staging=*stg*"); err != nil {
+			t.Fatalf("%s: %v", content, err)
+		}
+	}
+}
+
+func TestUnsetEnvironmentsClearsTheLegacyKeyToo(t *testing.T) {
+	path := writeConfig(t, `{"defaultRegion": "eu-west-3", "productionProfiles": "*prod*"}`)
+	removed, err := Unset(path, "environments")
+	if err != nil || !removed {
+		t.Fatalf("Unset = %v, %v, want removed", removed, err)
+	}
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
+	if err != nil || strings.Contains(string(raw), "productionProfiles") || !strings.Contains(string(raw), "defaultRegion") {
+		t.Fatalf("file = %s (%v)", raw, err)
+	}
+	if removed, err = Unset(path, "environments"); err != nil || removed {
+		t.Fatalf("second Unset = %v, %v, want not set", removed, err)
 	}
 }

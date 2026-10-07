@@ -115,8 +115,8 @@ func TestListTargetsSaved(t *testing.T) {
 		{Ref: jumphost.DirectTargetRef("billing")},
 		{Ref: jumphost.TargetRef{Type: "rds", Name: "gone"}, ProfileMissing: true},
 	}}
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectNonProd, ProductionProfiles: sessions.ProductionProfiles{"prod"}}, d,
-		fakeDatabases{"billing": {Name: "billing", Production: true}})
+	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "prod!=prod")}, d,
+		fakeDatabases{"billing": {Name: "billing", Environment: "prod"}})
 	text, isError := callTool(t, cs, "list_targets", nil)
 	if isError {
 		t.Fatal(text)
@@ -210,4 +210,46 @@ func TestListSessions(t *testing.T) {
 
 func dbmcpServer(q *fakeQuerier) *mcp.Server {
 	return dbmcp.NewServer(&dbmcp.ServerConfig{Name: "airlock-billing", Target: "billing", Via: "reached directly at billing:5432."}, q)
+}
+
+// decodeObjects decodes the JSON text of a reply into generic maps under key.
+func decodeObjects(t *testing.T, text, key string) []map[string]any {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		t.Fatalf("reply is not JSON: %v\n%s", err, text)
+	}
+	var objects []map[string]any
+	if err := json.Unmarshal(raw[key], &objects); err != nil {
+		t.Fatalf("%s is not a list of objects: %v\n%s", key, err, text)
+	}
+	return objects
+}
+
+// The agent never sees the environment names: its JSON keeps the production flag only.
+func TestAgentJSONKeepsProductionAndHasNoEnvironment(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	openDirect(t, m, runner, "billing", nil, false, "")
+	d := &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-live"), {Ref: jumphost.DirectTargetRef("billing")}}}
+	cs, _ := newToolset(t, m, Settings{Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}, d,
+		fakeDatabases{"billing": {Name: "billing", Environment: "staging"}})
+	for tool, key := range map[string]string{"list_targets": "targets", "list_sessions": "sessions"} {
+		text, isError := callTool(t, cs, tool, nil)
+		if isError {
+			t.Fatalf("%s: %s", tool, text)
+		}
+		objects := decodeObjects(t, text, key)
+		if len(objects) == 0 {
+			t.Fatalf("%s: no %s in %s", tool, key, text)
+		}
+		for _, object := range objects {
+			if _, ok := object["production"]; !ok {
+				t.Errorf("%s: %v lacks production", tool, object)
+			}
+			if _, ok := object["environment"]; ok {
+				t.Errorf("%s: %v exposes the environment", tool, object)
+			}
+		}
+	}
 }

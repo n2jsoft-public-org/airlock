@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/sharecode"
 )
 
@@ -110,6 +111,9 @@ func PlanImport(path, shared string, replace bool) (Plan, error) {
 			*result.field(key.Name) = value
 		}
 	}
+	if result.Environments != nil {
+		result.ProductionProfiles = nil
+	}
 	after, err := result.apply(&defaults)
 	if err != nil {
 		return Plan{}, err
@@ -118,11 +122,11 @@ func PlanImport(path, shared string, replace bool) (Plan, error) {
 	oldValues, newValues := before.values(), after.values()
 	plan := Plan{Path: path, result: result}
 	for _, key := range Keys {
-		inLocal := *local.field(key.Name) != nil
-		inIncoming := *incoming.field(key.Name) != nil
+		inLocal := local.sets(key.Name)
+		inIncoming := incoming.sets(key.Name)
 		change := Change{
 			Key: key, Old: oldValues[key.Name], New: newValues[key.Name],
-			OldDefault: !inLocal, NewDefault: *result.field(key.Name) == nil,
+			OldDefault: !inLocal, NewDefault: !result.sets(key.Name),
 		}
 		switch {
 		case inIncoming && !inLocal:
@@ -170,6 +174,11 @@ func decodeShare(shared string) (file, error) {
 	if _, err := f.apply(new(Defaults())); err != nil {
 		return file{}, fmt.Errorf("the config string has an invalid value: %w", err)
 	}
+	if f.Environments == nil && f.ProductionProfiles != nil {
+		// A string of an earlier airlock: its productionProfiles is imported as environments.
+		patterns, _ := parseProfilePatterns(*f.ProductionProfiles) //nolint:errcheck // apply validated it.
+		f.Environments, f.ProductionProfiles = new(environment.FromProductionProfiles(patterns).String()), nil
+	}
 	return f, nil
 }
 
@@ -180,6 +189,12 @@ func (f *file) only(path string, keys []string) (file, error) {
 		field, err := f.knownField(key)
 		if err != nil {
 			return file{}, err
+		}
+		if key == "environments" && *field == nil && f.ProductionProfiles != nil {
+			// A legacy-only file: export what its productionProfiles stands for.
+			patterns, _ := parseProfilePatterns(*f.ProductionProfiles) //nolint:errcheck // apply validated it.
+			*kept.field(key) = new(environment.FromProductionProfiles(patterns).String())
+			continue
 		}
 		if *field == nil {
 			return file{}, fmt.Errorf("%s does not set %s (airlock's default applies)", path, key)
@@ -192,7 +207,7 @@ func (f *file) only(path string, keys []string) (file, error) {
 // empty reports whether f sets no key.
 func (f *file) empty() bool {
 	for _, key := range Keys {
-		if *f.field(key.Name) != nil {
+		if f.sets(key.Name) {
 			return false
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -87,8 +88,8 @@ func (m jumphostWizardModel) contextChips() []string {
 		region = m.styles.contextChip("region", "none") + m.styles.Faint.Render(" · press r")
 	}
 	profile := m.styles.contextChip("profile", m.options.AwsProfile)
-	if m.production.matches(m.options.AwsProfile) {
-		profile += " " + m.styles.ProdBadge()
+	if badge := m.styles.EnvBadge(m.environments.Match(m.options.AwsProfile)); badge != "" {
+		profile += " " + badge
 	}
 	return []string{profile, region}
 }
@@ -393,7 +394,7 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 		rows = append(rows,
 			m.reviewRow("Type", m.styles.ResourceBadge(m.options.ResourceType), inner),
 			m.reviewRow("Target", m.styles.Text.Bold(true).Render(m.options.Name), inner),
-			m.reviewRow("AWS", m.prodPrefix(m.options.AwsProfile)+m.options.AwsProfile+m.styles.Faint.Render(" · ")+region, inner),
+			m.reviewRow("AWS", m.envPrefix(m.environments.Match(m.options.AwsProfile))+m.options.AwsProfile+m.styles.Faint.Render(" · ")+region, inner),
 			m.styles.Rule.Render(strings.Repeat("─", inner)),
 		)
 	}
@@ -460,18 +461,18 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 	}
 
 	card := m.styles.Card
-	if m.production.matches(m.options.AwsProfile) {
+	if m.environments.Match(m.options.AwsProfile).Production {
 		card = card.BorderForeground(m.styles.WarningColor)
 	}
 	return card.Width(panelWidth).Render(strings.Join(rows, "\n"))
 }
 
-// prodPrefix is the PROD badge and a space for a production profile, else "".
-func (m jumphostWizardModel) prodPrefix(profile string) string {
-	if !m.production.matches(profile) {
+// envPrefix is the badge of env and a space, else "".
+func (m jumphostWizardModel) envPrefix(env environment.Env) string {
+	if env.IsZero() {
 		return ""
 	}
-	return m.styles.ProdBadge() + " "
+	return m.styles.EnvBadge(env) + " "
 }
 
 // signInSelector renders the sign-in methods, the chosen one highlighted.

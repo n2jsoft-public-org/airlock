@@ -209,3 +209,43 @@ func TestPlanImportRefusesAnInvalidLocalFile(t *testing.T) {
 		t.Fatalf("local file changed: %q (%v)", data, readErr)
 	}
 }
+
+func TestImportOfALegacyShareMigratesProductionProfiles(t *testing.T) {
+	path := writeConfig(t, `{"defaultRegion": "eu-west-3"}`)
+	plan, err := PlanImport(path, encodeShare([]byte(`{"productionProfiles": "*prod*"}`)), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := changeOf(t, &plan, "environments"); c.Kind != ChangeAdded || c.New != "prod!=*prod*" {
+		t.Fatalf("environments = %+v, want the old string's productionProfiles added as environments", c)
+	}
+	if err = ApplyImport(&plan); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "productionProfiles") || !strings.Contains(string(raw), `"environments": "prod!=*prod*"`) {
+		t.Fatalf("file = %s", raw)
+	}
+}
+
+func TestExportEnvironmentsOfALegacyFileConvertsProductionProfiles(t *testing.T) {
+	path := writeConfig(t, `{"defaultRegion": "eu-west-3", "productionProfiles": "*prod*,*-live"}`)
+	shared, err := Export(path, "environments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := writeConfig(t, `{}`)
+	plan, err := PlanImport(target, shared, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := changeOf(t, &plan, "environments"); c.Kind != ChangeAdded || c.New != "prod!=*prod*,*-live" {
+		t.Fatalf("environments = %+v", c)
+	}
+	if len(plan.Changes) != 1 {
+		t.Fatalf("changes = %+v, want environments only", plan.Changes)
+	}
+}

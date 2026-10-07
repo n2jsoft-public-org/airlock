@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -120,10 +121,10 @@ type ssmModel struct {
 	// approvalAllow its focused button, answered the approvals this view answered (their
 	// resolution may not have arrived yet).
 	approvals []sessions.Approval
-	// production flags the AWS profiles of the productionProfiles setting.
-	production productionMatcher
-	viewport   viewport.Model
-	loadingUI  loadingState
+	// environments names the AWS profiles' environments (environments setting).
+	environments environment.Set
+	viewport     viewport.Model
+	loadingUI    loadingState
 	// password is the password dialog (ssmModePassword).
 	password ssmPasswordReveal
 	wizard   jumphostWizardModel
@@ -175,8 +176,8 @@ type DashboardOptions struct {
 	ProjectDir string
 	// Notice, when not empty, is shown from the start (a daemon view: why the MCP gateway is off).
 	Notice string
-	// ProductionProfiles are the patterns (* wildcard, any case) of the AWS profiles to flag.
-	ProductionProfiles []string
+	// Environments names the environments of the AWS profiles and direct databases.
+	Environments environment.Set
 	// Detach marks a daemon view: q detaches (Task 13).
 	Detach bool
 	// lightBackground selects the palette for a terminal with a light background; RunJumphostSessions
@@ -241,7 +242,7 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 func newDashboardModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, first sessions.ID, base jumphost.Options, opts *DashboardOptions) ssmModel { //nolint:gocritic // base is kept by the model.
 	model := newSSMModel(ctx, service, discovery, base)
 	model.styles = NewStyles(!opts.lightBackground)
-	model.production = opts.ProductionProfiles
+	model.environments = opts.Environments
 	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
 	model.settings, model.notice = opts.Settings, opts.Notice
 	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
@@ -775,7 +776,7 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic
 	m.wizard = newStyledWizardModel(m.ctx, m.discovery, base, m.styles)
 	m.wizard.embedded = true
 	m.wizard.hostHasSessions = len(m.sessions) > 0
-	m.wizard.production = m.production
+	m.wizard.environments = m.environments
 	m.wizard.updateNotice = m.updateNotice
 	m.wizard.databases = m.databases
 	m.wizard.settings = m.settings
@@ -844,8 +845,8 @@ func (m ssmModel) updateWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	updated, cmd := m.wizard.Update(msg)
 	if wizard, ok := updated.(jumphostWizardModel); ok {
 		m.wizard = wizard
-		// The Settings screen may change productionProfiles: the session cards follow it.
-		m.production = wizard.production
+		// The Settings screen may change environments: the session cards follow it.
+		m.environments = wizard.environments
 	}
 	return m, cmd
 }

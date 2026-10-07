@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // SettingsStore reads and writes the settings of config.json for the Settings screen.
@@ -24,8 +26,8 @@ type SettingsSnapshot struct {
 	Path string
 	// Settings are every key, in the order of the file.
 	Settings []SettingView
-	// ProductionProfiles are the effective patterns of the PROD badges.
-	ProductionProfiles []string
+	// Environments is the effective environments setting, for the badges.
+	Environments environment.Set
 }
 
 // SettingView is one key of the Settings screen.
@@ -62,7 +64,7 @@ const (
 )
 
 const (
-	// settingsNameWidth fits the longest key, "productionProfiles".
+	// settingsNameWidth fits the longest key, "readOnlySecretTag".
 	settingsNameWidth = 20
 	// settingsValueWidth is the value column; longer values are cut with the row.
 	settingsValueWidth = 24

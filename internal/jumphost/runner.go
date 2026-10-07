@@ -23,6 +23,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dbuser"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
@@ -132,6 +133,8 @@ type RunnerOptions struct {
 	Keychain keychain.Store
 	// Databases finds the direct databases; nil disables them.
 	Databases DirectDatabases
+	// Environments resolves the environment of direct databases.
+	Environments environment.Set
 	// Registry tracks ports and targets of parallel sessions; share it between runners of one process.
 	Registry *SessionRegistry
 	// MCPHost serves the MCP servers of database sessions; share it between runners of one process.
@@ -200,9 +203,10 @@ type Session struct {
 	Intro       []string
 	LocalPort   int
 	releaseOnce sync.Once
-	// Production is the production flag of a direct database's definition (AWS sessions are
-	// flagged by profile in the dashboard).
-	Production bool
+	// Environment is the environment of a direct database's definition, and Production whether it
+	// is the production environment (AWS sessions are matched by profile in the dashboard).
+	Environment string
+	Production  bool
 }
 
 // MCPServer is the session's running MCP server, nil when none runs.
@@ -240,10 +244,12 @@ type Runner struct {
 	// accountsMu guards it.
 	accounts map[string]string
 	// databases finds the direct databases; nil when they are disabled.
-	databases   DirectDatabases
-	interactive InteractiveFunc
-	projectDir  string
-	mcpLogDir   string
+	databases DirectDatabases
+	// environments resolves the environment of direct databases.
+	environments environment.Set
+	interactive  InteractiveFunc
+	projectDir   string
+	mcpLogDir    string
 	// defaultRegion and defaultDBUser are used when none is given; empty when not configured.
 	defaultRegion string
 	defaultDBUser dbuser.Defaults
@@ -358,8 +364,9 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: opts.DefaultDBUser,
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
-		databases:   opts.Databases,
-		interactive: opts.Interactive,
+		databases:    opts.Databases,
+		environments: opts.Environments,
+		interactive:  opts.Interactive,
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)

@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -22,7 +23,7 @@ const (
 	formFieldDatabase
 	formFieldUser
 	formFieldTLS
-	formFieldProduction
+	formFieldEnvironment
 	// formFieldCount is the number of fields.
 	formFieldCount
 )
@@ -30,13 +31,13 @@ const (
 // formFieldNone marks a form without invalid field.
 const formFieldNone = -1
 
-// formLabelWidth fits the longest label, "Production".
-const formLabelWidth = 12
+// formLabelWidth fits the longest label, "Environment".
+const formLabelWidth = 13
 
 // formFieldsByName maps the fields named by a directdb.FieldError to the form's.
 var formFieldsByName = map[string]int{
 	"name": formFieldName, "engine": formFieldEngine, "host": formFieldHost, "port": formFieldPort,
-	"database": formFieldDatabase, "user": formFieldUser, "tls": formFieldTLS, "production": formFieldProduction,
+	"database": formFieldDatabase, "user": formFieldUser, "tls": formFieldTLS, "environment": formFieldEnvironment,
 }
 
 // directTLSModes are the TLS modes in the order the form cycles them.
@@ -62,20 +63,22 @@ type directForm struct {
 	tls directdb.TLSMode
 	// errMsg explains why errField is invalid. With formFieldNone, a non-empty errMsg is a store
 	// failure, which the wizard shows above the form.
-	errMsg     string
-	name       textinput.Model
-	host       textinput.Model
-	port       textinput.Model
-	dbName     textinput.Model
-	user       textinput.Model
-	focus      int
-	errField   int
-	production bool
+	errMsg      string
+	name        textinput.Model
+	host        textinput.Model
+	port        textinput.Model
+	dbName      textinput.Model
+	user        textinput.Model
+	focus       int
+	errField    int
+	environment string
+	envs        environment.Set
 }
 
 // newDirectForm opens the form on previous, or on a new PostgreSQL database when nil.
-func newDirectForm(previous *directdb.Database) directForm {
+func newDirectForm(previous *directdb.Database, envs environment.Set) directForm {
 	f := directForm{
+		envs:     envs,
 		engine:   directdb.EnginePostgres,
 		errField: formFieldNone,
 		name:     newFormInput("legacy-billing", 63),
@@ -86,7 +89,7 @@ func newDirectForm(previous *directdb.Database) directForm {
 	}
 	if previous != nil {
 		f.previous, f.previousName = *previous, previous.Name
-		f.engine, f.tls, f.production = previous.Engine, previous.TLS, previous.Production
+		f.engine, f.tls, f.environment = previous.Engine, previous.TLS, previous.Environment
 		setFormValue(&f.name, previous.Name)
 		setFormValue(&f.host, previous.Host)
 		if previous.Port != 0 {
@@ -133,7 +136,7 @@ func (f directForm) effectiveTLS() directdb.TLSMode {
 
 // toggleFocused reports whether the focused field is a choice, changed with space or the arrows.
 func (f directForm) toggleFocused() bool {
-	return f.focus == formFieldEngine || f.focus == formFieldTLS || f.focus == formFieldProduction
+	return f.focus == formFieldEngine || f.focus == formFieldTLS || f.focus == formFieldEnvironment
 }
 
 // input returns the text input of field; nil for the choices.
@@ -166,8 +169,8 @@ func (f directForm) focusField(field int) directForm {
 	return f
 }
 
-// toggle changes the focused choice: delta steps through the TLS modes; the engine and the
-// production flag have two values, any delta swaps them.
+// toggle changes the focused choice: delta steps through the TLS modes and the environments; the engine
+// has two values, any delta swaps them.
 func (f directForm) toggle(delta int) directForm {
 	switch f.focus {
 	case formFieldEngine:
@@ -181,8 +184,20 @@ func (f directForm) toggle(delta int) directForm {
 		count := len(directTLSModes)
 		current := slices.Index(directTLSModes, f.effectiveTLS())
 		f.tls = directTLSModes[((current+delta)%count+count)%count]
-	case formFieldProduction:
-		f.production = !f.production
+	case formFieldEnvironment:
+		// The cycle is none, the production under its alias (a teammate's production may be named
+		// otherwise), then the other configured environments; an unknown name leaves for none.
+		choices := append([]string{"", environment.ProductionAlias}, f.envs.Names()[1:]...)
+		current := f.environment
+		if f.envs.Lookup(current).Production {
+			current = environment.ProductionAlias
+		}
+		next := 0
+		if at := slices.Index(choices, current); at >= 0 {
+			count := len(choices)
+			next = ((at+delta)%count + count) % count
+		}
+		f.environment = choices[next]
 	default:
 		// The text fields have no choice to toggle.
 		return f
@@ -202,7 +217,7 @@ func (f directForm) Update(msg tea.Msg) (directForm, directFormOutcome, tea.Cmd)
 		case "ctrl+s":
 			return f, directFormSubmit, nil
 		case "enter":
-			if f.focus == formFieldProduction {
+			if f.focus == formFieldEnvironment {
 				return f, directFormSubmit, nil
 			}
 			return f.focusField(f.focus + 1), directFormEditing, nil
@@ -241,7 +256,7 @@ func (f directForm) Update(msg tea.Msg) (directForm, directFormOutcome, tea.Cmd)
 func (f directForm) database() (directdb.Database, error) {
 	db := directdb.Database{
 		Name: f.name.Value(), Engine: f.engine, Host: f.host.Value(), Database: f.dbName.Value(),
-		User: f.user.Value(), TLS: f.tls, Production: f.production,
+		User: f.user.Value(), TLS: f.tls, Environment: f.environment,
 	}
 	if port := strings.TrimSpace(f.port.Value()); port != "" {
 		value, err := strconv.Atoi(port)
@@ -249,6 +264,10 @@ func (f directForm) database() (directdb.Database, error) {
 			return directdb.Database{}, &directdb.FieldError{Field: "port", Message: "must be a number"}
 		}
 		db.Port = value
+	}
+	if f.envs.Lookup(f.environment).Production {
+		// The production environment is always saved under its alias, whatever its name.
+		db.Environment = environment.ProductionAlias
 	}
 	db.Normalize()
 	if err := db.Validate(); err != nil {
@@ -298,7 +317,7 @@ func (f directForm) View(styles Styles, width int) string {
 	add(formFieldDatabase, "Database", inputView(f.dbName), "Leave empty for the default database.")
 	add(formFieldUser, "User", inputView(f.user), "Its password is asked when connecting, never saved here.")
 	add(formFieldTLS, "TLS", choiceSelector(styles, tlsModes, string(f.effectiveTLS())), "require encrypts; verify also checks the certificate; disable is for local databases.")
-	add(formFieldProduction, "Production", f.productionToggle(styles), "Space toggles. On, the wizard and the dashboard flag it PROD.")
+	add(formFieldEnvironment, "Environment", f.environmentValue(styles), "←/→ or space change it. Production is flagged in the wizard, the dashboard and to agents.")
 	return styles.Card.Width(panelWidth).Render(strings.Join(rows, "\n"))
 }
 
@@ -320,12 +339,17 @@ func (f directForm) row(styles Styles, field int, label, value, help string, wid
 	return rows
 }
 
-// productionToggle renders whether the database is flagged as production.
-func (f directForm) productionToggle(styles Styles) string {
-	if f.production {
-		return styles.Warning.Render("● production") + styles.Faint.Render("  flagged PROD")
+// environmentValue renders the database's environment as its badge, or none.
+func (f directForm) environmentValue(styles Styles) string {
+	env := f.envs.Lookup(f.environment)
+	if env.IsZero() {
+		return styles.Muted.Render("○ none")
 	}
-	return styles.Muted.Render("○ no")
+	value := styles.EnvBadge(env)
+	if !env.Configured {
+		value += styles.Faint.Render("  not in your environments setting")
+	}
+	return value
 }
 
 // choiceSelector renders options, the chosen one highlighted.
@@ -349,7 +373,7 @@ type directSavedMsg struct {
 
 // openDirectForm opens the form on previous, or on a new database when nil.
 func (m jumphostWizardModel) openDirectForm(previous *directdb.Database) (tea.Model, tea.Cmd) {
-	m.directForm = newDirectForm(previous)
+	m.directForm = newDirectForm(previous, m.environments)
 	m.step = jumphostStepDirectForm
 	m.errorMsg = ""
 	return m, textinput.Blink

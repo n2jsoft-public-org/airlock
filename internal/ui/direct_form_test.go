@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -76,13 +78,13 @@ func TestDirectFormAddsDatabase(t *testing.T) {
 	}
 
 	m = fillValidForm(t, m, "reports")
-	m = focusFormField(t, m, formFieldProduction)
+	m = focusFormField(t, m, formFieldEnvironment)
 	m, _ = wizardUpdate(t, m, key(" "))
 	m = saveForm(t, m)
 
 	db, found, err := store.Get("reports")
 	if err != nil || !found || db.Engine != directdb.EnginePostgres || db.Host != "reports.db.internal" || db.User != "reader" ||
-		db.Port != 0 || db.TLS != "" || !db.Production {
+		db.Port != 0 || db.TLS != "" || db.Environment != "prod" {
 		t.Fatalf("saved = %+v (found %v), want a production postgres database with the defaults left out", db, found)
 	}
 	if m.step != jumphostStepTarget || m.loading {
@@ -160,7 +162,7 @@ func TestDirectFormEditPrefillsDefinition(t *testing.T) {
 
 	f := m.directForm
 	if f.previousName != "legacy-billing" || f.name.Value() != "legacy-billing" || f.engine != directdb.EngineSQLServer ||
-		f.host.Value() != "billing.db.internal" || f.user.Value() != "mcp_ro" || !f.production {
+		f.host.Value() != "billing.db.internal" || f.user.Value() != "mcp_ro" || f.environment != "prod" {
 		t.Fatalf("form = %+v, want the definition of legacy-billing", f)
 	}
 	if view := wizardView(m); !strings.Contains(view, "Edit legacy-billing") {
@@ -222,17 +224,17 @@ func TestDirectFormHostChangeForgetsConnection(t *testing.T) {
 	}
 }
 
-func TestDirectFormProductionOnlyForgetsNothing(t *testing.T) {
+func TestDirectFormEnvironmentOnlyForgetsNothing(t *testing.T) {
 	store := &fakeDirectStore{dbs: testDirectDatabases()}
 	forgotten := &[]jumphost.TargetRef{}
 	m := directFormWizard(t, forgetRecorder{forgotten: forgotten}, store, "analytics")
 
-	m = focusFormField(t, m, formFieldProduction)
+	m = focusFormField(t, m, formFieldEnvironment)
 	m, _ = wizardUpdate(t, m, key(" "))
 	_ = saveForm(t, m)
 
 	db, _, err := store.Get("analytics")
-	if err != nil || !db.Production || len(*forgotten) != 0 {
+	if err != nil || db.Environment != "prod" || len(*forgotten) != 0 {
 		t.Fatalf("analytics = %+v forgotten = %v, want the production flag changed and nothing forgotten", db, *forgotten)
 	}
 }
@@ -280,7 +282,7 @@ func TestDirectFormEnterMovesThenSubmitsOnLastField(t *testing.T) {
 	if m.directForm.focus != formFieldEngine {
 		t.Fatalf("focus = %d, want enter to move to the engine", m.directForm.focus)
 	}
-	m = focusFormField(t, m, formFieldProduction)
+	m = focusFormField(t, m, formFieldEnvironment)
 	m, _ = wizardUpdate(t, m, key("enter"))
 	if m.directForm.focus != formFieldName || !strings.Contains(wizardView(m), "name: must not be empty") {
 		t.Fatalf("focus = %d, want enter on the last field to submit the empty form:\n%s", m.directForm.focus, wizardView(m))
@@ -363,5 +365,82 @@ func TestDirectFormRenameOntoExistingNameForgetsNothing(t *testing.T) {
 	}
 	if view := wizardView(m); !strings.Contains(view, "name: a database named legacy-billing already exists") {
 		t.Fatalf("view lacks the name error:\n%s", view)
+	}
+}
+
+func TestDirectFormCyclesTheEnvironments(t *testing.T) {
+	envs, err := environment.Parse("live!=*-live; staging=*stg*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// database() returns the zero value for an invalid form, so start from a valid one.
+	previous := directdb.Database{Name: "billing", Engine: directdb.EnginePostgres, Host: "h", User: "u"}
+	f := newDirectForm(&previous, envs).focusField(formFieldEnvironment)
+	var seen []string
+	for range 4 {
+		db, _ := f.database() //nolint:errcheck // only the environment matters
+		seen = append(seen, db.Environment)
+		f, _, _ = f.Update(key("right"))
+	}
+	// The production is saved under its alias, not its own name, so a teammate's setting matches it.
+	if strings.Join(seen, ",") != ",prod,staging," {
+		t.Fatalf("environments = %q, want none, prod, staging, then none again", seen)
+	}
+	f, _, _ = f.Update(key("left"))
+	f, _, _ = f.Update(key("left"))
+	if db, _ := f.database(); db.Environment != "staging" { //nolint:errcheck // only the environment matters
+		t.Fatalf("left twice = %q, want staging", db.Environment)
+	}
+}
+
+func TestDirectFormShowsTheProductionUnderItsOwnNameAndSavesTheAlias(t *testing.T) {
+	envs, err := environment.Parse("live!=*-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := directdb.Database{Name: "billing", Engine: directdb.EnginePostgres, Host: "h", User: "u", Environment: "live"}
+	f := newDirectForm(&previous, envs).focusField(formFieldEnvironment)
+	if !strings.Contains(ansi.Strip(f.View(NewStyles(true), 100)), "LIVE") {
+		t.Fatal("the production is not shown as LIVE")
+	}
+	f, _, _ = f.Update(key("right"))
+	f, _, _ = f.Update(key("left"))
+	if db, _ := f.database(); db.Environment != "prod" { //nolint:errcheck // only the environment matters
+		t.Fatalf("right then left = %q, want the production back under its alias", db.Environment)
+	}
+}
+
+func TestDirectFormKeepsAnEnvironmentTheSettingLacks(t *testing.T) {
+	previous := directdb.Database{Name: "billing", Engine: directdb.EnginePostgres, Host: "h", User: "u", Environment: "qa"}
+	f := newDirectForm(&previous, environment.Default())
+	db, err := f.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if db.Environment != "qa" {
+		t.Fatalf("Environment = %q; want the unknown environment kept until changed", db.Environment)
+	}
+	if !strings.Contains(ansi.Strip(f.View(NewStyles(true), 100)), "QA") {
+		t.Fatal("the unknown environment is not shown")
+	}
+	f, _, _ = f.focusField(formFieldEnvironment).Update(key("right"))
+	if db, _ := f.database(); db.Environment != "" { //nolint:errcheck // only the environment matters
+		t.Fatalf("right = %q, want the cycle to leave the unknown name for none", db.Environment)
+	}
+}
+
+func TestDirectFormSavesAnUntouchedProductionNameAsTheAlias(t *testing.T) {
+	envs, err := environment.Parse("live!=*-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := directdb.Database{Name: "billing", Engine: directdb.EnginePostgres, Host: "h", User: "u", Environment: "live"}
+	f := newDirectForm(&previous, envs)
+	db, err := f.database()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if db.Environment != "prod" {
+		t.Fatalf("Environment = %q; want the hand-edited production name saved as prod", db.Environment)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // The AWS types of the targets reached through a jumphost.
@@ -109,22 +110,24 @@ func (e *Entry) ShortName() string {
 //
 //nolint:govet // fieldalignment: the field order is the file's key order.
 type record struct {
-	Engine             directdb.Engine  `json:"engine,omitempty"`
-	Host               string           `json:"host,omitempty"`
-	Port               int              `json:"port,omitempty"`
-	Database           string           `json:"database,omitempty"`
-	TLS                directdb.TLSMode `json:"tls,omitempty"`
-	Production         bool             `json:"production,omitempty"`
-	Type               string           `json:"type,omitempty"`
-	Target             string           `json:"target,omitempty"`
-	Jumphost           *jumphostRecord  `json:"jumphost,omitempty"`
-	User               string           `json:"user,omitempty"`
-	SecretARN          string           `json:"secret_arn,omitempty"`
-	SignIn             string           `json:"sign_in,omitempty"`
-	PasswordInKeychain bool             `json:"password_in_keychain,omitempty"`
-	LocalPort          int              `json:"local_port,omitempty"`
-	UsedAt             *time.Time       `json:"used_at,omitempty"`
-	MCPAllowWrites     bool             `json:"mcp_allow_writes"`
+	Engine      directdb.Engine  `json:"engine,omitempty"`
+	Host        string           `json:"host,omitempty"`
+	Port        int              `json:"port,omitempty"`
+	Database    string           `json:"database,omitempty"`
+	TLS         directdb.TLSMode `json:"tls,omitempty"`
+	Environment string           `json:"environment,omitempty"`
+	// Production is the flag of an earlier airlock, read as the prod environment, never written.
+	Production         bool            `json:"production,omitempty"`
+	Type               string          `json:"type,omitempty"`
+	Target             string          `json:"target,omitempty"`
+	Jumphost           *jumphostRecord `json:"jumphost,omitempty"`
+	User               string          `json:"user,omitempty"`
+	SecretARN          string          `json:"secret_arn,omitempty"`
+	SignIn             string          `json:"sign_in,omitempty"`
+	PasswordInKeychain bool            `json:"password_in_keychain,omitempty"`
+	LocalPort          int             `json:"local_port,omitempty"`
+	UsedAt             *time.Time      `json:"used_at,omitempty"`
+	MCPAllowWrites     bool            `json:"mcp_allow_writes"`
 }
 
 // jumphostRecord is the "jumphost" object of an entry reached through a jumphost.
@@ -177,7 +180,10 @@ func directOf(key string, rec *record) (*directdb.Database, error) {
 	}
 	db := directdb.Database{
 		Name: key, Engine: rec.Engine, Host: rec.Host, Port: rec.Port, Database: rec.Database,
-		User: rec.User, TLS: rec.TLS, Production: rec.Production,
+		User: rec.User, TLS: rec.TLS, Environment: strings.ToLower(strings.TrimSpace(rec.Environment)),
+	}
+	if db.Environment == "" && rec.Production {
+		db.Environment = environment.ProductionAlias
 	}
 	if err := db.Validate(); err != nil {
 		return nil, err
@@ -187,8 +193,8 @@ func directOf(key string, rec *record) (*directdb.Database, error) {
 
 // jumphostOf is the target a record with jumphost holds; key must be its key.
 func jumphostOf(key string, rec *record) (*JumphostTarget, error) {
-	if rec.Engine != "" || rec.Host != "" || rec.Port != 0 || rec.Database != "" || rec.TLS != "" || rec.Production {
-		return nil, errors.New("engine, host, port, database, tls and production are for direct databases, without jumphost")
+	if rec.Engine != "" || rec.Host != "" || rec.Port != 0 || rec.Database != "" || rec.TLS != "" || rec.Environment != "" || rec.Production {
+		return nil, errors.New("engine, host, port, database, tls and environment are for direct databases, without jumphost")
 	}
 	target := &JumphostTarget{
 		Account: rec.Jumphost.Account, Region: rec.Jumphost.Region, Type: rec.Type, Target: rec.Target, Profile: rec.Jumphost.Profile,
@@ -216,7 +222,7 @@ func (e *Entry) encode() (json.RawMessage, error) {
 	case e.Direct != nil:
 		db := e.Direct
 		rec.Engine, rec.Host, rec.Port, rec.Database = db.Engine, db.Host, db.Port, db.Database
-		rec.User, rec.TLS, rec.Production = db.User, db.TLS, db.Production
+		rec.User, rec.TLS, rec.Environment = db.User, db.TLS, db.Environment
 	case e.Jumphost != nil:
 		target := e.Jumphost
 		rec.Type, rec.Target = target.Type, target.Target

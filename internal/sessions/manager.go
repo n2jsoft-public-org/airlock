@@ -240,7 +240,7 @@ func (m *Manager) newEntryLocked(session *jumphost.Session, options *jumphost.Op
 	e.info = Session{
 		ID: id, Label: session.Label, ResourceType: session.ResourceType, Target: session.Target,
 		Profile: session.Profile, Region: session.Region, Details: session.Details, LocalPort: session.LocalPort,
-		Production: session.Production, OpenedBy: options.OpenedBy, Options: withoutPassword(*options), State: StateStarting, StartedAt: m.now(),
+		Environment: session.Environment, Production: session.Production, OpenedBy: options.OpenedBy, Options: withoutPassword(*options), State: StateStarting, StartedAt: m.now(),
 		Lines: append([]LogLine(nil), history...), HasSignIn: session.SignIn != nil, HasCredentials: session.ReadCredentials != nil,
 	}
 	if server := session.MCPServer(); server != nil {

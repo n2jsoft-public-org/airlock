@@ -96,6 +96,9 @@ func printSettings(cmd *cobra.Command, path string, settings []config.Setting) e
 func printSettingsJSON(cmd *cobra.Command, settings []config.Setting) error {
 	values := make(map[string]string, len(settings))
 	for _, s := range settings {
+		if s.Source == config.SourceDeprecated {
+			continue
+		}
 		values[s.Name] = s.Value
 	}
 	data, err := json.MarshalIndent(values, "", "  ")

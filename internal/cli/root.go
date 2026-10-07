@@ -185,7 +185,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 		return err
 	}
 	discovery := reloadingDiscovery{source: tuiRunners}
-	dashboard := ui.DashboardOptions{Handoff: handoff, ProductionProfiles: cfg.ProductionProfilePatterns()}
+	dashboard := ui.DashboardOptions{Handoff: handoff, Environments: cfg.EnvironmentSet()}
 	if configPath != "" {
 		dashboard.Settings = newConfigSettingsStore(configPath, cmd.Flags())
 	}
@@ -285,6 +285,7 @@ func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry,
 		MCPServerPrefix:   cfg.MCPServerPrefix,
 		KubeconfigDir:     kubeconfigDir,
 		Databases:         databases,
+		Environments:      cfg.EnvironmentSet(),
 	}
 }
 

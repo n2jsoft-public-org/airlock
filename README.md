@@ -405,12 +405,12 @@ keep your own context of the cluster instead, point it at the tunnel:
 Some PostgreSQL and SQL Server databases need no jumphost: you reach them directly (VPN, peering
 or a public endpoint) with a user and a password. Declare them once, and airlock opens them like
 any other connection, without tunnel nor AWS profile: same MCP server (`airlock-<name>`), audit
-log, IntelliJ data source, sign-in check and `PROD` badge.
+log, IntelliJ data source, sign-in check and environment badge.
 
 ```sh
-airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --production
+airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --environment prod
 airlock connection add analytics --engine postgres --host 10.0.4.12 --database events --user reader --tls verify
-airlock connection list                # every saved connection: direct and through a jumphost
+airlock connection list                # every saved connection, with its ENV: direct and through a jumphost
 airlock connection edit analytics --port 6432
 airlock connection test legacy-billing # signs in and runs SELECT 1
 airlock direct legacy-billing          # opens it in the dashboard
@@ -429,9 +429,13 @@ recent connections as `direct · host:port`; `d` forgets one.
 | `--database` | `postgres` / the login's default | Database opened when none is named |
 | `--user` | required | User signing in with its password |
 | `--tls` | `require` | `require` encrypts without checking the certificate; `verify` also checks it, against the host name, with your system's trusted CAs; `disable` sends everything in clear text, for local databases only |
-| `--production` | off | Flags the database `PROD` in the wizard and the dashboard |
+| `--environment` | none | Environment of the environments setting; `prod` is production |
 
-`airlock connection edit` changes only the flags you give; any change but `--production` (renaming it with
+`--environment ""` clears the environment. The production environment is always saved as `prod`,
+whatever your setting calls it, and `airlock connection import` warns about environments missing from
+your `environments` setting.
+
+`airlock connection edit` changes only the flags you give; any change but `--environment` (renaming it with
 `--name`, or another engine, host, port, database, user or TLS mode) forgets the password remembered
 before, so that it never reaches another server or user. The dashboard's form and `airlock connection
 import` do the same.
@@ -646,13 +650,13 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 
 An opening asked by an agent shows an **approval dialog** in every open dashboard (`y` allow, `n`
 deny, 2 minutes to answer); with no dashboard open it is refused at once. `agentAutoConnect` lets
-agents open without asking: `non-prod` (targets outside `productionProfiles` and production direct
-databases) or `all`. Agents never get writes unless `agentWrites` is `true`, not even on your own
-sessions opened with writes, and a write request is always approved in a dashboard. A session an agent opened carries `AGENT · <name>`, gets no IntelliJ
-data source nor entry of its own, signs in with the choices saved for that connection, and closes
-after `agentIdleTimeout` (`30m`) without a call through the gateway. An agent opening never signs in
-to AWS in the background: an expired SSO session is refused (or, when approved, signs in in the
-approving dashboard's terminal).
+agents open without asking: `non-prod` (targets outside the production environment) or `all`. Agents
+never get writes unless `agentWrites` is `true`, not even on your own sessions opened with writes,
+and a write request is always approved in a dashboard. A session an agent opened carries `AGENT ·
+<name>`, gets no IntelliJ data source nor entry of its own, signs in with the choices saved for that
+connection, and closes after `agentIdleTimeout` (`30m`) without a call through the gateway. An agent
+opening never signs in to AWS in the background: an expired SSO session is refused (or, when
+approved, signs in in the approving dashboard's terminal).
 
 ```sh
 airlock config set mcpClients auto,claude:user   # register the gateway for Claude Code
@@ -713,12 +717,12 @@ unknown key or a malformed value is an error that names the file.
 | `readOnlySecretTag` | `--read-only-secret-tag` | none (SQL Server read-only MCP off) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets |
 | `mcpServerPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
 | `defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
-| `productionProfiles` | none | none | Comma-separated patterns (`*` wildcard, any case) of the AWS profiles flagged as production, e.g. `*prod*,*-live` |
+| `environments` | none | `prod!=` | Environments badged in the TUI, separated by `;`, each `name=patterns` of AWS profiles (`*` wildcard, any case); `!` marks production, e.g. `prod!=*prod*,*-live; staging=*stg*; dev=*dev*` |
 | `mcpClients` | `--mcp-clients` | `auto` | AI clients the MCP servers are registered in: `auto`, `none`, or e.g. `claude:user,codex` (see [AI access with MCP](#-ai-access-with-mcp)) |
 | `mode` | `--mode` | `cli` | `cli`: sessions live in each `airlock` and close with it; `daemon`: a background daemon keeps them (see [Daemon mode](#daemon-mode)) |
 | `mcpGateway` | none | `true` | `true`: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; `false`: no gateway (see [AI access with MCP](#-ai-access-with-mcp)) |
 | `mcpGatewayPort` | none | `7821` | Port of the MCP gateway on `127.0.0.1` (1024-65535) |
-| `agentAutoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside `productionProfiles` and production direct databases) or `all` |
+| `agentAutoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside the production environment) or `all` |
 | `agentWrites` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
 | `agentIdleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
 
@@ -727,10 +731,21 @@ PostgreSQL and MySQL; an `engine=user` pair sets the user of one engine and wins
 SQL Server has no AWS IAM sign-in, so a bare user never applies to it: `sqlserver=mcp_ro` prefills
 the user of its password and Secrets Manager sign-in instead.
 
-Profiles matching `productionProfiles` get an orange `PROD` badge everywhere they appear: the
-wizard header, profile list, recent connections and review step, and the dashboard's session
-cards, pills and details, whose borders turn orange. Naming conventions differ between teams, so
-no profile is flagged until you set it, typically in your team's shared settings.
+`environments` names the environments of your AWS profiles. Each one gets a badge wherever a
+profile, a connection or a session is shown: the wizard header, profile list, recent connections
+and review step, and the dashboard's session cards, pills, details and approval dialog. The
+production environment (marked `!`) keeps the orange `PROD` style and turns borders orange; the
+others take their own colors in the order they are written. A profile matching several
+environments takes production first, then the first one written. `prod` always names the
+production environment, so a direct database shared as `prod` stays production wherever your team
+calls it `live`. Naming conventions differ between teams, so no profile is flagged until you set
+the patterns, typically in your team's shared settings.
+
+`productionProfiles` is deprecated: a file that still has it reads it as
+`environments = "prod!=<patterns>"`, and `airlock config set environments ...` replaces it. It
+refuses a value whose production environment has no patterns while `productionProfiles` still flags
+some: keep them with `airlock config set environments 'prod!=<patterns>; <your other environments>'`,
+or drop them with `airlock config unset productionProfiles`.
 
 ### Commands
 
@@ -825,7 +840,7 @@ A team usually sets the same few keys, for example:
   "defaultDbUser": "app_ro,sqlserver=mcp_ro",
   "readOnlySecretTag": "Role=read-only",
   "mcpServerPrefix": "team",
-  "productionProfiles": "*prod*"
+  "environments": "prod!=*prod*; staging=*stg*"
 }
 ```
 

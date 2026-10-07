@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -60,7 +61,7 @@ func (s *fakeDirectStore) Delete(name string) error {
 func testDirectDatabases() []directdb.Database {
 	return []directdb.Database{
 		{Name: "analytics", Engine: directdb.EnginePostgres, Host: "analytics.db.internal", Database: "events", User: "reader"},
-		{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", Production: true},
+		{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", Environment: "prod"},
 	}
 }
 
@@ -263,7 +264,7 @@ func TestDirectListConnectedEntrySwitchesToSession(t *testing.T) {
 }
 
 func TestDirectListReportsAddAndEdit(t *testing.T) {
-	p := newDirectList(NewStyles(true), testDirectDatabases(), nil, nil)
+	p := newDirectList(NewStyles(true), testDirectDatabases(), nil, nil, environment.Set{})
 	p.SetSize(80, 20)
 	if _, outcome, _ := p.Update(key("a")); outcome != directListAdd {
 		t.Fatalf("a = %v, want directListAdd", outcome)
@@ -272,7 +273,7 @@ func TestDirectListReportsAddAndEdit(t *testing.T) {
 		t.Fatalf("e = %v, want directListEdit", outcome)
 	}
 
-	empty := newDirectList(NewStyles(true), nil, nil, nil)
+	empty := newDirectList(NewStyles(true), nil, nil, nil, environment.Set{})
 	empty.SetSize(80, 20)
 	if _, outcome, _ := empty.Update(key("e")); outcome != directListOpen {
 		t.Fatalf("e on an empty list = %v, want nothing", outcome)
@@ -283,7 +284,7 @@ func TestDirectListReportsAddAndEdit(t *testing.T) {
 }
 
 func TestDirectListSelectName(t *testing.T) {
-	p := newDirectList(NewStyles(true), testDirectDatabases(), nil, nil)
+	p := newDirectList(NewStyles(true), testDirectDatabases(), nil, nil, environment.Set{})
 	p.SetSize(80, 20)
 	p.selectName("legacy-billing")
 	if db, ok := p.selected(); !ok || db.Name != "legacy-billing" {

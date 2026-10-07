@@ -8,6 +8,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +36,11 @@ func newConnectionImportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printDatabasePlan(cmd, store.Path(), &plan, replaced)
+			cfg, _, err := loadConfig(cmd)
+			if err != nil {
+				return err
+			}
+			printDatabasePlan(cmd, store.Path(), &plan, replaced, cfg.EnvironmentSet())
 			if !plan.HasChanges() {
 				outf(cmd, "Nothing to change: %s already has these databases.\n", store.Path())
 				return nil
@@ -43,6 +48,7 @@ func newConnectionImportCmd() *cobra.Command {
 			if !yes && !confirm(cmd, "Apply these changes to "+store.Path()+"? [y/N] ") {
 				return errors.New("not applied")
 			}
+			canonicalizeProduction(&plan, cfg.EnvironmentSet())
 			if err := forgetChangedConnections(cmd, store, &plan, replaced); err != nil {
 				return err
 			}
@@ -55,6 +61,17 @@ func newConnectionImportCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Apply without asking")
 	return cmd
+}
+
+// canonicalizeProduction renames the production environment of every imported database to its
+// alias: it is always saved as prod, whatever the sender's setting called it.
+func canonicalizeProduction(plan *directdb.ImportPlan, envs environment.Set) {
+	for idx := range plan.Changes {
+		db := &plan.Changes[idx].Database
+		if envs.Lookup(db.Environment).Production {
+			db.Environment = environment.ProductionAlias
+		}
+	}
 }
 
 // databaseChangeSigns mark each kind of change in the import summary.
@@ -90,7 +107,7 @@ func invalidEntriesReplaced(store *connections.Databases, plan *directdb.ImportP
 // printDatabasePlan lists what the import does to every database: the string itself is opaque, so
 // this is where the importer reviews it. A database replacing an invalid entry of replaced is told
 // apart from an added one.
-func printDatabasePlan(cmd *cobra.Command, path string, plan *directdb.ImportPlan, replaced map[string]connections.Entry) {
+func printDatabasePlan(cmd *cobra.Command, path string, plan *directdb.ImportPlan, replaced map[string]connections.Entry, envs environment.Set) {
 	outf(cmd, "Import into %s:\n\n", path)
 	for idx := range plan.Changes {
 		change := &plan.Changes[idx]
@@ -112,6 +129,9 @@ func printDatabasePlan(cmd *cobra.Command, path string, plan *directdb.ImportPla
 			line += " (remembered password will be forgotten)"
 		}
 		outf(cmd, "%s\n", line)
+		if env := envs.Lookup(change.Database.Environment); !env.IsZero() && !env.Configured {
+			outf(cmd, "      environment %s is not in your environments setting: shown gray, not production\n", env.Name)
+		}
 	}
 	outf(cmd, "\n")
 }

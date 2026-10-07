@@ -8,6 +8,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/spf13/cobra"
@@ -151,6 +152,8 @@ type dbFlags struct {
 	name       string
 	port       int
 	production bool
+
+	environment string
 }
 
 func (f *dbFlags) register(cmd *cobra.Command) {
@@ -160,15 +163,43 @@ func (f *dbFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.database, "database", "", "Database to open (default postgres on PostgreSQL, the login's default on SQL Server)")
 	cmd.Flags().StringVar(&f.user, "user", "", "Database user")
 	cmd.Flags().StringVar(&f.tls, "tls", "", "TLS mode: require (default, encrypted), verify (certificate and host checked) or disable")
-	cmd.Flags().BoolVar(&f.production, "production", false, "Flag the database as production in the dashboard")
+	cmd.Flags().StringVar(&f.environment, "environment", "", "Environment of the environments setting (prod is production); \"\" for none")
+	cmd.Flags().BoolVar(&f.production, "production", false, "Same as --environment prod (deprecated)")
+	cobra.CheckErr(cmd.Flags().MarkHidden("production"))
+	cmd.MarkFlagsMutuallyExclusive("environment", "production")
 }
 
 // definition returns the definition the flags describe, named name.
 func (f *dbFlags) definition(name string) directdb.Database {
 	return directdb.Database{
 		Name: name, Engine: directdb.Engine(f.engine), Host: f.host, Port: f.port, Database: f.database,
-		User: f.user, TLS: directdb.TLSMode(f.tls), Production: f.production,
+		User: f.user, TLS: directdb.TLSMode(f.tls), Environment: f.chosenEnvironment(),
 	}
+}
+
+// chosenEnvironment is the environment the flags give: --environment, else --production's.
+func (f *dbFlags) chosenEnvironment() string {
+	if f.environment != "" {
+		return f.environment
+	}
+	return productionEnvironment(f.production)
+}
+
+// checkEnvironment refuses a name that is neither configured nor prod; "" is none.
+func checkEnvironment(envs environment.Set, name string) error {
+	if env := envs.Lookup(name); env.IsZero() || env.Configured {
+		return nil
+	}
+	return fmt.Errorf("environment %q is not in your environments setting (%s): add it with `airlock config set environments ...`",
+		strings.ToLower(strings.TrimSpace(name)), strings.Join(envs.Names(), ", "))
+}
+
+// productionEnvironment is the environment --production stands for.
+func productionEnvironment(production bool) string {
+	if production {
+		return environment.ProductionAlias
+	}
+	return ""
 }
 
 // applyTo sets the flags given on cmd over db and reports whether any was given.
@@ -186,16 +217,36 @@ func (f *dbFlags) applyTo(cmd *cobra.Command, db *directdb.Database) bool {
 	set("database", func() { db.Database = f.database })
 	set("user", func() { db.User = f.user })
 	set("tls", func() { db.TLS = directdb.TLSMode(f.tls) })
-	set("production", func() { db.Production = f.production })
+	set("environment", func() { db.Environment = f.environment })
+	set("production", func() { db.Environment = productionEnvironment(f.production) })
 	set("name", func() { db.Name = f.name })
 	return changed
 }
 
-// validDatabase normalizes db and checks its name and fields.
-func validDatabase(db *directdb.Database) error {
+// validDatabase normalizes db and checks its name and fields, and its environment when
+// checkEnv is set: an imported database may hold an environment the setting lacks, which an
+// edit of another field must not refuse. The production environment is saved as prod, whatever
+// the team calls it: a teammate's production may be named differently.
+func validDatabase(cmd *cobra.Command, db *directdb.Database, checkEnv bool) error {
 	db.Normalize()
 	if err := directdb.ValidName(db.Name); err != nil {
 		return err
 	}
-	return db.Validate()
+	if err := db.Validate(); err != nil {
+		return err
+	}
+	cfg, _, err := loadConfig(cmd)
+	if err != nil {
+		return err
+	}
+	envs := cfg.EnvironmentSet()
+	if checkEnv {
+		if err := checkEnvironment(envs, db.Environment); err != nil {
+			return err
+		}
+	}
+	if envs.Lookup(db.Environment).Production {
+		db.Environment = environment.ProductionAlias
+	}
+	return nil
 }

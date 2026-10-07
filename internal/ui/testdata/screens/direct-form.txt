@@ -6,15 +6,15 @@
   Add a direct database  saved to saved-connections.json · passwords never are
 
   ╭──────────────────────────────────────────────────────────────────────╮
-  │ ▌ Name        legacy-billing                                         │
+  │ ▌ Name         legacy-billing                                        │
   │   Names the MCP server, the IDE data source and the keychain entry.  │
-  │   Engine      ● postgres │ sqlserver                                 │
-  │   Host        db.internal                                            │
-  │   Port        5432 (default)                                         │
-  │   Database    postgres (default)                                     │
-  │   User        app_ro                                                 │
-  │   TLS         ● require │ verify │ disable                           │
-  │   Production  ○ no                                                   │
+  │   Engine       ● postgres │ sqlserver                                │
+  │   Host         db.internal                                           │
+  │   Port         5432 (default)                                        │
+  │   Database     postgres (default)                                    │
+  │   User         app_ro                                                │
+  │   TLS          ● require │ verify │ disable                          │
+  │   Environment  ○ none                                                │
   ╰──────────────────────────────────────────────────────────────────────╯
 
 

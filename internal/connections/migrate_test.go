@@ -73,7 +73,7 @@ func TestMigrateMovesBothFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if billing.Direct == nil || !billing.Direct.Production || billing.Direct.User != "mcp_ro" ||
+	if billing.Direct == nil || billing.Direct.Environment != "prod" || billing.Direct.User != "mcp_ro" ||
 		billing.Choices.SignIn != "password" || !billing.Choices.PasswordInKeychain || !billing.Choices.MCPAllowWrites ||
 		!billing.Choices.UsedAt.Equal(time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)) {
 		t.Fatalf("legacy-billing = %+v / %+v, want its definition with its choices", billing.Direct, billing.Choices)

@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -21,7 +22,7 @@ func recentFixture() []jumphost.SavedConnection {
 }
 
 func newTestRecentPicker(active map[string]bool) recentPicker {
-	p := newRecentPicker(NewStyles(true), recentFixture(), active, nil, nil, pickerNow)
+	p := newRecentPicker(NewStyles(true), recentFixture(), active, environment.Set{}, nil, pickerNow)
 	p.SetSize(100, 20)
 	return p
 }

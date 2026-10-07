@@ -79,7 +79,7 @@ func TestProductionDirectSessionIsFlagged(t *testing.T) {
 
 func TestIsProductionFromProfileOrFlag(t *testing.T) {
 	m, _ := newSessionsModel(t, "archive")
-	m.production = productionMatcher{"*prod*"}
+	m.environments = mustEnvironments(t, "prod!=*prod*")
 	s := &m.sessions[0]
 
 	if m.isProduction(s) {

@@ -39,7 +39,7 @@ func snapshotByName(t *testing.T, store ui.SettingsStore) (snapshot ui.SettingsS
 
 func TestConfigSettingsStoreSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	writeTestFile(t, path, `{"defaultDbUser": "app_ro", "productionProfiles": "*prod*,*-live"}`)
+	writeTestFile(t, path, `{"defaultDbUser": "app_ro", "environments": "prod!=*prod*,*-live"}`)
 	store := newConfigSettingsStore(path, settingsFlags(t, "--jumphost-tag", "Env=bastion"))
 	snapshot, views := snapshotByName(t, store)
 
@@ -66,8 +66,28 @@ func TestConfigSettingsStoreSnapshot(t *testing.T) {
 	if v := views["mode"]; !slices.Equal(v.Choices, []string{"cli", "daemon"}) || !v.NextLaunch {
 		t.Fatalf("mode = %+v", v)
 	}
-	if snapshot.Path != path || !slices.Equal(snapshot.ProductionProfiles, []string{"*prod*", "*-live"}) {
-		t.Fatalf("path = %q production = %v", snapshot.Path, snapshot.ProductionProfiles)
+	if snapshot.Path != path || snapshot.Environments.String() != "prod!=*prod*,*-live" {
+		t.Fatalf("path = %q environments = %q", snapshot.Path, snapshot.Environments.String())
+	}
+}
+
+func TestConfigSettingsStoreSkipsTheDeprecatedKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeTestFile(t, path, `{"productionProfiles": "*prod*"}`)
+	snapshot, err := newConfigSettingsStore(path, settingsFlags(t)).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range snapshot.Settings {
+		if v.Name == "productionProfiles" {
+			t.Fatal("the Settings screen lists the deprecated key, whose edit is refused")
+		}
+		if v.Name == "environments" && (v.Value != "prod!=*prod*" || !v.FromFile) {
+			t.Fatalf("environments = %+v, want the migrated value from the file", v)
+		}
+	}
+	if !snapshot.Environments.Match("team-prod").Production {
+		t.Fatal("the badges must follow the migrated productionProfiles")
 	}
 }
 

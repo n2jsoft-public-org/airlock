@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // palette is the set of 256-color codes every screen uses, with darker variants for terminals
@@ -188,9 +189,43 @@ func (s Styles) ResourceBadge(resourceType string) string {
 	}
 }
 
-// ProdBadge flags a production AWS profile.
-func (s Styles) ProdBadge() string {
-	return s.Badge.Background(lipgloss.Color("166")).Render("PROD")
+// Badge colors of the environments: production keeps the PROD orange whatever its name; the other
+// configured environments take the palette in config order (never orange or red, which flag
+// production and writes, nor the resource and agent badge colors); a name the setting lacks is gray.
+var (
+	colorProductionBadge    = lipgloss.Color("166")
+	colorUnknownEnvironment = lipgloss.Color("240")
+	environmentPalette      = []string{"30", "71", "67", "132", "101", "37"}
+)
+
+// envColor is the color of env in its badge and its pill: production's orange, the palette color
+// of a configured environment, gray for a name the setting lacks.
+func envColor(env environment.Env) color.Color {
+	switch {
+	case env.Production:
+		return colorProductionBadge
+	case env.Configured:
+		return lipgloss.Color(environmentPalette[env.Index%len(environmentPalette)])
+	default:
+		return colorUnknownEnvironment
+	}
+}
+
+// EnvBadge renders the badge of env, its name upper-cased; "" for no environment.
+func (s Styles) EnvBadge(env environment.Env) string {
+	if env.IsZero() {
+		return ""
+	}
+	return s.Badge.Background(envColor(env)).Render(strings.ToUpper(env.Name))
+}
+
+// EnvPillStyle is the bold text style of env in the compact pills, its badge color; production
+// keeps the Warning style.
+func (s Styles) EnvPillStyle(env environment.Env) lipgloss.Style {
+	if env.Production {
+		return s.Warning.Bold(true)
+	}
+	return s.Text.Bold(true).Foreground(envColor(env))
 }
 
 // WritesBadge flags a session whose MCP server lets AI assistants modify data.

@@ -1,9 +1,12 @@
 package directdb
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // testDatabase is a valid PostgreSQL definition named name, with every optional field left out.
@@ -50,7 +53,7 @@ func TestValidateAcceptsValidDatabases(t *testing.T) {
 	minimal := testDatabase("billing")
 	full := Database{
 		Name: "legacy-billing-2", Engine: EngineSQLServer, Host: "10.0.3.12", Database: "Billing",
-		User: "mcp_ro", TLS: TLSDisable, Port: 14330, Production: true,
+		User: "mcp_ro", TLS: TLSDisable, Port: 14330, Environment: "prod",
 	}
 	for _, db := range []Database{minimal, full} {
 		if err := db.Validate(); err != nil {
@@ -145,15 +148,15 @@ func TestConnectionChanged(t *testing.T) {
 		change func(*Database)
 		want   bool
 	}{
-		"nothing":         {func(*Database) {}, false},
-		"production only": {func(d *Database) { d.Production = true }, false},
-		"name":            {func(d *Database) { d.Name = "billing2" }, true},
-		"engine":          {func(d *Database) { d.Engine = EngineSQLServer }, true},
-		"host":            {func(d *Database) { d.Host = "db2.internal" }, true},
-		"port":            {func(d *Database) { d.Port = 6432 }, true},
-		"database":        {func(d *Database) { d.Database = "events" }, true},
-		"user":            {func(d *Database) { d.User = "writer" }, true},
-		"tls":             {func(d *Database) { d.TLS = TLSDisable }, true},
+		"nothing":          {func(*Database) {}, false},
+		"environment only": {func(d *Database) { d.Environment = "staging" }, false},
+		"name":             {func(d *Database) { d.Name = "billing2" }, true},
+		"engine":           {func(d *Database) { d.Engine = EngineSQLServer }, true},
+		"host":             {func(d *Database) { d.Host = "db2.internal" }, true},
+		"port":             {func(d *Database) { d.Port = 6432 }, true},
+		"database":         {func(d *Database) { d.Database = "events" }, true},
+		"user":             {func(d *Database) { d.User = "writer" }, true},
+		"tls":              {func(d *Database) { d.TLS = TLSDisable }, true},
 	} {
 		previous := testDatabase("billing")
 		next := previous
@@ -161,5 +164,39 @@ func TestConnectionChanged(t *testing.T) {
 		if got := ConnectionChanged(&previous, &next); got != tc.want {
 			t.Fatalf("%s: ConnectionChanged = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestDatabaseDecodesTheLegacyProductionFlag(t *testing.T) {
+	var db Database
+	if err := json.Unmarshal([]byte(`{"engine": "postgres", "host": "h", "user": "u", "production": true}`), &db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Environment != environment.ProductionAlias {
+		t.Fatalf("Environment = %q, want prod", db.Environment)
+	}
+	if err := json.Unmarshal([]byte(`{"engine": "postgres", "host": "h", "user": "u", "production": true, "environment": "staging"}`), &db); err != nil || db.Environment != "staging" {
+		t.Fatalf("Environment = %q, %v; want environment to win", db.Environment, err)
+	}
+	data, err := json.Marshal(&db)
+	if err != nil || strings.Contains(string(data), "production") || !strings.Contains(string(data), `"environment":"staging"`) {
+		t.Fatalf("encoded = %s, %v; want environment only", data, err)
+	}
+	if err := json.Unmarshal([]byte(`{"engine": "postgres", "host": "h", "user": "u", "colour": "red"}`), &db); err == nil {
+		t.Fatal("an unknown field must still be refused")
+	}
+}
+
+func TestValidateEnvironment(t *testing.T) {
+	db := testDatabase("billing")
+	db.Environment = "Staging"
+	db.Normalize()
+	if db.Environment != "staging" || db.Validate() != nil {
+		t.Fatalf("Environment = %q, %v", db.Environment, db.Validate())
+	}
+	db.Environment = "qa_1"
+	var fieldErr *FieldError
+	if err := db.Validate(); !errors.As(err, &fieldErr) || fieldErr.Field != "environment" {
+		t.Fatalf("Validate = %v, want an environment field error", err)
 	}
 }

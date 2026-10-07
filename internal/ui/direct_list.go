@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -35,9 +36,12 @@ const directListChrome = 1
 type directItem struct {
 	db        directdb.Database
 	connected bool
+	// env is the environment the database is filed under.
+	env environment.Env
 }
 
-func (i directItem) isProduction() bool { return i.db.Production }
+// environment is the environment of the database.
+func (i directItem) environment() environment.Env { return i.env }
 
 func (i directItem) Title() string {
 	if i.connected {
@@ -69,11 +73,11 @@ type directList struct {
 }
 
 // newDirectList lists dbs; active holds the connectionKey of the running sessions (see
-// directConnectionKey), shown as connected.
-func newDirectList(styles Styles, dbs []directdb.Database, err error, active map[string]bool) directList {
+// directConnectionKey), shown as connected; envs names the environment each database is badged with.
+func newDirectList(styles Styles, dbs []directdb.Database, err error, active map[string]bool, envs environment.Set) directList {
 	items := make([]list.Item, 0, len(dbs))
 	for _, db := range dbs {
-		items = append(items, directItem{db: db, connected: active[directConnectionKey(db.Name)]})
+		items = append(items, directItem{db: db, connected: active[directConnectionKey(db.Name)], env: envs.Lookup(db.Environment)})
 	}
 	return directList{list: newWizardList(styles, items), err: err}
 }
@@ -201,7 +205,7 @@ func (m jumphostWizardModel) enterDirectList() (tea.Model, tea.Cmd) {
 // reloadDirectList reads the store again, keeping selectName selected when it is still listed.
 func (m jumphostWizardModel) reloadDirectList(selectName string) jumphostWizardModel {
 	dbs, err := m.databases.List()
-	m.directList = newDirectList(m.styles, dbs, err, m.active)
+	m.directList = newDirectList(m.styles, dbs, err, m.active, m.environments)
 	m = m.fitLists()
 	if selectName != "" {
 		m.directList.selectName(selectName)

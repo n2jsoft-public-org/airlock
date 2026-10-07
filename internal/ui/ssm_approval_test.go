@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -157,5 +158,16 @@ func TestApprovalDialogDropsControlCharacters(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("dialog lacks %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestApprovalDialogBadgesTheEnvironment(t *testing.T) {
+	m := newDaemonView(t, newFakeService(testSession(1, "archive-db")))
+	m.environments = mustEnvironments(t, "prod!=; staging=")
+	event := approvalEvent()
+	event.event.Approval.Production, event.event.Approval.Environment = false, "staging"
+	m, _ = update(t, m, event)
+	if view := ansi.Strip(m.render()); !strings.Contains(view, "STAGING") || strings.Contains(view, "PROD") {
+		t.Fatalf("dialog = %s, want a STAGING badge", view)
 	}
 }

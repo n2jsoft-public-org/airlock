@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -58,11 +59,12 @@ type recentItem struct {
 	db        directdb.Database
 	conn      jumphost.SavedConnection
 	connected bool
-	// production reports that the entry's profile, or its direct database, is flagged as production.
-	production bool
+	// env is the environment of the entry's profile, or of its direct database.
+	env environment.Env
 }
 
-func (i recentItem) isProduction() bool { return i.production }
+// environment is the environment of the entry.
+func (i recentItem) environment() environment.Env { return i.env }
 
 // direct reports whether the entry is a direct database, which has no profile nor region.
 func (i recentItem) direct() bool { return i.conn.Ref.Type == sessions.DirectResourceType }
@@ -130,8 +132,8 @@ type recentPicker struct {
 }
 
 // newRecentPicker lists connections; direct holds the definitions of the direct databases by name
-// (nil when unknown), which give their address and production flag.
-func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, production productionMatcher, direct map[string]directdb.Database, now time.Time) recentPicker {
+// (nil when unknown), which give their address and environment.
+func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, active map[string]bool, envs environment.Set, direct map[string]directdb.Database, now time.Time) recentPicker {
 	items := make([]list.Item, 0, len(connections))
 	for idx := range connections {
 		item := recentItem{conn: connections[idx], age: relativeAge(now, connections[idx].Prefs.UpdatedAt)}
@@ -139,9 +141,9 @@ func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, acti
 		if item.direct() {
 			// Profile patterns never apply to a database outside AWS.
 			item.db = direct[item.conn.Ref.Name]
-			item.production = item.db.Production
+			item.env = envs.Lookup(item.db.Environment)
 		} else {
-			item.production = production.matches(item.conn.Prefs.Profile)
+			item.env = envs.Match(item.conn.Prefs.Profile)
 		}
 		items = append(items, item)
 	}

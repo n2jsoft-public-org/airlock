@@ -76,7 +76,7 @@ func TestConnectionAddWritesTheDatabase(t *testing.T) {
 	}
 	db, found := getStored(t, store, "legacy-billing")
 	want := directdb.Database{Name: "legacy-billing", Engine: directdb.EngineSQLServer, Host: "billing.db.internal",
-		Database: "Billing", User: "mcp_ro", TLS: directdb.TLSVerify, Production: true}
+		Database: "Billing", User: "mcp_ro", TLS: directdb.TLSVerify, Environment: "prod"}
 	if !found || db != want {
 		t.Fatalf("stored = %+v (found %v), want %+v", db, found, want)
 	}
@@ -115,7 +115,7 @@ func TestConnectionAddRequiresEngineHostAndUser(t *testing.T) {
 func TestConnectionEditChangesOnlyTheGivenFlags(t *testing.T) {
 	store, _ := testDatabases(t)
 	original := billing
-	original.Port, original.Database, original.Production = 14330, "Billing", true
+	original.Port, original.Database, original.Environment = 14330, "Billing", "prod"
 	putDatabase(t, store, &original)
 
 	out, err := runAirlock(t, "db", "edit", "legacy-billing", "--host", "billing2.db.internal")
@@ -132,7 +132,7 @@ func TestConnectionEditChangesOnlyTheGivenFlags(t *testing.T) {
 func TestConnectionEditRestoresTheDefaults(t *testing.T) {
 	store, _ := testDatabases(t)
 	original := billing
-	original.Port, original.Database, original.Production = 14330, "Billing", true
+	original.Port, original.Database, original.Environment = 14330, "Billing", "prod"
 	putDatabase(t, store, &original)
 
 	if _, err := runAirlock(t, "db", "edit", "legacy-billing", "--port", "0", "--database", "", "--production=false"); err != nil {
@@ -266,9 +266,10 @@ var billingRDS = connections.JumphostTarget{Account: "123456789012", Region: "eu
 
 func TestConnectionListShowsEveryConnection(t *testing.T) {
 	store, _ := testDatabases(t)
+	writeEnvironments(t, "prod!=prod*; staging=*stg*")
 	putDatabase(t, store, &billing)
 	putDatabase(t, store, &directdb.Database{Name: "archive", Engine: directdb.EnginePostgres, Host: "fd00::12", Port: 6432,
-		User: "reader", Production: true})
+		User: "reader", Environment: "prod"})
 	rememberJumphost(t, store, &billingRDS)
 
 	out, err := runAirlock(t, "connection", "list")
@@ -279,13 +280,13 @@ func TestConnectionListShowsEveryConnection(t *testing.T) {
 	if len(lines) != 4 {
 		t.Fatalf("out = %q, want a header and three rows", out)
 	}
-	if got := strings.Join(strings.Fields(lines[0]), " "); got != "NAME VIA TYPE TARGET USER LAST USED PRODUCTION" {
+	if got := strings.Join(strings.Fields(lines[0]), " "); got != "NAME VIA TYPE TARGET USER LAST USED ENV" {
 		t.Fatalf("header = %q", got)
 	}
-	if got := strings.Fields(lines[1]); strings.Join(got[:6], " ") != "rds/billing-db jumphost rds billing-db @ 123456789012/eu-west-3" || got[6] != "app_ro" {
+	if got := strings.Fields(lines[1]); strings.Join(got[:6], " ") != "rds/billing-db jumphost rds billing-db @ 123456789012/eu-west-3" || got[6] != "app_ro" || got[9] != "prod" {
 		t.Fatalf("first row = %q, want the used jumphost connection first", lines[1])
 	}
-	if got := strings.Join(strings.Fields(lines[2]), " "); got != "archive direct postgres [fd00::12]:6432 reader never yes" {
+	if got := strings.Join(strings.Fields(lines[2]), " "); got != "archive direct postgres [fd00::12]:6432 reader never prod" {
 		t.Fatalf("archive row = %q", got)
 	}
 	if got := strings.Join(strings.Fields(lines[3]), " "); got != "legacy-billing direct sqlserver billing.db.internal:1433 mcp_ro never" {
@@ -568,5 +569,84 @@ func TestConnectionEditRenameOntoAnExistingNameKeepsTheConnection(t *testing.T) 
 	}
 	if _, err := memory.Get("local/local/direct/legacy-billing/mcp_ro"); err != nil {
 		t.Fatalf("the password must stay: %v", err)
+	}
+}
+
+// writeEnvironments sets the environments of the test's config.json.
+func writeEnvironments(t *testing.T, value string) {
+	t.Helper()
+	path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airlock", "config.json")
+	writeTestFile(t, path, `{"environments": "`+value+`"}`)
+}
+
+func TestConnectionAddEnvironmentIgnoresCase(t *testing.T) {
+	store, _ := testDatabases(t)
+	writeEnvironments(t, "prod!=*prod*; staging=*stg*")
+	if _, err := runAirlock(t, "db", "add", "orders", "--engine", "postgres", "--host", "h", "--user", "u", "--environment", " Staging "); err != nil {
+		t.Fatal(err)
+	}
+	if db, _ := getStored(t, store, "orders"); db.Environment != "staging" {
+		t.Fatalf("Environment = %q, want staging", db.Environment)
+	}
+}
+
+func TestConnectionAddStoresTheProductionAsProd(t *testing.T) {
+	store, _ := testDatabases(t)
+	writeEnvironments(t, "live!=*-live; dev=*dev*")
+	if _, err := runAirlock(t, "db", "add", "orders", "--engine", "postgres", "--host", "h", "--user", "u", "--environment", "LIVE"); err != nil {
+		t.Fatal(err)
+	}
+	if db, _ := getStored(t, store, "orders"); db.Environment != "prod" {
+		t.Fatalf("Environment = %q, want prod", db.Environment)
+	}
+}
+
+func TestConnectionAddRefusesAnUnknownEnvironment(t *testing.T) {
+	testDatabases(t)
+	writeEnvironments(t, "prod!=*prod*; staging=*stg*")
+	_, err := runAirlock(t, "db", "add", "orders", "--engine", "postgres", "--host", "h", "--user", "u", "--environment", "qa")
+	if err == nil || !strings.Contains(err.Error(), "prod, staging") {
+		t.Fatalf("err = %v, want the configured environments listed", err)
+	}
+}
+
+func TestConnectionEditEnvironmentAndTheProductionAlias(t *testing.T) {
+	store, _ := testDatabases(t)
+	writeEnvironments(t, "live!=*-live; dev=*dev*")
+	putDatabase(t, store, &billing)
+	for _, step := range []struct {
+		want string
+		args []string
+	}{
+		{"prod", []string{"--environment", "prod"}},
+		{"dev", []string{"--environment", "dev"}},
+		{"", []string{"--environment", ""}},
+		{"prod", []string{"--production"}},
+		{"", []string{"--production=false"}},
+	} {
+		if _, err := runAirlock(t, append([]string{"db", "edit", "legacy-billing"}, step.args...)...); err != nil {
+			t.Fatalf("%v: %v", step.args, err)
+		}
+		if db, _ := getStored(t, store, "legacy-billing"); db.Environment != step.want {
+			t.Fatalf("%v: Environment = %q, want %q", step.args, db.Environment, step.want)
+		}
+	}
+	if _, err := runAirlock(t, "db", "edit", "legacy-billing", "--environment", "dev", "--production"); err == nil {
+		t.Fatal("--environment and --production together must be refused")
+	}
+}
+
+func TestConnectionEditKeepsAnEnvironmentTheSettingLacks(t *testing.T) {
+	store, _ := testDatabases(t)
+	writeEnvironments(t, "prod!=*prod*")
+	putDatabase(t, store, &directdb.Database{Name: "orders", Engine: directdb.EnginePostgres, Host: "h", User: "u", Environment: "qa"})
+	if _, err := runAirlock(t, "db", "edit", "orders", "--port", "6432"); err != nil {
+		t.Fatal(err)
+	}
+	if db, _ := getStored(t, store, "orders"); db.Environment != "qa" || db.Port != 6432 {
+		t.Fatalf("Environment = %q, Port = %d, want qa and 6432", db.Environment, db.Port)
+	}
+	if _, err := runAirlock(t, "db", "edit", "orders", "--environment", "qa"); err == nil {
+		t.Fatal("--environment qa must be refused: the setting lacks it")
 	}
 }

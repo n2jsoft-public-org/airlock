@@ -143,7 +143,7 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	if err != nil {
 		return signInFailure(err, profile), nil, nil
 	}
-	production := settings.ProductionProfiles.Matches(profile)
+	production := settings.Environments.Match(profile).Production
 	for _, r := range found {
 		if !keep(r.Type, r.Name) {
 			continue
@@ -165,13 +165,13 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 // savedProduction reports whether a saved connection reaches production.
 func (t *toolset) savedProduction(conn *jumphost.SavedConnection, settings *Settings) bool {
 	if conn.Ref.Type != sessions.DirectResourceType {
-		return settings.ProductionProfiles.Matches(conn.Prefs.Profile)
+		return settings.Environments.Match(conn.Prefs.Profile).Production
 	}
 	if t.databases == nil {
 		return false
 	}
 	db, found, err := t.databases.Get(conn.Ref.Name)
-	return err == nil && found && db.Production
+	return err == nil && found && settings.Environments.Lookup(db.Environment).Production
 }
 
 func isSaved(saved []jumphost.SavedConnection, resourceType, name string) bool {
@@ -235,7 +235,7 @@ func (t *toolset) listSessions(ctx context.Context, _ *mcp.CallToolRequest, _ st
 		s := &list[idx]
 		info := sessionInfo{
 			Session: int(s.ID), Type: s.ResourceType, Target: s.Target, Profile: s.Profile, Region: s.Region,
-			State: stateName(s.State), OpenedBy: openedBy(s), Production: settings.ProductionProfiles.IsProduction(s),
+			State: stateName(s.State), OpenedBy: openedBy(s), Production: sessions.EnvironmentOf(settings.Environments, s).Production,
 			Writes: s.MCPWrites(), MCP: s.Details.MCP, Tools: "none",
 		}
 		if access, accessErr := t.manager.MCPServer(s.ID); accessErr == nil {

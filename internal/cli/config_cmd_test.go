@@ -169,3 +169,32 @@ func TestConfigRejectsAnUnknownSubcommand(t *testing.T) {
 		t.Fatalf("err = %v, want an unknown command error", err)
 	}
 }
+
+func TestConfigShowSaysTheIgnoredProductionProfilesAndKeepsThemOutOfJSON(t *testing.T) {
+	path := testConfigFile(t)
+	writeTestFile(t, path, `{"environments": "prod!=*prod*", "productionProfiles": "*old*"}`)
+	out, err := runAirlock(t, "config", "show")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "productionProfiles") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "*old* (ignored: environments is set)") || !strings.Contains(line, "deprecated") {
+		t.Fatalf("productionProfiles line = %q, want it flagged as ignored", line)
+	}
+	out, err = runAirlock(t, "config", "show", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values map[string]string
+	if err = json.Unmarshal([]byte(out), &values); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := values["productionProfiles"]; ok || len(values) != len(config.Keys) {
+		t.Fatalf("values = %v, want the effective keys only", values)
+	}
+}

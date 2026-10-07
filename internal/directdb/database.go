@@ -4,11 +4,15 @@
 package directdb
 
 import (
+	"bytes"
+	"encoding/json"
 	"net"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/n2jsoft/airlock/internal/environment"
 )
 
 // Engine is the database engine of a direct database.
@@ -47,8 +51,28 @@ type Database struct {
 	User     string  `json:"user"`
 	TLS      TLSMode `json:"tls,omitempty"`
 	Port     int     `json:"port,omitempty"`
-	// Production flags the database in the dashboard, as productionProfiles flags AWS profiles.
-	Production bool `json:"production,omitempty"`
+	// Environment names the database's environment in the environments setting; "" for none.
+	Environment string `json:"environment,omitempty"`
+}
+
+// UnmarshalJSON reads a definition, refusing unknown keys; the production flag of an earlier
+// airlock reads as the production environment.
+func (d *Database) UnmarshalJSON(data []byte) error {
+	type plain Database
+	var raw struct {
+		plain
+		Production bool `json:"production,omitempty"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+	*d = Database(raw.plain)
+	if d.Environment == "" && raw.Production {
+		d.Environment = environment.ProductionAlias
+	}
+	return nil
 }
 
 // FieldError reports the invalid field of a definition.
@@ -74,7 +98,7 @@ func DefaultPort(e Engine) int {
 	}
 }
 
-// Normalize trims every text field and lower-cases the engine and the TLS mode.
+// Normalize trims every text field and lower-cases the engine, the TLS mode and the environment.
 func (d *Database) Normalize() {
 	d.Name = strings.TrimSpace(d.Name)
 	d.Engine = Engine(strings.ToLower(strings.TrimSpace(string(d.Engine))))
@@ -82,10 +106,11 @@ func (d *Database) Normalize() {
 	d.Database = strings.TrimSpace(d.Database)
 	d.User = strings.TrimSpace(d.User)
 	d.TLS = TLSMode(strings.ToLower(strings.TrimSpace(string(d.TLS))))
+	d.Environment = strings.ToLower(strings.TrimSpace(d.Environment))
 }
 
 // Validate returns a *FieldError naming the first invalid field, in the order name, engine, host,
-// port, database, user, tls; nil when the definition is valid. It does not normalize.
+// port, database, user, tls, environment; nil when the definition is valid. It does not normalize.
 func (d *Database) Validate() error {
 	if err := ValidName(d.Name); err != nil {
 		return err
@@ -112,6 +137,11 @@ func (d *Database) Validate() error {
 	case "", TLSRequire, TLSVerify, TLSDisable:
 	default:
 		return &FieldError{Field: "tls", Message: "must be require, verify or disable"}
+	}
+	if d.Environment != "" {
+		if err := environment.ValidName(d.Environment); err != nil {
+			return &FieldError{Field: "environment", Message: "must be 1 to 12 lower-case letters, digits or -, starting with a letter"}
+		}
 	}
 	return nil
 }
@@ -150,11 +180,11 @@ func isForbiddenDatabaseRune(r rune) bool {
 }
 
 // ConnectionChanged reports whether next is reached differently from previous: any field but
-// Production differs (name, engine, host, port, database, user or TLS). A password remembered for
+// Environment differs (name, engine, host, port, database, user or TLS). A password remembered for
 // previous must then be forgotten, so that it never reaches another server, database or user.
 func ConnectionChanged(previous, next *Database) bool {
 	before, after := *previous, *next
-	before.Production, after.Production = false, false
+	before.Environment, after.Environment = "", ""
 	return before != after
 }
 

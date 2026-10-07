@@ -24,9 +24,9 @@ func newFakeSettingsStore() *fakeSettingsStore {
 
 func (s *fakeSettingsStore) Snapshot() (SettingsSnapshot, error) {
 	return SettingsSnapshot{
-		Path:               s.snapshot.Path,
-		Settings:           slices.Clone(s.snapshot.Settings),
-		ProductionProfiles: s.snapshot.ProductionProfiles,
+		Path:         s.snapshot.Path,
+		Settings:     slices.Clone(s.snapshot.Settings),
+		Environments: s.snapshot.Environments,
 	}, nil
 }
 
@@ -196,7 +196,7 @@ func TestWizardSettingsRegionPickerSavesTheRegion(t *testing.T) {
 
 func TestWizardSettingsFollowProductionProfiles(t *testing.T) {
 	m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
-	if !m.production.matches("acme-prod") {
+	if !m.environments.Match("acme-prod").Production {
 		t.Fatal("the PROD badges do not follow the snapshot's productionProfiles")
 	}
 }
@@ -262,7 +262,7 @@ func TestDashboardCommaOpensSettings(t *testing.T) {
 }
 
 func TestDashboardFollowsTheProductionProfilesOfSettings(t *testing.T) {
-	if m := dashboardSettings(t, newFakeSettingsStore()); !m.production.matches("acme-prod") {
+	if m := dashboardSettings(t, newFakeSettingsStore()); !m.environments.Match("acme-prod").Production {
 		t.Fatal("the session cards do not follow the snapshot's productionProfiles")
 	}
 }
@@ -359,8 +359,8 @@ func TestWizardSettingsKeepTheChosenRegion(t *testing.T) {
 func TestWizardSettingsLateSnapshotIsIgnoredAfterLeaving(t *testing.T) {
 	m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
 	m = pressWizard(t, m, escKey)
-	m, cmd := wizardUpdate(t, m, settingsLoadedMsg{snapshot: SettingsSnapshot{ProductionProfiles: []string{"*live*"}}})
-	if cmd != nil || m.step != jumphostStepStart || m.production.matches("acme-live") || !m.production.matches("acme-prod") {
+	m, cmd := wizardUpdate(t, m, settingsLoadedMsg{snapshot: SettingsSnapshot{Environments: mustEnvironments(t, "prod!=*live*")}})
+	if cmd != nil || m.step != jumphostStepStart || m.environments.Match("acme-live").Production || !m.environments.Match("acme-prod").Production {
 		t.Fatalf("step = %v cmd = %v, want the late snapshot ignored", m.step, cmd != nil)
 	}
 	m, _ = wizardUpdate(t, m, settingRefusedMsg{err: errors.New("late")})

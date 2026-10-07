@@ -322,3 +322,28 @@ func TestFindByKeyOrShortName(t *testing.T) {
 		t.Fatal("ShortName must be <type>/<target> for a jumphost entry, else the key")
 	}
 }
+
+func TestEntryReadsTheLegacyProductionFlagAndWritesTheEnvironment(t *testing.T) {
+	store := newTestStore(t)
+	writeStoreFile(t, store, `{"version": 1, "connections": {"billing": {"engine": "postgres", "host": "h", "user": "u", "production": true, "mcp_allow_writes": false}}}`)
+	entry, found, err := store.Get("billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || entry.Direct == nil || entry.Direct.Environment != "prod" {
+		t.Fatalf("entry = %+v, %v; want the legacy flag read as prod", entry.Direct, found)
+	}
+	if err = store.update(func(map[string]Entry) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if raw := readStoreFile(t, store); strings.Contains(raw, "production") || !strings.Contains(raw, "environment") {
+		t.Fatalf("file = %s, want the environment written instead of the flag", raw)
+	}
+	entry, found, err = store.Get("billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || entry.Direct == nil || entry.Direct.Environment != "prod" {
+		t.Fatalf("entry = %+v, %v; want prod again after the rewrite", entry.Direct, found)
+	}
+}
