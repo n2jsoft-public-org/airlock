@@ -91,6 +91,9 @@ The installer then warns about another `airlock` left on your PATH, such as one 
 `make install` or `go install` in `GOPATH/bin`, and about a missing AWS CLI or Session Manager
 plugin.
 
+Like `airlock update`, the installer adds a 🚀 to the release it installs: see
+[Install tracking](#install-tracking).
+
 </details>
 
 <details>
@@ -236,6 +239,19 @@ it from an administrator terminal or reinstall with `install.ps1`.
 Once a day, in the background, the connect command checks for a newer release; the next launch
 then shows `update available` in the wizard, or a line on stderr for a direct connection. Set
 `AIRLOCK_NO_UPDATE_CHECK` to any non-empty value (`AIRLOCK_NO_UPDATE_CHECK=1`) to turn the check off.
+
+#### Install tracking
+
+After installing a release, the installer and `airlock update` add a 🚀 reaction to that release on
+GitHub, with your GitHub account. The reactions of a release then tell who installed it, once per
+account. A reaction never holds an install back: when the token cannot write reactions or GitHub
+does not answer within 5 seconds, airlock carries on silently. Set `AIRLOCK_NO_TRACKING` to any
+non-empty value (`AIRLOCK_NO_TRACKING=1`) to skip it. To list who installed a release:
+
+```sh
+gh api repos/n2jsoft/airlock/releases/tags/<tag> --jq .id   # the release id
+gh api repos/n2jsoft/airlock/releases/<id>/reactions --jq '.[] | select(.content == "rocket") | .user.login'
+```
 
 ### Uninstalling
 

@@ -11,6 +11,9 @@
     The repository is private: the release is read with GH_TOKEN, GITHUB_TOKEN or the token of the
     GitHub CLI (gh auth login).
 
+    The installer adds a rocket reaction to the release it installs, so the release tells who
+    installed it: set AIRLOCK_NO_TRACKING=1 to skip it.
+
 .PARAMETER InstallDir
     Install folder. Defaults to AIRLOCK_INSTALL_DIR, else %LOCALAPPDATA%\Programs\airlock.
 
@@ -151,6 +154,25 @@ function Save-Asset($release, [string]$name) {
         throw "Cannot download ${name}: $($_.Exception.Message)"
     }
     return $file
+}
+
+# Add-InstallReaction adds a rocket to the installed release as the token's account, so the release
+# tells who installed it. It is best effort and silent; AIRLOCK_NO_TRACKING turns it off.
+function Add-InstallReaction($release) {
+    if ($env:AIRLOCK_NO_TRACKING -or -not $token -or -not $release.id) {
+        return
+    }
+    $headers = @{
+        'Accept'               = 'application/vnd.github+json'
+        'Authorization'        = "Bearer $token"
+        'X-GitHub-Api-Version' = '2022-11-28'
+    }
+    try {
+        Invoke-RestMethod -Method Post -Uri "$api/releases/$($release.id)/reactions" -Headers $headers `
+            -ContentType 'application/json' -Body '{"content":"rocket"}' -TimeoutSec 5 | Out-Null
+    } catch {
+        Write-Verbose "Cannot add the install reaction: $($_.Exception.Message)"
+    }
 }
 
 function Assert-Checksum([string]$archive, [string]$checksums, [string]$name) {
@@ -346,6 +368,7 @@ try {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     Install-Binary $newExe $target
     Write-Host "Installed airlock $($release.tag_name) to $target"
+    Add-InstallReaction $release
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }

@@ -81,6 +81,56 @@ func TestUpdateInstallsANewerRelease(t *testing.T) {
 	}
 }
 
+func TestUpdateReactsToTheInstalledRelease(t *testing.T) {
+	t.Setenv(noTrackingEnv, "")
+	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	env, _ := testUpdateEnv(t, srv, testCurrent)
+	if _, err := runUpdateCmd(t, env); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Reactions(); len(got) != 1 || got[0] != "42:"+selfupdate.InstallReaction {
+		t.Fatalf("reactions = %v, want one %s on the installed release", got, selfupdate.InstallReaction)
+	}
+}
+
+func TestUpdateWithoutTrackingDoesNotReact(t *testing.T) {
+	t.Setenv(noTrackingEnv, "1")
+	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	env, _ := testUpdateEnv(t, srv, testCurrent)
+	if _, err := runUpdateCmd(t, env); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Reactions(); len(got) != 0 {
+		t.Fatalf("reactions = %v with %s set", got, noTrackingEnv)
+	}
+}
+
+func TestUpdateSucceedsWhenTheReactionIsRefused(t *testing.T) {
+	t.Setenv(noTrackingEnv, "")
+	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	srv.Release.RefuseReactions = true
+	env, target := testUpdateEnv(t, srv, testCurrent)
+	out, err := runUpdateCmd(t, env)
+	if err != nil || out != "Updated airlock "+testCurrent+" → "+testLatest+"\n" {
+		t.Fatalf("out = %q, %v", out, err)
+	}
+	if got := readTarget(t, target); got != "new airlock" {
+		t.Fatalf("binary = %q", got)
+	}
+}
+
+func TestUpdateCheckDoesNotReact(t *testing.T) {
+	t.Setenv(noTrackingEnv, "")
+	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	env, _ := testUpdateEnv(t, srv, testCurrent)
+	if _, err := runUpdateCmd(t, env, "--check"); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Reactions(); len(got) != 0 {
+		t.Fatalf("reactions = %v after --check", got)
+	}
+}
+
 func TestUpdateCheckOnlyReports(t *testing.T) {
 	env, target := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
 	out, err := runUpdateCmd(t, env, "--check")

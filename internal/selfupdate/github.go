@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,10 +19,15 @@ const DefaultBaseURL = "https://api.github.com"
 // maxResponse caps a GitHub response or download; an airlock archive is about 10 MB.
 const maxResponse = 200 << 20
 
+// InstallReaction is the reaction airlock adds to the release it installs, so the releases tell
+// who installed them.
+const InstallReaction = "rocket"
+
 // Release is a GitHub release.
 type Release struct {
 	Tag    string  `json:"tag_name"`
 	Assets []Asset `json:"assets"`
+	ID     int64   `json:"id"`
 }
 
 // Asset is a file attached to a release; URL is its API address.
@@ -108,6 +114,34 @@ func (c *Client) get(ctx context.Context, target, accept string) (body []byte, e
 		return nil, fmt.Errorf("the GitHub response for %s is too large", req.URL.Path)
 	}
 	return body, nil
+}
+
+// React adds the reaction content (such as InstallReaction) to release, as the token's account.
+// GitHub keeps one reaction of each kind per account: adding it again changes nothing.
+func (c *Client) React(ctx context.Context, release Release, content string) (err error) {
+	target := c.repoURL(fmt.Sprintf("/releases/%d/reactions", release.ID))
+	payload, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot reach GitHub: %w", err)
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("GitHub answered %s for %s", resp.Status, req.URL.Path)
+	}
+	return nil
 }
 
 // LatestRelease returns the latest release of the repository.

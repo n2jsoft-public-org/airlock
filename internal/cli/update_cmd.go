@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
@@ -11,6 +12,13 @@ import (
 	"github.com/n2jsoft/airlock/internal/version"
 	"github.com/spf13/cobra"
 )
+
+// noTrackingEnv, set to any value, stops airlock update from adding InstallReaction to the release
+// it installs.
+const noTrackingEnv = "AIRLOCK_NO_TRACKING"
+
+// reactionTimeout bounds the reaction to the installed release, which never holds an update back.
+const reactionTimeout = 5 * time.Second
 
 // updateEnv is what airlock update and the launch notice take from outside; tests replace it.
 type updateEnv struct {
@@ -107,11 +115,23 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 			cmd.PrintErrf("Warning: %v\n", saveErr)
 		}
 	}
+	reactToInstalledRelease(ctx, updater.Client, result.Release)
 	outf(cmd, "Updated airlock %s → %s\n", result.Current, result.Latest)
 	if env.daemonRunning != nil && env.daemonRunning(ctx) {
 		outf(cmd, "restart the daemon to use the new version: airlock daemon restart\n")
 	}
 	return nil
+}
+
+// reactToInstalledRelease adds InstallReaction to release, so its reactions tell who installed it.
+// It is best effort: a token without write access or an unreachable GitHub changes nothing.
+func reactToInstalledRelease(ctx context.Context, client *selfupdate.Client, release selfupdate.Release) {
+	if os.Getenv(noTrackingEnv) != "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, reactionTimeout)
+	defer cancel()
+	_ = client.React(ctx, release, selfupdate.InstallReaction) //nolint:errcheck // best effort: the update is done either way.
 }
 
 func updateStatusMessage(r *selfupdate.Result) string {

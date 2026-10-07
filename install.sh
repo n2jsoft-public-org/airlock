@@ -36,6 +36,8 @@ Options:
   --purge           with --uninstall, also remove settings, history, logs and saved passwords
 
 The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login).
+The installer adds a rocket reaction to the release it installs, so the release tells who installed
+it: set AIRLOCK_NO_TRACKING=1 to skip it.
 EOF
 }
 
@@ -164,6 +166,22 @@ install_binary() {
 	chmod 0755 "$install_dir/.airlock.new"
 	mv -f "$install_dir/.airlock.new" "$target"
 	say "Installed airlock $tag to $target"
+}
+
+# react_to_release adds a rocket to the installed release as the token's account, so the release
+# tells who installed it. It is best effort and silent; AIRLOCK_NO_TRACKING turns it off.
+react_to_release() {
+	if [ -n "${AIRLOCK_NO_TRACKING:-}" ] || [ -z "$token" ]; then
+		return 0
+	fi
+	# The release's own API address ends in /releases/<id>; its assets' end in /releases/assets/<id>.
+	release_id=$(json_lines "$tmp/release.json" |
+		sed -n 's#^[[:space:]]*"url"[[:space:]]*:[[:space:]]*"[^"]*/releases/\([0-9][0-9]*\)".*#\1#p' | head -n 1)
+	[ -n "$release_id" ] || return 0
+	printf 'header = "Authorization: Bearer %s"\n' "$token" |
+		curl -sS --proto '=https' --tlsv1.2 -K - --max-time 5 -X POST \
+			-H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+			-d '{"content":"rocket"}' -o /dev/null "$api/releases/$release_id/reactions" 2>/dev/null || true
 }
 
 on_path() {
@@ -339,6 +357,7 @@ main() {
 
 	download_release
 	install_binary
+	react_to_release
 	add_to_path
 	warn_other_copies
 	check_prerequisites

@@ -22,7 +22,7 @@ func TestLatestRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if release.Tag != "20261005-3f9a1c2" || len(release.Assets) != 2 {
+	if release.ID != 42 || release.Tag != "20261005-3f9a1c2" || len(release.Assets) != 2 {
 		t.Fatalf("release = %+v", release)
 	}
 }
@@ -58,6 +58,27 @@ func TestLatestReleaseOnServerError(t *testing.T) {
 	defer srv.Close()
 	_, err := NewClient(srv.URL, "acme/airlock", "t").LatestRelease(context.Background())
 	if err == nil || err.Error() != "GitHub answered 500 Internal Server Error for /repos/acme/airlock/releases/latest" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestReact(t *testing.T) {
+	srv := selfupdatetest.NewServer(t, testRelease(t))
+	client := NewClient(srv.URL, selfupdatetest.Repository, selfupdatetest.Token)
+	if err := client.React(context.Background(), Release{ID: 42}, InstallReaction); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.Reactions(); len(got) != 1 || got[0] != "42:rocket" {
+		t.Fatalf("reactions = %v", got)
+	}
+}
+
+func TestReactWithARefusingToken(t *testing.T) {
+	release := testRelease(t)
+	release.RefuseReactions = true
+	srv := selfupdatetest.NewServer(t, release)
+	err := NewClient(srv.URL, selfupdatetest.Repository, selfupdatetest.Token).React(context.Background(), Release{ID: 42}, InstallReaction)
+	if err == nil || err.Error() != "GitHub answered 403 Forbidden for /repos/acme/airlock/releases/42/reactions" {
 		t.Fatalf("error = %v", err)
 	}
 }
