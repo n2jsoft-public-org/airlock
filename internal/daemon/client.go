@@ -237,8 +237,17 @@ func (c *Client) Open(ctx context.Context, req sessions.OpenRequest) (sessions.I
 }
 
 func (c *Client) Restart(ctx context.Context, id sessions.ID, interactive jumphost.InteractiveFunc) error {
+	return c.callInteractive(ctx, "sessions.restart", id, interactive)
+}
+
+func (c *Client) SignInAWS(ctx context.Context, id sessions.ID, interactive jumphost.InteractiveFunc) error {
+	return c.callInteractive(ctx, "aws.signin", id, interactive)
+}
+
+// callInteractive calls method for session id, its terminal commands running with interactive.
+func (c *Client) callInteractive(ctx context.Context, method string, id sessions.ID, interactive jumphost.InteractiveFunc) error {
 	var requestID uint64
-	err := c.peer.callWithID(ctx, "sessions.restart", idParams{ID: id, Interactive: interactive != nil}, nil,
+	err := c.peer.callWithID(ctx, method, idParams{ID: id, Interactive: interactive != nil}, nil,
 		c.registerInteractive(interactive, &requestID))
 	c.forgetInteractive(requestID)
 	return err

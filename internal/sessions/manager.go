@@ -44,7 +44,9 @@ type Manager struct {
 	launch    Launcher
 	now       func() time.Time
 	afterFunc func(d time.Duration, f func()) func() bool
-	subs      map[*subscriber]struct{}
+	// identityStop cancels the scheduled identity check (nil when none is).
+	identityStop func() bool
+	subs         map[*subscriber]struct{}
 	// ended is closed, then replaced, each time a session ends (StopAll waits on it).
 	ended   chan struct{}
 	entries []*entry
@@ -68,8 +70,10 @@ type entry struct {
 	process         Process
 	stopTimer       func() bool
 	cancelReconnect context.CancelFunc
-	options         jumphost.Options
-	info            Session
+	// identity checks the AWS sign-in of the session; nil when its runner cannot.
+	identity IdentityChecker
+	options  jumphost.Options
+	info     Session
 	// signInAttempt numbers the sign-in listings and checks; a result of an older one is dropped.
 	signInAttempt int
 }
@@ -167,7 +171,7 @@ func (m *Manager) Open(ctx context.Context, req OpenRequest) (ID, error) { //nol
 	if closing {
 		return 0, ErrClosed
 	}
-	session, cancel, err := m.prepare(ctx, &req.Options, req.Interactive)
+	session, cancel, identity, err := m.prepare(ctx, &req.Options, req.Interactive)
 	if err != nil {
 		return 0, err
 	}
@@ -181,20 +185,24 @@ func (m *Manager) Open(ctx context.Context, req OpenRequest) (ID, error) { //nol
 		cancel()
 		return 0, ErrClosed
 	}
-	e := m.addLocked(session, &req.Options, cancel)
+	e := m.addLocked(session, &req.Options, cancel, identity)
 	return e.info.ID, nil
 }
 
 // Adopt runs session, already prepared with options (the first session of `airlock <type> <name>`).
 func (m *Manager) Adopt(session *jumphost.Session, options *jumphost.Options) ID {
+	var identity IdentityChecker
+	if runner, err := m.runner(); err == nil {
+		identity = identityOf(runner)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	e := m.addLocked(session, options, func() {})
+	e := m.addLocked(session, options, func() {}, identity)
 	return e.info.ID
 }
 
-func (m *Manager) addLocked(session *jumphost.Session, options *jumphost.Options, cancel context.CancelFunc) *entry {
-	e := m.newEntryLocked(session, options, cancel, 0, nil, "")
+func (m *Manager) addLocked(session *jumphost.Session, options *jumphost.Options, cancel context.CancelFunc, identity IdentityChecker) *entry {
+	e := m.newEntryLocked(session, options, cancel, identity, 0, nil, "")
 	m.entries = append(m.entries, e)
 	m.publish(&Event{Kind: EventAdded, ID: e.info.ID, Session: new(e.info.Clone())})
 	m.startLocked(e)
@@ -202,41 +210,42 @@ func (m *Manager) addLocked(session *jumphost.Session, options *jumphost.Options
 }
 
 // prepare runs the runner's Prepare. The preparation stops when ctx ends; once prepared, the
-// session keeps a context of its own, ended by cancel when the session ends.
-func (m *Manager) prepare(ctx context.Context, options *jumphost.Options, interactive jumphost.InteractiveFunc) (*jumphost.Session, context.CancelFunc, error) {
+// session keeps a context of its own, ended by cancel when the session ends. identity checks the
+// AWS sign-in of the session later; nil when the runner cannot.
+func (m *Manager) prepare(ctx context.Context, options *jumphost.Options, interactive jumphost.InteractiveFunc) (session *jumphost.Session, cancel context.CancelFunc, identity IdentityChecker, err error) {
 	runner, err := m.runner()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	prepareCtx, cancel := context.WithCancel(m.ctx)
 	if interactive != nil {
 		prepareCtx = jumphost.WithInteractive(prepareCtx, interactive)
 	}
 	stop := context.AfterFunc(ctx, cancel)
-	session, err := runner.Prepare(prepareCtx, *options)
+	session, err = runner.Prepare(prepareCtx, *options)
 	if !stop() {
 		// ctx ended during the preparation: free what it reserved rather than open it.
 		if session != nil {
 			session.Release()
 		}
 		cancel()
-		return nil, nil, ctx.Err()
+		return nil, nil, nil, ctx.Err()
 	}
 	if err != nil {
 		cancel()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return session, cancel, nil
+	return session, cancel, identityOf(runner), nil
 }
 
 // newEntryLocked builds the entry of a prepared session; id 0 takes a new ID. history holds the
 // log of the ended session a restart replaces, followed by note.
-func (m *Manager) newEntryLocked(session *jumphost.Session, options *jumphost.Options, cancel context.CancelFunc, id ID, history []LogLine, note string) *entry {
+func (m *Manager) newEntryLocked(session *jumphost.Session, options *jumphost.Options, cancel context.CancelFunc, identity IdentityChecker, id ID, history []LogLine, note string) *entry {
 	if id == 0 {
 		m.nextID++
 		id = m.nextID
 	}
-	e := &entry{session: session, options: *options, cancel: cancel}
+	e := &entry{session: session, options: *options, cancel: cancel, identity: identity}
 	e.info = Session{
 		ID: id, Label: session.Label, ResourceType: session.ResourceType, Target: session.Target,
 		Profile: session.Profile, Region: session.Region, Details: session.Details, LocalPort: session.LocalPort,
@@ -295,6 +304,9 @@ func (m *Manager) startLocked(e *entry) {
 		m.changed(e)
 		m.startSignInLocked(e)
 		return
+	}
+	if e.identity != nil {
+		m.watchIdentityLocked()
 	}
 	args := append(append([]string{}, e.session.CommandArgs...), e.session.AwsArgs...)
 	go m.run(e, args)
@@ -462,6 +474,10 @@ func (m *Manager) StopAll(ctx context.Context) error {
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	m.closing, m.closed = true, true
+	if m.identityStop != nil {
+		m.identityStop()
+		m.identityStop = nil
+	}
 	var processes []Process
 	var released []*entry
 	for _, e := range m.entries {

@@ -889,6 +889,9 @@ func (m ssmModel) open(options jumphost.Options, warning, label string) (tea.Mod
 // port and sign-in choices, so the tools pointed at it reconnect as they were.
 func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 	s := m.selectedSession()
+	if s != nil && s.Active() && s.AWSSignInExpired {
+		return m.signInAWSSelected(s)
+	}
 	if s == nil || s.Active() {
 		return m, nil
 	}
@@ -906,6 +909,17 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(func() tea.Msg {
 		return ssmOpenedMsg{id: id, err: service.Restart(ctx, id, interactive), prepareID: prepareID, restart: true}
 	}, m.loadingUI.start(label, prepareLines(s.ResourceType)))
+}
+
+// signInAWSSelected signs the AWS profile of s in again, its tunnel staying open: the tools
+// signing in with AWS through it work again.
+func (m ssmModel) signInAWSSelected(s *sessions.Session) (tea.Model, tea.Cmd) {
+	m.notice = "Signing in to AWS with profile " + s.Profile + "..."
+	m.refreshViewport()
+	service, interactive, id := m.service, m.interactive, s.ID
+	return m, m.act("Could not sign in to AWS: ", func(ctx context.Context) error {
+		return service.SignInAWS(ctx, id, interactive)
+	})
 }
 
 // prepareLines entertain while a session of resourceType is prepared: a direct database has no

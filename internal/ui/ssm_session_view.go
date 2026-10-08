@@ -469,6 +469,8 @@ func (m ssmModel) renderFooter(width int) string {
 		keys = [][2]string{{"n", "new"}}
 		switch s := m.selectedSession(); {
 		case s == nil:
+		case s.Active() && s.AWSSignInExpired:
+			keys = append(keys, [2]string{"r", "sign in to AWS"}, [2]string{"x", "stop"})
 		case s.Active():
 			keys = append(keys, [2]string{"x", "stop"})
 		default:
@@ -518,7 +520,7 @@ func (m ssmModel) helpGroups() []helpGroup {
 	return []helpGroup{
 		{title: "Sessions", keys: [][2]string{
 			{"n", "Open a new connection"},
-			{"r", "Restart an ended session"},
+			{"r", "Restart an ended session, or sign in to AWS again"},
 			{"x", "Stop the session, or close it once ended"},
 			{"c", "Copy its address, a command or the last MCP call"},
 			{"a p", "Choose the database credentials, or show the password"},
@@ -538,6 +540,9 @@ func (m ssmModel) helpGroups() []helpGroup {
 func (m ssmModel) status(s *sessions.Session) (icon, label string, style lipgloss.Style) {
 	switch s.State {
 	case sessions.StateRunning:
+		if s.AWSSignInExpired {
+			return "⚠", "AWS sign-in expired", m.styles.Warning
+		}
 		if s.Ready {
 			return "●", "Ready", m.styles.Success
 		}

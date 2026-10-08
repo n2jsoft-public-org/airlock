@@ -548,6 +548,25 @@ func TestRestartIgnoresRunningSession(t *testing.T) {
 	}
 }
 
+func TestExpiredAWSSignInSignsInAgainKeepingTheTunnel(t *testing.T) {
+	running := testSession(1, "archive")
+	running.AWSSignInExpired = true
+	service := newFakeService(running)
+	m := newServiceModel(t, service)
+	if view := plainView(m); !strings.Contains(view, "AWS sign-in expired") || !strings.Contains(view, "sign in to AWS") {
+		t.Fatalf("the expired sign-in and its key are not shown:\n%s", view)
+	}
+
+	m, cmd := update(t, m, key("r"))
+	if cmd == nil || m.mode != ssmModeSessions {
+		t.Fatalf("mode = %v, want the sign-in sent while the session keeps running", m.mode)
+	}
+	cmd()
+	if calls := service.Calls(); len(calls) != 1 || calls[0] != "aws-signin 1" {
+		t.Fatalf("calls = %v", calls)
+	}
+}
+
 func TestRestartRefusesTargetConnectedElsewhere(t *testing.T) {
 	ended := testSession(1, "archive")
 	ended.State = sessions.StateEnded

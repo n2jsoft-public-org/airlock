@@ -26,6 +26,9 @@ type Service interface {
 	Remove(ctx context.Context, id ID) error
 	// Restart prepares an ended session again: same target, profile, region, port and sign-in.
 	Restart(ctx context.Context, id ID, interactive jumphost.InteractiveFunc) error
+	// SignInAWS signs the AWS profile of a running session in again (aws sso login, run with
+	// interactive), keeping its tunnel open.
+	SignInAWS(ctx context.Context, id ID, interactive jumphost.InteractiveFunc) error
 	// ChooseSignIn checks the sign-in candidate index of a session waiting for a choice.
 	ChooseSignIn(ctx context.Context, id ID, index int) error
 	// SkipSignIn leaves the sign-in of a session unchecked.

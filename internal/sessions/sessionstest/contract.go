@@ -56,6 +56,9 @@ func RunContract(t *testing.T, newService ServiceFactory) {
 		if _, err := service.Credentials(t.Context(), 999); !errors.Is(err, sessions.ErrUnknownSession) {
 			t.Fatalf("err = %v", err)
 		}
+		if err := service.SignInAWS(t.Context(), 999, nil); !errors.Is(err, sessions.ErrUnknownSession) {
+			t.Fatalf("err = %v", err)
+		}
 	})
 
 	t.Run("canceled opening adds nothing", func(t *testing.T) {

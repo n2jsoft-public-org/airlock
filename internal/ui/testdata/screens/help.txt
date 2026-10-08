@@ -11,7 +11,7 @@
                       ╭──────────────────────────────────────────────────────────────────────────╮
                       │  Sessions                                                                │
                       │    n              Open a new connection                                  │
-                      │    r              Restart an ended session                               │
+                      │    r              Restart an ended session, or sign in to AWS again      │
                       │    x              Stop the session, or close it once ended               │
                       │    c              Copy its address, a command or the last MCP call       │
                       │    a p            Choose the database credentials, or show the password  │

@@ -62,12 +62,12 @@ func (m *Manager) reconnect(e *entry) {
 	ctx, cancel := context.WithCancel(m.ctx)
 	e.cancelReconnect = cancel
 	go func() {
-		session, sessionCancel, err := m.prepare(ctx, &options, nil)
-		m.reconnected(e, &options, session, sessionCancel, err)
+		session, sessionCancel, identity, err := m.prepare(ctx, &options, nil)
+		m.reconnected(e, &options, session, sessionCancel, identity, err)
 	}()
 }
 
-func (m *Manager) reconnected(e *entry, options *jumphost.Options, session *jumphost.Session, cancel context.CancelFunc, err error) {
+func (m *Manager) reconnected(e *entry, options *jumphost.Options, session *jumphost.Session, cancel context.CancelFunc, identity IdentityChecker, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.currentLocked(e) || !e.info.Reconnecting || m.closing {
@@ -92,7 +92,7 @@ func (m *Manager) reconnected(e *entry, options *jumphost.Options, session *jump
 	// A later restart by hand may sign in again.
 	options.Unattended = false
 	note := fmt.Sprintf("Reconnected automatically (attempt %d/%d).", e.info.Reconnects+1, len(ReconnectDelays))
-	m.startLocked(m.replaceLocked(e, session, options, cancel, note, e.info.Reconnects+1))
+	m.startLocked(m.replaceLocked(e, session, options, cancel, identity, note, e.info.Reconnects+1))
 }
 
 // Restart implements Service.
@@ -119,7 +119,7 @@ func (m *Manager) Restart(ctx context.Context, id ID, interactive jumphost.Inter
 	options := restartOptions(e)
 	m.mu.Unlock()
 
-	session, cancel, err := m.prepare(ctx, &options, interactive)
+	session, cancel, identity, err := m.prepare(ctx, &options, interactive)
 	if err != nil {
 		return err
 	}
@@ -130,14 +130,14 @@ func (m *Manager) Restart(ctx context.Context, id ID, interactive jumphost.Inter
 		cancel()
 		return ErrUnknownSession
 	}
-	m.startLocked(m.replaceLocked(e, session, &options, cancel, "Restarting session...", 0))
+	m.startLocked(m.replaceLocked(e, session, &options, cancel, identity, "Restarting session...", 0))
 	return nil
 }
 
 // replaceLocked puts the session prepared again for old in its place, keeping its ID and log;
 // reconnects counts the automatic reconnections in a row that led to it.
-func (m *Manager) replaceLocked(old *entry, session *jumphost.Session, options *jumphost.Options, cancel context.CancelFunc, note string, reconnects int) *entry {
-	e := m.newEntryLocked(session, options, cancel, old.info.ID, old.info.Lines, note)
+func (m *Manager) replaceLocked(old *entry, session *jumphost.Session, options *jumphost.Options, cancel context.CancelFunc, identity IdentityChecker, note string, reconnects int) *entry {
+	e := m.newEntryLocked(session, options, cancel, identity, old.info.ID, old.info.Lines, note)
 	e.info.Reconnects = reconnects
 	m.entries[m.indexLocked(old)] = e
 	m.publish(&Event{Kind: EventReplaced, ID: e.info.ID, Session: new(e.info.Clone())})

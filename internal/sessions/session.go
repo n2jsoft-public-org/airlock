@@ -127,6 +127,9 @@ type Session struct {
 	Ready         bool   `json:"ready"`
 	StopRequested bool   `json:"stopRequested,omitempty"`
 	Reconnecting  bool   `json:"reconnecting,omitempty"`
+	// AWSSignInExpired reports a running session whose AWS sign-in expired: the tunnel stays open,
+	// but the tools signing in with AWS through it fail until SignInAWS.
+	AWSSignInExpired bool `json:"awsSignInExpired,omitempty"`
 	// HasSignIn reports a database sign-in to check; HasCredentials, credentials the password
 	// dialog can read.
 	HasSignIn      bool `json:"hasSignIn,omitempty"`

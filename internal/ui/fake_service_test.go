@@ -70,6 +70,10 @@ func (f *fakeService) Restart(_ context.Context, id sessions.ID, _ jumphost.Inte
 	f.record("restart " + itoa(id))
 	return nil
 }
+func (f *fakeService) SignInAWS(_ context.Context, id sessions.ID, _ jumphost.InteractiveFunc) error {
+	f.record("aws-signin " + itoa(id))
+	return nil
+}
 func (f *fakeService) ChooseSignIn(_ context.Context, id sessions.ID, index int) error {
 	f.record("choose " + itoa(id) + " " + itoa(sessions.ID(index)))
 	return f.chooseErr

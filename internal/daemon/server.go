@@ -200,13 +200,16 @@ func (s *Server) handle(ctx context.Context, sc *serverConn, method string, para
 			op.Request.Interactive = s.relayInteractive(sc, requestID(ctx))
 		}
 		return s.service.Open(ctx, op.Request)
-	case "sessions.restart":
+	case "sessions.restart", "aws.signin":
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
 		var interactive jumphost.InteractiveFunc
 		if p.Interactive {
 			interactive = s.relayInteractive(sc, requestID(ctx))
+		}
+		if method == "aws.signin" {
+			return nil, s.service.SignInAWS(ctx, p.ID, interactive)
 		}
 		return nil, s.service.Restart(ctx, p.ID, interactive)
 	case "daemon.status":
