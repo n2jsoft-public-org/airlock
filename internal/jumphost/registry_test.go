@@ -165,3 +165,19 @@ func TestClaimRefusesATargetTwiceUntilReleased(t *testing.T) {
 		t.Fatalf("claim after release = %v", err)
 	}
 }
+
+func TestReserveWithoutPreferredPortTakesARandomFreePort(t *testing.T) {
+	registry := newTestRegistry()
+
+	first, err := registry.reserve("RDS a (dev/eu-west-3)", 0, 0)
+	if err != nil {
+		t.Fatalf("reserve a: %v", err)
+	}
+	second, err := registry.reserve("RDS b (dev/eu-west-3)", 0, 0)
+	if err != nil {
+		t.Fatalf("reserve b: %v", err)
+	}
+	if first <= 0 || second <= 0 || first == second {
+		t.Fatalf("ports = %d, %d, want two distinct free ports", first, second)
+	}
+}

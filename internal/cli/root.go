@@ -296,6 +296,7 @@ func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry,
 		Databases:         databases,
 		Containers:        dockerContainers(),
 		Environments:      cfg.EnvironmentSet(),
+		RandomLocalPort:   cfg.RandomLocalPort,
 	}
 }
 

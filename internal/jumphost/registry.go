@@ -1,6 +1,7 @@
 package jumphost
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -59,7 +60,8 @@ func (s *SessionRegistry) CheckPort(port int) error {
 	return nil
 }
 
-// SuggestPort returns preferred when it is available, otherwise the next available port above it.
+// SuggestPort returns preferred when it is available, otherwise the next available port above it;
+// a preferred port of 0 asks the OS for a free port.
 func (s *SessionRegistry) SuggestPort(preferred int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,7 +110,10 @@ func (s *SessionRegistry) release(target string) {
 }
 
 func (s *SessionRegistry) suggestPortLocked(preferred int) (int, error) {
-	if preferred <= 0 || preferred > maxPortNumber {
+	if preferred == 0 {
+		return s.randomPortLocked()
+	}
+	if preferred < 0 || preferred > maxPortNumber {
 		return 0, fmt.Errorf("port %d is out of range (1-%d)", preferred, maxPortNumber)
 	}
 
@@ -119,6 +124,21 @@ func (s *SessionRegistry) suggestPortLocked(preferred int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("no free local port found between %d and %d", preferred, last)
+}
+
+// randomPortLocked asks the OS for a free loopback port no session holds.
+func (s *SessionRegistry) randomPortLocked() (int, error) {
+	for range portSearchLimit {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return 0, fmt.Errorf("no free local port: %w", err)
+		}
+		port := listener.Addr().(*net.TCPAddr).Port //nolint:forcetypeassert,errcheck // a tcp listener has a TCP address.
+		if err := listener.Close(); err == nil && s.portAvailableLocked(port) {
+			return port, nil
+		}
+	}
+	return 0, errors.New("no free local port found")
 }
 
 func (s *SessionRegistry) portAvailableLocked(port int) bool {

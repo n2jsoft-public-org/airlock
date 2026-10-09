@@ -69,7 +69,7 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 			view.NextLaunch = true
 		case "agentAutoConnect":
 			view.Choices = []string{config.AutoConnectNone, config.AutoConnectNonProd, config.AutoConnectAll}
-		case "agentWrites":
+		case "agentWrites", "randomLocalPort":
 			view.Choices = []string{"false", "true"}
 		}
 		views = append(views, view)

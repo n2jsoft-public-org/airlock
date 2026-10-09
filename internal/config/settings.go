@@ -34,6 +34,7 @@ var Keys = []Key{
 	{Name: "agentAutoConnect", Description: "Agent openings that skip the dashboard prompt: none, non-prod (targets outside the production environment) or all"},
 	{Name: "agentWrites", Description: "true: agents may ask for MCP writes, always approved in a dashboard; false: agents only open read-only sessions"},
 	{Name: "agentIdleTimeout", Description: "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)"},
+	{Name: "randomLocalPort", Description: "true: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; false: on the target's port (or the next free one)"},
 }
 
 // Source tells where the value of a setting comes from.
@@ -214,6 +215,7 @@ func (c *Config) values() map[string]string {
 		"agentAutoConnect":  c.AgentAutoConnect,
 		"agentWrites":       strconv.FormatBool(c.AgentWrites),
 		"agentIdleTimeout":  FormatDuration(c.AgentIdleTimeout),
+		"randomLocalPort":   strconv.FormatBool(c.RandomLocalPort),
 	}
 }
 
@@ -246,6 +248,8 @@ func (f *file) field(key string) **string {
 		return &f.AgentWrites
 	case "agentIdleTimeout":
 		return &f.AgentIdleTimeout
+	case "randomLocalPort":
+		return &f.RandomLocalPort
 	case legacyProductionProfiles:
 		return &f.ProductionProfiles
 	default:

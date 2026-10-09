@@ -52,6 +52,8 @@ type Config struct {
 	MCPGateway bool
 	// AgentWrites lets agents ask for MCP writes (always prompted).
 	AgentWrites bool
+	// RandomLocalPort binds SSM tunnels to a free port chosen by the OS instead of the target's port.
+	RandomLocalPort bool
 }
 
 // Modes of the mode setting.
@@ -108,6 +110,7 @@ func Defaults() Config {
 		MCPGatewayPort:   DefaultGatewayPort,
 		AgentAutoConnect: AutoConnectNone,
 		AgentIdleTimeout: 30 * time.Minute,
+		RandomLocalPort:  true,
 	}
 }
 
@@ -127,6 +130,7 @@ type file struct {
 	AgentAutoConnect  *string `json:"agentAutoConnect,omitempty"`
 	AgentWrites       *string `json:"agentWrites,omitempty"`
 	AgentIdleTimeout  *string `json:"agentIdleTimeout,omitempty"`
+	RandomLocalPort   *string `json:"randomLocalPort,omitempty"`
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
 	ProductionProfiles *string `json:"productionProfiles,omitempty"`
@@ -242,6 +246,11 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.AgentIdleTimeout != nil {
 		if cfg.AgentIdleTimeout, err = parseIdleTimeout(*f.AgentIdleTimeout); err != nil {
 			return Config{}, fmt.Errorf("agentIdleTimeout: %w", err)
+		}
+	}
+	if f.RandomLocalPort != nil {
+		if cfg.RandomLocalPort, err = parseBool(*f.RandomLocalPort); err != nil {
+			return Config{}, fmt.Errorf("randomLocalPort: %w", err)
 		}
 	}
 	return cfg, nil

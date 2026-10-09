@@ -148,6 +148,8 @@ type RunnerOptions struct {
 	JumphostTag awstag.Tag
 	// ReadOnlySecretTag marks the read-only secrets of SQL Server instances; zero disables them.
 	ReadOnlySecretTag awstag.Tag
+	// RandomLocalPort binds tunnels to a free port chosen by the OS instead of the target's port.
+	RandomLocalPort bool
 	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
@@ -261,6 +263,7 @@ type Runner struct {
 	jumphostTag       awstag.Tag
 	readOnlySecretTag awstag.Tag
 	mcpServerPrefix   string
+	randomLocalPort   bool
 	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
 	kubeconfigDir string
 	accountsMu    sync.Mutex
@@ -368,10 +371,11 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: opts.DefaultDBUser,
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
-		databases:    opts.Databases,
-		containers:   opts.Containers,
-		environments: opts.Environments,
-		interactive:  opts.Interactive,
+		randomLocalPort: opts.RandomLocalPort,
+		databases:       opts.Databases,
+		containers:      opts.Containers,
+		environments:    opts.Environments,
+		interactive:     opts.Interactive,
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)
@@ -836,8 +840,12 @@ func formatRDSResourceDescription(engine, engineVersion, host string, port, size
 }
 
 // ResolveDefaultLocalPort computes the recommended local port for a selected target:
-// the remote port when it is free locally, otherwise the next free port above it.
+// the remote port when it is free locally, otherwise the next free port above it; with
+// randomLocalPort, a free port chosen by the OS.
 func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (int, error) { //nolint:gocritic // signature fixed by ui.JumphostDiscovery.
+	if r.randomLocalPort {
+		return r.registry.SuggestPort(0)
+	}
 	port, err := r.resolvePreferredLocalPort(ctx, &options)
 	if err != nil {
 		return 0, err
@@ -2002,9 +2010,9 @@ func sessionLabel(resourceType, targetName string, cfg awsConfig) string {
 
 // reservePort reserves the requested local port, or the first free one from the first positive default.
 func (r *Runner) reservePort(label string, requested int, defaults ...int) (int, error) {
-	preferred := 0
+	preferred := 0 // 0 lets the OS choose.
 	for _, port := range defaults {
-		if port > 0 {
+		if port > 0 && !r.randomLocalPort {
 			preferred = port
 			break
 		}
@@ -2014,7 +2022,7 @@ func (r *Runner) reservePort(label string, requested int, defaults ...int) (int,
 	if err != nil {
 		return 0, err
 	}
-	if requested <= 0 && port != preferred {
+	if requested <= 0 && preferred > 0 && port != preferred {
 		fprintf(r.out, "Local port %d is busy, using %d instead\n", preferred, port)
 	}
 	return port, nil
