@@ -1,0 +1,22 @@
+# semantic-release, run by .github/workflows/release.yml on every push to main: tags vX.Y.Z from
+# the pull request titles (conventional commits) since the last release.
+branches: [main]
+tagFormat: v${version}
+plugins:
+  - - "@semantic-release/commit-analyzer"
+    - preset: conventionalcommits
+      # Custom rules replace the default ones on a match, so feat and breaking changes are restated.
+      releaseRules:
+        - { breaking: true, release: major }
+        - { type: feat, release: minor }
+        # docs, chore, refactor, ci… each make a patch: every pull request ships.
+        - { type: "*", release: patch }
+  - - "@semantic-release/release-notes-generator"
+    - preset: conventionalcommits
+  # A draft until the workflow attaches the archives: airlock update never sees a release without them.
+  - - "@semantic-release/github"
+    - draftRelease: true
+      successComment: false
+      failComment: false
+      failTitle: false
+      releasedLabels: false

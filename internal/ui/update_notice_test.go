@@ -8,7 +8,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
-const testNotice = "update available: 20261005-3f9a1c2 · run airlock update"
+const testNotice = "update available: v1.4.0 · run airlock update"
 
 func TestWizardShowsTheUpdateNotice(t *testing.T) {
 	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})

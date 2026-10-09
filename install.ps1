@@ -18,7 +18,7 @@
     Install folder. Defaults to AIRLOCK_INSTALL_DIR, else %LOCALAPPDATA%\Programs\airlock.
 
 .PARAMETER Version
-    Release to install, such as 20261001-758f7ea. Defaults to AIRLOCK_VERSION, else the latest.
+    Release to install, such as v1.2.0. Defaults to AIRLOCK_VERSION, else the latest.
 
 .PARAMETER SkipPath
     Installs without adding the install folder to the user PATH.

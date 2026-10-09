@@ -167,26 +167,6 @@ func (c *Client) LatestRelease(ctx context.Context) (Release, error) {
 	return release, nil
 }
 
-// Compare returns GitHub's status of base...head (CompareIdentical, CompareAhead, CompareBehind or
-// CompareDiverged), or CompareUnknown when GitHub does not know one of the commits.
-func (c *Client) Compare(ctx context.Context, base, head string) (string, error) {
-	target := c.repoURL("/compare/" + url.PathEscape(base) + "..." + url.PathEscape(head) + "?per_page=1")
-	body, err := c.get(ctx, target, "application/vnd.github+json")
-	if errors.Is(err, errNotFound) {
-		return CompareUnknown, nil
-	}
-	if err != nil {
-		return "", err
-	}
-	var comparison struct {
-		Status string `json:"status"`
-	}
-	if err = json.Unmarshal(body, &comparison); err != nil {
-		return "", fmt.Errorf("cannot read the commit comparison: %w", err)
-	}
-	return comparison.Status, nil
-}
-
 // Download returns the content of a release asset.
 func (c *Client) Download(ctx context.Context, asset Asset) ([]byte, error) {
 	body, err := c.get(ctx, asset.URL, "application/octet-stream")

@@ -14,17 +14,14 @@ import (
 )
 
 const (
-	testCurrent = "20261001-b50fc20"
-	testLatest  = "20261005-3f9a1c2"
+	testCurrent = "v1.3.2"
+	testLatest  = "v1.4.0"
 )
 
-// testUpdateServer serves the release testLatest built for this platform; compare is the status
-// GitHub answers when comparing commits.
-func testUpdateServer(t *testing.T, compare string) *selfupdatetest.Server {
+// testUpdateServer serves the release testLatest built for this platform.
+func testUpdateServer(t *testing.T) *selfupdatetest.Server {
 	t.Helper()
-	release := selfupdatetest.NewRelease(t, testLatest, runtime.GOOS, runtime.GOARCH, []byte("new airlock"))
-	release.Compare = compare
-	return selfupdatetest.NewServer(t, &release)
+	return selfupdatetest.NewServer(t, new(selfupdatetest.NewRelease(t, testLatest, runtime.GOOS, runtime.GOARCH, []byte("new airlock"))))
 }
 
 // testUpdateEnv points airlock update at srv and at a fake installed binary, which it returns.
@@ -64,7 +61,7 @@ func readTarget(t *testing.T, target string) string {
 }
 
 func TestUpdateInstallsANewerRelease(t *testing.T) {
-	env, target := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, target := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	out, err := runUpdateCmd(t, env)
 	if err != nil || out != "Updated airlock "+testCurrent+" → "+testLatest+"\n" {
 		t.Fatalf("out = %q, %v", out, err)
@@ -83,7 +80,7 @@ func TestUpdateInstallsANewerRelease(t *testing.T) {
 
 func TestUpdateReactsToTheInstalledRelease(t *testing.T) {
 	t.Setenv(noTrackingEnv, "")
-	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	srv := testUpdateServer(t)
 	env, _ := testUpdateEnv(t, srv, testCurrent)
 	if _, err := runUpdateCmd(t, env); err != nil {
 		t.Fatal(err)
@@ -95,7 +92,7 @@ func TestUpdateReactsToTheInstalledRelease(t *testing.T) {
 
 func TestUpdateWithoutTrackingDoesNotReact(t *testing.T) {
 	t.Setenv(noTrackingEnv, "1")
-	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	srv := testUpdateServer(t)
 	env, _ := testUpdateEnv(t, srv, testCurrent)
 	if _, err := runUpdateCmd(t, env); err != nil {
 		t.Fatal(err)
@@ -107,7 +104,7 @@ func TestUpdateWithoutTrackingDoesNotReact(t *testing.T) {
 
 func TestUpdateSucceedsWhenTheReactionIsRefused(t *testing.T) {
 	t.Setenv(noTrackingEnv, "")
-	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	srv := testUpdateServer(t)
 	srv.Release.RefuseReactions = true
 	env, target := testUpdateEnv(t, srv, testCurrent)
 	out, err := runUpdateCmd(t, env)
@@ -121,7 +118,7 @@ func TestUpdateSucceedsWhenTheReactionIsRefused(t *testing.T) {
 
 func TestUpdateCheckDoesNotReact(t *testing.T) {
 	t.Setenv(noTrackingEnv, "")
-	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	srv := testUpdateServer(t)
 	env, _ := testUpdateEnv(t, srv, testCurrent)
 	if _, err := runUpdateCmd(t, env, "--check"); err != nil {
 		t.Fatal(err)
@@ -132,7 +129,7 @@ func TestUpdateCheckDoesNotReact(t *testing.T) {
 }
 
 func TestUpdateCheckOnlyReports(t *testing.T) {
-	env, target := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, target := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	out, err := runUpdateCmd(t, env, "--check")
 	want := "airlock " + testLatest + " is available (this build is " + testCurrent + "): run airlock update\n"
 	if err != nil || out != want {
@@ -147,19 +144,16 @@ func TestUpdateStatusMessages(t *testing.T) {
 	tests := []struct {
 		name    string
 		current string
-		compare string
 		want    string
 	}{
-		{"up to date", testLatest, "", "airlock " + testLatest + " is up to date\n"},
-		{"newer", "20261009-0aa11bb", selfupdate.CompareBehind,
-			"this build (20261009-0aa11bb) is newer than the latest release (" + testLatest + "): nothing to do (--force installs " + testLatest + ")\n"},
-		{"diverged", "20261005-0aa11bb", selfupdate.CompareDiverged,
-			"this build (20261005-0aa11bb) comes from a commit not on main: nothing to do (--force installs " + testLatest + ")\n"},
-		{"dev", "dev", "",
+		{"up to date", testLatest, "airlock " + testLatest + " is up to date\n"},
+		{"newer", "v1.4.1-0.20261009120000-0aa11bbccdde",
+			"this build (v1.4.1-0.20261009120000-0aa11bbccdde) is newer than the latest release (" + testLatest + "): nothing to do (--force installs " + testLatest + ")\n"},
+		{"dev", "dev",
 			"this airlock was built without a version (go run): install it with make install (--force installs " + testLatest + ")\n"},
 	}
 	for _, tt := range tests {
-		env, target := testUpdateEnv(t, testUpdateServer(t, tt.compare), tt.current)
+		env, target := testUpdateEnv(t, testUpdateServer(t), tt.current)
 		out, err := runUpdateCmd(t, env)
 		if err != nil || out != tt.want {
 			t.Errorf("%s: out = %q, %v, want %q", tt.name, out, err, tt.want)
@@ -171,9 +165,9 @@ func TestUpdateStatusMessages(t *testing.T) {
 }
 
 func TestUpdateForceInstallsOverANewerBuild(t *testing.T) {
-	env, target := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareBehind), "20261009-0aa11bb")
+	env, target := testUpdateEnv(t, testUpdateServer(t), "v1.4.1-0.20261009120000-0aa11bbccdde")
 	out, err := runUpdateCmd(t, env, "--force")
-	if err != nil || out != "Updated airlock 20261009-0aa11bb → "+testLatest+"\n" {
+	if err != nil || out != "Updated airlock v1.4.1-0.20261009120000-0aa11bbccdde → "+testLatest+"\n" {
 		t.Fatalf("out = %q, %v", out, err)
 	}
 	if got := readTarget(t, target); got != "new airlock" {
@@ -182,7 +176,7 @@ func TestUpdateForceInstallsOverANewerBuild(t *testing.T) {
 }
 
 func TestUpdateWithoutToken(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	env.token = func(context.Context) (string, error) { return "", selfupdate.ErrNoToken }
 	if _, err := runUpdateCmd(t, env); !errors.Is(err, selfupdate.ErrNoToken) {
 		t.Fatalf("error = %v, want ErrNoToken", err)
@@ -190,14 +184,14 @@ func TestUpdateWithoutToken(t *testing.T) {
 }
 
 func TestUpdateAsksToRestartARunningDaemon(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	env.daemonRunning = func(context.Context) bool { return true }
 	out, err := runUpdateCmd(t, env)
 	if err != nil || !strings.HasSuffix(out, "restart the daemon to use the new version: airlock daemon restart\n") {
 		t.Fatalf("out = %q, err = %v; want the restart notice", out, err)
 	}
 
-	env, _ = testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ = testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	env.daemonRunning = func(context.Context) bool { return false }
 	if out, err := runUpdateCmd(t, env); err != nil || strings.Contains(out, "daemon") {
 		t.Fatalf("out = %q, err = %v; want no notice without daemon", out, err)

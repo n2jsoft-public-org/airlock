@@ -100,7 +100,7 @@ Like `airlock update`, the installer adds a 🚀 to the release it installs: see
 <summary><b>Install a release by hand</b></summary>
 
 Every push to `main` publishes a [GitHub release](https://github.com/n2jsoft/airlock/releases)
-named after its version (`YYYYMMDD-<short sha>`), with archives for macOS, Linux and Windows. With
+tagged with its [semantic version](https://semver.org/) (`vX.Y.Z`), with archives for macOS, Linux and Windows. With
 the GitHub CLI, for example on an Apple silicon Mac:
 
 ```sh
@@ -217,8 +217,15 @@ airlock completion fish > ~/.config/fish/completions/airlock.fish              #
 
 </details>
 
-`airlock version` prints the commit the binary was built from, as `YYYYMMDD-<short sha>` (commit
-date in UTC, for example `20261001-b50fc20`). It reads `dev` when run with `go run`.
+`airlock version` prints the release the binary was built from, such as `v1.2.0`. A build from a
+later commit prints a Go pseudo-version, such as `v1.2.1-0.20261001120000-b50fc20abcde`, and `dev`
+when run with `go run`.
+
+Each push to `main` releases a version bumped by [semantic-release](https://semantic-release.gitbook.io/)
+from its pull request title, a [conventional commit](https://www.conventionalcommits.org/): `feat`
+bumps the minor, a breaking change (`feat!:`, or `BREAKING CHANGE:` in the body) the major, any
+other type (`fix`, `docs`, `chore`…) the patch. A title that is not a conventional commit releases
+nothing.
 
 ### Language
 

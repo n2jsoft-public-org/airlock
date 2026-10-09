@@ -1,4 +1,5 @@
-# Publishes a GitHub release for every push to main, named after `airlock version`: YYYYMMDD-<sha>.
+# Publishes a GitHub release for every push to main, tagged vX.Y.Z by semantic-release from the
+# conventional commits since the last release (.releaserc.yaml). `airlock version` prints that tag.
 name: release
 
 on:
@@ -56,7 +57,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # GoReleaser needs the full history.
+          # semantic-release and GoReleaser need the full history and the tags.
           fetch-depth: 0
 
       - name: Set up Go
@@ -64,33 +65,42 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # GoReleaser only releases semver tags, so it builds a snapshot named YYYYMMDD-<sha>
-      # and gh publishes it below.
+      # Tags HEAD and creates its release as a draft. A run behind origin/main (a re-run of an older
+      # commit) or without a conventional commit since the last release publishes nothing.
+      - name: Tag the release
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
+        with:
+          semantic_version: 25.0.9
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@10.4.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The draft of HEAD, from this run or from a failed one, so a re-run finishes it.
+      - name: Find the draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$(git tag --points-at HEAD --list 'v*' | head -n 1)"
+          if [ -n "$tag" ] && [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true ]; then
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The tag on HEAD names the archives, and Go records it as the version of the binary.
       - name: Build archives
+        if: steps.draft.outputs.tag != ''
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --snapshot --clean
+          args: release --clean
 
       - name: Publish release
+        if: steps.draft.outputs.tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.draft.outputs.tag }}
         run: |
-          # A re-run of an older commit must not become the latest release.
-          git fetch origin main
-          if [ "$GITHUB_SHA" != "$(git rev-parse origin/main)" ]; then
-            echo "Skipping: $GITHUB_SHA is not the tip of main"
-            exit 0
-          fi
-          version="$(jq -r .version dist/metadata.json)"
-          # A re-run of the same commit keeps the release already published.
-          if gh release view "$version" >/dev/null 2>&1; then
-            echo "Release $version already exists"
-            exit 0
-          fi
-          gh release create "$version" \
-            --target "$GITHUB_SHA" \
-            --title "$version" \
-            --generate-notes \
-            dist/*.tar.gz dist/*.zip dist/checksums.txt
+          gh release upload "$TAG" --clobber dist/*.tar.gz dist/*.zip dist/checksums.txt
+          gh release edit "$TAG" --draft=false

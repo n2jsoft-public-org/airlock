@@ -254,7 +254,6 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.update.airlock_is_up_to":          "airlock %s is up to date",
 	"cli.update.airlock_is_available_this": "airlock %s is available (this build is %s): run airlock update",
 	"cli.update.this_build_is_newer":       "this build (%s) is newer than the latest release (%s): nothing to do (--force installs %s)",
-	"cli.update.this_build_comes_from":     "this build (%s) comes from a commit not on main: nothing to do (--force installs %s)",
 	"cli.update.this_airlock_was_built":    "this airlock was built without a version (go run): install it with make install (--force installs %s)",
 	// internal/cli/config_cmd.go
 	"cli.config.wrote":     "Wrote %s\n",

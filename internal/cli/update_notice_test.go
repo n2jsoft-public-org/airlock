@@ -22,7 +22,7 @@ func saveTestCache(t *testing.T, env updateEnv, c selfupdate.Cache) {
 }
 
 func TestUpdateNoticeFromAFreshCache(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	saveTestCache(t, env, selfupdate.Cache{CheckedAt: noticeTime, Current: testCurrent, Latest: testLatest, Status: selfupdate.StatusAvailable})
 
 	latest, stale := updateNotice(env, noticeTime.Add(time.Hour))
@@ -36,14 +36,14 @@ func TestUpdateNoticeFromAFreshCache(t *testing.T) {
 }
 
 func TestUpdateNoticeWithoutCache(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	if latest, stale := updateNotice(env, noticeTime); latest != "" || !stale {
 		t.Fatalf("updateNotice = %q, %v, want no notice and a refresh", latest, stale)
 	}
 }
 
 func TestUpdateNoticeIsOff(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	saveTestCache(t, env, selfupdate.Cache{CheckedAt: noticeTime, Current: testCurrent, Latest: testLatest, Status: selfupdate.StatusAvailable})
 
 	t.Setenv(noUpdateCheckEnv, "1")
@@ -58,7 +58,7 @@ func TestUpdateNoticeIsOff(t *testing.T) {
 }
 
 func TestRefreshUpdateCheckWritesTheCache(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t, selfupdate.CompareAhead), testCurrent)
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	if err := refreshUpdateCheck(context.Background(), env); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRefreshUpdateCheckWritesTheCache(t *testing.T) {
 }
 
 func TestRefreshUpdateCheckWritesNothingWhenGitHubIsUnreachable(t *testing.T) {
-	srv := testUpdateServer(t, selfupdate.CompareAhead)
+	srv := testUpdateServer(t)
 	env, _ := testUpdateEnv(t, srv, testCurrent)
 	srv.Close()
 

@@ -37,6 +37,21 @@ This repository hosts `airlock`, a CLI for SSM port forwarding to private AWS re
 - golangci-lint has pre-existing findings; new code must not add any (`--new-from-rev`).
 - Do not commit generated binaries.
 
+## Releases and versioning
+
+- Every push to `main` releases a semantic version `vX.Y.Z`, computed by semantic-release
+  (`.releaserc.yaml`, run by `.github/workflows/release.yml`). Never create release tags by hand.
+- Pull requests are squashed, so the PR title decides the version: it must be a conventional
+  commit. Breaking change (`feat!:` or `BREAKING CHANGE:` in the body) → major, `feat` → minor,
+  any other type (`fix`, `docs`, `chore`…) → patch. A non-conventional title releases nothing.
+- `airlock version` reads the tag Go records in the binary (`internal/version`): do not inject
+  the version with ldflags. Builds after a release carry a pseudo-version that orders before the
+  next release.
+- `airlock update` compares versions with `golang.org/x/mod/semver` (`internal/selfupdate`).
+- Archives keep the `v` in their name (`airlock_<tag>_<os>_<arch>`, `.goreleaser.yaml`): binaries
+  from before v1.0.0 (`YYYYMMDD-<sha>`), the install scripts and `airlock update` rely on it.
+- Releases are created as drafts and published once the archives are attached: keep that order.
+
 ## Safety and change management
 
 - Avoid destructive git operations.

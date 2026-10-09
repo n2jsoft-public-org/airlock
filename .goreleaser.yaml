@@ -21,16 +21,14 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-    # Same commit, same binary. `airlock version` reads the commit Go records in the binary.
+    # Same commit, same binary. `airlock version` reads the release tag Go records in the binary.
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-# Names the archives after the version `airlock version` prints: YYYYMMDD-<7-char sha>.
-# GoReleaser only releases semver tags, so CI publishes this snapshot with gh (.github/workflows/release.yml).
-snapshot:
-  version_template: '{{ replace (slice .CommitDate 0 10) "-" "" }}-{{ slice .FullCommit 0 7 }}'
-
 archives:
-  - formats:
+  # Names the archives after the tag, v included: airlock update and the install scripts look
+  # for airlock_<tag>_<os>_<arch>, as did the releases named YYYYMMDD-<sha> before v1.0.0.
+  - name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+    formats:
       - tar.gz
     format_overrides:
       - goos: windows
@@ -45,5 +43,6 @@ checksum:
 changelog:
   disable: true
 
+# CI publishes the release with gh (.github/workflows/release.yml).
 release:
   disable: true

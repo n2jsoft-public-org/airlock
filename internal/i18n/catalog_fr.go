@@ -254,7 +254,6 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.update.airlock_is_up_to":          "airlock %s est à jour",
 	"cli.update.airlock_is_available_this": "airlock %s est disponible (ce build est %s) : lancez airlock update",
 	"cli.update.this_build_is_newer":       "ce build (%s) est plus récent que la dernière version (%s) : rien à faire (--force installe %s)",
-	"cli.update.this_build_comes_from":     "ce build (%s) vient d'un commit absent de main : rien à faire (--force installe %s)",
 	"cli.update.this_airlock_was_built":    "cet airlock a été compilé sans version (go run) : installez-le avec make install (--force installe %s)",
 	// internal/cli/config_cmd.go
 	"cli.config.wrote":     "Écrit %s\n",

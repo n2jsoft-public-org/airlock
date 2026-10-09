@@ -30,7 +30,7 @@ Usage: install.sh [options]
 
 Options:
   --dir <path>      install folder (default: $AIRLOCK_INSTALL_DIR, else ~/.local/bin)
-  --version <tag>   install this release, e.g. 20261001-758f7ea (default: $AIRLOCK_VERSION, else latest)
+  --version <tag>   install this release, e.g. v1.2.0 (default: $AIRLOCK_VERSION, else latest)
   --skip-path       do not add the install folder to the shell profile
   --uninstall       remove airlock and the PATH entry added for it (runs airlock uninstall)
   --purge           with --uninstall, also remove settings, history, logs and saved passwords

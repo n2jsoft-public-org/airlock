@@ -28,16 +28,7 @@ func (u Updater) Check(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	compare := ""
-	if NeedsCompare(u.Current, release.Tag) {
-		compare = CompareUnknown
-		if sha := commit(u.Current); sha != "" {
-			if compare, err = u.Client.Compare(ctx, sha, release.Tag); err != nil {
-				return Result{}, err
-			}
-		}
-	}
-	return Result{Current: u.Current, Latest: release.Tag, Status: Decide(u.Current, release.Tag, compare), Release: release}, nil
+	return Result{Current: u.Current, Latest: release.Tag, Status: Decide(u.Current, release.Tag), Release: release}, nil
 }
 
 // Install downloads the release of r built for u's platform, checks it against the release's

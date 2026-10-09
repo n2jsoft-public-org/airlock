@@ -13,7 +13,7 @@ import (
 
 func testRelease(t *testing.T) *selfupdatetest.Release {
 	t.Helper()
-	return new(selfupdatetest.NewRelease(t, "20261005-3f9a1c2", "linux", "amd64", []byte("new airlock")))
+	return new(selfupdatetest.NewRelease(t, "v1.4.0", "linux", "amd64", []byte("new airlock")))
 }
 
 func TestLatestRelease(t *testing.T) {
@@ -22,7 +22,7 @@ func TestLatestRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if release.ID != 42 || release.Tag != "20261005-3f9a1c2" || len(release.Assets) != 2 {
+	if release.ID != 42 || release.Tag != "v1.4.0" || len(release.Assets) != 2 {
 		t.Fatalf("release = %+v", release)
 	}
 }
@@ -80,27 +80,6 @@ func TestReactWithARefusingToken(t *testing.T) {
 	err := NewClient(srv.URL, selfupdatetest.Repository, selfupdatetest.Token).React(context.Background(), Release{ID: 42}, InstallReaction)
 	if err == nil || err.Error() != "GitHub answered 403 Forbidden for /repos/acme/airlock/releases/42/reactions" {
 		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestCompare(t *testing.T) {
-	release := testRelease(t)
-	release.Compare = CompareAhead
-	srv := selfupdatetest.NewServer(t, release)
-	client := NewClient(srv.URL, selfupdatetest.Repository, selfupdatetest.Token)
-
-	status, err := client.Compare(context.Background(), "b50fc20", "20261005-3f9a1c2")
-	if err != nil || status != CompareAhead {
-		t.Fatalf("Compare = %q, %v", status, err)
-	}
-	if paths := srv.Paths(); paths[len(paths)-1] != "/repos/acme/airlock/compare/b50fc20...20261005-3f9a1c2" {
-		t.Fatalf("requested %v", paths)
-	}
-
-	release.Compare = "" // GitHub answers 404 for a commit it does not know
-	status, err = client.Compare(context.Background(), "0aa11bb", "20261005-3f9a1c2")
-	if err != nil || status != CompareUnknown {
-		t.Fatalf("Compare of an unknown commit = %q, %v", status, err)
 	}
 }
 

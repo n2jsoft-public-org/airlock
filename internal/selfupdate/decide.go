@@ -1,7 +1,7 @@
 package selfupdate
 
 import (
-	"strings"
+	"golang.org/x/mod/semver"
 
 	"github.com/n2jsoft/airlock/internal/version"
 )
@@ -16,53 +16,22 @@ const (
 	StatusAvailable Status = "available"
 	// StatusNewer means the running build is newer than the latest release (built from a later commit).
 	StatusNewer Status = "newer"
-	// StatusDiverged means the running build comes from a commit that is not on the release branch.
-	StatusDiverged Status = "diverged"
 	// StatusDev means the running build has no version (go run).
 	StatusDev Status = "dev"
 )
 
-// GitHub's statuses for the comparison base...head, plus CompareUnknown when GitHub does not know
-// one of the commits.
-const (
-	CompareIdentical = "identical"
-	CompareAhead     = "ahead"
-	CompareBehind    = "behind"
-	CompareDiverged  = "diverged"
-	CompareUnknown   = "unknown"
-)
-
-// NeedsCompare reports whether Decide needs GitHub's comparison of current with latest.
-func NeedsCompare(current, latest string) bool {
-	return current != version.Unknown && current != latest
-}
-
-// Decide tells how the current version compares with the latest release; compare is GitHub's
-// status of current...latest, read only when NeedsCompare.
-func Decide(current, latest, compare string) Status {
+// Decide tells how the current version compares with the latest release, both semantic versions.
+// A pseudo-version (a build after a release) orders before the next release.
+func Decide(current, latest string) Status {
 	if current == version.Unknown {
 		return StatusDev
 	}
-	if current == latest {
+	switch semver.Compare(current, latest) {
+	case 0:
 		return StatusUpToDate
-	}
-	switch compare {
-	case CompareIdentical:
-		return StatusUpToDate
-	case CompareAhead:
+	case -1:
 		return StatusAvailable
-	case CompareBehind:
-		return StatusNewer
 	default:
-		return StatusDiverged
+		return StatusNewer
 	}
-}
-
-// commit returns the short sha of a version YYYYMMDD-<sha>, or "" when v has another form.
-func commit(v string) string {
-	date, sha, ok := strings.Cut(v, "-")
-	if !ok || len(date) != 8 || strings.Trim(date, "0123456789") != "" || sha == "" {
-		return ""
-	}
-	return sha
 }

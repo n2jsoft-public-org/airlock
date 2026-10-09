@@ -13,13 +13,13 @@ import (
 )
 
 func TestAssetName(t *testing.T) {
-	if got := AssetName("20261005-3f9a1c2", "darwin", "arm64"); got != "airlock_20261005-3f9a1c2_darwin_arm64.tar.gz" {
+	if got := AssetName("v1.4.0", "darwin", "arm64"); got != "airlock_v1.4.0_darwin_arm64.tar.gz" {
 		t.Errorf("darwin asset = %q", got)
 	}
-	if got := AssetName("20261005-3f9a1c2", "windows", "amd64"); got != "airlock_20261005-3f9a1c2_windows_amd64.zip" {
+	if got := AssetName("v1.4.0", "windows", "amd64"); got != "airlock_v1.4.0_windows_amd64.zip" {
 		t.Errorf("windows asset = %q", got)
 	}
-	if got := selfupdatetest.AssetName("20261005-3f9a1c2", "linux", "amd64"); got != AssetName("20261005-3f9a1c2", "linux", "amd64") {
+	if got := selfupdatetest.AssetName("v1.4.0", "linux", "amd64"); got != AssetName("v1.4.0", "linux", "amd64") {
 		t.Errorf("the test helper names assets %q", got)
 	}
 }
@@ -73,7 +73,7 @@ func checksums(archive []byte, name string) []byte {
 
 func TestVerifyChecksum(t *testing.T) {
 	archive := []byte("archive bytes")
-	name := "airlock_20261005-3f9a1c2_linux_amd64.tar.gz"
+	name := "airlock_v1.4.0_linux_amd64.tar.gz"
 	if err := VerifyChecksum(archive, checksums(archive, name), name); err != nil {
 		t.Fatalf("VerifyChecksum = %v", err)
 	}

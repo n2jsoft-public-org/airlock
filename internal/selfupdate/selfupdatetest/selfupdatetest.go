@@ -83,9 +83,7 @@ type Release struct {
 	// Assets maps each asset name to its content.
 	Assets map[string][]byte
 	Tag    string
-	// Compare is the status answered to any commit comparison; "" answers 404.
-	Compare string
-	ID      int64
+	ID     int64
 	// RefuseReactions answers 403 to reactions, as GitHub does for a read-only token.
 	RefuseReactions bool
 }
@@ -163,8 +161,6 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"id": s.Release.ID, "tag_name": s.Release.Tag, "assets": assets})
 	case r.Method == http.MethodPost && s.Release != nil && r.URL.Path == fmt.Sprintf("%s/releases/%d/reactions", repo, s.Release.ID):
 		s.react(w, r)
-	case strings.HasPrefix(r.URL.Path, repo+"/compare/") && s.Release != nil && s.Release.Compare != "":
-		writeJSON(w, map[string]string{"status": s.Release.Compare})
 	case strings.HasPrefix(r.URL.Path, "/assets/") && s.Release != nil && r.Header.Get("Accept") == "application/octet-stream":
 		data, ok := s.Release.Assets[strings.TrimPrefix(r.URL.Path, "/assets/")]
 		if !ok {

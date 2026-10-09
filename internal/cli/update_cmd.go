@@ -141,8 +141,6 @@ func updateStatusMessage(r *selfupdate.Result) string {
 		return i18n.Format("cli.update.airlock_is_available_this", r.Latest, r.Current)
 	case selfupdate.StatusNewer:
 		return i18n.Format("cli.update.this_build_is_newer", r.Current, r.Latest, r.Latest)
-	case selfupdate.StatusDiverged:
-		return i18n.Format("cli.update.this_build_comes_from", r.Current, r.Latest)
 	default:
 		return i18n.Format("cli.update.this_airlock_was_built", r.Latest)
 	}
