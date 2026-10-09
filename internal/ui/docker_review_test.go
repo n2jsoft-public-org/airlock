@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -29,7 +30,7 @@ func TestDockerReviewPrefillsThePasswordAndWrites(t *testing.T) {
 		t.Fatalf("password = %q writes = %v", m.passwordInput.Value(), m.mcpWrites)
 	}
 	view := wizardView(m)
-	for _, want := range []string{"postgres:16", "127.0.0.1:55432", "appdb", "postgres"} {
+	for _, want := range []string{"postgres:16", "127.0.0.1:55432", "appdb", "postgres", "  Database "} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view misses %q:\n%s", want, view)
 		}
@@ -112,8 +113,20 @@ func TestWizardDockerAtStartUnknownName(t *testing.T) {
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	m, cmd := wizardUpdate(t, m, jumphostSavedLoadedMsg{})
 	m, _ = wizardUpdate(t, m, findMsg[dockerListedMsg](t, cmd))
-	if m.step != jumphostStepTarget || m.errorMsg != "no running postgres or sqlserver container named nope" {
+	if m.step != jumphostStepTarget || m.errorMsg != "no running database or cache container named nope" {
 		t.Fatalf("step = %v error = %q", m.step, m.errorMsg)
+	}
+}
+
+func TestRejectedDockerCachePasswordSaysCache(t *testing.T) {
+	m := newSSMModel(context.Background(), newFakeService(), fakeSessionRunner{}, jumphost.Options{})
+	m.docker = &fakeDockerContainers{list: testContainers()}
+	m.sessions = []sessions.Session{{ID: 7, ResourceType: sessions.DockerCacheResourceType, Target: "cache", State: sessions.StateEnded}}
+	m.mode, m.selected = ssmModeSessions, 0
+	next, _ := m.askDirectPasswordAgain(sessions.Event{Kind: sessions.EventPasswordRejected, ID: 7, Name: "cache", User: "default"})
+	got, ok := next.(ssmModel)
+	if !ok || got.wizard.openDockerError != "The cache rejected the password of default: enter it again." {
+		t.Fatalf("error = %q", got.wizard.openDockerError)
 	}
 }
 
@@ -159,5 +172,63 @@ func TestRejectedDockerPasswordWithoutDockerSourceKeepsSessions(t *testing.T) {
 	got, ok := next.(ssmModel)
 	if !ok || got.mode != ssmModeSessions || got.errorMsg == "" {
 		t.Fatalf("model = %T mode %v error %q", next, got.mode, got.errorMsg)
+	}
+}
+
+func cacheContainer() dockerdb.Container {
+	return dockerdb.Container{Name: "cache", Image: "redis:7", Engine: dockerdb.EngineRedis, Host: "127.0.0.1", Port: 6379, User: "default", Trust: true}
+}
+
+func TestDockerReviewOfACache(t *testing.T) {
+	source := &fakeDockerContainers{list: []dockerdb.Container{cacheContainer()}}
+	m := dockerListStep(t, newDockerWizard(t, source))
+	m.dockerList.selectName("cache")
+	m, _ = wizardUpdate(t, m, key("enter"))
+	view := wizardView(m)
+	if !strings.Contains(view, "redis:7") || !strings.Contains(view, "127.0.0.1:6379") || strings.Contains(view, "  Database ") {
+		t.Fatalf("view:\n%s", view)
+	}
+	if !strings.Contains(view, "No password found: leave it empty if the cache has no auth.") {
+		t.Fatalf("view:\n%s", view)
+	}
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	if !isQuit(cmd) || m.options.ResourceType != "docker" || m.options.Name != "cache" || m.options.DBPassword != "" || !m.options.MCPAllowWrites {
+		t.Fatalf("options = %+v", m.options)
+	}
+}
+
+func TestDockerListSwitchesToARunningCacheSession(t *testing.T) {
+	cache := cacheContainer()
+	m := newDockerWizard(t, &fakeDockerContainers{list: []dockerdb.Container{cache}})
+	m.active = map[string]bool{dockerConnectionKey(&cache): true}
+	m = dockerListStep(t, m)
+	m.dockerList.selectName("cache")
+	m, _ = wizardUpdate(t, m, key("enter"))
+	if !m.canceled || m.switchTo != connectionKey("", "", sessions.DockerCacheResourceType, "cache") {
+		t.Fatalf("canceled = %v switchTo = %q", m.canceled, m.switchTo)
+	}
+}
+
+func TestResourceBadgeOfDockerSessions(t *testing.T) {
+	styles := NewStyles(true)
+	for _, resourceType := range []string{sessions.DockerResourceType, sessions.DockerCacheResourceType} {
+		if got := ansi.Strip(styles.ResourceBadge(resourceType)); !strings.Contains(got, "DOCKER") || strings.Contains(got, "CACHE") {
+			t.Errorf("%s badge = %q", resourceType, got)
+		}
+	}
+}
+
+func TestRejectedDockerCachePasswordReopensTheDockerReview(t *testing.T) {
+	m := newSSMModel(context.Background(), newFakeService(), fakeSessionRunner{}, jumphost.Options{})
+	m.docker = &fakeDockerContainers{list: []dockerdb.Container{cacheContainer()}}
+	m.sessions = []sessions.Session{{ID: 8, ResourceType: sessions.DockerCacheResourceType, Target: "cache", State: sessions.StateEnded}}
+	m.mode, m.selected = ssmModeSessions, 0
+	next, _ := m.askDirectPasswordAgain(sessions.Event{Kind: sessions.EventPasswordRejected, ID: 8, Name: "cache", User: "default"})
+	got, ok := next.(ssmModel)
+	if !ok {
+		t.Fatalf("model = %T", next)
+	}
+	if !got.wizard.dockerAtStart || got.wizard.openDocker != "cache" || got.wizard.openDirect != "" {
+		t.Fatalf("wizard = docker %v %q direct %q", got.wizard.dockerAtStart, got.wizard.openDocker, got.wizard.openDirect)
 	}
 }

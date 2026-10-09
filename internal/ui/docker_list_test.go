@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
@@ -35,9 +34,9 @@ func (f *fakeDockerContainers) Get(ctx context.Context, name string) (dockerdb.C
 
 func testContainers() []dockerdb.Container {
 	return []dockerdb.Container{
-		{Name: "mssql", Image: "mcr.microsoft.com/mssql/server:2022-latest", Engine: directdb.EngineSQLServer, Host: "127.0.0.1", Port: 1433, User: "sa", Password: "Str0ng!pass"},
-		{Name: "pg", Image: "postgres:16", Engine: directdb.EnginePostgres, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "secret", Database: "appdb"},
-		{Name: "unpublished", Image: "postgres:16", Engine: directdb.EnginePostgres, User: "postgres", Database: "postgres",
+		{Name: "mssql", Image: "mcr.microsoft.com/mssql/server:2022-latest", Engine: dockerdb.EngineSQLServer, Host: "127.0.0.1", Port: 1433, User: "sa", Password: "Str0ng!pass"},
+		{Name: "pg", Image: "postgres:16", Engine: dockerdb.EnginePostgres, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "secret", Database: "appdb"},
+		{Name: "unpublished", Image: "postgres:16", Engine: dockerdb.EnginePostgres, User: "postgres", Database: "postgres",
 			Problem: "port 5432 is not published: run the container with -p <host-port>:5432"},
 	}
 }
@@ -78,7 +77,7 @@ func TestDockerListLoadsInTheBackground(t *testing.T) {
 	source := &fakeDockerContainers{list: testContainers()}
 	m := newDockerWizard(t, source)
 	m, cmd := wizardUpdate(t, m, key("4"))
-	if source.calls != 0 || cmd == nil || !strings.Contains(wizardView(m), "Looking for database containers") {
+	if source.calls != 0 || cmd == nil || !strings.Contains(wizardView(m), "Looking for database and cache containers") {
 		t.Fatalf("calls = %d, want the listing in a command:\n%s", source.calls, wizardView(m))
 	}
 	m, _ = wizardUpdate(t, m, findMsg[dockerListedMsg](t, cmd))
@@ -118,12 +117,13 @@ func TestDockerListReloads(t *testing.T) {
 }
 
 func TestDockerListSwitchesToARunningSession(t *testing.T) {
+	pg := testContainers()[1]
 	m := newDockerWizard(t, &fakeDockerContainers{list: testContainers()})
-	m.active = map[string]bool{dockerConnectionKey("pg"): true}
+	m.active = map[string]bool{dockerConnectionKey(&pg): true}
 	m = dockerListStep(t, m)
 	m.dockerList.selectName("pg")
 	m, _ = wizardUpdate(t, m, key("enter"))
-	if !m.canceled || m.switchTo != dockerConnectionKey("pg") {
+	if !m.canceled || m.switchTo != dockerConnectionKey(&pg) {
 		t.Fatalf("canceled = %v switchTo = %q", m.canceled, m.switchTo)
 	}
 }

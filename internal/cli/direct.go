@@ -81,8 +81,13 @@ func openDirect(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 
 // directRunError explains a direct session that cannot start without the dashboard.
 func directRunError(name string, err error) error {
-	if errors.Is(err, jumphost.ErrPasswordRequired) {
+	switch {
+	case errors.Is(err, jumphost.ErrPasswordRequired):
 		return fmt.Errorf("no password remembered for %s: open it once from the dashboard with \"Remember in keychain\"", name)
+	case errors.Is(err, jumphost.ErrSignInRejected):
+		// The runner already forgot the rejected keychain password.
+		return fmt.Errorf("%w: open it from the dashboard to enter the password again", err)
+	default:
+		return err
 	}
-	return err
 }

@@ -33,9 +33,9 @@ func NewRootCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "airlock [eks|rds|elasticache|direct|docker] [name] [local-port]",
-		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct or local Docker database",
+		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct or local Docker database or cache",
 		Long: "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, " +
-			"or to a direct database declared with `airlock connection add` (`airlock direct <name>`), or to a local Docker database (`airlock docker <name>`). " +
+			"or to a direct database declared with `airlock connection add` (`airlock direct <name>`), or to a local Docker database or cache (`airlock docker <name>`). " +
 			"When values are omitted in an interactive shell, a wizard asks for them.",
 		Args:         cobra.MaximumNArgs(3),
 		SilenceUsage: true,

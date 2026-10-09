@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -52,9 +53,13 @@ func directConnectionKey(name string) string {
 	return connectionKey("", "", sessions.DirectResourceType, name)
 }
 
-// dockerConnectionKey identifies the Docker container name among the running sessions.
-func dockerConnectionKey(name string) string {
-	return connectionKey("", "", sessions.DockerResourceType, name)
+// dockerConnectionKey identifies container c among the running sessions: docker-cache for a cache.
+func dockerConnectionKey(c *dockerdb.Container) string {
+	resourceType := sessions.DockerResourceType
+	if c.Cache() {
+		resourceType = sessions.DockerCacheResourceType
+	}
+	return connectionKey("", "", resourceType, c.Name)
 }
 
 // recentItem is one remembered connection of the start screen.

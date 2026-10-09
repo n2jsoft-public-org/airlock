@@ -22,6 +22,9 @@ const (
 	// DockerResourceType is the type of the sessions of local Docker databases: like direct ones,
 	// they run no aws process.
 	DockerResourceType = "docker"
+	// DockerCacheResourceType is the type of the sessions of local Redis / Valkey containers: they
+	// run no aws process, and serve the cache tools.
+	DockerCacheResourceType = "docker-cache"
 )
 
 // ID identifies a session; a restart or reconnection keeps it.
@@ -142,9 +145,10 @@ type Session struct {
 // Active reports whether the session has not ended.
 func (s *Session) Active() bool { return s.State != StateEnded }
 
-// Direct reports a session reached without tunnel (a direct or Docker database): it runs no aws process.
+// Direct reports a session reached without tunnel (a direct database, or a Docker database or
+// cache): it runs no aws process.
 func (s *Session) Direct() bool {
-	return s.ResourceType == DirectResourceType || s.ResourceType == DockerResourceType
+	return s.ResourceType == DirectResourceType || s.ResourceType == DockerResourceType || s.ResourceType == DockerCacheResourceType
 }
 
 // ReconnectPending reports a session waiting for, or going through, an automatic reconnection.

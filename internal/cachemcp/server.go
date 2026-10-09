@@ -18,6 +18,9 @@ type ServerConfig struct {
 	Target  string
 	Profile string
 	Region  string
+	// Via tells how the cache is reached, ending with a period; empty means the ElastiCache SSM
+	// tunnel of Profile and Region.
+	Via string
 	// Engine is redis or valkey.
 	Engine      string
 	AllowWrites bool
@@ -133,11 +136,15 @@ func instructions(cfg *ServerConfig) string {
 	if cfg.AllowWrites {
 		access = "WRITES ARE ENABLED through the execute tool: always confirm with the user before modifying data."
 	}
+	via := cfg.Via
+	if via == "" {
+		via = fmt.Sprintf("(Amazon ElastiCache), reached through an airlock SSM tunnel. AWS profile %s, region %s.", cfg.Profile, cfg.Region)
+	}
 	text := fmt.Sprintf(
-		"%s cache %s (Amazon ElastiCache), reached through an airlock SSM tunnel. AWS profile %s, region %s. %s "+
+		"%s cache %s %s %s "+
 			"Use info for the cache state, scan_keys to find keys (KEYS is never allowed), get_key to read a key of any type "+
 			"and command for other read commands.",
-		cfg.Engine, cfg.Target, cfg.Profile, cfg.Region, access,
+		cfg.Engine, cfg.Target, via, access,
 	)
 	if cfg.ClusterMode {
 		text += " Cluster mode is enabled: only the shard reached through the tunnel is visible; keys of other shards answer MOVED."

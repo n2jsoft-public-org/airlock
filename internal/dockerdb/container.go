@@ -1,6 +1,6 @@
-// Package dockerdb finds the PostgreSQL and SQL Server databases running in local Docker
-// containers, with the credentials their environment gives. Nothing is saved: every call asks
-// docker again.
+// Package dockerdb finds the PostgreSQL, SQL Server, Redis and Valkey servers running in local
+// Docker containers, with the credentials their configuration gives. Nothing is saved: every call
+// asks docker again.
 package dockerdb
 
 import (
@@ -15,8 +15,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
 
-	"github.com/n2jsoft/airlock/internal/directdb"
+// Engine is the server a container runs.
+type Engine string
+
+// The engines airlock opens in containers.
+const (
+	EnginePostgres  Engine = "postgres"
+	EngineSQLServer Engine = "sqlserver"
+	EngineRedis     Engine = "redis"
+	EngineValkey    Engine = "valkey"
 )
 
 // Container is a running database container, as airlock reaches it from the host.
@@ -24,9 +33,9 @@ type Container struct {
 	// Name is the container name, without the leading "/".
 	Name   string
 	Image  string
-	Engine directdb.Engine
+	Engine Engine
 	User   string
-	// Password is "" when the environment does not give it (a *_FILE secret, or Trust).
+	// Password is "" when the container does not give it (a *_FILE secret, or Trust).
 	Password string
 	Database string
 	// Problem says why the container cannot be opened; "" when it can.
@@ -36,6 +45,25 @@ type Container struct {
 	Port int
 	// Trust reports a server accepting User without password.
 	Trust bool
+}
+
+// Cache reports a Redis or Valkey container, opened with the cache tools.
+func (c *Container) Cache() bool {
+	return c.Engine == EngineRedis || c.Engine == EngineValkey
+}
+
+// PasswordHint names where the container's password is set, for messages asking to set it.
+func (c *Container) PasswordHint() string {
+	switch c.Engine {
+	case EngineSQLServer:
+		return "MSSQL_SA_PASSWORD"
+	case EngineRedis:
+		return "REDIS_PASSWORD (or --requirepass)"
+	case EngineValkey:
+		return "VALKEY_PASSWORD (or --requirepass)"
+	default:
+		return "POSTGRES_PASSWORD"
+	}
 }
 
 // Address is host:port, an IPv6 host bracketed.
@@ -93,7 +121,7 @@ func Available() bool {
 // Client finds the database containers through the docker CLI of the active Docker context.
 type Client struct{}
 
-// List returns the running PostgreSQL and SQL Server containers, sorted by name.
+// List returns the running PostgreSQL, SQL Server, Redis and Valkey containers, sorted by name.
 func (Client) List(ctx context.Context) ([]Container, error) {
 	ids, err := runDocker(ctx, "ps", "-q")
 	if err != nil {
@@ -141,16 +169,19 @@ type inspected struct {
 		ExposedPorts map[string]struct{} `json:"ExposedPorts"`
 		Image        string              `json:"Image"`
 		Env          []string            `json:"Env"`
+		Cmd          []string            `json:"Cmd"`
+		Entrypoint   []string            `json:"Entrypoint"`
 	} `json:"Config"`
 }
 
 // enginePorts maps the container port of each engine, in detection order.
 var enginePorts = []struct {
 	port   string
-	engine directdb.Engine
+	engine Engine
 }{
-	{port: "5432/tcp", engine: directdb.EnginePostgres},
-	{port: "1433/tcp", engine: directdb.EngineSQLServer},
+	{port: "5432/tcp", engine: EnginePostgres},
+	{port: "1433/tcp", engine: EngineSQLServer},
+	{port: "6379/tcp", engine: EngineRedis},
 }
 
 // parseContainers reads docker inspect output, keeping the database containers sorted by name.
@@ -175,6 +206,9 @@ func containerOf(raw *inspected) (Container, bool) {
 	if !ok {
 		return Container{}, false
 	}
+	if engine == EngineRedis && strings.Contains(strings.ToLower(raw.Config.Image), "valkey") {
+		engine = EngineValkey
+	}
 	env := environ(raw.Config.Env)
 	c := Container{Name: strings.TrimPrefix(raw.Name, "/"), Image: raw.Config.Image, Engine: engine}
 	c.Host, c.Port = publishedAddress(raw.NetworkSettings.Ports[port])
@@ -183,7 +217,7 @@ func containerOf(raw *inspected) (Container, bool) {
 		c.Problem = fmt.Sprintf("port %s is not published: run the container with -p <host-port>:%s", number, number)
 	}
 	switch engine {
-	case directdb.EnginePostgres:
+	case EnginePostgres:
 		c.User = firstSet(env, "POSTGRES_USER", "POSTGRESQL_USERNAME")
 		if c.User == "" {
 			c.User = "postgres"
@@ -194,15 +228,23 @@ func containerOf(raw *inspected) (Container, bool) {
 			c.Database = c.User
 		}
 		c.Trust = strings.EqualFold(env["POSTGRES_HOST_AUTH_METHOD"], "trust") || strings.EqualFold(env["ALLOW_EMPTY_PASSWORD"], "yes")
-	case directdb.EngineSQLServer:
+	case EngineSQLServer:
 		c.User = "sa"
 		c.Password = firstSet(env, "MSSQL_SA_PASSWORD", "SA_PASSWORD")
+	case EngineRedis, EngineValkey:
+		c.User = "default"
+		c.Password = requirePass(raw.Config.Entrypoint, raw.Config.Cmd)
+		if c.Password == "" {
+			c.Password = firstSet(env, "REDIS_PASSWORD", "VALKEY_PASSWORD")
+		}
+		// Bitnami refuses to start without a password unless ALLOW_EMPTY_PASSWORD: none is no auth.
+		c.Trust = c.Password == ""
 	}
 	return c, true
 }
 
 // databasePort finds the engine port of raw among its published, then exposed, ports.
-func databasePort(raw *inspected) (string, directdb.Engine, bool) {
+func databasePort(raw *inspected) (string, Engine, bool) {
 	for _, candidate := range enginePorts {
 		_, published := raw.NetworkSettings.Ports[candidate.port]
 		_, exposed := raw.Config.ExposedPorts[candidate.port]
@@ -248,6 +290,22 @@ func firstSet(env map[string]string, keys ...string) string {
 	for _, key := range keys {
 		if value := env[key]; value != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+// requirePass is the value of --requirepass in the first of lists giving it; "" when none does. A
+// command given as one shell string is not parsed.
+func requirePass(lists ...[]string) string {
+	for _, list := range lists {
+		for idx, arg := range list {
+			if value, ok := strings.CutPrefix(arg, "--requirepass="); ok {
+				return value
+			}
+			if arg == "--requirepass" && idx+1 < len(list) {
+				return list[idx+1]
+			}
 		}
 	}
 	return ""

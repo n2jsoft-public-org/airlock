@@ -2,8 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/n2jsoft/airlock/internal/dockerdb"
@@ -29,9 +29,9 @@ func TestCheckDockerTarget(t *testing.T) {
 		{args: []string{"docker", "pg"}, containers: stubContainers{}, want: "pg"},
 		{args: []string{"docker"}, containers: stubContainers{}, interactive: true, want: ""},
 		{args: []string{"docker"}, containers: stubContainers{}, wantErr: "a container name is required: airlock docker <container>"},
-		{args: []string{"docker", "pg", "5432"}, containers: stubContainers{}, wantErr: "a local port does not apply to docker databases"},
-		{args: []string{"docker", "pg"}, flag: "region", containers: stubContainers{}, wantErr: "--region does not apply to docker databases"},
-		{args: []string{"docker", "pg"}, wantErr: "docker CLI not found: install Docker to reach local databases"},
+		{args: []string{"docker", "pg", "5432"}, containers: stubContainers{}, wantErr: "a local port does not apply to docker containers"},
+		{args: []string{"docker", "pg"}, flag: "region", containers: stubContainers{}, wantErr: "--region does not apply to docker containers"},
+		{args: []string{"docker", "pg"}, wantErr: "docker CLI not found: install Docker to reach local databases and caches"},
 	}
 	for _, tc := range cases {
 		cmd := NewRootCmd()
@@ -64,8 +64,25 @@ func TestDockerWritesDefaultOn(t *testing.T) {
 }
 
 func TestDockerRunError(t *testing.T) {
-	err := dockerRunError("pg", fmt.Errorf("%w for pg", jumphost.ErrPasswordRequired))
-	if err == nil || !strings.Contains(err.Error(), "no password for pg: set POSTGRES_PASSWORD") {
+	runErr := fmt.Errorf("%w for cache: set REDIS_PASSWORD (or --requirepass) on the container", jumphost.ErrPasswordRequired)
+	err := dockerRunError(runErr)
+	if err == nil || err.Error() != "password required for cache: set REDIS_PASSWORD (or --requirepass) on the container, or open it from the dashboard" {
+		t.Fatalf("err = %v", err)
+	}
+	rejected := fmt.Errorf("pg: %w", jumphost.ErrSignInRejected)
+	if err := dockerRunError(rejected); !errors.Is(err, jumphost.ErrSignInRejected) ||
+		err.Error() != "pg: the database rejected the credentials: set the right password on the container, or open it from the dashboard" {
+		t.Fatalf("rejected = %v", err)
+	}
+	if other := errors.New("boom"); dockerRunError(other) != other {
+		t.Fatal("other errors pass through")
+	}
+}
+
+func TestDirectRunErrorExplainsARejectedPassword(t *testing.T) {
+	rejected := fmt.Errorf("billing: %w", jumphost.ErrSignInRejected)
+	if err := directRunError("billing", rejected); !errors.Is(err, jumphost.ErrSignInRejected) ||
+		err.Error() != "billing: the database rejected the credentials: open it from the dashboard to enter the password again" {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/n2jsoft/airlock/internal/directdb"
 )
 
 // fixture is the docker inspect entry of a container publishing port with bindings (JSON, or null).
@@ -36,7 +34,7 @@ func parseOne(t *testing.T, entry string) Container {
 
 func TestParseOfficialPostgres(t *testing.T) {
 	got := parseOne(t, fixture(t, "pg", "postgres:16", "5432/tcp", published, "POSTGRES_PASSWORD=secret", "POSTGRES_DB=appdb", "PATH=/usr/bin"))
-	want := Container{Name: "pg", Image: "postgres:16", Engine: directdb.EnginePostgres, Host: "127.0.0.1", Port: 55432,
+	want := Container{Name: "pg", Image: "postgres:16", Engine: EnginePostgres, Host: "127.0.0.1", Port: 55432,
 		User: "postgres", Password: "secret", Database: "appdb"}
 	if got != want {
 		t.Fatalf("got %+v\nwant %+v", got, want)
@@ -70,7 +68,7 @@ func TestParseSQLServer(t *testing.T) {
 	for _, variable := range []string{"MSSQL_SA_PASSWORD", "SA_PASSWORD"} {
 		got := parseOne(t, fixture(t, "mssql", "mcr.microsoft.com/mssql/server:2022-latest", "1433/tcp",
 			`[{"HostIp":"","HostPort":"1433"}]`, "ACCEPT_EULA=Y", variable+"=Str0ng!pass"))
-		if got.Engine != directdb.EngineSQLServer || got.User != "sa" || got.Password != "Str0ng!pass" || got.Database != "" ||
+		if got.Engine != EngineSQLServer || got.User != "sa" || got.Password != "Str0ng!pass" || got.Database != "" ||
 			got.Host != "127.0.0.1" || got.Port != 1433 {
 			t.Errorf("%s: got %+v", variable, got)
 		}
@@ -104,7 +102,7 @@ func TestParseUnpublishedPort(t *testing.T) {
 func TestParseSkipsOtherContainersAndSorts(t *testing.T) {
 	data := "[" + strings.Join([]string{
 		fixture(t, "zeta", "postgres:16", "5432/tcp", published, "POSTGRES_PASSWORD=pw"),
-		fixture(t, "cache", "redis:7", "6379/tcp", `[{"HostIp":"0.0.0.0","HostPort":"6379"}]`),
+		fixture(t, "web", "nginx:1", "80/tcp", `[{"HostIp":"0.0.0.0","HostPort":"8080"}]`),
 		fixture(t, "alpha", "postgres:16", "5432/tcp", published, "POSTGRES_PASSWORD=pw"),
 	}, ",") + "]"
 	containers, err := parseContainers([]byte(data))
@@ -205,5 +203,79 @@ func TestRunDockerWithoutTheCLI(t *testing.T) {
 	}
 	if Available() {
 		t.Fatal("Available without docker on the PATH")
+	}
+}
+
+// cacheFixture is a container publishing 6379 on 0.0.0.0:6379, started with entrypoint and cmd.
+func cacheFixture(t *testing.T, image string, entrypoint, cmd []string, env ...string) string {
+	t.Helper()
+	marshal := func(v any) string {
+		data, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	return fmt.Sprintf(`{"Name":"/cache","Config":{"Image":%q,"Env":%s,"Entrypoint":%s,"Cmd":%s,"ExposedPorts":{"6379/tcp":{}}},`+
+		`"NetworkSettings":{"Ports":{"6379/tcp":[{"HostIp":"0.0.0.0","HostPort":"6379"}]}}}`,
+		image, marshal(env), marshal(entrypoint), marshal(cmd))
+}
+
+func TestParseRedisWithoutAuth(t *testing.T) {
+	got := parseOne(t, cacheFixture(t, "redis:7", []string{"docker-entrypoint.sh"}, []string{"redis-server"}))
+	if got.Engine != EngineRedis || !got.Cache() || got.User != "default" || got.Password != "" || !got.Trust ||
+		got.Database != "" || got.Address() != "127.0.0.1:6379" || got.Problem != "" {
+		t.Fatalf("got %+v", got)
+	}
+	if got.Description() != "redis · 127.0.0.1:6379 · redis:7" || got.PasswordHint() != "REDIS_PASSWORD (or --requirepass)" {
+		t.Fatalf("description = %q hint = %q", got.Description(), got.PasswordHint())
+	}
+}
+
+func TestParseCachePasswords(t *testing.T) {
+	cases := []struct {
+		name       string
+		image      string
+		engine     Engine
+		password   string
+		entrypoint []string
+		cmd        []string
+		env        []string
+	}{
+		{name: "requirepass in cmd", image: "redis:7", cmd: []string{"redis-server", "--requirepass", "pw"}, engine: EngineRedis, password: "pw"},
+		{name: "requirepass= in cmd", image: "valkey/valkey:8", cmd: []string{"valkey-server", "--requirepass=pw"}, engine: EngineValkey, password: "pw"},
+		{name: "requirepass in entrypoint", image: "redis:7", entrypoint: []string{"redis-server", "--requirepass", "ep"}, cmd: []string{"--requirepass", "cmd"}, engine: EngineRedis, password: "ep"},
+		{name: "verbatim", image: "redis:7", cmd: []string{"redis-server", "--requirepass", `p w'"$x`}, engine: EngineRedis, password: `p w'"$x`},
+		{name: "bitnami redis", image: "bitnami/redis:7.4", env: []string{"REDIS_PASSWORD=bn"}, engine: EngineRedis, password: "bn"},
+		{name: "bitnami valkey", image: "bitnami/valkey:8", env: []string{"VALKEY_PASSWORD=bv"}, engine: EngineValkey, password: "bv"},
+		{name: "shell string is not parsed", image: "redis:7", cmd: []string{"sh", "-c", "redis-server --requirepass x"}, engine: EngineRedis, password: ""},
+	}
+	for _, tc := range cases {
+		got := parseOne(t, cacheFixture(t, tc.image, tc.entrypoint, tc.cmd, tc.env...))
+		if got.Engine != tc.engine || got.Password != tc.password || got.Trust != (tc.password == "") || got.User != "default" {
+			t.Errorf("%s: got %+v", tc.name, got)
+		}
+	}
+}
+
+func TestParseUnpublishedCache(t *testing.T) {
+	got := parseOne(t, fixture(t, "cache", "redis:7", "6379/tcp", "null"))
+	if got.Engine != EngineRedis || got.Problem != "port 6379 is not published: run the container with -p <host-port>:6379" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestPasswordHints(t *testing.T) {
+	hints := map[Engine]string{
+		EnginePostgres:  "POSTGRES_PASSWORD",
+		EngineSQLServer: "MSSQL_SA_PASSWORD",
+		EngineRedis:     "REDIS_PASSWORD (or --requirepass)",
+		EngineValkey:    "VALKEY_PASSWORD (or --requirepass)",
+	}
+	for engine, want := range hints {
+		c := Container{Engine: engine}
+		if got := c.PasswordHint(); got != want || c.Cache() != (engine == EngineRedis || engine == EngineValkey) {
+			t.Errorf("%s: hint = %q cache = %v", engine, got, c.Cache())
+		}
 	}
 }

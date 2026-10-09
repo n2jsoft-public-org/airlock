@@ -74,12 +74,19 @@ func (m jumphostWizardModel) renderDockerReviewPanel(width int, compact bool) st
 			m.reviewRow("Type", badge+" "+m.styles.Muted.Render(string(c.Engine)), inner),
 			m.reviewRow("Target", name+m.styles.Faint.Render(" · "+c.Image), inner),
 			m.reviewRow("Server", c.Address()+m.styles.Faint.Render(" · TLS disable"), inner),
-			m.reviewRow("Database", m.dockerDatabaseLabel(), inner),
-			m.reviewRow("User", c.User, inner),
-			m.styles.Rule.Render(strings.Repeat("─", inner)),
 		)
+		if !c.Cache() {
+			rows = append(rows, m.reviewRow("Database", m.dockerDatabaseLabel(), inner))
+		}
+		rows = append(rows, m.reviewRow("User", c.User, inner), m.styles.Rule.Render(strings.Repeat("─", inner)))
 	}
 	passwordHelp := "Read from the container's environment: edit it if it changed since."
+	switch {
+	case c.Cache() && c.Trust && c.Password == "":
+		passwordHelp = "No password found: leave it empty if the cache has no auth."
+	case c.Cache():
+		passwordHelp = "Read from the container's command or environment: edit it if it changed since."
+	}
 	mcpHelp := "Space toggles. On, AI assistants write as " + c.User + "."
 	if compact {
 		passwordHelp, mcpHelp = "", ""
@@ -87,7 +94,7 @@ func (m jumphostWizardModel) renderDockerReviewPanel(width int, compact bool) st
 	rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", inputView(m.passwordInput), passwordHelp, inner)...)
 	if m.mcpWritesApply() {
 		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, "MCP", m.mcpWritesToggle(), mcpHelp, inner)...)
-		db := directdb.Database{Engine: c.Engine, User: c.User}
+		db := directdb.Database{Engine: directdb.Engine(c.Engine), User: c.User}
 		if !m.mcpWrites && jumphost.DirectReadOnlyWarning(&db) != "" {
 			rows = append(rows, "  "+m.styles.Warning.Render(truncate("⚠ Read-only rests on "+c.User+"'s permissions (SQL Server)", inner-2)))
 		}
@@ -130,7 +137,7 @@ func (m jumphostWizardModel) openPendingDocker(listErr error) (tea.Model, tea.Cm
 	item, ok := m.dockerList.selectedItem()
 	switch {
 	case !ok || item.c.Name != name:
-		m.errorMsg = "no running postgres or sqlserver container named " + name
+		m.errorMsg = "no running database or cache container named " + name
 		return m, nil
 	case item.c.Problem != "":
 		m.errorMsg = item.c.Problem

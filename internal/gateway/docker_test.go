@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
@@ -35,9 +34,10 @@ func (f *fakeContainers) Get(ctx context.Context, name string) (dockerdb.Contain
 
 func dockerContainers() *fakeContainers {
 	return &fakeContainers{list: []dockerdb.Container{
-		{Name: "pg", Image: "postgres:16", Engine: directdb.EnginePostgres, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "secret", Database: "appdb"},
-		{Name: "unpublished", Image: "postgres:16", Engine: directdb.EnginePostgres, User: "postgres", Password: "pw", Problem: "port 5432 is not published: run the container with -p <host-port>:5432"},
-		{Name: "secretfile", Image: "postgres:16", Engine: directdb.EnginePostgres, Host: "127.0.0.1", Port: 55433, User: "postgres"},
+		{Name: "pg", Image: "postgres:16", Engine: dockerdb.EnginePostgres, Host: "127.0.0.1", Port: 55432, User: "postgres", Password: "secret", Database: "appdb"},
+		{Name: "unpublished", Image: "postgres:16", Engine: dockerdb.EnginePostgres, User: "postgres", Password: "pw", Problem: "port 5432 is not published: run the container with -p <host-port>:5432"},
+		{Name: "secretfile", Image: "postgres:16", Engine: dockerdb.EnginePostgres, Host: "127.0.0.1", Port: 55433, User: "postgres"},
+		{Name: "cache", Image: "redis:7", Engine: dockerdb.EngineRedis, Host: "127.0.0.1", Port: 6379, User: "default", Trust: true},
 	}}
 }
 
@@ -116,7 +116,7 @@ func TestOpenSessionDockerRefusals(t *testing.T) {
 	m, _ := newTestManager(t, sessionstest.NewRunner())
 	cs, _ := newToolsetWith(t, m, &Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, nil, dockerContainers())
 	cases := map[string]string{
-		"nope":        "no running postgres or sqlserver container named",
+		"nope":        "no running database or cache container named",
 		"unpublished": "is not published",
 		"secretfile":  "the password of secretfile is unknown",
 	}
@@ -124,5 +124,53 @@ func TestOpenSessionDockerRefusals(t *testing.T) {
 		if text, isError := callTool(t, cs, "open_session", map[string]any{"type": "docker", "name": name}); !isError || !strings.Contains(text, want) {
 			t.Errorf("%s = %q, want %q", name, text, want)
 		}
+	}
+}
+
+func TestListTargetsTypesDockerCaches(t *testing.T) {
+	m, _ := newTestManager(t, sessionstest.NewRunner())
+	m.ViewsChanged(1)
+	cs, _ := newToolsetWith(t, m, &Settings{AutoConnect: AutoConnectNonProd}, &fakeDiscovery{}, nil, dockerContainers())
+	text, isError := callTool(t, cs, "list_targets", map[string]any{"type": "docker-cache"})
+	if isError {
+		t.Fatal(text)
+	}
+	reply := decodeText[targetsReply](t, text)
+	if len(reply.Targets) != 1 || reply.Targets[0].Name != "cache" || reply.Targets[0].Type != "docker-cache" ||
+		reply.Targets[0].Description != "redis · 127.0.0.1:6379 · redis:7" || reply.Targets[0].Opens != "auto" {
+		t.Fatalf("targets = %+v", reply.Targets)
+	}
+}
+
+func TestOpenSessionDockerCache(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	runner.Direct("cache").ResourceType = sessions.DockerCacheResourceType
+	m, _ := newTestManager(t, runner)
+	cs, _ := newToolsetWith(t, m, &Settings{AutoConnect: AutoConnectNonProd}, &fakeDiscovery{}, nil, dockerContainers())
+	if text, isError := callTool(t, cs, "open_session", map[string]any{"type": "docker-cache", "name": "cache"}); isError {
+		t.Fatal(text)
+	}
+	if prepared := runner.PreparedOptions(); len(prepared) != 1 || prepared[0].ResourceType != "docker-cache" || prepared[0].MCPAllowWrites {
+		t.Fatalf("prepared = %+v", prepared)
+	}
+}
+
+func TestOpenSessionDockerTypeMismatch(t *testing.T) {
+	m, _ := newTestManager(t, sessionstest.NewRunner())
+	cs, _ := newToolsetWith(t, m, &Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, nil, dockerContainers())
+	cases := []struct{ typ, name, want string }{
+		{typ: "docker", name: "cache", want: "cache is a redis container: use type docker-cache"},
+		{typ: "docker-cache", name: "pg", want: "pg is a postgres container: use type docker"},
+	}
+	for _, tc := range cases {
+		if text, isError := callTool(t, cs, "open_session", map[string]any{"type": tc.typ, "name": tc.name}); !isError || !strings.Contains(text, tc.want) {
+			t.Errorf("%s %s = %q, want %q", tc.typ, tc.name, text, tc.want)
+		}
+	}
+}
+
+func TestKindOfDockerCache(t *testing.T) {
+	if kindOf(sessions.DockerCacheResourceType) != kindCache {
+		t.Fatal("docker-cache sessions serve the cache tools")
 	}
 }

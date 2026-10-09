@@ -85,10 +85,27 @@ func TestMapError(t *testing.T) {
 			t.Errorf("mapError(%q) = %v, want %q", raw, got, want)
 		}
 	}
+	// The server's final period would end the middle of a longer message ("required.: set …").
+	if got := mapError(errors.New("NOAUTH Authentication required.")); got.Error() != "the cache rejected the credentials: NOAUTH Authentication required" {
+		t.Errorf("rejection = %q", got)
+	}
 	if err := mapError(errors.New("ERR syntax error")); err.Error() != "ERR syntax error" {
 		t.Fatalf("other errors must pass through: %v", err)
 	}
 	if mapError(nil) != nil {
 		t.Fatal("nil must stay nil")
+	}
+}
+
+func TestClientsDialHost(t *testing.T) {
+	cases := map[string]string{"": "localhost:6380", "127.0.0.1": "127.0.0.1:6380", "::1": "[::1]:6380"}
+	for host, want := range cases {
+		c := newClients(ConnConfig{Host: host, LocalPort: 6380})
+		if got := c.get(0).Options().Addr; got != want {
+			t.Errorf("host %q: addr = %q, want %q", host, got, want)
+		}
+		if err := c.close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

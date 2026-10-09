@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/directdb"
@@ -251,9 +252,17 @@ func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine 
 	return handle, display
 }
 
-// serveDirect prints the intro of a direct session and keeps it open until ctx ends or the user
-// presses Ctrl+C; the caller releases it.
+// directSignInTimeout bounds the sign-in check of a session served without dashboard.
+const directSignInTimeout = 15 * time.Second
+
+// serveDirect signs the session in once, then prints its intro and keeps it open until ctx ends
+// or the user presses Ctrl+C; the caller releases it. A refused password or an unreachable server
+// fails at once: without dashboard nobody would ask the password again, and the MCP server would
+// only fail on every call.
 func (r *Runner) serveDirect(ctx context.Context, session *Session) error {
+	if err := checkServedSignIn(ctx, session); err != nil {
+		return fmt.Errorf("%s: %w", session.Target, err)
+	}
 	for _, line := range session.Intro {
 		fprintf(r.out, "> %s\n", line)
 	}
@@ -262,4 +271,19 @@ func (r *Runner) serveDirect(ctx context.Context, session *Session) error {
 	defer stop()
 	<-ctx.Done()
 	return nil
+}
+
+// checkServedSignIn checks the first sign-in candidate of session; nil without check, or when ctx
+// already ended (the user interrupted).
+func checkServedSignIn(ctx context.Context, session *Session) error {
+	if session.SignIn == nil || ctx.Err() != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, directSignInTimeout)
+	defer cancel()
+	candidates, err := session.SignIn.Candidates(ctx)
+	if err != nil || len(candidates) == 0 {
+		return err
+	}
+	return session.SignIn.Check(ctx, candidates[0])
 }

@@ -48,13 +48,17 @@ func (m ssmModel) askDirectPasswordAgain(ev sessions.Event) (tea.Model, tea.Cmd)
 	if m.mode != ssmModeSessions || s == nil || s.ID != ev.ID {
 		return m, nil
 	}
-	docker := s.ResourceType == sessions.DockerResourceType
+	docker := s.ResourceType == sessions.DockerResourceType || s.ResourceType == sessions.DockerCacheResourceType
 	if docker && m.docker == nil {
 		m.errorMsg = "Enter the password again from `airlock docker " + ev.Name + "`."
 		return m, nil
 	}
 	m = m.showWizard(m.wizardDefaults())
-	reason := "The database rejected the password of " + ev.User + ": enter it again."
+	what := "database"
+	if s.ResourceType == sessions.DockerCacheResourceType {
+		what = "cache"
+	}
+	reason := "The " + what + " rejected the password of " + ev.User + ": enter it again."
 	if docker {
 		m.wizard.dockerAtStart, m.wizard.openDocker, m.wizard.openDockerError = true, ev.Name, reason
 	} else {

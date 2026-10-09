@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -48,7 +49,7 @@ func (t *toolset) add(server *mcp.Server) {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_targets", Annotations: readOnly,
-		Description: "List what open_session can open. Without profile: the saved connections, direct databases and local Docker databases, " +
+		Description: "List what open_session can open. Without profile: the saved connections, direct databases and local Docker databases and caches, " +
 			"no AWS call. With profile: a live search of that AWS profile. Each target says whether it opens at once " +
 			"(opens: auto) or after the user approves it in the airlock dashboard (opens: prompt).",
 	}, t.listTargets)
@@ -138,7 +139,7 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 			}
 			out.Targets = append(out.Targets, target)
 		}
-		if t.containers != nil && (wantType == "" || wantType == sessions.DockerResourceType) {
+		if t.containers != nil && (wantType == "" || wantType == sessions.DockerResourceType || wantType == sessions.DockerCacheResourceType) {
 			t.addDockerTargets(ctx, &out, &settings, views, keep)
 		}
 		return jsonResult(out)
@@ -167,6 +168,14 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	return jsonResult(out)
 }
 
+// dockerType is the session type of container c: docker-cache for Redis / Valkey, docker otherwise.
+func dockerType(c *dockerdb.Container) string {
+	if c.Cache() {
+		return sessions.DockerCacheResourceType
+	}
+	return sessions.DockerResourceType
+}
+
 // addDockerTargets lists the database containers open_session can open; a discovery failure goes
 // to out.Failures, listing none.
 func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, settings *Settings, views int, keep func(targetType, name string) bool) {
@@ -180,11 +189,12 @@ func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, sett
 	}
 	for idx := range containers {
 		c := &containers[idx]
-		if c.Problem != "" || !keep(sessions.DockerResourceType, c.Name) {
+		typ := dockerType(c)
+		if c.Problem != "" || !keep(typ, c.Name) {
 			continue
 		}
 		out.Targets = append(out.Targets, targetInfo{
-			Type: sessions.DockerResourceType, Name: c.Name, Description: c.Description(), Opens: opens(settings, false, views),
+			Type: typ, Name: c.Name, Description: c.Description(), Opens: opens(settings, false, views),
 		})
 	}
 }

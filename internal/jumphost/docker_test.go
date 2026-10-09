@@ -33,7 +33,7 @@ func (f fakeContainers) Get(_ context.Context, name string) (dockerdb.Container,
 }
 
 func pgContainer() dockerdb.Container {
-	return dockerdb.Container{Name: "pg", Image: "postgres:16", Engine: directdb.EnginePostgres, Host: "127.0.0.1", Port: 55432,
+	return dockerdb.Container{Name: "pg", Image: "postgres:16", Engine: dockerdb.EnginePostgres, Host: "127.0.0.1", Port: 55432,
 		User: "postgres", Password: "secret", Database: "appdb"}
 }
 
@@ -110,7 +110,7 @@ func TestPrepareDockerPasswords(t *testing.T) {
 		}
 	}
 	_, err := dockerRunner(t, unknown).Prepare(context.Background(), Options{ResourceType: "docker", Name: "unknown"})
-	if !errors.Is(err, ErrPasswordRequired) || err.Error() != "password required for unknown" {
+	if !errors.Is(err, ErrPasswordRequired) || err.Error() != "password required for unknown: set POSTGRES_PASSWORD on the container" {
 		t.Fatalf("err = %v, want ErrPasswordRequired", err)
 	}
 }
@@ -120,7 +120,7 @@ func TestPrepareDockerRefusals(t *testing.T) {
 	unpublished.Port, unpublished.Problem = 0, "port 5432 is not published: run the container with -p <host-port>:5432"
 	runner := dockerRunner(t, unpublished)
 	if _, err := runner.Prepare(context.Background(), Options{ResourceType: "docker", Name: "nope"}); err == nil ||
-		err.Error() != "no running postgres or sqlserver container named nope (see airlock docker)" {
+		err.Error() != "no running database or cache container named nope (see airlock docker)" {
 		t.Fatalf("nope = %v", err)
 	}
 	if _, err := runner.Prepare(context.Background(), Options{ResourceType: "docker", Name: "pg"}); err == nil ||

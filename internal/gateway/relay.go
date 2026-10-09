@@ -39,7 +39,7 @@ func kindOf(resourceType string) kind {
 		return kindDB
 	case "eks":
 		return kindK8s
-	case "elasticache":
+	case "elasticache", sessions.DockerCacheResourceType:
 		return kindCache
 	default:
 		return ""

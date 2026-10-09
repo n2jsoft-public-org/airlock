@@ -22,10 +22,10 @@ const reasonNoPassword = "no saved password for this connection: ask the user to
 // defaultStartTimeout bounds how long open_session waits for the session to run.
 const defaultStartTimeout = 3 * time.Minute
 
-var openableTypes = []string{"rds", "eks", "elasticache", sessions.DirectResourceType, sessions.DockerResourceType}
+var openableTypes = []string{"rds", "eks", "elasticache", sessions.DirectResourceType, sessions.DockerResourceType, sessions.DockerCacheResourceType}
 
 type openInput struct {
-	Type    string `json:"type" jsonschema:"rds, eks, elasticache, direct or docker"`
+	Type    string `json:"type" jsonschema:"rds, eks, elasticache, direct, docker or docker-cache"`
 	Name    string `json:"name" jsonschema:"the target name, as list_targets gives it"`
 	Profile string `json:"profile,omitempty" jsonschema:"AWS profile; needed when the target is not a saved connection, or is saved in several profiles"`
 	Region  string `json:"region,omitempty" jsonschema:"AWS region; defaults to the saved connection's, else the profile's"`
@@ -167,18 +167,20 @@ func toolsOf(s *sessions.Session) string {
 // A password the container does not give is refused here: no dashboard would ask it.
 func (t *toolset) resolveDocker(ctx context.Context, tg *target, asked string) (target, error) {
 	if t.containers == nil {
-		return target{}, errors.New("docker databases are unavailable: the docker CLI was not found")
+		return target{}, errors.New("docker databases and caches are unavailable: the docker CLI was not found")
 	}
 	c, found, err := t.containers.Get(ctx, tg.name)
 	switch {
 	case err != nil:
 		return target{}, err
 	case !found:
-		return target{}, fmt.Errorf("no running postgres or sqlserver container named %q; call list_targets", asked)
+		return target{}, fmt.Errorf("no running database or cache container named %q; call list_targets", asked)
 	case c.Problem != "":
 		return target{}, fmt.Errorf("%s: %s", c.Name, c.Problem)
+	case dockerType(&c) != tg.typ:
+		return target{}, fmt.Errorf("%s is a %s container: use type %s", c.Name, c.Engine, dockerType(&c))
 	case c.Password == "" && !c.Trust:
-		return target{}, fmt.Errorf("the password of %s is unknown: ask the user to set POSTGRES_PASSWORD (or MSSQL_SA_PASSWORD) on the container, or to open it from the airlock dashboard", c.Name)
+		return target{}, fmt.Errorf("the password of %s is unknown: ask the user to set %s on the container, or to open it from the airlock dashboard", c.Name, c.PasswordHint())
 	}
 	tg.profile, tg.region = "", ""
 	return *tg, nil
@@ -195,7 +197,7 @@ func (t *toolset) resolve(ctx context.Context, discovery Discovery, settings *Se
 	if tg.name == "" {
 		return target{}, errors.New("name is required: a target from list_targets")
 	}
-	if tg.typ == sessions.DockerResourceType {
+	if tg.typ == sessions.DockerResourceType || tg.typ == sessions.DockerCacheResourceType {
 		return t.resolveDocker(ctx, &tg, in.Name)
 	}
 	saved, err := discovery.ListSavedConnections(ctx, tg.profile, tg.region)

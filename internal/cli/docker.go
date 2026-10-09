@@ -28,14 +28,14 @@ func dockerContainers() jumphost.DockerContainers {
 func checkDockerTarget(cmd *cobra.Command, args []string, containers jumphost.DockerContainers, interactive bool) (string, error) {
 	for _, flag := range directRefusedFlags {
 		if cmd.Flags().Changed(flag) {
-			return "", fmt.Errorf("--%s does not apply to docker databases", flag)
+			return "", fmt.Errorf("--%s does not apply to docker containers", flag)
 		}
 	}
 	if len(args) > 2 {
-		return "", errors.New("a local port does not apply to docker databases")
+		return "", errors.New("a local port does not apply to docker containers")
 	}
 	if containers == nil {
-		return "", errors.New("docker CLI not found: install Docker to reach local databases")
+		return "", errors.New("docker CLI not found: install Docker to reach local databases and caches")
 	}
 	name := ""
 	if len(args) > 1 {
@@ -82,13 +82,18 @@ func openDocker(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 	}
 	runnerOptions := *env.shared
 	runnerOptions.Out, runnerOptions.Err = cmd.OutOrStdout(), cmd.ErrOrStderr()
-	return dockerRunError(options.Name, jumphost.NewRunner(&runnerOptions).Run(cmd.Context(), options))
+	return dockerRunError(jumphost.NewRunner(&runnerOptions).Run(cmd.Context(), options))
 }
 
-// dockerRunError explains a Docker session that cannot start without the dashboard.
-func dockerRunError(name string, err error) error {
-	if errors.Is(err, jumphost.ErrPasswordRequired) {
-		return fmt.Errorf("no password for %s: set POSTGRES_PASSWORD (or MSSQL_SA_PASSWORD) on the container, or open it from the dashboard", name)
+// dockerRunError explains a Docker session that cannot start without the dashboard: the runner's
+// error already names where the container's password is set.
+func dockerRunError(err error) error {
+	switch {
+	case errors.Is(err, jumphost.ErrPasswordRequired):
+		return fmt.Errorf("%w, or open it from the dashboard", err)
+	case errors.Is(err, jumphost.ErrSignInRejected):
+		return fmt.Errorf("%w: set the right password on the container, or open it from the dashboard", err)
+	default:
+		return err
 	}
-	return err
 }

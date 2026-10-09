@@ -483,27 +483,39 @@ until `airlock daemon restart`.
 > are no read-only secrets as on RDS, and SQL Server has no read-only transaction to fall back on.
 > Declare a user that can only read, unless you mean to allow writes.
 
-### Docker databases
+### Docker databases and caches
 
-airlock finds the PostgreSQL and SQL Server databases running in local Docker containers and
-signs in with the credentials of their environment: nothing to declare, nothing saved.
+airlock finds the PostgreSQL, SQL Server, Redis and Valkey containers running locally in Docker and
+signs in with the credentials of their environment or command: nothing to declare, nothing saved.
 
 ```bash
 docker run -d --name pg -e POSTGRES_PASSWORD=secret -p 55432:5432 postgres:16
 airlock docker pg
 ```
 
-- `airlock docker` opens the dashboard on the list of database containers; the Type step also
+A cache works the same way:
+
+```bash
+docker run -d --name cache -p 6379:6379 redis:7
+airlock docker cache
+```
+
+- `airlock docker` opens the dashboard on the list of database and cache containers; the Type step also
   offers a **Docker database** card.
 - User, password and database come from `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`
   (Bitnami: `POSTGRESQL_*`), or `sa` and `MSSQL_SA_PASSWORD` / `SA_PASSWORD` for SQL Server. A
   password given as a `*_FILE` secret is typed in the dashboard.
+- Redis and Valkey: container port 6379, user `default`; the password comes from `--requirepass`
+  in the container command, else `REDIS_PASSWORD` / `VALKEY_PASSWORD`, else there is no auth.
+  Agents see them as `type: "docker-cache"` with the `cache_*` tools. Not supported yet: ACL
+  users, Redis Cluster, TLS, a password only in a mounted `redis.conf` (the dashboard asks for it
+  once refused), a command given as one shell string.
 - The engine port must be published (`-p <host-port>:5432`); TLS is off.
 - The active Docker context must be the local daemon: published ports are reached on
   `127.0.0.1`, so remote contexts are not supported.
 - MCP writes are on by default. Without a terminal, `--mcp-allow-writes=false` turns them off; in
   the dashboard, the `MCP` toggle of the review does. Agents list the containers with `list_targets` and open them with `open_session`
-  (`type: "docker"`) under the usual agent policy.
+  (`type: "docker"`, or `"docker-cache"`) under the usual agent policy.
 
 ### Parallel sessions
 
@@ -681,7 +693,7 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 
 | Tool | Description |
 |---|---|
-| `list_targets` | The saved connections, direct databases and local Docker databases, or a live search of an AWS profile, each telling whether it opens at once or after your approval |
+| `list_targets` | The saved connections, direct databases and local Docker databases and caches, or a live search of an AWS profile, each telling whether it opens at once or after your approval |
 | `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
 | `open_session` | Open a target, with a reason you read |
 | `close_session` | Close a session an agent opened |

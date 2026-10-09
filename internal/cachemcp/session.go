@@ -6,7 +6,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
-// SessionConfig describes the tunneled cache of one ElastiCache session.
+// SessionConfig describes the cache of one session: an ElastiCache tunnel, or a local container.
 type SessionConfig struct {
 	// Credentials signs the connections in; nil for caches without auth.
 	Credentials CredentialProvider
@@ -16,12 +16,16 @@ type SessionConfig struct {
 	ProjectDir string
 	Profile    string
 	Region     string
+	// Via tells how the cache is reached (see ServerConfig.Via); empty for an ElastiCache tunnel.
+	Via string
 	// Target is the cache name: replication group, cluster or serverless cache.
 	Target string
 	// Engine is the ElastiCache engine; Memcached gets no server.
 	Engine string
 	// Endpoint is the real cache host, the TLS server name.
 	Endpoint string
+	// Host is where LocalPort listens; empty is localhost (the tunnel of an ElastiCache session).
+	Host string
 	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
 	ServerPrefix string
 	// LogDir receives the audit log of the tool calls; empty disables it.
@@ -54,11 +58,15 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	if !ok {
 		return nil, nil
 	}
-	// The -cache suffix keeps the name apart from an RDS instance of the same name on the profile.
-	name := mcpserve.ServerName(cfg.ServerPrefix, cfg.Profile, cfg.Target) + "-cache"
+	// The -cache suffix keeps the name apart from an RDS instance of the same name on the profile;
+	// a session without profile (a local container) is named like a direct database.
+	name := mcpserve.DirectServerName(cfg.ServerPrefix, cfg.Target)
+	if cfg.Profile != "" {
+		name = mcpserve.ServerName(cfg.ServerPrefix, cfg.Profile, cfg.Target) + "-cache"
+	}
 	recorder := mcpserve.NewRecorder(cfg.LogDir)
 	c := &cache{
-		clients:     newClients(ConnConfig{Credentials: cfg.Credentials, ServerName: cfg.Endpoint, LocalPort: cfg.LocalPort, TLS: cfg.TLS}),
+		clients:     newClients(ConnConfig{Credentials: cfg.Credentials, ServerName: cfg.Endpoint, Host: cfg.Host, LocalPort: cfg.LocalPort, TLS: cfg.TLS}),
 		clusterMode: cfg.ClusterMode,
 	}
 	if cfg.OnRejected != nil {
@@ -66,7 +74,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 		c.rejected = func() { once.Do(cfg.OnRejected) }
 	}
 	server := NewServer(&ServerConfig{
-		Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region, Engine: engine,
+		Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region, Via: cfg.Via, Engine: engine,
 		AllowWrites: cfg.AllowWrites, ClusterMode: cfg.ClusterMode,
 	}, c, recorder.Record)
 	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{

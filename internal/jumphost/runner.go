@@ -397,7 +397,7 @@ func (r *Runner) Run(ctx context.Context, options *Options) error {
 		release()
 	}()
 
-	if session.ResourceType == resourceDirect || session.ResourceType == resourceDocker {
+	if session.ResourceType == resourceDirect || session.ResourceType == resourceDocker || session.ResourceType == resourceDockerCache {
 		return r.serveDirect(ctx, session)
 	}
 
@@ -417,7 +417,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDirect) {
 		return r.prepareDirect(ctx, &options)
 	}
-	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDocker) {
+	if t := strings.ToLower(strings.TrimSpace(options.ResourceType)); t == resourceDocker || t == resourceDockerCache {
 		return r.prepareDocker(ctx, &options)
 	}
 	if _, err := exec.LookPath("aws"); err != nil {

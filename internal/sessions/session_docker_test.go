@@ -12,3 +12,10 @@ func TestDockerSessionRunsNoProcessAndKeysByType(t *testing.T) {
 		t.Fatalf("direct: direct = %v key = %q", direct.Direct(), direct.Key())
 	}
 }
+
+func TestDockerCacheSessionRunsNoProcessAndKeysByType(t *testing.T) {
+	s := Session{ResourceType: DockerCacheResourceType, Target: "Cache"}
+	if !s.Direct() || s.Key() != "docker-cache|cache" {
+		t.Fatalf("direct = %v key = %q", s.Direct(), s.Key())
+	}
+}

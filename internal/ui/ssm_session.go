@@ -919,7 +919,7 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancelPrepare = cancel
 	service, interactive := m.service, m.interactive
-	label := fmt.Sprintf("Restarting %s %s...", strings.ToUpper(s.ResourceType), s.Target)
+	label := fmt.Sprintf("Restarting %s %s...", restartKind(s.ResourceType), s.Target)
 	return m, tea.Batch(func() tea.Msg {
 		return ssmOpenedMsg{id: id, err: service.Restart(ctx, id, interactive), prepareID: prepareID, restart: true}
 	}, m.loadingUI.start(label, prepareLines(s.ResourceType)))
@@ -939,7 +939,7 @@ func (m ssmModel) signInAWSSelected(s *sessions.Session) (tea.Model, tea.Cmd) {
 // prepareLines entertain while a session of resourceType is prepared: a direct database has no
 // local port, jumphost or tunnel.
 func prepareLines(resourceType string) []string {
-	if resourceType == sessions.DirectResourceType || resourceType == sessions.DockerResourceType {
+	if resourceType == sessions.DirectResourceType || resourceType == sessions.DockerResourceType || resourceType == sessions.DockerCacheResourceType {
 		return []string{
 			"Looking up the database's address...",
 			"Setting up a seat for your AI assistant...",
@@ -1102,4 +1102,12 @@ func printSessionSummary(out io.Writer, list []sessions.Session) {
 			printf("  new session command: %s\n", s.Details.RestartCommand)
 		}
 	}
+}
+
+// restartKind is the upper-case kind shown while a session restarts: DOCKER for both Docker types.
+func restartKind(resourceType string) string {
+	if resourceType == sessions.DockerCacheResourceType {
+		resourceType = sessions.DockerResourceType
+	}
+	return strings.ToUpper(resourceType)
 }

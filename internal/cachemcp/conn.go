@@ -28,8 +28,10 @@ type ConnConfig struct {
 	Credentials CredentialProvider
 	// ServerName is the real endpoint host, checked against the certificate when TLS is on.
 	ServerName string
-	LocalPort  int
-	TLS        bool
+	// Host is where LocalPort listens; empty is localhost (the tunnel).
+	Host      string
+	LocalPort int
+	TLS       bool
 }
 
 // rootCAs verifies the cache certificates; nil uses the system roots, which trust ElastiCache.
@@ -52,8 +54,12 @@ func (c *clients) get(db int) *redis.Client {
 	if client, ok := c.byDB[db]; ok {
 		return client
 	}
+	host := c.cfg.Host
+	if host == "" {
+		host = "localhost"
+	}
 	options := &redis.Options{
-		Addr: net.JoinHostPort("localhost", strconv.Itoa(c.cfg.LocalPort)),
+		Addr: net.JoinHostPort(host, strconv.Itoa(c.cfg.LocalPort)),
 		DB:   db,
 		// RESP2 and no CLIENT SETINFO or maintenance notifications: every ElastiCache version answers.
 		Protocol:                 2,
@@ -106,7 +112,8 @@ func mapError(err error) error {
 	case strings.HasPrefix(message, "NOPERM"):
 		return fmt.Errorf("refused by the cache user's ACL: %s", message)
 	case strings.HasPrefix(message, "WRONGPASS"), strings.HasPrefix(message, "NOAUTH"):
-		return fmt.Errorf("%w: %s", ErrSignInRejected, message)
+		// Without the server's final period, callers can append to the message.
+		return fmt.Errorf("%w: %s", ErrSignInRejected, strings.TrimSuffix(message, "."))
 	default:
 		return err
 	}

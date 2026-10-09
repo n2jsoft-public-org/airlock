@@ -156,3 +156,15 @@ func TestServerToolsRefuseADatabaseOutOfRange(t *testing.T) {
 		t.Fatalf("clients created for %d databases, want none", len(c.clients.byDB))
 	}
 }
+
+func TestInstructionsDescribeHowTheCacheIsReached(t *testing.T) {
+	local := instructions(&ServerConfig{Engine: "redis", Target: "docker cache", Via: "a local Docker container reached directly at 127.0.0.1:6379."})
+	if !strings.Contains(local, "a local Docker container reached directly at 127.0.0.1:6379.") ||
+		strings.Contains(local, "ElastiCache") || strings.Contains(local, "profile") {
+		t.Fatalf("local instructions = %q", local)
+	}
+	aws := instructions(&ServerConfig{Engine: "valkey", Target: "sessions", Profile: "dev", Region: "eu-west-3"})
+	if !strings.Contains(aws, "(Amazon ElastiCache), reached through an airlock SSM tunnel. AWS profile dev, region eu-west-3.") {
+		t.Fatalf("elasticache instructions = %q", aws)
+	}
+}

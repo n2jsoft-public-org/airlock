@@ -67,3 +67,27 @@ func TestStartCallsOnRejectedOnce(t *testing.T) {
 		t.Fatalf("OnRejected called %d times, want 1", rejected)
 	}
 }
+
+func TestStartNamesAProfileLessSessionLikeADirectDatabase(t *testing.T) {
+	cases := []struct{ profile, target, want string }{
+		{"", "docker cache", "acme-docker-cache"},
+		{"dev", "sessions", "acme-dev-sessions-cache"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			t.Cleanup(mcpserve.IsolateLocks(t.TempDir()))
+			m := startRedis(t)
+			handle, err := Start(mcpserve.NewHost(), &SessionConfig{
+				ProjectDir: t.TempDir(), Profile: tc.profile, Target: tc.target, Engine: "redis",
+				LocalPort: portOf(t, m), ServerPrefix: "acme", SkipRegistration: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer handle.Close()
+			if !strings.Contains(handle.Display(), tc.want+" -> http://") {
+				t.Fatalf("display = %q, want name %q", handle.Display(), tc.want)
+			}
+		})
+	}
+}

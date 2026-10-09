@@ -3,7 +3,6 @@ package jumphost
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -134,12 +133,23 @@ func (s *sessionSignIn) checkCache(ctx context.Context, c SignInCandidate, port 
 	if err != nil {
 		return err
 	}
-	err = checkCacheSignIn(ctx, cachemcp.ConnConfig{Credentials: creds, ServerName: target.CacheEndpoint, LocalPort: port, TLS: target.CacheTLS})
+	return cacheSignInError(checkCacheSignIn(ctx, cachemcp.ConnConfig{Credentials: creds, ServerName: target.CacheEndpoint, LocalPort: port, TLS: target.CacheTLS}))
+}
+
+// cacheSignInError makes a credentials refusal of a cache match ErrSignInRejected, keeping the
+// cache's own message ("the cache rejected the credentials: …") rather than prefixing the
+// database one; other errors pass through.
+func cacheSignInError(err error) error {
 	if errors.Is(err, cachemcp.ErrSignInRejected) {
-		return fmt.Errorf("%w: %w", ErrSignInRejected, err)
+		return cacheRejected{err}
 	}
 	return err
 }
+
+// cacheRejected is a cache refusal that is also ErrSignInRejected; its message is the cache's.
+type cacheRejected struct{ error }
+
+func (e cacheRejected) Unwrap() []error { return []error{ErrSignInRejected, e.error} }
 
 func (s *sessionSignIn) Use(c SignInCandidate, options *Options) {
 	if c.SecretARN == "" || c.SecretARN == s.target.DBSecretARN {

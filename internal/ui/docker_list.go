@@ -42,7 +42,7 @@ func (i dockerItem) FilterValue() string {
 	return strings.Join([]string{i.c.Name, string(i.c.Engine), i.c.Image}, " ")
 }
 
-// dockerList is the target step of a Docker database: the running database containers, or why
+// dockerList is the target step of a Docker database: the running database and cache containers, or why
 // docker could not list them. loaded is false until the first listing arrives.
 type dockerList struct {
 	err    error
@@ -55,7 +55,7 @@ func newDockerList(styles Styles, containers []dockerdb.Container, err error, ac
 	items := make([]list.Item, 0, len(containers))
 	for idx := range containers {
 		c := &containers[idx]
-		items = append(items, dockerItem{c: *c, connected: active[dockerConnectionKey(c.Name)]})
+		items = append(items, dockerItem{c: *c, connected: active[dockerConnectionKey(c)]})
 	}
 	return dockerList{list: newWizardList(styles, items), err: err, loaded: loaded}
 }
@@ -115,16 +115,16 @@ func (p dockerList) Update(msg tea.Msg) (dockerList, dockerListOutcome, tea.Cmd)
 func (p dockerList) View(styles Styles, width int) string {
 	switch {
 	case !p.loaded:
-		return styles.Muted.Render(truncate("Looking for database containers...", width))
+		return styles.Muted.Render(truncate("Looking for database and cache containers...", width))
 	case p.err != nil:
 		return styles.Danger.Width(width).Render(p.err.Error())
 	case p.count() == 0:
-		return styles.Muted.Render(truncate("No running PostgreSQL or SQL Server container", width))
+		return styles.Muted.Render(truncate("No running database or cache container", width))
 	}
 	return p.list.View()
 }
 
-// dockerListedMsg carries a listing of the database containers.
+// dockerListedMsg carries a listing of the database and cache containers.
 type dockerListedMsg struct {
 	err        error
 	containers []dockerdb.Container
@@ -139,7 +139,7 @@ func (m jumphostWizardModel) enterDockerList() (tea.Model, tea.Cmd) {
 	return m, m.listDockerCmd()
 }
 
-// listDockerCmd lists the database containers.
+// listDockerCmd lists the database and cache containers.
 func (m jumphostWizardModel) listDockerCmd() tea.Cmd {
 	source, ctx := m.docker, m.ctx
 	return func() tea.Msg {
@@ -180,7 +180,7 @@ func (m jumphostWizardModel) updateDockerListStep(msg tea.Msg) (tea.Model, tea.C
 		return m.enterDockerReview(item.c)
 	case dockerListSwitch:
 		m.canceled = true
-		m.switchTo = dockerConnectionKey(item.c.Name)
+		m.switchTo = dockerConnectionKey(&item.c)
 		return m, m.finish()
 	case dockerListReload:
 		return m, m.listDockerCmd()
@@ -211,5 +211,5 @@ func (m jumphostWizardModel) dockerListKeys(help, quit [2]string) [][2]string {
 var dockerCard = resourceTypeOption{
 	name:  sessions.DockerResourceType,
 	title: "Docker database",
-	desc:  "PostgreSQL or SQL Server running in a local container, signed in with its own credentials",
+	desc:  "PostgreSQL, SQL Server, Redis or Valkey running in a local container, signed in with its own credentials",
 }
