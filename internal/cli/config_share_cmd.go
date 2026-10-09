@@ -61,7 +61,7 @@ func pickSettings(cmd *cobra.Command, path string) ([]string, error) {
 	for idx := range set {
 		choices[idx] = ui.ExportChoice{Name: set[idx].Name, Detail: set[idx].Value}
 	}
-	indexes, asked, err := pickExports(cmd, "Export config.json settings", choices)
+	indexes, asked, err := pickExports(cmd, "Export config.json settings", "export", choices)
 	if err != nil || !asked {
 		return nil, err
 	}
@@ -77,7 +77,9 @@ func newConfigImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import <string>",
 		Short: "Apply a string of `airlock config export`, after showing what it changes",
-		Args:  cobra.ExactArgs(1),
+		Long: "Shows what the string changes in config.json, then, in a terminal, lists every change, all " +
+			"selected, to uncheck those to leave out; without a terminal it asks to apply them all.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := appdir.ConfigFile()
 			if err != nil {
@@ -92,8 +94,20 @@ func newConfigImportCmd() *cobra.Command {
 				outf(cmd, "Nothing to change: %s already has these values.\n", path)
 				return nil
 			}
-			if !yes && !confirm(cmd, "Apply these changes to "+path+"? [y/N] ") {
-				return errors.New("not applied")
+			if !yes {
+				keys, asked, err := pickImports(cmd, &plan)
+				switch {
+				case errors.Is(err, ui.ErrExportCanceled):
+					return errors.New("not applied")
+				case err != nil:
+					return err
+				case asked:
+					if plan, err = config.PlanImport(path, args[0], replace, keys...); err != nil {
+						return err
+					}
+				case !confirm(cmd, "Apply these changes to "+path+"? [y/N] "):
+					return errors.New("not applied")
+				}
 			}
 			if err := config.ApplyImport(&plan); err != nil {
 				return err
@@ -105,6 +119,30 @@ func newConfigImportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&replace, "replace", false, "Make config.json exactly the imported settings, removing the others")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Apply without asking")
 	return cmd
+}
+
+// pickImports lets the user uncheck the changes of plan to leave out, and returns the keys kept;
+// asked is false without a terminal.
+func pickImports(cmd *cobra.Command, plan *config.Plan) (keys []string, asked bool, err error) {
+	var changed []config.Change
+	for _, c := range plan.Changes {
+		if c.Kind != config.ChangeUnchanged {
+			changed = append(changed, c)
+		}
+	}
+	choices := make([]ui.ExportChoice, len(changed))
+	for idx, c := range changed {
+		choices[idx] = ui.ExportChoice{Name: c.Name, Detail: changeSigns[c.Kind] + " " + shownValue(c.Old, c.OldDefault) + " → " + shownValue(c.New, c.NewDefault)}
+	}
+	indexes, asked, err := pickExports(cmd, "Import into "+plan.Path, "import", choices)
+	if err != nil || !asked {
+		return nil, asked, err
+	}
+	keys = make([]string, len(indexes))
+	for pos, idx := range indexes {
+		keys[pos] = changed[idx].Name
+	}
+	return keys, true, nil
 }
 
 // changeSigns mark each kind of change in the import summary.

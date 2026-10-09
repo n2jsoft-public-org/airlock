@@ -11,7 +11,7 @@ import (
 )
 
 func newTestExportPicker() exportPicker {
-	return newExportPicker(NewStyles(true), "Export direct databases", []ExportChoice{
+	return newExportPicker(NewStyles(true), "Export direct databases", "export", []ExportChoice{
 		{Name: "archive", Detail: "postgres · archive.internal:5432 · reader"},
 		{Name: "billing", Detail: "sqlserver · billing.internal:1433 · app", Environment: environment.Env{Name: "prod", Production: true, Configured: true}},
 		{Name: "reporting", Detail: "postgres · reporting.internal:6432 · bi", Environment: environment.Env{Name: "dev", Configured: true}},
@@ -99,7 +99,7 @@ func TestExportPickerScrollsToTheCursor(t *testing.T) {
 	for idx := range choices {
 		choices[idx] = ExportChoice{Name: "db-" + string(rune('a'+idx%26)) + strings.Repeat("x", idx/26)}
 	}
-	model, _ := newExportPicker(NewStyles(true), "Export", choices).Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	model, _ := newExportPicker(NewStyles(true), "Export", "export", choices).Update(tea.WindowSizeMsg{Width: 80, Height: 12})
 	p, _ := exportKeys(t, asExportPicker(t, model), "end")
 	view := ansi.Strip(p.render())
 	if strings.Contains(view, "db-a ") || !strings.Contains(view, "db-dx") {

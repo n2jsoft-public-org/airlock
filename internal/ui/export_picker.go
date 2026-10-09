@@ -23,10 +23,11 @@ type ExportChoice struct {
 
 const exportPickerMaxWidth = 100
 
-// exportPicker is the checklist of the items to export, all checked at start.
+// exportPicker is the checklist of the items to export (or import, its verb), all checked at start.
 type exportPicker struct {
 	styles   Styles
 	title    string
+	verb     string
 	choices  []ExportChoice
 	checked  []bool
 	cursor   int
@@ -36,19 +37,19 @@ type exportPicker struct {
 	canceled bool
 }
 
-func newExportPicker(styles Styles, title string, choices []ExportChoice) exportPicker {
+func newExportPicker(styles Styles, title, verb string, choices []ExportChoice) exportPicker {
 	checked := make([]bool, len(choices))
 	for idx := range checked {
 		checked[idx] = true
 	}
-	return exportPicker{title: title, choices: choices, checked: checked, styles: styles, width: exportPickerMaxWidth}
+	return exportPicker{title: title, verb: verb, choices: choices, checked: checked, styles: styles, width: exportPickerMaxWidth}
 }
 
-// PickExports lets the user uncheck the choices not to export, drawing on out, and returns the
-// indexes of the checked ones in order; ErrExportCanceled when the user leaves.
-func PickExports(title string, choices []ExportChoice, in, out *os.File) ([]int, error) {
+// PickExports lets the user uncheck the choices not to export (or verb), drawing on out, and returns
+// the indexes of the checked ones in order; ErrExportCanceled when the user leaves.
+func PickExports(title, verb string, choices []ExportChoice, in, out *os.File) ([]int, error) {
 	styles := NewStyles(lipgloss.HasDarkBackground(in, out))
-	program := tea.NewProgram(newExportPicker(styles, title, choices), tea.WithInput(in), tea.WithOutput(out))
+	program := tea.NewProgram(newExportPicker(styles, title, verb, choices), tea.WithInput(in), tea.WithOutput(out))
 	final, err := program.Run()
 	if err != nil {
 		return nil, err
@@ -133,9 +134,9 @@ func (p exportPicker) render() string {
 	lines = append(lines, p.renderRows(width)...)
 	lines = append(lines, "")
 	if count == 0 {
-		lines = append(lines, p.styles.Warning.Render("Select at least one item to export."))
+		lines = append(lines, p.styles.Warning.Render("Select at least one item to "+p.verb+"."))
 	}
-	hints := [][2]string{{"↑↓", "move"}, {"space", "toggle"}, {"a", "all/none"}, {"enter", "export"}, {"esc", "cancel"}}
+	hints := [][2]string{{"↑↓", "move"}, {"space", "toggle"}, {"a", "all/none"}, {"enter", p.verb}, {"esc", "cancel"}}
 	lines = append(lines, p.styles.KeyHintsPinned(hints, 2, width))
 	return strings.Join(lines, "\n")
 }

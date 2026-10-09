@@ -187,6 +187,49 @@ func TestPlanImportReplaceRemovesLocalKeys(t *testing.T) {
 	}
 }
 
+func TestPlanImportOfChosenKeysLeavesTheOthers(t *testing.T) {
+	shared := encodeShare([]byte(`{"jumphostTag": "Env=bastion", "defaultRegion": "eu-west-3"}`))
+	target := writeConfig(t, `{"jumphostTag": "Usage=jumphost", "defaultDbUser": "acme_ro"}`)
+
+	plan, err := PlanImport(target, shared, false, "defaultRegion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || plan.Changes[0].Name != "defaultRegion" {
+		t.Fatalf("changes = %+v, want only defaultRegion", plan.Changes)
+	}
+	if err = ApplyImport(&plan); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(target)
+	if err != nil || cfg.JumphostTag.String() != "Usage=jumphost" || cfg.DefaultRegion != "eu-west-3" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+}
+
+func TestPlanImportReplaceKeepsTheKeysLeftOut(t *testing.T) {
+	shared := encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`))
+	target := writeConfig(t, `{"defaultDbUser": "acme_ro", "mcpServerPrefix": "acme"}`)
+
+	plan, err := PlanImport(target, shared, true, "defaultRegion", "mcpServerPrefix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyImport(&plan); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := Settings(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := settingOf(t, settings, "defaultDbUser"); s.Source != SourceFile || s.Value != "acme_ro" {
+		t.Fatalf("defaultDbUser = %+v, want kept", s)
+	}
+	if s := settingOf(t, settings, "mcpServerPrefix"); s.Source != SourceDefault {
+		t.Fatalf("mcpServerPrefix = %+v, want removed", s)
+	}
+}
+
 func TestPlanImportWithNothingToChange(t *testing.T) {
 	target := writeConfig(t, `{"defaultRegion": "eu-west-3"}`)
 	plan, err := PlanImport(target, encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`)), false)

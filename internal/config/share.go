@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/environment"
@@ -86,8 +87,9 @@ func Export(path string, keys ...string) (string, error) {
 }
 
 // PlanImport decodes shared and computes what importing it into path changes: its keys overwrite
-// those of the file, and with replace the file's other keys are removed. Nothing is written.
-func PlanImport(path, shared string, replace bool) (Plan, error) {
+// those of the file, and with replace the file's other keys are removed. When any keys are given,
+// only those are imported or removed, the others left as the file has them. Nothing is written.
+func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error) {
 	incoming, err := decodeShare(shared)
 	if err != nil {
 		return Plan{}, err
@@ -102,12 +104,21 @@ func PlanImport(path, shared string, replace bool) (Plan, error) {
 		return Plan{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 
+	picked := func(name string) bool { return len(keys) == 0 || slices.Contains(keys, name) }
 	result := local
 	if replace {
 		result = file{}
+		for _, key := range Keys {
+			if !picked(key.Name) {
+				*result.field(key.Name) = *local.field(key.Name)
+			}
+		}
+		if !picked("environments") {
+			result.ProductionProfiles = local.ProductionProfiles
+		}
 	}
 	for _, key := range Keys {
-		if value := *incoming.field(key.Name); value != nil {
+		if value := *incoming.field(key.Name); value != nil && picked(key.Name) {
 			*result.field(key.Name) = value
 		}
 	}
@@ -122,6 +133,9 @@ func PlanImport(path, shared string, replace bool) (Plan, error) {
 	oldValues, newValues := before.values(), after.values()
 	plan := Plan{Path: path, result: result}
 	for _, key := range Keys {
+		if !picked(key.Name) {
+			continue
+		}
 		inLocal := local.sets(key.Name)
 		inIncoming := incoming.sets(key.Name)
 		change := Change{

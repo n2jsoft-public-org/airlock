@@ -66,7 +66,7 @@ func pickDatabases(cmd *cobra.Command, dbs []directdb.Database, envs environment
 	for idx := range dbs {
 		choices[idx] = ui.ExportChoice{Name: dbs[idx].Name, Detail: describeExport(&dbs[idx]), Environment: envs.Lookup(dbs[idx].Environment)}
 	}
-	indexes, asked, err := pickExports(cmd, "Export direct databases", choices)
+	indexes, asked, err := pickExports(cmd, "Export direct databases", "export", choices)
 	if err != nil || !asked {
 		return dbs, err
 	}

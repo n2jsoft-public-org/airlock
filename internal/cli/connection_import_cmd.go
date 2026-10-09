@@ -9,6 +9,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -17,8 +18,10 @@ func newConnectionImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import <string>",
 		Short: "Add or update direct databases from a string of `airlock connection export`, after showing what it changes",
-		Long:  "Adds the databases of the string and updates those of the same name; it never removes a database.",
-		Args:  cobra.ExactArgs(1),
+		Long: "Adds the databases of the string and updates those of the same name; it never removes a database. " +
+			"In a terminal, every change is then listed, all selected, to uncheck those to leave out; without a " +
+			"terminal it asks to apply them all.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := openDatabases(cmd)
 			if err != nil {
@@ -45,8 +48,18 @@ func newConnectionImportCmd() *cobra.Command {
 				outf(cmd, "Nothing to change: %s already has these databases.\n", store.Path())
 				return nil
 			}
-			if !yes && !confirm(cmd, "Apply these changes to "+store.Path()+"? [y/N] ") {
-				return errors.New("not applied")
+			if !yes {
+				kept, asked, err := pickDatabaseImports(cmd, &plan, replaced, cfg.EnvironmentSet())
+				switch {
+				case errors.Is(err, ui.ErrExportCanceled):
+					return errors.New("not applied")
+				case err != nil:
+					return err
+				case asked:
+					plan.Changes = kept
+				case !confirm(cmd, "Apply these changes to "+store.Path()+"? [y/N] "):
+					return errors.New("not applied")
+				}
 			}
 			canonicalizeProduction(&plan, cfg.EnvironmentSet())
 			if err := forgetChangedConnections(cmd, store, &plan, replaced); err != nil {
@@ -111,29 +124,62 @@ func printDatabasePlan(cmd *cobra.Command, path string, plan *directdb.ImportPla
 	outf(cmd, "Import into %s:\n\n", path)
 	for idx := range plan.Changes {
 		change := &plan.Changes[idx]
-		line := fmt.Sprintf("  %s %s (%s)", databaseChangeSigns[change.Kind], change.Database.Name, change.Kind)
-		if change.Kind == directdb.ChangeUpdated {
-			fields := make([]string, 0, len(change.Fields))
-			for _, field := range change.Fields {
-				fields = append(fields, fmt.Sprintf("%s %s -> %s", field.Field, field.Old, field.New))
-			}
-			line += ": " + strings.Join(fields, ", ")
-		}
-		forgets := change.ConnectionChanged()
-		if entry, found := replaced[change.Database.Name]; found {
-			line = fmt.Sprintf("  %s %s (replaces an invalid entry)", databaseChangeSigns[directdb.ChangeUpdated], change.Database.Name)
-			user, _ := entry.DirectUser()
-			forgets = user != ""
-		}
-		if forgets {
-			line += " (remembered password will be forgotten)"
-		}
-		outf(cmd, "%s\n", line)
+		sign, detail := describeDatabaseChange(change, replaced)
+		outf(cmd, "  %s %s %s\n", sign, change.Database.Name, detail)
 		if env := envs.Lookup(change.Database.Environment); !env.IsZero() && !env.Configured {
 			outf(cmd, "      environment %s is not in your environments setting: shown gray, not production\n", env.Name)
 		}
 	}
 	outf(cmd, "\n")
+}
+
+// describeDatabaseChange tells what the import does to change: its sign and, to follow its name,
+// how. A database replacing an invalid entry of replaced is told apart from an added one.
+func describeDatabaseChange(change *directdb.ImportChange, replaced map[string]connections.Entry) (sign, detail string) {
+	sign, detail = databaseChangeSigns[change.Kind], "("+string(change.Kind)+")"
+	if change.Kind == directdb.ChangeUpdated {
+		fields := make([]string, 0, len(change.Fields))
+		for _, field := range change.Fields {
+			fields = append(fields, fmt.Sprintf("%s %s -> %s", field.Field, field.Old, field.New))
+		}
+		detail += ": " + strings.Join(fields, ", ")
+	}
+	forgets := change.ConnectionChanged()
+	if entry, found := replaced[change.Database.Name]; found {
+		sign, detail = databaseChangeSigns[directdb.ChangeUpdated], "(replaces an invalid entry)"
+		user, _ := entry.DirectUser()
+		forgets = user != ""
+	}
+	if forgets {
+		detail += " (remembered password will be forgotten)"
+	}
+	return sign, detail
+}
+
+// pickDatabaseImports lets the user uncheck the databases of plan to leave out, and returns the
+// changes kept; asked is false without a terminal.
+func pickDatabaseImports(cmd *cobra.Command, plan *directdb.ImportPlan, replaced map[string]connections.Entry, envs environment.Set) (kept []directdb.ImportChange, asked bool, err error) {
+	var changed []directdb.ImportChange
+	for idx := range plan.Changes {
+		if plan.Changes[idx].Kind != directdb.ChangeUnchanged {
+			changed = append(changed, plan.Changes[idx])
+		}
+	}
+	choices := make([]ui.ExportChoice, len(changed))
+	for idx := range changed {
+		sign, detail := describeDatabaseChange(&changed[idx], replaced)
+		db := &changed[idx].Database
+		choices[idx] = ui.ExportChoice{Name: db.Name, Detail: sign + " " + detail, Environment: envs.Lookup(db.Environment)}
+	}
+	indexes, asked, err := pickExports(cmd, "Import direct databases", "import", choices)
+	if err != nil || !asked {
+		return nil, asked, err
+	}
+	kept = make([]directdb.ImportChange, len(indexes))
+	for pos, idx := range indexes {
+		kept[pos] = changed[idx]
+	}
+	return kept, true, nil
 }
 
 // forgetChangedConnections forgets the prefs and keychain password of every database the import
