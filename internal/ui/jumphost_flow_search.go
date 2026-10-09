@@ -2,12 +2,12 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -37,15 +37,15 @@ func (m jumphostWizardModel) beginSearch() (tea.Model, tea.Cmd) {
 // startSearch lists the targets of every type in the current profile and region.
 func (m jumphostWizardModel) startSearch() (tea.Model, tea.Cmd) {
 	if m.currentRegion() == "" && m.regionResolved {
-		m.errorMsg = "No AWS region set for this profile: pick one"
+		m.errorMsg = i18n.T("ui.jumphost_flow.no_aws_region_set")
 		m.regionUnblocks = true
 		return m.openRegionPicker()
 	}
 	m.errorMsg = ""
 	m.loading = true
-	label := "Searching every resource type..."
+	label := i18n.T("ui.jumphost_flow_search.searching_every_resource_type")
 	if region := m.currentRegion(); region != "" {
-		label = fmt.Sprintf("Searching RDS, EKS and ElastiCache targets in %s...", region)
+		label = i18n.Format("ui.jumphost_flow_search.searching_rds_eks_and", region)
 	}
 	opts := m.options
 	search := func(ctx context.Context) tea.Cmd {
@@ -56,9 +56,9 @@ func (m jumphostWizardModel) startSearch() (tea.Model, tea.Cmd) {
 	}
 	load := m.await(search, true)
 	return m, tea.Batch(load, m.loadingUI.start(label, []string{
-		"Opening the cloud map...",
-		"Asking every service at once...",
-		"Querying AWS with dramatic suspense...",
+		i18n.T("ui.jumphost_flow.opening_cloud_map"),
+		i18n.T("ui.jumphost_flow_search.asking_every_service_at"),
+		i18n.T("ui.jumphost_flow.querying_aws_with_dramatic"),
 	}))
 }
 
@@ -69,11 +69,11 @@ func (m jumphostWizardModel) handleSearchLoaded(msg jumphostSearchLoadedMsg) (te
 	m.loadingUI.stop()
 	switch {
 	case msg.err != nil:
-		return m.failDiscovery(msg.err.Error(), true)
+		return m.failDiscovery(i18n.Localize(msg.err), true)
 	case len(msg.targets) == 0 && len(msg.failures) > 0:
 		return m.failDiscovery(searchFailureSummary(msg.failures), true)
 	case len(msg.targets) == 0:
-		return m.failDiscovery("No targets found in "+m.currentRegion(), true)
+		return m.failDiscovery(i18n.Format("ui.wizard.no_targets_in", m.currentRegion()), true)
 	}
 
 	m.searchWarnings = searchFailureSummary(msg.failures)
@@ -97,8 +97,8 @@ func searchFailureSummary(failures map[string]error) string {
 	parts := make([]string, 0, len(failures))
 	for _, resourceType := range searchTypeOrder {
 		if err, ok := failures[resourceType]; ok {
-			reason := err.Error()
-			if match := awsErrorCode.FindStringSubmatch(reason); match != nil {
+			reason := i18n.Localize(err)
+			if match := awsErrorCode.FindStringSubmatch(err.Error()); match != nil {
 				reason = match[1]
 			}
 			parts = append(parts, strings.ToUpper(resourceType)+": "+reason)

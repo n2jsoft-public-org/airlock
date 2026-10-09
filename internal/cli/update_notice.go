@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
 	"github.com/n2jsoft/airlock/internal/version"
 )
@@ -49,9 +50,9 @@ func refreshUpdateCheck(ctx context.Context, env updateEnv) error {
 }
 
 func wizardUpdateNotice(latest string) string {
-	return "update available: " + latest + " · run airlock update"
+	return i18n.Format("cli.update_notice.wizard", latest)
 }
 
 func stderrUpdateNotice(latest string) string {
-	return "A new airlock is available (" + latest + "): run airlock update"
+	return i18n.Format("cli.update_notice.stderr", latest)
 }

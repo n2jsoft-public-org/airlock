@@ -3,12 +3,12 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -17,11 +17,9 @@ func newConnectionImportCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "import <string>",
-		Short: "Add or update direct databases from a string of `airlock connection export`, after showing what it changes",
-		Long: "Adds the databases of the string and updates those of the same name; it never removes a database. " +
-			"In a terminal, every change is then listed, all selected, to uncheck those to leave out; without a " +
-			"terminal it asks to apply them all.",
-		Args: cobra.ExactArgs(1),
+		Short: i18n.T("cli.connection_import.short"),
+		Long:  i18n.T("cli.connection_import.long"),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := openDatabases(cmd)
 			if err != nil {
@@ -45,20 +43,20 @@ func newConnectionImportCmd() *cobra.Command {
 			}
 			printDatabasePlan(cmd, store.Path(), &plan, replaced, cfg.EnvironmentSet())
 			if !plan.HasChanges() {
-				outf(cmd, "Nothing to change: %s already has these databases.\n", store.Path())
+				outf(cmd, i18n.T("cli.connection_import.nothing_to_change_already"), store.Path())
 				return nil
 			}
 			if !yes {
 				kept, asked, err := pickDatabaseImports(cmd, &plan, replaced, cfg.EnvironmentSet())
 				switch {
 				case errors.Is(err, ui.ErrExportCanceled):
-					return errors.New("not applied")
+					return errors.New(i18n.T("cli.connection_import.not_applied"))
 				case err != nil:
 					return err
 				case asked:
 					plan.Changes = kept
-				case !confirm(cmd, "Apply these changes to "+store.Path()+"? [y/N] "):
-					return errors.New("not applied")
+				case !confirm(cmd, i18n.Format("cli.apply_changes_confirm", store.Path())):
+					return errors.New(i18n.T("cli.connection_import.not_applied"))
 				}
 			}
 			canonicalizeProduction(&plan, cfg.EnvironmentSet())
@@ -68,11 +66,11 @@ func newConnectionImportCmd() *cobra.Command {
 			if err := directdb.ApplyImport(store, &plan); err != nil {
 				return err
 			}
-			outf(cmd, "Imported %s into %s\n", pluralDatabases(&plan), store.Path())
+			outf(cmd, i18n.T("cli.connection_import.imported"), pluralDatabases(&plan), store.Path())
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "Apply without asking")
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T("cli.connection_import.flag.yes"))
 	return cmd
 }
 
@@ -121,13 +119,13 @@ func invalidEntriesReplaced(store *connections.Databases, plan *directdb.ImportP
 // this is where the importer reviews it. A database replacing an invalid entry of replaced is told
 // apart from an added one.
 func printDatabasePlan(cmd *cobra.Command, path string, plan *directdb.ImportPlan, replaced map[string]connections.Entry, envs environment.Set) {
-	outf(cmd, "Import into %s:\n\n", path)
+	outf(cmd, i18n.T("cli.connection_import.import_into"), path)
 	for idx := range plan.Changes {
 		change := &plan.Changes[idx]
 		sign, detail := describeDatabaseChange(change, replaced)
 		outf(cmd, "  %s %s %s\n", sign, change.Database.Name, detail)
 		if env := envs.Lookup(change.Database.Environment); !env.IsZero() && !env.Configured {
-			outf(cmd, "      environment %s is not in your environments setting: shown gray, not production\n", env.Name)
+			outf(cmd, i18n.T("cli.connection_import.environment_is_not_in"), env.Name)
 		}
 	}
 	outf(cmd, "\n")
@@ -146,12 +144,12 @@ func describeDatabaseChange(change *directdb.ImportChange, replaced map[string]c
 	}
 	forgets := change.ConnectionChanged()
 	if entry, found := replaced[change.Database.Name]; found {
-		sign, detail = databaseChangeSigns[directdb.ChangeUpdated], "(replaces an invalid entry)"
+		sign, detail = databaseChangeSigns[directdb.ChangeUpdated], i18n.T("cli.connection_import.replaces_invalid")
 		user, _ := entry.DirectUser()
 		forgets = user != ""
 	}
 	if forgets {
-		detail += " (remembered password will be forgotten)"
+		detail += i18n.T("cli.connection_import.password_forgotten")
 	}
 	return sign, detail
 }
@@ -171,7 +169,7 @@ func pickDatabaseImports(cmd *cobra.Command, plan *directdb.ImportPlan, replaced
 		db := &changed[idx].Database
 		choices[idx] = ui.ExportChoice{Name: db.Name, Detail: sign + " " + detail, Environment: envs.Lookup(db.Environment)}
 	}
-	indexes, asked, err := pickExports(cmd, "Import direct databases", "import", choices)
+	indexes, asked, err := pickExports(cmd, i18n.T("cli.connection_import.import_direct_databases"), i18n.T("ui.hint.import"), choices)
 	if err != nil || !asked {
 		return nil, asked, err
 	}
@@ -196,7 +194,7 @@ func forgetChangedConnections(cmd *cobra.Command, store *connections.Databases, 
 			err = forgetDirectConnection(cmd.Context(), cmd, store, name)
 		}
 		if err != nil {
-			return fmt.Errorf("nothing imported: the connection remembered for %s was not forgotten: %w", name, err)
+			return i18n.NewError("cli.connection_import.nothing_imported_connection_remembered", name, err)
 		}
 	}
 	return nil
@@ -209,8 +207,5 @@ func pluralDatabases(plan *directdb.ImportPlan) string {
 			count++
 		}
 	}
-	if count == 1 {
-		return "1 database"
-	}
-	return strconv.Itoa(count) + " databases"
+	return i18n.Plural(count, "cli.count.database")
 }

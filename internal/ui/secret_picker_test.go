@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -120,5 +121,14 @@ func TestWizardSecretFlagSeedsReview(t *testing.T) {
 	m, cmd := wizardUpdate(t, m, key("enter"))
 	if !isQuit(cmd) || m.options.DBSecretARN != arn || m.options.SignIn != jumphost.SignInSecret {
 		t.Fatalf("options = %+v, want the flag secret", m.options)
+	}
+}
+
+func TestSecretPickerMarksLinkedSecretsInFrench(t *testing.T) {
+	i18n.SetLanguage("fr")
+	t.Cleanup(func() { i18n.SetLanguage("en") })
+	view := newSecretPicker("eu-west-3").loaded(pickerSecrets, nil).View(NewStyles(true), 100, 30)
+	if strings.Contains(view, "linked") || !strings.Contains(view, "lié") {
+		t.Fatalf("the linked mark is not French:\n%s", view)
 	}
 }

@@ -37,19 +37,21 @@ const (
 
 // Event is one change of the sessions. Seq orders the events and snapshots of one service.
 type Event struct {
-	Session    *Session            `json:"session,omitempty"`
-	Query      *mcpserve.ToolEvent `json:"query,omitempty"`
-	Approval   *Approval           `json:"approval,omitempty"`
-	Kind       EventKind           `json:"kind"`
-	Notice     string              `json:"notice,omitempty"`
-	Name       string              `json:"name,omitempty"`
-	User       string              `json:"user,omitempty"`
-	Err        string              `json:"err,omitempty"`
-	Lines      []LogLine           `json:"lines,omitempty"`
-	ApprovalID ApprovalID          `json:"approvalId,omitempty"`
-	Seq        uint64              `json:"seq"`
-	ID         ID                  `json:"id,omitempty"`
-	Approved   bool                `json:"approved,omitempty"`
+	Session  *Session            `json:"session,omitempty"`
+	Query    *mcpserve.ToolEvent `json:"query,omitempty"`
+	Approval *Approval           `json:"approval,omitempty"`
+	Kind     EventKind           `json:"kind"`
+	Notice   string              `json:"notice,omitempty"`
+	Name     string              `json:"name,omitempty"`
+	User     string              `json:"user,omitempty"`
+	Err      string              `json:"err,omitempty"`
+	// LocalErr is Err in the user's language, for the dashboards; Err stays English for agents.
+	LocalErr   string     `json:"localErr,omitempty"`
+	Lines      []LogLine  `json:"lines,omitempty"`
+	ApprovalID ApprovalID `json:"approvalId,omitempty"`
+	Seq        uint64     `json:"seq"`
+	ID         ID         `json:"id,omitempty"`
+	Approved   bool       `json:"approved,omitempty"`
 }
 
 // Snapshot is every session at event Seq: apply only the events with a greater Seq.

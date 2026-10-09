@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -102,7 +103,7 @@ func (m jumphostWizardModel) directReviewFields() []int {
 // submitDirectReview connects to the direct database with the typed password.
 func (m jumphostWizardModel) submitDirectReview() (tea.Model, tea.Cmd) {
 	if m.passwordInput.Value() == "" {
-		m.errorMsg = "Enter the password of " + m.directDB.User
+		m.errorMsg = i18n.Format("ui.review.enter_password_of", m.directDB.User)
 		return m.focusReviewField(reviewFieldPassword), nil
 	}
 	m.options.ResourceType = sessions.DirectResourceType
@@ -130,35 +131,35 @@ func (m jumphostWizardModel) renderDirectReviewPanel(width int, compact bool) st
 	name = m.envPrefix(env) + name
 	var rows []string
 	if compact {
-		rows = append(rows, m.reviewRow("Target", m.styles.ResourceBadge(sessions.DirectResourceType)+" "+name, inner))
+		rows = append(rows, m.reviewRow(i18n.T("ui.jumphost_flow_view.target"), m.styles.ResourceBadge(sessions.DirectResourceType)+" "+name, inner))
 	} else {
 		rows = append(rows,
-			m.reviewRow("Type", m.styles.ResourceBadge(sessions.DirectResourceType)+" "+m.styles.Muted.Render(string(db.Engine)), inner),
-			m.reviewRow("Target", name, inner),
-			m.reviewRow("Server", db.Address()+m.styles.Faint.Render(" · TLS "+string(db.EffectiveTLS())), inner),
-			m.reviewRow("Database", m.directDatabaseLabel(), inner),
-			m.reviewRow("User", db.User+m.styles.Faint.Render("  edit with e in the list"), inner),
+			m.reviewRow(i18n.T("ui.jumphost_flow_view.type"), m.styles.ResourceBadge(sessions.DirectResourceType)+" "+m.styles.Muted.Render(string(db.Engine)), inner),
+			m.reviewRow(i18n.T("ui.jumphost_flow_view.target"), name, inner),
+			m.reviewRow(i18n.T("ui.direct_review.server"), db.Address()+m.styles.Faint.Render(i18n.Format("ui.direct_review.tls", string(db.EffectiveTLS()))), inner),
+			m.reviewRow(i18n.T("ui.direct_form.database"), m.directDatabaseLabel(), inner),
+			m.reviewRow(i18n.T("ui.jumphost_flow_view.user"), db.User+m.styles.Faint.Render(i18n.T("ui.direct_review.edit_with_e_in")), inner),
 			m.styles.Rule.Render(strings.Repeat("─", inner)),
 		)
 	}
 
-	passwordHelp, rememberHelp := reviewPasswordHelp, reviewRememberHelp
-	mcpHelp := "Space toggles. On, AI assistants write as " + db.User + "."
+	passwordHelp, rememberHelp := i18n.T(reviewPasswordHelp), i18n.T(reviewRememberHelp)
+	mcpHelp := i18n.Format("ui.review.mcp_writes_as", db.User)
 	if compact {
 		passwordHelp, rememberHelp, mcpHelp = "", "", ""
 	}
-	rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", inputView(m.passwordInput), passwordHelp, inner)...)
+	rows = append(rows, m.reviewInput(reviewFieldPassword, i18n.T("ui.jumphost_flow_view.password"), inputView(m.passwordInput), passwordHelp, inner)...)
 	switch {
 	case m.keychainAvailable:
-		rows = append(rows, m.reviewInput(reviewFieldRemember, "Remember", m.rememberToggle(), rememberHelp, inner)...)
+		rows = append(rows, m.reviewInput(reviewFieldRemember, i18n.T("ui.jumphost_flow_view.remember"), m.rememberToggle(), rememberHelp, inner)...)
 	case m.directChoicesLoaded:
-		rows = append(rows, m.reviewRow("Remember", m.styles.Faint.Render(reviewNoKeychain), inner))
+		rows = append(rows, m.reviewRow(i18n.T("ui.jumphost_flow_view.remember"), m.styles.Faint.Render(i18n.T(reviewNoKeychain)), inner))
 	}
 	if m.mcpWritesApply() {
-		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, "MCP", m.mcpWritesToggle(), mcpHelp, inner)...)
+		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, i18n.T("ui.jumphost_flow_view.mcp"), m.mcpWritesToggle(), mcpHelp, inner)...)
 		// SQL Server has no read-only transaction: read-only access rests on the user's grants.
 		if !m.mcpWrites && jumphost.DirectReadOnlyWarning(db) != "" {
-			rows = append(rows, "  "+m.styles.Warning.Render(truncate("⚠ Read-only rests on "+db.User+"'s permissions (SQL Server)", inner-2)))
+			rows = append(rows, "  "+m.styles.Warning.Render(truncate(i18n.Format("ui.review.read_only_rests_on", db.User), inner-2)))
 		}
 	}
 
@@ -176,9 +177,9 @@ func (m jumphostWizardModel) directDatabaseLabel() string {
 	case m.directDB.Database != "":
 		return m.directDB.Database
 	case m.directDB.Engine == directdb.EnginePostgres:
-		return "postgres" + m.styles.Faint.Render(" (default)")
+		return "postgres" + m.styles.Faint.Render(i18n.T("ui.direct_review.default"))
 	default:
-		return m.styles.Faint.Render("the login's default")
+		return m.styles.Faint.Render(i18n.T("ui.direct_review.login_default"))
 	}
 }
 
@@ -202,7 +203,7 @@ func (m jumphostWizardModel) directDefinitions() map[string]directdb.Database {
 // directDefinition reads the definition of the direct database name.
 func (m jumphostWizardModel) directDefinition(name string) (directdb.Database, error) {
 	if m.databases == nil {
-		return directdb.Database{}, errors.New("direct databases are not available")
+		return directdb.Database{}, errors.New(i18n.T("ui.direct_review.direct_databases_are_not"))
 	}
 	db, found, err := m.databases.Get(name)
 	switch {
@@ -219,7 +220,7 @@ func (m jumphostWizardModel) directDefinition(name string) (directdb.Database, e
 func (m jumphostWizardModel) openRecentDirect(conn jumphost.SavedConnection) (tea.Model, tea.Cmd) {
 	db, err := m.directDefinition(conn.Ref.Name)
 	if err != nil {
-		m.errorMsg = err.Error()
+		m.errorMsg = i18n.Localize(err)
 		return m, nil
 	}
 	m.flow = flowRecent
@@ -236,7 +237,7 @@ func (m jumphostWizardModel) openDirectAtStart(name string) (tea.Model, tea.Cmd)
 	m.openDirectError = ""
 	db, err := m.directDefinition(name)
 	if err != nil {
-		m.errorMsg = err.Error()
+		m.errorMsg = i18n.Localize(err)
 		return m, nil
 	}
 	options := m.typeOptions()

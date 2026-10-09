@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // searchableResourceTypes are the types SearchResources looks through, in display order.
@@ -108,7 +110,7 @@ func findResourceByName(resources []ResourceSummary, name, resourceType, region 
 			return resource, nil
 		}
 	}
-	return ResourceSummary{}, fmt.Errorf("%s target %s no longer exists in %s", strings.ToUpper(resourceType), name, region)
+	return ResourceSummary{}, i18n.NewError("jumphost.search.target_no_longer_exists", strings.ToUpper(resourceType), name, region)
 }
 
 // checkAccount accepts profileAccount when it is want, or when no account is expected.
@@ -119,7 +121,7 @@ func checkAccount(profile, profileAccount, want string) error {
 	case want == "" || profileAccount == want:
 		return nil
 	case profileAccount == "":
-		return fmt.Errorf("cannot confirm that profile %s reaches account %s", profile, want)
+		return i18n.NewError("jumphost.search.cannot_confirm_that_profile", profile, want)
 	default:
 		return &AccountMismatchError{Profile: profile, ProfileAccount: profileAccount, EntryAccount: want}
 	}

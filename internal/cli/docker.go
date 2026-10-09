@@ -2,10 +2,10 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/dockerdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
@@ -28,21 +28,21 @@ func dockerContainers() jumphost.DockerContainers {
 func checkDockerTarget(cmd *cobra.Command, args []string, containers jumphost.DockerContainers, interactive bool) (string, error) {
 	for _, flag := range directRefusedFlags {
 		if cmd.Flags().Changed(flag) {
-			return "", fmt.Errorf("--%s does not apply to docker containers", flag)
+			return "", i18n.NewError("cli.docker.does_not_apply_to", flag)
 		}
 	}
 	if len(args) > 2 {
-		return "", errors.New("a local port does not apply to docker containers")
+		return "", errors.New(i18n.T("cli.docker.local_port_does_not"))
 	}
 	if containers == nil {
-		return "", errors.New("docker CLI not found: install Docker to reach local databases and caches")
+		return "", errors.New(i18n.T("cli.docker.docker_cli_not_found"))
 	}
 	name := ""
 	if len(args) > 1 {
 		name = strings.TrimSpace(args[1])
 	}
 	if name == "" && !interactive {
-		return "", errors.New("a container name is required: airlock docker <container>")
+		return "", errors.New(i18n.T("cli.docker.container_name_is_required"))
 	}
 	return name, nil
 }
@@ -90,9 +90,9 @@ func openDocker(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 func dockerRunError(err error) error {
 	switch {
 	case errors.Is(err, jumphost.ErrPasswordRequired):
-		return fmt.Errorf("%w, or open it from the dashboard", err)
+		return i18n.NewError("cli.docker.or_open_it_from", err)
 	case errors.Is(err, jumphost.ErrSignInRejected):
-		return fmt.Errorf("%w: set the right password on the container, or open it from the dashboard", err)
+		return i18n.NewError("cli.docker.set_right_password_on", err)
 	default:
 		return err
 	}

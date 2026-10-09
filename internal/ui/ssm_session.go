@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -243,7 +244,7 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 	// A lone session failing on its own keeps reporting its error.
 	if result, ok := finalModel.(ssmModel); ok && len(result.sessions) == 1 && len(snapshot.Sessions) == 1 {
 		if s := snapshot.Sessions[0]; !s.StopRequested && s.Err != "" {
-			return errors.New(s.Err)
+			return errors.New(shownErr(s.LocalErr, s.Err))
 		}
 	}
 	return nil
@@ -295,9 +296,9 @@ func (m ssmModel) subscribe() ssmModel {
 	if err != nil {
 		m.events = nil
 		if m.detach {
-			m.connLost = "could not follow the sessions: " + err.Error()
+			m.connLost = i18n.Format("ui.session.follow_failed", err)
 		} else {
-			m.errorMsg = "Could not follow the sessions: " + err.Error()
+			m.errorMsg = i18n.Format("ui.session.follow_failed_msg", err)
 		}
 		m.refreshViewport()
 		return m
@@ -356,7 +357,7 @@ func (m ssmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			// A refused "stop all & quit" leaves the dashboard usable.
 			m.quitting = false
-			m.errorMsg = msg.prefix + msg.err.Error()
+			m.errorMsg = msg.prefix + i18n.Localize(msg.err)
 			m.refreshViewport()
 		}
 		return m, nil
@@ -411,7 +412,7 @@ func (m ssmModel) handleEvent(msg ssmEventMsg) (tea.Model, tea.Cmd) {
 	}
 	if !msg.ok {
 		if m.detach {
-			return m.loseConnection("connection to the daemon lost")
+			return m.loseConnection(i18n.T("ui.ssm_session.connection_to_daemon_lost"))
 		}
 		// The service stopped (CLI mode at exit).
 		return m, nil
@@ -420,7 +421,7 @@ func (m ssmModel) handleEvent(msg ssmEventMsg) (tea.Model, tea.Cmd) {
 	switch ev.Kind {
 	case sessions.EventClosed:
 		if ev.Err == daemonStoppedReason {
-			m.exitNotice = "The airlock daemon stopped."
+			m.exitNotice = i18n.T("ui.ssm_session.airlock_daemon_stopped")
 			return m, tea.Quit
 		}
 		return m.loseConnection(ev.Err)
@@ -545,7 +546,7 @@ func (m ssmModel) reconnectCmd() tea.Cmd {
 func (m ssmModel) handleReconnected(msg ssmReconnectedMsg) (tea.Model, tea.Cmd) {
 	m.reconnecting = false
 	if msg.err != nil {
-		m.connLost = "could not reach the daemon: " + msg.err.Error()
+		m.connLost = i18n.Format("ui.session.daemon_unreachable", msg.err)
 		m.refreshViewport()
 		return m, nil
 	}
@@ -644,7 +645,7 @@ func (m ssmModel) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if !s.Active() {
 			service, id := m.service, s.ID
-			return m, m.act("Could not close: ", func(ctx context.Context) error { return service.Remove(ctx, id) })
+			return m, m.act(i18n.T("ui.ssm_session.could_not_close"), func(ctx context.Context) error { return service.Remove(ctx, id) })
 		}
 		if s.State == sessions.StateStopping {
 			return m, nil
@@ -690,7 +691,7 @@ func (m ssmModel) handlePreparingKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.prepareID++
 		m.loadingUI.stop()
 		m.mode = ssmModeSessions
-		m.notice = "Connection canceled"
+		m.notice = i18n.T("ui.ssm_session.connection_canceled")
 		m.refreshViewport()
 		if msg.String() == "ctrl+c" {
 			return m.handleSessionKey(msg)
@@ -751,11 +752,11 @@ func (m ssmModel) closeDialog(confirmed bool) (tea.Model, tea.Cmd) {
 		if !m.hasActiveSessions() && !m.detach {
 			return m, tea.Quit
 		}
-		return m, m.act("Could not stop the sessions: ", service.StopAll)
+		return m, m.act(i18n.T("ui.ssm_session.could_not_stop_sessions"), service.StopAll)
 	}
 	if s := m.selectedSession(); s != nil {
 		id := s.ID
-		return m, m.act("Could not stop: ", func(ctx context.Context) error { return service.Stop(ctx, id) })
+		return m, m.act(i18n.T("ui.ssm_session.could_not_stop"), func(ctx context.Context) error { return service.Stop(ctx, id) })
 	}
 	return m, nil
 }
@@ -878,7 +879,7 @@ func (m ssmModel) handleWizardDone(msg jumphostWizardDoneMsg) (tea.Model, tea.Cm
 		return m, nil
 	}
 
-	label := fmt.Sprintf("Preparing %s %s...", strings.ToUpper(msg.options.ResourceType), msg.options.Name)
+	label := i18n.Format("ui.ssm_session.preparing", strings.ToUpper(msg.options.ResourceType), msg.options.Name)
 	return m.open(msg.options, msg.warning, label)
 }
 
@@ -910,7 +911,7 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.activeSessionIndex(sessionKey(s)) >= 0 {
-		m.errorMsg = s.Target + " is already connected in another session"
+		m.errorMsg = i18n.Format("ui.session.already_connected", s.Target)
 		return m, nil
 	}
 	m.mode = ssmModePreparing
@@ -919,7 +920,7 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancelPrepare = cancel
 	service, interactive := m.service, m.interactive
-	label := fmt.Sprintf("Restarting %s %s...", restartKind(s.ResourceType), s.Target)
+	label := i18n.Format("ui.ssm_session.restarting", restartKind(s.ResourceType), s.Target)
 	return m, tea.Batch(func() tea.Msg {
 		return ssmOpenedMsg{id: id, err: service.Restart(ctx, id, interactive), prepareID: prepareID, restart: true}
 	}, m.loadingUI.start(label, prepareLines(s.ResourceType)))
@@ -928,10 +929,10 @@ func (m ssmModel) restartSelected() (tea.Model, tea.Cmd) {
 // signInAWSSelected signs the AWS profile of s in again, its tunnel staying open: the tools
 // signing in with AWS through it work again.
 func (m ssmModel) signInAWSSelected(s *sessions.Session) (tea.Model, tea.Cmd) {
-	m.notice = "Signing in to AWS with profile " + s.Profile + "..."
+	m.notice = i18n.Format("ui.session.signing_in_aws", s.Profile)
 	m.refreshViewport()
 	service, interactive, id := m.service, m.interactive, s.ID
-	return m, m.act("Could not sign in to AWS: ", func(ctx context.Context) error {
+	return m, m.act(i18n.T("ui.ssm_session.could_not_sign_in"), func(ctx context.Context) error {
 		return service.SignInAWS(ctx, id, interactive)
 	})
 }
@@ -941,15 +942,15 @@ func (m ssmModel) signInAWSSelected(s *sessions.Session) (tea.Model, tea.Cmd) {
 func prepareLines(resourceType string) []string {
 	if resourceType == sessions.DirectResourceType || resourceType == sessions.DockerResourceType || resourceType == sessions.DockerCacheResourceType {
 		return []string{
-			"Looking up the database's address...",
-			"Setting up a seat for your AI assistant...",
-			"Keeping your other sessions warm...",
+			i18n.T("ui.ssm_session.looking_up_database_address"),
+			i18n.T("ui.ssm_session.setting_up_seat_for"),
+			i18n.T("ui.ssm_session.keeping_your_other_sessions"),
 		}
 	}
 	return []string{
-		"Reserving a cozy local port...",
-		"Asking the jumphost for one more tunnel...",
-		"Keeping your other sessions warm...",
+		i18n.T("ui.ssm_session.reserving_cozy_local_port"),
+		i18n.T("ui.ssm_session.asking_jumphost_for_one"),
+		i18n.T("ui.ssm_session.keeping_your_other_sessions"),
 	}
 }
 
@@ -971,9 +972,9 @@ func (m ssmModel) handleOpened(msg ssmOpenedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.cancelPrepare = nil
 	if msg.err != nil {
-		m.errorMsg = "Could not open connection: " + msg.err.Error()
+		m.errorMsg = i18n.Format("ui.session.open_failed", msg.err)
 		if msg.restart {
-			m.errorMsg = "Could not restart: " + msg.err.Error()
+			m.errorMsg = i18n.Format("ui.session.restart_failed", msg.err)
 		}
 		m.refreshViewport()
 		return m, nil
@@ -1076,7 +1077,7 @@ func printSessionSummary(out io.Writer, list []sessions.Session) {
 	}
 
 	printf := func(format string, args ...any) { _, _ = fmt.Fprintf(out, format, args...) } //nolint:errcheck // best-effort terminal output
-	printf("\nSession summary:\n")
+	printf("%s", i18n.T("ui.ssm_session.session_summary"))
 	for index := range list {
 		s := &list[index]
 		end := s.EndedAt
@@ -1091,15 +1092,15 @@ func printSessionSummary(out io.Writer, list []sessions.Session) {
 		}
 
 		printf("- %s -> %s\n", s.Label, sessionAddress(s))
-		printf("  duration: %s\n  server connected: %s\n", duration, server)
+		printf(i18n.T("ui.ssm_session.duration_server_connected"), duration, server)
 		if s.Err != "" && !s.StopRequested {
-			printf("  ended with error: %v\n", s.Err)
+			printf(i18n.T("ui.ssm_session.ended_with_error"), shownErr(s.LocalErr, s.Err))
 		}
 		if s.Cleanup != "" {
 			printf("  %s\n", s.Cleanup)
 		}
 		if strings.TrimSpace(s.Details.RestartCommand) != "" {
-			printf("  new session command: %s\n", s.Details.RestartCommand)
+			printf(i18n.T("ui.ssm_session.new_session_command"), s.Details.RestartCommand)
 		}
 	}
 }

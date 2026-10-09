@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -43,7 +44,7 @@ func (m ssmModel) revealPassword() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !canRevealPassword(s) {
-		m.notice = "This session does not read its password from Secrets Manager"
+		m.notice = i18n.T("ui.ssm_password.this_session_does_not")
 		m.refreshViewport()
 		return m, nil
 	}
@@ -102,9 +103,9 @@ func (m ssmModel) copyPassword(index int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	creds := m.password.creds[index]
-	label := "Password"
+	label := i18n.T("ui.jumphost_flow_view.password")
 	if name := creds.Label(); name != "" {
-		label += " of " + name
+		label = i18n.Format("ui.password.label_of", label, name)
 	}
 	m = m.hidePassword()
 	return m.copyValue(copyItem{label: label, value: creds.Password})
@@ -129,9 +130,9 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 	inner := maxInt(dialogWidth-8, 20)
 	creds := m.password.creds
 
-	title := "Database password"
+	title := i18n.T("ui.password.title")
 	if len(creds) > 1 {
-		title += "s"
+		title = i18n.T("ui.password.title_plural")
 	}
 	rows := []string{m.styles.Text.Bold(true).Render(title)}
 	if auth := strings.TrimSpace(s.Details.Auth); auth != "" {
@@ -145,12 +146,12 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 	}
 	switch {
 	case m.password.loading:
-		rows = append(rows, m.styles.Warning.Render(m.spinner()+" Reading the secrets..."))
+		rows = append(rows, m.styles.Warning.Render(m.spinner()+i18n.T("ui.password.reading_secrets")))
 		copyButton = m.styles.Button
 	case m.password.err != nil:
-		rows = append(rows, lipgloss.NewStyle().Width(inner).Render(m.styles.Danger.Render("✗ "+m.password.err.Error())))
+		rows = append(rows, lipgloss.NewStyle().Width(inner).Render(m.styles.Danger.Render("✗ "+i18n.Localize(m.password.err))))
 	case len(creds) == 0:
-		rows = append(rows, m.styles.Muted.Render("No credentials found"))
+		rows = append(rows, m.styles.Muted.Render(i18n.T("ui.ssm_password.no_credentials_found")))
 	case len(creds) == 1 && creds[0].Label() == "":
 		rows = append(rows, m.passwordLines(creds[0].Password, "", inner)...)
 	default:
@@ -163,7 +164,7 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 			rows = append(rows, m.passwordLines(c.Password, "     ", inner)...)
 		}
 	}
-	rows = append(rows, "", copyButton.Render("Copy")+"  "+hideButton.Render("Hide"))
+	rows = append(rows, "", copyButton.Render(i18n.T("ui.ssm_password.copy"))+"  "+hideButton.Render(i18n.T("ui.ssm_password.hide")))
 	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))
 }
 

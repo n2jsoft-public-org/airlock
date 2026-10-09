@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -45,7 +45,7 @@ func (i directItem) environment() environment.Env { return i.env }
 
 func (i directItem) Title() string {
 	if i.connected {
-		return i.db.Name + "  ● connected"
+		return i.db.Name + i18n.T("ui.list.connected")
 	}
 	return i.db.Name
 }
@@ -176,13 +176,13 @@ func (p directList) Update(msg tea.Msg) (directList, directListOutcome, tea.Cmd)
 func (p directList) View(styles Styles, width int) string {
 	switch {
 	case p.err != nil:
-		return styles.Danger.Width(width).Render(p.err.Error())
+		return styles.Danger.Width(width).Render(i18n.Localize(p.err))
 	case p.count() == 0:
-		return styles.Muted.Render(truncate("No direct database yet — press a to add one", width))
+		return styles.Muted.Render(truncate(i18n.T("ui.direct_list.no_direct_database_yet"), width))
 	}
 	confirm := ""
 	if db, ok := p.selected(); ok && p.confirming {
-		confirm = styles.Warning.Render(truncate("Delete "+db.Name+"? y/n", width))
+		confirm = styles.Warning.Render(truncate(i18n.Format("ui.direct_list.delete_confirm", db.Name), width))
 	}
 	return p.list.View() + "\n" + confirm
 }
@@ -231,8 +231,8 @@ func (m jumphostWizardModel) updateDirectListStep(msg tea.Msg) (tea.Model, tea.C
 		// The list waits for the deletion: the deleted database must not be picked meanwhile.
 		m.loading = true
 		m.errorMsg = ""
-		return m, tea.Batch(m.deleteDirectCmd(db.Name), m.loadingUI.start("Deleting "+db.Name+"...", []string{
-			"Tearing the page out of the address book...",
+		return m, tea.Batch(m.deleteDirectCmd(db.Name), m.loadingUI.start(i18n.Format("ui.direct_list.deleting", db.Name), []string{
+			i18n.T("ui.direct_list.tearing_page_out_of"),
 		}))
 	case directListAdd:
 		return m.openDirectForm(nil)
@@ -252,7 +252,7 @@ func (m jumphostWizardModel) deleteDirectCmd(name string) tea.Cmd {
 	store, runner, ctx := m.databases, m.runner, m.ctx
 	return func() tea.Msg {
 		if err := runner.ForgetConnection(ctx, jumphost.DirectTargetRef(name)); err != nil {
-			return directDeletedMsg{name: name, err: fmt.Errorf("its saved settings were not forgotten: %w", err)}
+			return directDeletedMsg{name: name, err: i18n.NewError("ui.direct_list.its_saved_settings_were", err)}
 		}
 		return directDeletedMsg{name: name, err: store.Delete(name)}
 	}
@@ -264,7 +264,7 @@ func (m jumphostWizardModel) handleDirectDeleted(msg directDeletedMsg) (tea.Mode
 	m.loadingUI.stop()
 	m = m.reloadDirectList("")
 	if msg.err != nil {
-		m.errorMsg = "Could not delete " + msg.name + ": " + msg.err.Error()
+		m.errorMsg = i18n.Format("ui.direct_list.could_not_delete", msg.name, msg.err)
 	}
 	return m, nil
 }

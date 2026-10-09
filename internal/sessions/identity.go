@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -120,7 +121,7 @@ func (m *Manager) SignInAWS(ctx context.Context, id ID, interactive jumphost.Int
 		return ErrUnknownSession
 	case e.info.Direct() || e.identity == nil:
 		m.mu.Unlock()
-		return errors.New(e.info.Target + " does not sign in with AWS")
+		return i18n.NewError("sessions.identity.no_aws_sign_in", e.info.Target)
 	case m.closing:
 		m.mu.Unlock()
 		return ErrClosed

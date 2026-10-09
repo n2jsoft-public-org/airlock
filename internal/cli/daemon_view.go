@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/daemon"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/ui"
@@ -36,7 +36,7 @@ var daemonSettingFlags = []struct{ flag, key string }{
 func checkDaemonFlags(flags *pflag.FlagSet) error {
 	for _, setting := range daemonSettingFlags {
 		if flags.Changed(setting.flag) {
-			return fmt.Errorf("--%s does not apply in daemon mode: the daemon uses config.json (airlock config set %s <value>), or run with --mode cli",
+			return i18n.NewError("cli.daemon_view.does_not_apply_in",
 				setting.flag, setting.key)
 		}
 	}
@@ -54,9 +54,9 @@ func connectDaemon(cmd *cobra.Command) (*daemon.Client, error) {
 	if err := errors.Join(statusErr, client.Close()); err != nil {
 		return nil, err
 	}
-	question := fmt.Sprintf("%v, with %d sessions. Restart it? It closes them. [y/N] ", mismatch, status.Sessions)
+	question := i18n.Format("cli.daemon_view.with_sessions_restart_it", mismatch, status.Sessions)
 	if !confirm(cmd, question) {
-		return nil, errors.New("the daemon was left as it is: `airlock --mode cli` runs without it")
+		return nil, errors.New(i18n.T("cli.daemon_view.daemon_was_left_as"))
 	}
 	if _, err := stopDaemon(cmd.Context()); err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func runDaemonView(cmd *cobra.Command, options *jumphost.Options, openFirst bool
 		defer lock.Unlock()
 		if finished {
 			_ = next.Close() //nolint:errcheck // the view ended meanwhile.
-			return nil, errors.New("the view ended")
+			return nil, errors.New(i18n.T("cli.daemon_view.view_ended"))
 		}
 		_ = current.Close() //nolint:errcheck // the connection was lost already.
 		current = next
@@ -150,7 +150,7 @@ func openInDaemon(cmd *cobra.Command, service sessions.Service, options *jumphos
 	if id := runningSessionOf(snapshot.Sessions, options); id != 0 {
 		return id, nil
 	}
-	cmd.PrintErrf("Opening %s %s in the airlock daemon...\n", options.ResourceType, options.Name)
+	cmd.PrintErr(i18n.Format("cli.daemon_view.opening_in_airlock_daemon", options.ResourceType, options.Name))
 	return service.Open(cmd.Context(), sessions.OpenRequest{Options: *options, Interactive: interactive})
 }
 

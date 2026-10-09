@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // SettingsStore reads and writes the settings of config.json for the Settings screen.
@@ -68,8 +69,8 @@ const (
 	settingsNameWidth = 20
 	// settingsValueWidth is the value column; longer values are cut with the row.
 	settingsValueWidth = 24
-	// settingsNextLaunch is shown under the description of a NextLaunch key.
-	settingsNextLaunch = "Applies at the next launch of airlock."
+	// settingsNextLaunch (a catalog key) is shown under the description of a NextLaunch key.
+	settingsNextLaunch = "ui.settings.next_launch"
 )
 
 // settingsEditor lists the keys of config.json and edits the selected one.
@@ -133,7 +134,7 @@ func (e settingsEditor) closeEdit() settingsEditor {
 
 // refused shows why the last write failed; an edit stays open with what was typed.
 func (e settingsEditor) refused(err error) settingsEditor {
-	e.fieldErr = err.Error()
+	e.fieldErr = i18n.Localize(err)
 	return e
 }
 
@@ -230,11 +231,11 @@ func (e settingsEditor) View(styles Styles, width int) string {
 	textWidth := min(width, resourceCardWidth)
 	if e.err != nil {
 		return strings.Join([]string{
-			styles.Danger.Width(textWidth).Render(e.err.Error()),
+			styles.Danger.Width(textWidth).Render(i18n.Localize(e.err)),
 			"",
-			styles.Muted.Width(textWidth).Render("Fix the file, then come back."),
-			styles.Muted.Width(textWidth).Render("`airlock config show` names the faulty key."),
-			styles.Muted.Width(textWidth).Render("`airlock config init --force` rewrites it with the defaults, keeping a .bak."),
+			styles.Muted.Width(textWidth).Render(i18n.T("ui.settings_editor.fix_file_then_come")),
+			styles.Muted.Width(textWidth).Render(i18n.T("ui.settings_editor.airlock_config_show_names")),
+			styles.Muted.Width(textWidth).Render(i18n.T("ui.settings_editor.airlock_config_init_force")),
 		}, "\n")
 	}
 	lines := make([]string, 0, len(e.snapshot.Settings)+6)
@@ -248,10 +249,10 @@ func (e settingsEditor) View(styles Styles, width int) string {
 	if setting, ok := e.selected(); ok {
 		lines = append(lines, styles.Muted.Width(textWidth).Render(setting.Description))
 		if setting.NextLaunch {
-			lines = append(lines, truncate(styles.Warning.Render(settingsNextLaunch), width))
+			lines = append(lines, truncate(styles.Warning.Render(i18n.T(settingsNextLaunch)), width))
 		}
 		if e.confirming {
-			lines = append(lines, truncate(styles.Warning.Render("Reset "+setting.Name+" to its default? y/n"), width))
+			lines = append(lines, truncate(styles.Warning.Render(i18n.Format("ui.settings.reset_confirm", setting.Name)), width))
 		}
 	}
 	lines = append(lines, truncate(styles.Faint.Render(e.snapshot.Path), width))
@@ -271,17 +272,17 @@ func (e settingsEditor) row(styles Styles, idx, width int) string {
 	case idx == e.cursor && e.editing:
 		value = inputView(e.input)
 	case setting.Value == "":
-		value = styles.Muted.Render("none")
+		value = styles.Muted.Render(i18n.T("ui.none"))
 	default:
 		value = styles.Text.Render(truncate(setting.Value, settingsValueWidth))
 	}
-	source := "default"
+	source := i18n.T("ui.settings.source_default")
 	if setting.FromFile {
-		source = "file"
+		source = i18n.T("ui.hint.file")
 	}
 	line := marker + name + padRight(value, settingsValueWidth) + "  " + styles.Faint.Render(source)
 	if setting.OverriddenBy != "" {
-		line += "  " + styles.Warning.Render("⚑ "+setting.OverriddenBy+" for this run")
+		line += "  " + styles.Warning.Render(i18n.Format("ui.settings.overridden", setting.OverriddenBy))
 	}
 	return truncate(line, width)
 }

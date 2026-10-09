@@ -2,13 +2,15 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 func newConnectionAddCmd() *cobra.Command {
 	var flags dbFlags
 	cmd := &cobra.Command{
 		Use:     "add <name>",
-		Short:   "Add a direct database to saved-connections.json",
+		Short:   i18n.T("cli.connection_add.short"),
 		Example: "  airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --environment prod",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -23,7 +25,7 @@ func newConnectionAddCmd() *cobra.Command {
 			if err := store.Put("", db); err != nil {
 				return err
 			}
-			outf(cmd, "Added %s (%s, %s) to %s\n", db.Name, db.Engine, db.Address(), store.Path())
+			outf(cmd, i18n.T("cli.connection_add.added"), db.Name, db.Engine, db.Address(), store.Path())
 			return nil
 		},
 	}

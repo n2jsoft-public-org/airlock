@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -105,10 +106,10 @@ func (m *Manager) Restart(ctx context.Context, id ID, interactive jumphost.Inter
 		return ErrUnknownSession
 	case e.info.Active():
 		m.mu.Unlock()
-		return errors.New(e.info.Target + " is still running")
+		return i18n.NewError("sessions.reconnect.still_running", e.info.Target)
 	case m.activeWithKeyLocked(e.info.Key(), e):
 		m.mu.Unlock()
-		return errors.New(e.info.Target + " is already connected in another session")
+		return i18n.NewError("sessions.reconnect.already_connected", e.info.Target)
 	case m.closing:
 		m.mu.Unlock()
 		return ErrClosed

@@ -2,13 +2,13 @@ package jumphost
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // resourceDocker is a database running in a local Docker container, found live: nothing about
@@ -26,7 +26,7 @@ type DockerContainers interface {
 // options.DBPassword gives one. Nothing is remembered: no prefs, no keychain.
 func (r *Runner) prepareDocker(ctx context.Context, options *Options) (*Session, error) {
 	if r.containers == nil {
-		return nil, errors.New("docker databases are not available: the docker CLI was not found")
+		return nil, i18n.NewError("jumphost.docker.docker_databases_are_not")
 	}
 	name := strings.TrimSpace(options.Name)
 	c, found, err := r.containers.Get(ctx, name)
@@ -34,7 +34,7 @@ func (r *Runner) prepareDocker(ctx context.Context, options *Options) (*Session,
 	case err != nil:
 		return nil, err
 	case !found:
-		return nil, fmt.Errorf("no running database or cache container named %s (see airlock docker)", name)
+		return nil, i18n.NewError("jumphost.docker.no_running_database_or", name)
 	case c.Problem != "":
 		return nil, fmt.Errorf("%s: %s", name, c.Problem)
 	}
@@ -43,7 +43,7 @@ func (r *Runner) prepareDocker(ctx context.Context, options *Options) (*Session,
 		password = c.Password
 	}
 	if password == "" && !c.Trust {
-		return nil, fmt.Errorf("%w for %s: set %s on the container", ErrPasswordRequired, name, c.PasswordHint())
+		return nil, i18n.NewError("jumphost.docker.for_set_on_container", ErrPasswordRequired, name, c.PasswordHint())
 	}
 	if c.Cache() {
 		return r.openDockerCache(options, &c, password)

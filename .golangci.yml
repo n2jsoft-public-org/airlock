@@ -39,6 +39,10 @@ linters:
 
   exclusions:
     rules:
+      # The French catalog, and the tests asserting French text: misspell only knows English.
+      - path: internal/(i18n/catalog_fr\.go|cli/language_test\.go|ui/(polish|screens)_test\.go)
+        linters:
+          - misspell
       # Bubble Tea components (models, pickers, items, Styles) are passed by value on purpose.
       - path: internal/ui/
         linters:

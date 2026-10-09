@@ -12,6 +12,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // How an ElastiCache cache signs clients in.
@@ -53,7 +54,7 @@ func (r *Runner) resolveCacheSignIn(ctx context.Context, cfg awsConfig, options 
 	case secretID != "":
 		secret, err := dbmcp.ReadPasswordSecret(ctx, r.awsRunner(cfg), secretID)
 		if err != nil {
-			return fmt.Errorf("failed to read secret %s (needs secretsmanager:GetSecretValue, and kms:Decrypt for a customer-managed key): %w", secretID, err)
+			return i18n.NewError("jumphost.cache.failed_to_read_secret", secretID, err)
 		}
 		if secret.Username != "" {
 			user = secret.Username
@@ -63,10 +64,10 @@ func (r *Runner) resolveCacheSignIn(ctx context.Context, cfg awsConfig, options 
 		target.DBPassword, target.DBUser = options.DBPassword, orCacheDefaultUser(user)
 	case options.SignIn == SignInIAM || (options.SignIn == "" && user != ""):
 		if target.CacheAuth != CacheAuthRBAC {
-			return fmt.Errorf("AWS IAM sign-in needs a cache with an RBAC user group; %s uses an AUTH token: pass --db-secret, or pick a password in the wizard", cacheName)
+			return i18n.NewError("jumphost.cache.aws_iam_sign_in", cacheName)
 		}
 		if user == "" {
-			return fmt.Errorf("an RBAC user is required to sign in to %s with AWS IAM: pass --db-user", cacheName)
+			return i18n.NewError("jumphost.cache.rbac_user_is_required", cacheName)
 		}
 		target.IAMAuth, target.DBUser = true, user
 	}
@@ -91,7 +92,7 @@ func (r *Runner) applyNodeReplicationGroup(ctx context.Context, cfg awsConfig, g
 		AuthTokenEnabled         bool     `json:"AuthTokenEnabled"`
 	}
 	if err := json.Unmarshal([]byte(raw), &group); err != nil {
-		return errors.New("failed to parse the replication group")
+		return i18n.NewError("jumphost.cache.failed_to_parse_replication")
 	}
 	target.CacheAuth = cacheAuthMode(group.AuthTokenEnabled, group.UserGroupIDs)
 	target.CacheTLS = group.TransitEncryptionEnabled
@@ -160,10 +161,10 @@ func iamUsersOf(groupsJSON, usersJSON, cacheName string) ([]string, error) {
 		} `json:"Authentication"`
 	}
 	if err := json.Unmarshal([]byte(groupsJSON), &groups); err != nil {
-		return nil, errors.New("failed to parse the ElastiCache user groups")
+		return nil, i18n.NewError("jumphost.cache.failed_to_parse_elasticache")
 	}
 	if err := json.Unmarshal([]byte(usersJSON), &users); err != nil {
-		return nil, errors.New("failed to parse the ElastiCache users")
+		return nil, i18n.NewError("jumphost.cache.failed_to_parse_elasticache_2")
 	}
 	members := map[string]bool{}
 	for _, group := range groups {

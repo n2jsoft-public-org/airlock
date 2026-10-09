@@ -1,0 +1,23 @@
+
+  ◆ airlock  SSM port forwarding
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+  ▌ jumphostTag         Usage=jumphost            default
+    defaultDbUser       app_ro                    file
+    defaultRegion       none                      default
+    mcpServerPrefix     airlock                   default  ⚑ --mcp-server-pre…
+    productionProfiles  none                      default
+    mode                cli                       default
+  ────────────────────────────────────────────────────────────────────────
+  Tag (Key=Value) of the running SSM jumphost EC2 instance
+  /home/me/.config/airlock/config.json
+
+
+
+
+
+
+   ↑↓  move   enter  change   esc  back   ?  help   q  quit

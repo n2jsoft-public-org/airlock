@@ -1,0 +1,39 @@
+
+  ◆ airlock  Redirection de port SSM                                      profil dev   région … en cours de résolution
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ● Type  ›  ○ Cible  ›  ○ Connexion
+
+  Que voulez-vous atteindre ?
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  RDS   Relational Database Service                                 1 │
+  │ Tunnel vers une base, avec source de données IDE et serveur MCP      │
+  ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  EKS   Elastic Kubernetes Service                                  2 │
+  │ Accès à l'API d'un cluster privé, avec kubeconfig et serveur MCP     │
+  ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  CACHE   ElastiCache                                               3 │
+  │ Tunnel vers un cache Redis / Valkey, avec serveur MCP                │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   ↑↓  naviguer   1-3  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter

@@ -2,7 +2,8 @@ package jumphost
 
 import (
 	"context"
-	"errors"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // InteractiveFunc runs a command needing the user's terminal (aws sso login), purpose saying why.
@@ -27,7 +28,7 @@ func interactiveFrom(ctx context.Context) InteractiveFunc {
 func RunInteractive(ctx context.Context, purpose, name string, args ...string) error {
 	fn := interactiveFrom(ctx)
 	if fn == nil {
-		return errors.New("no terminal to run " + name)
+		return i18n.NewError("jumphost.interactive.no_terminal", name)
 	}
 	return fn(ctx, purpose, name, args...)
 }

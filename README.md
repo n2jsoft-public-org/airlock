@@ -220,6 +220,21 @@ airlock completion fish > ~/.config/fish/completions/airlock.fish              #
 `airlock version` prints the commit the binary was built from, as `YYYYMMDD-<short sha>` (commit
 date in UTC, for example `20261001-b50fc20`). It reads `dev` when run with `go run`.
 
+### Language
+
+airlock speaks English and French. By default it follows the system: `LC_ALL`, `LC_MESSAGES`,
+then `LANG`, else the macOS or Windows display language; any other language gives English.
+
+```sh
+airlock config set language fr     # always French
+airlock config set language auto   # back to the system's
+LANG=en_US.UTF-8 airlock           # English for one run (when language is auto)
+```
+
+The setting is personal: `airlock config export` never shares it. The daemon reads it when it
+starts: run `airlock daemon restart` after a change. MCP tools, their answers and the errors AI
+agents read stay in English; logs too.
+
 ### Updating
 
 `airlock update` installs the latest release in place of the running binary when it is newer than

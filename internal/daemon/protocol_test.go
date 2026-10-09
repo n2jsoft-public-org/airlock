@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -144,5 +147,26 @@ func TestCanceledCallReturnsTheResultOfAHandlerIgnoringCancel(t *testing.T) {
 	var out string
 	if err := client.call(ctx, "open", nil, &out); err != nil || out != "opened" {
 		t.Fatalf("out = %q, err = %v", out, err)
+	}
+}
+
+func TestEncodeErrorLocalizesTheMessage(t *testing.T) {
+	i18n.SetLanguage("fr")
+	t.Cleanup(func() { i18n.SetLanguage("en") })
+	err := fmt.Errorf("%w: %w", jumphost.ErrSignInRequired, i18n.NewError("cli.connection_test.no_password_given"))
+	wire := encodeError(err, true)
+	if wire.Code != "sign-in-required" || !strings.Contains(wire.Message, "aucun mot de passe donné") {
+		t.Fatalf("wire = %+v, want the code and a French message", wire)
+	}
+}
+
+// TestViewAnswersStayEnglish: what a view answers the daemon (an interactive run) can reach a
+// session's error, which agents and logs read: it is not localized.
+func TestViewAnswersStayEnglish(t *testing.T) {
+	i18n.SetLanguage("fr")
+	t.Cleanup(func() { i18n.SetLanguage("en") })
+	wire := encodeError(i18n.NewError("cli.connection_test.no_password_given"), false)
+	if wire.Message != "no password given" {
+		t.Fatalf("wire = %+v, want the English message", wire)
 	}
 }

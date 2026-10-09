@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -21,13 +21,13 @@ var promptPassword = func(cmd *cobra.Command, prompt string) (string, error) {
 		password, err := term.ReadPassword(int(file.Fd()))
 		cmd.PrintErrln()
 		if err != nil {
-			return "", fmt.Errorf("failed to read the password: %w", err)
+			return "", i18n.NewError("cli.connection_test.failed_to_read_password", err)
 		}
 		return string(password), nil
 	}
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && line == "" {
-		return "", fmt.Errorf("failed to read the password: %w", err)
+		return "", i18n.NewError("cli.connection_test.failed_to_read_password", err)
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }
@@ -42,10 +42,9 @@ var checkDirectSignIn = func(ctx context.Context, runner *jumphost.Runner, name,
 
 func newConnectionTestCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "test <name>",
-		Short: "Sign in to a direct database and run SELECT 1",
-		Long: "Signs in with the password remembered in the OS keychain, else asks it; the typed password is " +
-			"neither shown nor saved.",
+		Use:               "test <name>",
+		Short:             i18n.T("cli.connection_test.short"),
+		Long:              i18n.T("cli.connection_test.long"),
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeDirectDatabase,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -61,20 +60,20 @@ func newConnectionTestCmd() *cobra.Command {
 			password, remembered := runner.LoadKeychainPassword(cmd.Context(),
 				jumphost.Options{ResourceType: directResourceType, Name: db.Name, DBUser: db.User})
 			if !remembered {
-				if password, err = promptPassword(cmd, fmt.Sprintf("Password of %s on %s: ", db.User, db.Name)); err != nil {
+				if password, err = promptPassword(cmd, i18n.Format("cli.connection_test.password_of_on", db.User, db.Name)); err != nil {
 					return err
 				}
 				if password == "" {
-					return errors.New("no password given")
+					return errors.New(i18n.T("cli.connection_test.no_password_given"))
 				}
 			}
 			if warning := jumphost.DirectReadOnlyWarning(&db); warning != "" {
-				outf(cmd, "Warning: %s\n", warning)
+				outf(cmd, i18n.T("cli.warning_s"), warning)
 			}
 			if err := checkDirectSignIn(cmd.Context(), runner, db.Name, password); err != nil {
 				return err
 			}
-			outf(cmd, "OK: signed in to %s (%s) as %s\n", db.Name, db.Address(), db.User)
+			outf(cmd, i18n.T("cli.connection_test.ok_signed_in_to"), db.Name, db.Address(), db.User)
 			return nil
 		},
 	}

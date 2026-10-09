@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -14,11 +14,9 @@ import (
 func newConnectionExportCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
-		Use:   "export [name...]",
-		Short: "Print direct databases as one string to share (never their passwords)",
-		Long: "Prints the direct databases as one string for teammates to import with `airlock connection import <string>`, " +
-			"which shows every change before applying it. Passwords are never part of it. Without names, a terminal " +
-			"lists every database, all selected, to uncheck those to leave out; --all, or no terminal, exports them all.",
+		Use:               "export [name...]",
+		Short:             i18n.T("cli.connection_export.short"),
+		Long:              i18n.T("cli.connection_export.long"),
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: completeDirectDatabases,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,7 +54,7 @@ func newConnectionExportCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&all, "all", false, "Export every direct database without asking")
+	cmd.Flags().BoolVar(&all, "all", false, i18n.T("cli.connection_export.flag.all"))
 	return cmd
 }
 
@@ -66,7 +64,7 @@ func pickDatabases(cmd *cobra.Command, dbs []directdb.Database, envs environment
 	for idx := range dbs {
 		choices[idx] = ui.ExportChoice{Name: dbs[idx].Name, Detail: describeExport(&dbs[idx]), Environment: envs.Lookup(dbs[idx].Environment)}
 	}
-	indexes, asked, err := pickExports(cmd, "Export direct databases", "export", choices)
+	indexes, asked, err := pickExports(cmd, i18n.T("cli.connection_export.export_direct_databases"), i18n.T("ui.hint.export"), choices)
 	if err != nil || !asked {
 		return dbs, err
 	}
@@ -102,7 +100,7 @@ func selectDatabases(dbs []directdb.Database, names []string) ([]directdb.Databa
 	for _, name := range names {
 		idx, ok := byName[strings.TrimSpace(name)]
 		if !ok {
-			return nil, fmt.Errorf("no direct database named %s (see airlock connection list)", strings.TrimSpace(name))
+			return nil, i18n.NewError("cli.connection_export.no_direct_database_named", strings.TrimSpace(name))
 		}
 		selected = append(selected, dbs[idx])
 	}

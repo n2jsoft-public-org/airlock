@@ -12,6 +12,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 )
 
@@ -97,7 +98,7 @@ func jdbcTLSProperties(db *directdb.Database) map[string]string {
 // directDatabase returns the definition of the direct database name and its engine.
 func (r *Runner) directDatabase(name string) (directdb.Database, dbmcp.Engine, error) {
 	if r.databases == nil {
-		return directdb.Database{}, "", errors.New("direct databases are not available")
+		return directdb.Database{}, "", i18n.NewError("jumphost.direct.direct_databases_are_not")
 	}
 	db, found, err := r.databases.Get(name)
 	if err != nil {

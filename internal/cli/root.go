@@ -11,6 +11,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/connections"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
@@ -22,8 +23,14 @@ import (
 	"golang.org/x/term"
 )
 
-// Execute is the public entrypoint for the CLI.
+// Execute is the public entrypoint for the CLI: the language is chosen before the commands are
+// built, since their help is set at construction.
 func Execute() error {
+	path, err := appdir.ConfigFile()
+	if err != nil {
+		path = "" // loadConfig warns about it later.
+	}
+	i18n.SetLanguage(resolveLanguage(path, os.Getenv, i18n.OSLocale))
 	return NewRootCmd().Execute()
 }
 
@@ -32,11 +39,9 @@ func NewRootCmd() *cobra.Command {
 	options := jumphost.Options{}
 
 	cmd := &cobra.Command{
-		Use:   "airlock [eks|rds|elasticache|direct|docker] [name] [local-port]",
-		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct or local Docker database or cache",
-		Long: "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, " +
-			"or to a direct database declared with `airlock connection add` (`airlock direct <name>`), or to a local Docker database or cache (`airlock docker <name>`). " +
-			"When values are omitted in an interactive shell, a wizard asks for them.",
+		Use:          "airlock [eks|rds|elasticache|direct|docker] [name] [local-port]",
+		Short:        i18n.T("cli.root.short"),
+		Long:         i18n.T("cli.root.long"),
 		Args:         cobra.MaximumNArgs(3),
 		SilenceUsage: true,
 		// main prints the returned error once.
@@ -47,23 +52,24 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&options.AwsProfile, "profile", "p", "", "AWS profile to use (the wizard asks when omitted)")
-	cmd.Flags().StringVar(&options.AwsProfile, "aws-profile", "", "Alias of --profile")
-	cmd.Flags().StringVar(&options.AwsRegion, "region", "", "AWS region to use (defaults to AWS_REGION, then the profile region)")
-	cmd.Flags().BoolVar(&options.SkipIDEDataSource, "no-ide-datasource", false, "Do not register the connection in ./.idea/dataSources.xml")
-	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, "Do not serve an MCP server giving AI assistants access to the database, cluster or cache")
-	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, "Let the MCP server modify data of databases and caches (EKS stays read-only)")
-	cmd.Flags().StringVar(&options.DBUser, "db-user", "", "Database or cache user signing in with AWS IAM (RDS: defaults to the engine's user in \"defaultDbUser\" of the config file)")
-	cmd.Flags().StringVar(&options.DBSecretARN, "db-secret", "", "Secrets Manager secret (ARN or name) holding the database or cache password, as JSON or plain text")
+	cmd.Flags().StringVarP(&options.AwsProfile, "profile", "p", "", i18n.T("cli.root.flag.profile"))
+	cmd.Flags().StringVar(&options.AwsProfile, "aws-profile", "", i18n.T("cli.root.flag.aws-profile"))
+	cmd.Flags().StringVar(&options.AwsRegion, "region", "", i18n.T("cli.root.flag.region"))
+	cmd.Flags().BoolVar(&options.SkipIDEDataSource, "no-ide-datasource", false, i18n.T("cli.root.flag.no-ide-datasource"))
+	cmd.Flags().BoolVar(&options.SkipMCP, "no-mcp", false, i18n.T("cli.root.flag.no-mcp"))
+	cmd.Flags().BoolVar(&options.MCPAllowWrites, "mcp-allow-writes", false, i18n.T("cli.root.flag.mcp-allow-writes"))
+	cmd.Flags().StringVar(&options.DBUser, "db-user", "", i18n.T("cli.root.flag.db-user"))
+	cmd.Flags().StringVar(&options.DBSecretARN, "db-secret", "", i18n.T("cli.root.flag.db-secret"))
 
-	cmd.Flags().String("jumphost-tag", "", `Tag of the SSM jumphost instance, as Key=Value (config "jumphostTag", default Usage=jumphost)`)
-	cmd.Flags().String("read-only-secret-tag", "", `Tag of the read-only SQL Server secrets, as Key=Value (config "readOnlySecretTag")`)
-	cmd.Flags().String("mcp-server-prefix", "", `Prefix of the MCP server names (config "mcpServerPrefix", default airlock)`)
-	cmd.Flags().String("mcp-clients", "", `AI clients the MCP servers are registered in: auto, none, or e.g. claude:user,codex (config "mcpClients", default auto)`)
-	cmd.Flags().String("mode", "", `cli: sessions close with airlock; daemon: a background daemon keeps them (config "mode", default cli)`)
+	cmd.Flags().String("jumphost-tag", "", i18n.T("cli.root.flag.jumphost-tag"))
+	cmd.Flags().String("read-only-secret-tag", "", i18n.T("cli.root.flag.read-only-secret-tag"))
+	cmd.Flags().String("mcp-server-prefix", "", i18n.T("cli.root.flag.mcp-server-prefix"))
+	cmd.Flags().String("mcp-clients", "", i18n.T("cli.root.flag.mcp-clients"))
+	cmd.Flags().String("mode", "", i18n.T("cli.root.flag.mode"))
 	registerCompletions(cmd)
 
 	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newMCPProxyCmd())
+	localizeCobra(cmd)
 
 	return cmd
 }
@@ -93,7 +99,7 @@ func overridesFromFlags(flags *pflag.FlagSet) config.Overrides {
 func loadConfig(cmd *cobra.Command) (config.Config, string, error) {
 	path, err := appdir.ConfigFile()
 	if err != nil {
-		cmd.PrintErrf("Warning: config file not read: %v\n", err)
+		cmd.PrintErr(i18n.Format("cli.root.warning_config_file_not", err))
 		path = ""
 	}
 	cfg, err := config.Load(path)
@@ -110,7 +116,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	updates := defaultUpdateEnv()
 	if target, err := updates.executable(); err == nil {
 		if err = selfupdate.CleanupOld(target); err != nil {
-			cmd.PrintErrf("Warning: %v\n", err)
+			cmd.PrintErr(i18n.Format("cli.warning", err))
 		}
 	}
 	latestRelease, staleCheck := updateNotice(updates, time.Now())
@@ -142,22 +148,22 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()
 	if err != nil {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: MCP queries will not be logged: %v\n", err) //nolint:errcheck // best-effort terminal output
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), i18n.T("cli.root.warning_mcp_queries_will"), err) //nolint:errcheck // best-effort terminal output
 	}
 	// Each EKS session gets a kubeconfig in ~/.config/airlock/kube; a lookup failure only disables it.
 	kubeconfigDir, err := appdir.KubeconfigDir()
 	if err != nil {
-		cmd.PrintErrf("Warning: EKS sessions will not get a kubeconfig: %v\n", err)
+		cmd.PrintErr(i18n.Format("cli.root.warning_eks_sessions_will", err))
 	} else if _, removeErr := kubeconfig.RemoveOrphans(kubeconfigDir); removeErr != nil {
 		// Kubeconfigs left by a killed airlock go; those of a running one stay.
-		cmd.PrintErrf("Warning: stale EKS kubeconfigs were not all removed: %v\n", removeErr)
+		cmd.PrintErr(i18n.Format("cli.root.warning_stale_eks_kubeconfigs", removeErr))
 	}
 	// Connections live in ~/.config/airlock/saved-connections.json; a failure only disables the
 	// remembered choices and the direct databases.
 	var prefsPath string
 	var databaseStore *connections.Databases
 	if saved, openErr := openSavedConnections(cmd.ErrOrStderr()); openErr != nil {
-		cmd.PrintErrf("Warning: saved connections are unavailable: %v\n", openErr)
+		cmd.PrintErr(i18n.Format("cli.root.warning_saved_connections_are", openErr))
 	} else {
 		prefsPath, databaseStore = saved.Path(), saved.Databases()
 	}
@@ -237,10 +243,10 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	if len(args) > 2 {
 		localPort, convErr := strconv.Atoi(args[2])
 		if convErr != nil {
-			return fmt.Errorf("invalid local port %q: %w", args[2], convErr)
+			return i18n.NewError("cli.root.invalid_local_port", args[2], convErr)
 		}
 		if localPort <= 0 {
-			return fmt.Errorf("invalid local port %q: must be greater than 0", args[2])
+			return i18n.NewError("cli.root.invalid_local_port_must", args[2])
 		}
 		options.LocalPortNumber = localPort
 	}
@@ -303,19 +309,19 @@ func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry,
 func promptResourceType(in io.Reader, out io.Writer) (string, error) {
 	file, ok := in.(*os.File)
 	if !ok || !term.IsTerminal(int(file.Fd())) {
-		return "", fmt.Errorf("resource type is required (expected eks, rds or elasticache): airlock <type> [name] [local-port]")
+		return "", i18n.NewError("cli.root.resource_type_is_required")
 	}
 
-	_, _ = fmt.Fprint(out, "Please specify resource type (eks|rds|elasticache): ") //nolint:errcheck // best-effort terminal output
+	_, _ = fmt.Fprint(out, i18n.T("cli.root.please_specify_resource_type")) //nolint:errcheck // best-effort terminal output
 	var value string
 	_, err := fmt.Fscanln(in, &value)
 	if err != nil {
-		return "", fmt.Errorf("failed to read resource type: %w", err)
+		return "", i18n.NewError("cli.root.failed_to_read_resource", err)
 	}
 
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value != "eks" && value != "rds" && value != "elasticache" {
-		return "", fmt.Errorf("invalid resource type %q (expected eks, rds or elasticache)", value)
+		return "", i18n.NewError("cli.root.invalid_resource_type_expected", value)
 	}
 
 	return value, nil

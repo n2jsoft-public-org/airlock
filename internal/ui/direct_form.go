@@ -2,7 +2,6 @@ package ui
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -31,8 +31,17 @@ const (
 // formFieldNone marks a form without invalid field.
 const formFieldNone = -1
 
-// formLabelWidth fits the longest label, "Environment".
-const formLabelWidth = 13
+// formLabelKeys are the labels of the direct database form.
+var formLabelKeys = []string{
+	"ui.direct_form.name", "ui.direct_form.engine", "ui.direct_form.host", "ui.jumphost_flow_view.port",
+	"ui.direct_form.database", "ui.jumphost_flow_view.user", "ui.direct_form.tls", "ui.direct_form.environment",
+}
+
+// formLabelWidth fits the longest form label of the language with two spaces, at least the 13
+// columns of English ("Environment").
+func formLabelWidth() int {
+	return labelWidth(13, 2, formLabelKeys)
+}
 
 // formFieldsByName maps the fields named by a directdb.FieldError to the form's.
 var formFieldsByName = map[string]int{
@@ -118,10 +127,10 @@ func setFormValue(input *textinput.Model, value string) {
 
 // withPlaceholders shows the engine's defaults in the empty port and database fields.
 func (f directForm) withPlaceholders() directForm {
-	f.port.Placeholder = fmt.Sprintf("%d (default)", directdb.DefaultPort(f.engine))
-	f.dbName.Placeholder = "login default"
+	f.port.Placeholder = i18n.Format("ui.direct_form.default", directdb.DefaultPort(f.engine))
+	f.dbName.Placeholder = i18n.T("ui.hint.login_default")
 	if f.engine == directdb.EnginePostgres {
-		f.dbName.Placeholder = "postgres (default)"
+		f.dbName.Placeholder = i18n.T("ui.direct_form.postgres_default")
 	}
 	return f
 }
@@ -261,7 +270,7 @@ func (f directForm) database() (directdb.Database, error) {
 	if port := strings.TrimSpace(f.port.Value()); port != "" {
 		value, err := strconv.Atoi(port)
 		if err != nil {
-			return directdb.Database{}, &directdb.FieldError{Field: "port", Message: "must be a number"}
+			return directdb.Database{}, &directdb.FieldError{Field: "port", Message: i18n.T("ui.direct_form.must_be_number")}
 		}
 		db.Port = value
 	}
@@ -279,16 +288,16 @@ func (f directForm) database() (directdb.Database, error) {
 // withError shows err under its field, focused, for an invalid field or a name already taken;
 // any other error is a store failure (errField formFieldNone) the wizard shows above the form.
 func (f directForm) withError(err error) directForm {
-	f.errField, f.errMsg = formFieldNone, err.Error()
+	f.errField, f.errMsg = formFieldNone, i18n.Localize(err)
 	var fieldErr *directdb.FieldError
 	switch {
 	case errors.As(err, &fieldErr):
 		if field, ok := formFieldsByName[fieldErr.Field]; ok {
-			f.errField, f.errMsg = field, fieldErr.Error()
+			f.errField, f.errMsg = field, i18n.Localize(fieldErr)
 		}
 	case errors.Is(err, directdb.ErrExists):
 		f.errField = formFieldName
-		f.errMsg = "name: a database named " + strings.TrimSpace(f.name.Value()) + " already exists"
+		f.errMsg = i18n.Format("ui.direct_form.name_exists", strings.TrimSpace(f.name.Value()))
 	}
 	if f.errField != formFieldNone {
 		f = f.focusField(f.errField)
@@ -310,20 +319,20 @@ func (f directForm) View(styles Styles, width int) string {
 	add := func(field int, label, value, help string) {
 		rows = append(rows, f.row(styles, field, label, value, help, inner)...)
 	}
-	add(formFieldName, "Name", inputView(f.name), "Names the MCP server, the IDE data source and the keychain entry.")
-	add(formFieldEngine, "Engine", choiceSelector(styles, []string{string(directdb.EnginePostgres), string(directdb.EngineSQLServer)}, string(f.engine)), "←/→ or space change the engine.")
-	add(formFieldHost, "Host", inputView(f.host), "Host name or IP address, without scheme or port.")
-	add(formFieldPort, "Port", inputView(f.port), "Leave empty for the engine's default.")
-	add(formFieldDatabase, "Database", inputView(f.dbName), "Leave empty for the default database.")
-	add(formFieldUser, "User", inputView(f.user), "Its password is asked when connecting, never saved here.")
-	add(formFieldTLS, "TLS", choiceSelector(styles, tlsModes, string(f.effectiveTLS())), "require encrypts; verify also checks the certificate; disable is for local databases.")
-	add(formFieldEnvironment, "Environment", f.environmentValue(styles), "←/→ or space change it. Production is flagged in the wizard, the dashboard and to agents.")
+	add(formFieldName, i18n.T("ui.direct_form.name"), inputView(f.name), i18n.T("ui.direct_form.names_mcp_server_ide"))
+	add(formFieldEngine, i18n.T("ui.direct_form.engine"), choiceSelector(styles, []string{string(directdb.EnginePostgres), string(directdb.EngineSQLServer)}, string(f.engine)), i18n.T("ui.direct_form.or_space_change_engine"))
+	add(formFieldHost, i18n.T("ui.direct_form.host"), inputView(f.host), i18n.T("ui.direct_form.host_name_or_ip"))
+	add(formFieldPort, i18n.T("ui.jumphost_flow_view.port"), inputView(f.port), i18n.T("ui.direct_form.leave_empty_for_engine"))
+	add(formFieldDatabase, i18n.T("ui.direct_form.database"), inputView(f.dbName), i18n.T("ui.direct_form.leave_empty_for_default"))
+	add(formFieldUser, i18n.T("ui.jumphost_flow_view.user"), inputView(f.user), i18n.T("ui.direct_form.its_password_is_asked"))
+	add(formFieldTLS, i18n.T("ui.direct_form.tls"), choiceSelector(styles, tlsModes, string(f.effectiveTLS())), i18n.T("ui.direct_form.require_encrypts_verify_also"))
+	add(formFieldEnvironment, i18n.T("ui.direct_form.environment"), f.environmentValue(styles), i18n.T("ui.direct_form.or_space_change_it"))
 	return styles.Card.Width(panelWidth).Render(strings.Join(rows, "\n"))
 }
 
 // row renders one field: the accent marker and help line when focused, its error when invalid.
 func (f directForm) row(styles Styles, field int, label, value, help string, width int) []string {
-	labelStyle := styles.FieldLabel.Width(formLabelWidth)
+	labelStyle := styles.FieldLabel.Width(formLabelWidth())
 	var rows []string
 	if field == f.focus {
 		rows = append(rows,
@@ -343,11 +352,11 @@ func (f directForm) row(styles Styles, field int, label, value, help string, wid
 func (f directForm) environmentValue(styles Styles) string {
 	env := f.envs.Lookup(f.environment)
 	if env.IsZero() {
-		return styles.Muted.Render("○ none")
+		return styles.Muted.Render(i18n.T("ui.direct_form.none"))
 	}
 	value := styles.EnvBadge(env)
 	if !env.Configured {
-		value += styles.Faint.Render("  not in your environments setting")
+		value += styles.Faint.Render(i18n.T("ui.direct_form.not_in_your_environments"))
 	}
 	return value
 }
@@ -406,8 +415,8 @@ func (m jumphostWizardModel) submitDirectForm() (tea.Model, tea.Cmd) {
 	m.errorMsg = ""
 	// The form waits for the save: a second submit must not write it twice.
 	m.loading = true
-	return m, tea.Batch(m.saveDirectCmd(m.directForm.previousName, m.directForm.previous, db), m.loadingUI.start("Saving "+db.Name+"...", []string{
-		"Writing it in the address book...",
+	return m, tea.Batch(m.saveDirectCmd(m.directForm.previousName, m.directForm.previous, db), m.loadingUI.start(i18n.Format("ui.saving", db.Name), []string{
+		i18n.T("ui.direct_form.writing_it_in_address"),
 	}))
 }
 
@@ -425,12 +434,12 @@ func (m jumphostWizardModel) saveDirectCmd(previousName string, previous, db dir
 				return directSavedMsg{name: db.Name, err: err}
 			}
 			if found {
-				return directSavedMsg{name: db.Name, err: fmt.Errorf("database %q %w", db.Name, directdb.ErrExists)}
+				return directSavedMsg{name: db.Name, err: i18n.NewError("ui.direct_form.database_2", db.Name, directdb.ErrExists)}
 			}
 		}
 		if previousName != "" && directdb.ConnectionChanged(&previous, &db) {
 			if err := runner.ForgetConnection(ctx, jumphost.DirectTargetRef(previousName)); err != nil {
-				return directSavedMsg{name: db.Name, err: fmt.Errorf("the choices remembered for %s were not forgotten: %w", previousName, err)}
+				return directSavedMsg{name: db.Name, err: i18n.NewError("ui.direct_form.choices_remembered_for_were", previousName, err)}
 			}
 		}
 		return directSavedMsg{name: db.Name, err: store.Put(previousName, db)}
@@ -444,7 +453,7 @@ func (m jumphostWizardModel) handleDirectSaved(msg directSavedMsg) (tea.Model, t
 	if msg.err != nil {
 		m.directForm = m.directForm.withError(msg.err)
 		if m.directForm.errField == formFieldNone {
-			m.errorMsg = "Could not save " + msg.name + ": " + msg.err.Error()
+			m.errorMsg = i18n.Format("ui.direct_form.could_not_save", msg.name, msg.err)
 		}
 		return m, nil
 	}

@@ -1,0 +1,40 @@
+ ◆ airlock  Redirection de port SSM                                                                        ● 1 prête(s)
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+                ╭─────────────────────────────────────────────────────────────────────────────────────╮
+                │  Sessions                                                                           │
+                │    n              Ouvrir une nouvelle connexion                                     │
+                │    r              Relancer une session terminée, ou se reconnecter à AWS            │
+                │    x              Arrêter la session, ou la fermer une fois terminée                │
+                │    c              Copier son adresse, une commande ou le dernier appel MCP          │
+                │    a p            Choisir les identifiants de la base, ou afficher le mot de passe  │
+                │    tab ←→ 1-9     Changer de session, ou aller à l'une d'elles                      │
+                │                                                                                     │
+                │  Journaux                                                                           │
+                │    ↑↓ pgup pgdn   Défiler, en mettant le direct en pause                            │
+                │    g home         Début des journaux                                                │
+                │    G end          Retour au direct                                                  │
+                │    m              Journaux ou appels MCP (sessions avec un serveur MCP)             │
+                │                                                                                     │
+                │  airlock                                                                            │
+                │    ?              Cette aide                                                        │
+                │    q ctrl+c       Arrêter toutes les sessions et quitter                            │
+                │                                                                                     │
+                │  une touche ferme cette aide                                                        │
+                ╰─────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+  esc  fermer

@@ -1,12 +1,12 @@
 package jumphost
 
 import (
-	"errors"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/connections"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 const (
@@ -145,7 +145,7 @@ func (s *PrefsStore) Load(ref TargetRef) (ConnectionPrefs, bool) {
 // direct database are only saved while its definition exists.
 func (s *PrefsStore) Save(ref TargetRef, prefs *ConnectionPrefs) error {
 	if !ref.complete() {
-		return errors.New("connection preferences need an AWS account, a region, a type and a name")
+		return i18n.NewError("jumphost.prefs.connection_preferences_need_aws")
 	}
 	choices := connections.Choices{
 		User: prefs.DBUser, SignIn: prefs.SignIn, SecretARN: prefs.DBSecretARN,

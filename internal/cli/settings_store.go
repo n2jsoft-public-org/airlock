@@ -53,13 +53,16 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 			continue
 		}
 		view := ui.SettingView{
-			Name: setting.Name, Description: setting.Description, Value: setting.Value,
+			Name: setting.Name, Description: setting.Description(), Value: setting.Value,
 			FromFile: setting.Source == config.SourceFile, OverriddenBy: s.overriddenBy[setting.Name],
 		}
 		switch setting.Name {
 		case "mode":
 			// The mode decides how airlock starts: only the next launch reads it.
 			view.Choices, view.NextLaunch = []string{config.ModeCLI, config.ModeDaemon}, true
+		case "language":
+			// The language is read once at start.
+			view.Choices, view.NextLaunch = []string{config.LanguageAuto, "en", "fr"}, true
 		case "defaultRegion":
 			view.Region = true
 		case "mcpGateway":

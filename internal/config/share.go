@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sharecode"
 )
 
@@ -69,10 +69,11 @@ func Export(path string, keys ...string) (string, error) {
 		return "", err
 	}
 	if _, err = f.apply(new(Defaults())); err != nil {
-		return "", fmt.Errorf("invalid config %s: %w", path, err)
+		return "", i18n.NewError("config.config.invalid_config", path, err)
 	}
+	f.dropPersonal()
 	if f.empty() {
-		return "", fmt.Errorf("nothing to export: %s sets no key (airlock's defaults apply)", path)
+		return "", i18n.NewError("config.share.nothing_to_export_sets", path)
 	}
 	if len(keys) > 0 {
 		if f, err = f.only(path, keys); err != nil {
@@ -81,7 +82,7 @@ func Export(path string, keys ...string) (string, error) {
 	}
 	data, err := json.Marshal(&f)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode %s: %w", path, err)
+		return "", i18n.NewError("config.settings.failed_to_encode", path, err)
 	}
 	return encodeShare(data), nil
 }
@@ -101,7 +102,7 @@ func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error)
 	defaults := Defaults()
 	before, err := local.apply(&defaults)
 	if err != nil {
-		return Plan{}, fmt.Errorf("invalid config %s: %w", path, err)
+		return Plan{}, i18n.NewError("config.config.invalid_config", path, err)
 	}
 
 	picked := func(name string) bool { return len(keys) == 0 || slices.Contains(keys, name) }
@@ -122,6 +123,7 @@ func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error)
 			*result.field(key.Name) = value
 		}
 	}
+	result.keepPersonal(&local)
 	if result.Environments != nil {
 		result.ProductionProfiles = nil
 	}
@@ -133,7 +135,7 @@ func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error)
 	oldValues, newValues := before.values(), after.values()
 	plan := Plan{Path: path, result: result}
 	for _, key := range Keys {
-		if !picked(key.Name) {
+		if key.Personal || !picked(key.Name) {
 			continue
 		}
 		inLocal := local.sets(key.Name)
@@ -181,18 +183,19 @@ func decodeShare(shared string) (file, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&f); err != nil {
 		if strings.Contains(err.Error(), "unknown field") {
-			return file{}, fmt.Errorf("the config string has a setting this airlock does not know (%w): update airlock", err)
+			return file{}, i18n.NewError("config.share.config_string_has_setting", err)
 		}
 		return file{}, ErrInvalidShare
 	}
 	if _, err := f.apply(new(Defaults())); err != nil {
-		return file{}, fmt.Errorf("the config string has an invalid value: %w", err)
+		return file{}, i18n.NewError("config.share.config_string_has_invalid", err)
 	}
 	if f.Environments == nil && f.ProductionProfiles != nil {
 		// A string of an earlier airlock: its productionProfiles is imported as environments.
 		patterns, _ := parseProfilePatterns(*f.ProductionProfiles) //nolint:errcheck // apply validated it.
 		f.Environments, f.ProductionProfiles = new(environment.FromProductionProfiles(patterns).String()), nil
 	}
+	f.dropPersonal()
 	return f, nil
 }
 
@@ -200,6 +203,9 @@ func decodeShare(shared string) (file, error) {
 func (f *file) only(path string, keys []string) (file, error) {
 	var kept file
 	for _, key := range keys {
+		if slices.ContainsFunc(Keys, func(k Key) bool { return k.Name == key && k.Personal }) {
+			return file{}, i18n.NewError("config.share.is_personal_config_strings", key)
+		}
 		field, err := f.knownField(key)
 		if err != nil {
 			return file{}, err
@@ -211,7 +217,7 @@ func (f *file) only(path string, keys []string) (file, error) {
 			continue
 		}
 		if *field == nil {
-			return file{}, fmt.Errorf("%s does not set %s (airlock's default applies)", path, key)
+			return file{}, i18n.NewError("config.share.does_not_set_airlock", path, key)
 		}
 		*kept.field(key) = *field
 	}
@@ -226,4 +232,22 @@ func (f *file) empty() bool {
 		}
 	}
 	return true
+}
+
+// dropPersonal clears the keys config strings never carry.
+func (f *file) dropPersonal() {
+	for _, key := range Keys {
+		if key.Personal {
+			*f.field(key.Name) = nil
+		}
+	}
+}
+
+// keepPersonal copies the personal keys of local into f.
+func (f *file) keepPersonal(local *file) {
+	for _, key := range Keys {
+		if key.Personal {
+			*f.field(key.Name) = *local.field(key.Name)
+		}
+	}
 }

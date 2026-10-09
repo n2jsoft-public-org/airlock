@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -32,7 +33,7 @@ func revealed(t *testing.T, m ssmModel) ssmModel {
 	if m.mode != ssmModePassword || cmd == nil {
 		t.Fatalf("mode = %v, want the password dialog reading the secret", m.mode)
 	}
-	if view := plainView(m); !strings.Contains(view, "Reading the secrets") {
+	if view := plainView(m); !strings.Contains(view, strings.TrimSpace(i18n.T("ui.password.reading_secrets"))) {
 		t.Fatalf("dialog does not say the secret is being read:\n%s", view)
 	}
 	m, _ = update(t, m, cmd())
@@ -165,5 +166,18 @@ func TestPasswordDialogWithoutCredentialsCopiesNothing(t *testing.T) {
 	m = copyChosen(t, revealed(t, m), "c", "1", "down")
 	if len(*copied) != 0 || !strings.Contains(plainView(m), "No credentials found") {
 		t.Fatalf("copied = %q with no credentials:\n%s", *copied, plainView(m))
+	}
+}
+
+func TestPasswordDialogTitleIsPluralInFrench(t *testing.T) {
+	i18n.SetLanguage("fr")
+	t.Cleanup(func() { i18n.SetLanguage("en") })
+	m, _, _ := newPasswordTestModel(t, []jumphost.DBCredentials{
+		{Database: "app_db", User: "app_ro", Password: "app-Pa55"},
+		{Secret: "audit-integ", User: "app_ro", Password: "audit-Pa55"},
+	}, nil, "Secrets Manager · read-only secrets Role=read-only")
+	view := plainView(revealed(t, m))
+	if !strings.Contains(view, "Mots de passe de la base") || strings.Contains(view, "bases") {
+		t.Fatalf("the French title is not plural:\n%s", view)
 	}
 }

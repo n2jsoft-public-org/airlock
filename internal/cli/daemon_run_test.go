@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/daemon"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/platform"
 	"github.com/n2jsoft/airlock/internal/version"
 )
@@ -124,5 +125,19 @@ func TestWaitDaemonUnlockedWaitsForTheLock(t *testing.T) {
 	}
 	if err := <-released; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDaemonLogStaysEnglishInFrench(t *testing.T) {
+	i18n.SetLanguage("fr")
+	t.Cleanup(func() { i18n.SetLanguage("en") })
+	home, logPath := daemonTestEnv(t)
+	writeTestFile(t, filepath.Join(home, "Library", "Caches", "airlock"), "")
+	writeTestFile(t, filepath.Join(home, "cache", "airlock"), "")
+	if err := runDaemonCmd(context.Background(), "run"); err == nil {
+		t.Fatal("the daemon must not start")
+	}
+	if got := readTarget(t, logPath); !strings.Contains(got, "daemon failed: ") {
+		t.Fatalf("daemon.log = %q, want the English log line", got)
 	}
 }

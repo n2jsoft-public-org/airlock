@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // palette is the set of 256-color codes every screen uses, with darker variants for terminals
@@ -130,7 +131,7 @@ func NewStyles(dark bool) Styles {
 			Foreground(p.accent),
 		FieldLabel: lipgloss.NewStyle().
 			Foreground(p.muted).
-			Width(9),
+			Width(labelWidth(9, 1, reviewLabelKeys)),
 
 		Card: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -292,4 +293,21 @@ func inputView(in textinput.Model) string {
 		in.Placeholder = ansi.Truncate(in.Placeholder, limit, "…")
 	}
 	return in.View()
+}
+
+// reviewLabelKeys are the labels FieldLabel renders in the review panels.
+var reviewLabelKeys = []string{
+	"ui.jumphost_flow_view.type", "ui.jumphost_flow_view.target", "ui.jumphost_flow_view.aws",
+	"ui.direct_review.server", "ui.direct_form.database", "ui.jumphost_flow_view.port",
+	"ui.jumphost_flow_view.sign_in", "ui.jumphost_flow_view.user", "ui.jumphost_flow_view.password",
+	"ui.jumphost_flow_view.remember", "ui.jumphost_flow_view.secret", "ui.jumphost_flow_view.mcp",
+}
+
+// labelWidth is a label column fitting the longest of keys in the current language plus gap
+// spaces, at least minWidth (what English needs).
+func labelWidth(minWidth, gap int, keys []string) int {
+	for _, key := range keys {
+		minWidth = max(minWidth, lipgloss.Width(i18n.T(key))+gap)
+	}
+	return minWidth
 }

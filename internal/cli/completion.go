@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
@@ -28,8 +29,8 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 	switch len(args) {
 	case 0:
 		return []string{
-			"rds\tRDS database", "eks\tEKS cluster API endpoint", "elasticache\tElastiCache cluster",
-			"direct\tDirect database (airlock connection add)", "docker\tDatabase of a local Docker container",
+			"rds\t" + i18n.T("cli.completion.rds"), "eks\t" + i18n.T("cli.completion.eks"), "elasticache\t" + i18n.T("cli.completion.elasticache"),
+			"direct\t" + i18n.T("cli.completion.direct"), "docker\t" + i18n.T("cli.completion.docker"),
 		}, cobra.ShellCompDirectiveNoFileComp
 	case 1:
 		if strings.EqualFold(args[0], dockerResourceType) {
@@ -55,7 +56,7 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 		recent := recentConnections(cmd, args[0])
 		for idx := range recent {
 			if conn := &recent[idx]; conn.Ref.Name == args[1] && conn.Prefs.LocalPort > 0 {
-				return []string{strconv.Itoa(conn.Prefs.LocalPort) + "\tlast used"}, cobra.ShellCompDirectiveNoFileComp
+				return []string{strconv.Itoa(conn.Prefs.LocalPort) + "\t" + i18n.T("cli.completion.last_used")}, cobra.ShellCompDirectiveNoFileComp
 			}
 		}
 	}

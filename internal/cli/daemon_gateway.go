@@ -8,6 +8,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/daemon"
 	"github.com/n2jsoft/airlock/internal/gateway"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
@@ -22,7 +23,7 @@ func gatewayNotice(status *daemon.Status) string {
 	if !off || reason == gatewayTurnedOff || reason == "" {
 		return ""
 	}
-	return "MCP gateway off: " + reason + " — see `airlock daemon status`"
+	return i18n.Format("cli.daemon_gateway.off_notice", reason)
 }
 
 // daemonRunner is the daemon's runner with the config.json it was built from: the gateway follows

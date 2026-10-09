@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -52,13 +53,20 @@ var errorCodes = map[string]error{
 	"deadline":          context.DeadlineExceeded,
 }
 
-func encodeError(err error) *wireError {
+// encodeError puts err on the wire; localize renders it in the user's language, for the daemon's
+// answers to the views (people). A view's answers stay English: they can end in a session's error,
+// which agents and logs read.
+func encodeError(err error, localize bool) *wireError {
+	message := err.Error()
+	if localize {
+		message = i18n.Localize(err)
+	}
 	for code, known := range errorCodes {
 		if errors.Is(err, known) {
-			return &wireError{Message: err.Error(), Code: code}
+			return &wireError{Message: message, Code: code}
 		}
 	}
-	return &wireError{Message: err.Error()}
+	return &wireError{Message: message}
 }
 
 // remoteError is an error of the other side, keeping the identity of known errors.
@@ -97,6 +105,8 @@ type peer struct {
 	// answered, when set, is called with the method of each request once its response was written
 	// or could not be (the other side is gone).
 	answered func(method string)
+	// localize renders the errors of its answers in the user's language: the daemon's side only.
+	localize bool
 	pending  map[uint64]chan message
 	serving  map[uint64]context.CancelFunc
 	finished chan struct{}
@@ -185,9 +195,9 @@ func (p *peer) serve(ctx context.Context, cancel context.CancelFunc, req *messag
 	if p.handle == nil {
 		resp.Error = &wireError{Message: "unknown method " + req.Method}
 	} else if result, err := p.handle(ctx, req.Method, req.Params); err != nil {
-		resp.Error = encodeError(err)
+		resp.Error = encodeError(err, p.localize)
 	} else if resp.Result, err = json.Marshal(result); err != nil {
-		resp.Error = encodeError(err)
+		resp.Error = encodeError(err, p.localize)
 	}
 	if p.send(&resp) != nil {
 		// The response cannot reach the other side: the connection is gone.

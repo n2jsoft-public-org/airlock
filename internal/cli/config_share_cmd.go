@@ -3,11 +3,11 @@ package cli
 import (
 	"bufio"
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -16,11 +16,9 @@ func newConfigExportCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
 		Use:   "export",
-		Short: "Print the settings of config.json as one string to share",
-		Long: "Prints the keys set in config.json as one string, for teammates to import with " +
-			"`airlock config import <string>`, which shows every change before applying it. A terminal first " +
-			"lists every key set, all selected, to uncheck those to leave out; --all, or no terminal, exports them all.",
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.config_export.short"),
+		Long:  i18n.T("cli.config_export.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, err := appdir.ConfigFile()
 			if err != nil {
@@ -40,7 +38,7 @@ func newConfigExportCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&all, "all", false, "Export every key set without asking")
+	cmd.Flags().BoolVar(&all, "all", false, i18n.T("cli.config_export.flag.all"))
 	return cmd
 }
 
@@ -61,7 +59,7 @@ func pickSettings(cmd *cobra.Command, path string) ([]string, error) {
 	for idx := range set {
 		choices[idx] = ui.ExportChoice{Name: set[idx].Name, Detail: set[idx].Value}
 	}
-	indexes, asked, err := pickExports(cmd, "Export config.json settings", "export", choices)
+	indexes, asked, err := pickExports(cmd, i18n.T("cli.config_share.export_config_json_settings"), i18n.T("ui.hint.export"), choices)
 	if err != nil || !asked {
 		return nil, err
 	}
@@ -76,10 +74,9 @@ func newConfigImportCmd() *cobra.Command {
 	var replace, yes bool
 	cmd := &cobra.Command{
 		Use:   "import <string>",
-		Short: "Apply a string of `airlock config export`, after showing what it changes",
-		Long: "Shows what the string changes in config.json, then, in a terminal, lists every change, all " +
-			"selected, to uncheck those to leave out; without a terminal it asks to apply them all.",
-		Args: cobra.ExactArgs(1),
+		Short: i18n.T("cli.config_import.short"),
+		Long:  i18n.T("cli.config_import.long"),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := appdir.ConfigFile()
 			if err != nil {
@@ -91,33 +88,33 @@ func newConfigImportCmd() *cobra.Command {
 			}
 			printPlan(cmd, &plan)
 			if !plan.HasChanges() {
-				outf(cmd, "Nothing to change: %s already has these values.\n", path)
+				outf(cmd, i18n.T("cli.config_share.nothing_to_change_already"), path)
 				return nil
 			}
 			if !yes {
 				keys, asked, err := pickImports(cmd, &plan)
 				switch {
 				case errors.Is(err, ui.ErrExportCanceled):
-					return errors.New("not applied")
+					return errors.New(i18n.T("cli.config_share.not_applied"))
 				case err != nil:
 					return err
 				case asked:
 					if plan, err = config.PlanImport(path, args[0], replace, keys...); err != nil {
 						return err
 					}
-				case !confirm(cmd, "Apply these changes to "+path+"? [y/N] "):
-					return errors.New("not applied")
+				case !confirm(cmd, i18n.Format("cli.apply_changes_confirm", path)):
+					return errors.New(i18n.T("cli.config_share.not_applied"))
 				}
 			}
 			if err := config.ApplyImport(&plan); err != nil {
 				return err
 			}
-			outf(cmd, "Applied %s to %s\n", pluralChanges(&plan), path)
+			outf(cmd, i18n.T("cli.config_share.applied"), pluralChanges(&plan), path)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&replace, "replace", false, "Make config.json exactly the imported settings, removing the others")
-	cmd.Flags().BoolVar(&yes, "yes", false, "Apply without asking")
+	cmd.Flags().BoolVar(&replace, "replace", false, i18n.T("cli.config_import.flag.replace"))
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T("cli.config_import.flag.yes"))
 	return cmd
 }
 
@@ -134,7 +131,7 @@ func pickImports(cmd *cobra.Command, plan *config.Plan) (keys []string, asked bo
 	for idx, c := range changed {
 		choices[idx] = ui.ExportChoice{Name: c.Name, Detail: changeSigns[c.Kind] + " " + shownValue(c.Old, c.OldDefault) + " → " + shownValue(c.New, c.NewDefault)}
 	}
-	indexes, asked, err := pickExports(cmd, "Import into "+plan.Path, "import", choices)
+	indexes, asked, err := pickExports(cmd, i18n.Format("cli.config_share.import_into_title", plan.Path), i18n.T("ui.hint.import"), choices)
 	if err != nil || !asked {
 		return nil, asked, err
 	}
@@ -160,7 +157,7 @@ func printPlan(cmd *cobra.Command, plan *config.Plan) {
 	for _, c := range plan.Changes {
 		width = max(width, len(c.Name))
 	}
-	outf(cmd, "Import into %s:\n\n", plan.Path)
+	outf(cmd, i18n.T("cli.config_share.import_into"), plan.Path)
 	for _, c := range plan.Changes {
 		value := shownValue(c.Old, c.OldDefault) + " → " + shownValue(c.New, c.NewDefault)
 		if c.Kind == config.ChangeUnchanged {
@@ -168,7 +165,7 @@ func printPlan(cmd *cobra.Command, plan *config.Plan) {
 		}
 		outf(cmd, "  %s %-*s   %s\n", changeSigns[c.Kind], width, c.Name, value)
 		if c.Kind != config.ChangeUnchanged {
-			outf(cmd, "      %s\n", c.Description)
+			outf(cmd, "      %s\n", c.Description())
 		}
 	}
 	outf(cmd, "\n")
@@ -178,11 +175,11 @@ func printPlan(cmd *cobra.Command, plan *config.Plan) {
 func shownValue(value string, isDefault bool) string {
 	switch {
 	case value == "" && isDefault:
-		return "(none, default)"
+		return i18n.T("cli.config_share.none_default")
 	case value == "":
-		return "(none)"
+		return i18n.T("cli.config_share.none")
 	case isDefault:
-		return value + " (default)"
+		return i18n.Format("cli.config_share.value_default", value)
 	default:
 		return value
 	}
@@ -211,8 +208,5 @@ func pluralChanges(plan *config.Plan) string {
 			count++
 		}
 	}
-	if count == 1 {
-		return "1 change"
-	}
-	return strconv.Itoa(count) + " changes"
+	return i18n.Plural(count, "cli.count.change")
 }

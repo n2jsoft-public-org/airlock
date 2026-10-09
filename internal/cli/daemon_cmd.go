@@ -12,6 +12,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/daemon"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/platform"
@@ -25,8 +26,8 @@ const daemonStopTimeout = 45 * time.Second
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Manage the background daemon of the daemon mode",
-		Long:  `With "mode": "daemon", a background daemon keeps the sessions; each airlock is a view of it.`,
+		Short: i18n.T("cli.daemon.short"),
+		Long:  i18n.T("cli.daemon.long"),
 		Args:  cobra.NoArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
@@ -36,7 +37,7 @@ func newDaemonCmd() *cobra.Command {
 
 func newDaemonStatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "status", Short: "Tell whether the daemon runs, with its sessions and views", Args: cobra.NoArgs,
+		Use: "status", Short: i18n.T("cli.daemon_status.short"), Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			paths, err := daemon.DefaultPaths()
 			if err != nil {
@@ -44,7 +45,7 @@ func newDaemonStatusCmd() *cobra.Command {
 			}
 			client, err := daemon.Running(cmd.Context(), paths, version.String())
 			if client == nil {
-				outf(cmd, "The airlock daemon is not running (socket %s).\n", paths.Socket)
+				outf(cmd, i18n.T("cli.daemon.airlock_daemon_is_not"), paths.Socket)
 				return nil
 			}
 			defer func() { _ = client.Close() }() //nolint:errcheck // a status read only.
@@ -52,13 +53,13 @@ func newDaemonStatusCmd() *cobra.Command {
 			if statusErr != nil {
 				return statusErr
 			}
-			outf(cmd, "The airlock daemon is running.\n  pid       %d\n  version   %s\n  since     %s\n  sessions  %d\n  views     %d\n  socket    %s\n  log       %s\n",
+			outf(cmd, i18n.T("cli.daemon.airlock_daemon_is_running"),
 				status.PID, status.Version, status.StartedAt.Format(time.RFC1123), status.Sessions, status.Views, paths.Socket, daemonLogPath())
 			if status.Gateway != "" {
-				outf(cmd, "  gateway   %s\n", status.Gateway)
+				outf(cmd, i18n.T("cli.daemon.status_gateway"), status.Gateway)
 			}
 			if mismatch, ok := errors.AsType[*daemon.VersionMismatchError](err); ok {
-				outf(cmd, "It runs another version than this airlock (%s): `airlock daemon restart` updates it.\n", mismatch.Client)
+				outf(cmd, i18n.T("cli.daemon.it_runs_another_version"), mismatch.Client)
 			}
 			return nil
 		},
@@ -67,16 +68,16 @@ func newDaemonStatusCmd() *cobra.Command {
 
 func newDaemonStopCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "stop", Short: "Stop every session, then the daemon", Args: cobra.NoArgs,
+		Use: "stop", Short: i18n.T("cli.daemon_stop.short"), Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			stopped, err := stopDaemon(cmd.Context())
 			if err != nil {
 				return err
 			}
 			if stopped {
-				outf(cmd, "The airlock daemon stopped.\n")
+				outf(cmd, "%s", i18n.T("cli.daemon.airlock_daemon_stopped"))
 			} else {
-				outf(cmd, "The airlock daemon is not running.\n")
+				outf(cmd, "%s", i18n.T("cli.daemon.airlock_daemon_is_not_2"))
 			}
 			return nil
 		},
@@ -85,7 +86,7 @@ func newDaemonStopCmd() *cobra.Command {
 
 func newDaemonRestartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "restart", Short: "Stop the daemon and its sessions, then start it again", Args: cobra.NoArgs,
+		Use: "restart", Short: i18n.T("cli.daemon_restart.short"), Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, err := stopDaemon(cmd.Context()); err != nil {
 				return err
@@ -95,7 +96,7 @@ func newDaemonRestartCmd() *cobra.Command {
 				return err
 			}
 			_ = client.Close() //nolint:errcheck // the daemon keeps running without this client.
-			outf(cmd, "The airlock daemon restarted.\n")
+			outf(cmd, "%s", i18n.T("cli.daemon.airlock_daemon_restarted"))
 			return nil
 		},
 	}
@@ -103,7 +104,7 @@ func newDaemonRestartCmd() *cobra.Command {
 
 func newDaemonRunCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "run", Short: "Run the daemon in the foreground (started by airlock in daemon mode)", Args: cobra.NoArgs,
+		Use: "run", Short: i18n.T("cli.daemon_run.short"), Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return runDaemon(cmd) },
 	}
 }
@@ -146,7 +147,7 @@ func stopDaemon(ctx context.Context) (bool, error) {
 	select {
 	case <-client.Done():
 	case <-ctx.Done():
-		return false, errors.New("the airlock daemon did not stop in time")
+		return false, errors.New(i18n.T("cli.daemon.airlock_daemon_did_not"))
 	}
 	if err := waitDaemonUnlocked(ctx, paths.Lock); err != nil {
 		return false, err
@@ -172,7 +173,7 @@ func waitDaemonUnlocked(ctx context.Context, path string) error {
 		}
 		select {
 		case <-ctx.Done():
-			return errors.New("the airlock daemon did not exit in time")
+			return errors.New(i18n.T("cli.daemon.airlock_daemon_did_not_2"))
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -235,7 +236,7 @@ func runDaemon(cmd *cobra.Command) error {
 	switch {
 	case errors.Is(err, daemon.ErrAlreadyRunning):
 		// The log is the running daemon's: this one leaves it untouched.
-		return fmt.Errorf("%w (see `airlock daemon status`)", err)
+		return i18n.NewError("cli.daemon.see_airlock_daemon_status", err)
 	case err != nil:
 		// A detached daemon has no terminal: its log is where airlock looks for why it did not start.
 		_, _ = fmt.Fprintf(log, "%s daemon failed: %v\n", time.Now().Format(time.RFC3339), err) //nolint:errcheck // the log is all the daemon has.

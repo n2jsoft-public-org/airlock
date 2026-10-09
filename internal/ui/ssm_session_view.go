@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -83,7 +84,7 @@ func (m ssmModel) render() string {
 	case ssmModeWizard:
 		return m.wizard.render()
 	case ssmModePreparing:
-		keys := m.styles.KeyHints([][2]string{{"esc", "cancel"}, {"ctrl+c", "quit"}}, maxInt(m.width-4, 20))
+		keys := m.styles.KeyHints([][2]string{{"esc", i18n.T("ui.hint.cancel")}, {"ctrl+c", i18n.T("ui.hint.quit")}}, maxInt(m.width-4, 20))
 		return m.styles.Container.Render(m.styles.Title.Render("airlock") + "\n\n" + m.loadingUI.Body(m.styles) + "\n\n" + keys)
 	default:
 	}
@@ -112,20 +113,20 @@ func (m ssmModel) render() string {
 func (m ssmModel) renderHeader(width int) string {
 	left := m.styles.Title.Render("◆ airlock")
 	if width >= compactBreakpoint {
-		left += m.styles.Faint.Render("  SSM port forwarding")
+		left += m.styles.Faint.Render(i18n.T("ui.ssm_session_view.ssm_port_forwarding"))
 	}
 
 	var counts []string
 	if n := m.countSessions(func(s *sessions.Session) bool { return s.State == sessions.StateRunning && s.Ready }); n > 0 {
-		counts = append(counts, m.styles.Success.Render(fmt.Sprintf("● %d ready", n)))
+		counts = append(counts, m.styles.Success.Render(i18n.Format("ui.ssm_session_view.ready", n)))
 	}
 	if n := m.countSessions(func(s *sessions.Session) bool {
 		return (s.Active() && (s.State != sessions.StateRunning || !s.Ready)) || s.ReconnectPending()
 	}); n > 0 {
-		counts = append(counts, m.styles.Warning.Render(fmt.Sprintf("%s %d pending", m.spinner(), n)))
+		counts = append(counts, m.styles.Warning.Render(i18n.Format("ui.ssm_session_view.pending", m.spinner(), n)))
 	}
 	if n := m.countSessions(func(s *sessions.Session) bool { return !s.Active() && !s.ReconnectPending() }); n > 0 {
-		counts = append(counts, m.styles.Muted.Render(fmt.Sprintf("○ %d ended", n)))
+		counts = append(counts, m.styles.Muted.Render(i18n.Format("ui.ssm_session_view.ended", n)))
 	}
 	right := strings.Join(counts, m.styles.Faint.Render("  ·  "))
 
@@ -136,8 +137,8 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 	inner := l.sidebarWidth - 4
 	innerHeight := l.bodyHeight - 2
 
-	lines := []string{m.styles.PanelTitle.Render("Sessions") + m.styles.Faint.Render(fmt.Sprintf("  %d", len(m.sessions))), ""}
-	newHint := m.styles.Faint.Render("+ new connection") + "  " + m.styles.KeyCap.Render("n")
+	lines := []string{m.styles.PanelTitle.Render(i18n.T("ui.ssm_session_view.sessions")) + m.styles.Faint.Render(fmt.Sprintf("  %d", len(m.sessions))), ""}
+	newHint := m.styles.Faint.Render(i18n.T("ui.ssm_session_view.new_connection")) + "  " + m.styles.KeyCap.Render("n")
 
 	// Show a window of cards that keeps the selected one visible.
 	const cardHeight = 4
@@ -149,14 +150,14 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 	last := min(len(m.sessions), first+capacity)
 
 	if first > 0 {
-		lines = append(lines, m.styles.Faint.Render(fmt.Sprintf("  ↑ %d more", first)))
+		lines = append(lines, m.styles.Faint.Render(i18n.Format("ui.ssm_session_view.more", first)))
 	}
 	for idx := first; idx < last; idx++ {
 		lines = append(lines, m.renderCard(&m.sessions[idx], idx == m.selected, inner)...)
 		lines = append(lines, "")
 	}
 	if last < len(m.sessions) {
-		lines = append(lines, m.styles.Faint.Render(fmt.Sprintf("  ↓ %d more", len(m.sessions)-last)))
+		lines = append(lines, m.styles.Faint.Render(i18n.Format("ui.ssm_session_view.more_2", len(m.sessions)-last)))
 	}
 
 	for len(lines) < innerHeight-1 {
@@ -256,8 +257,8 @@ func (m ssmModel) renderDetails(width int) string {
 	inner := width - 4
 	s := m.selectedSession()
 	if s == nil {
-		empty := m.styles.Text.Bold(true).Render("No active session") + "\n" +
-			m.styles.Muted.Render("Press ") + m.styles.KeyCap.Render("n") + m.styles.Muted.Render(" to open a connection.")
+		empty := m.styles.Text.Bold(true).Render(i18n.T("ui.ssm_session_view.no_active_session")) + "\n" +
+			m.styles.Muted.Render(i18n.T("ui.ssm_session_view.press")) + m.styles.KeyCap.Render("n") + m.styles.Muted.Render(i18n.T("ui.ssm_session_view.to_open_connection"))
 		return m.styles.Panel.Width(width).Render(empty)
 	}
 
@@ -274,40 +275,40 @@ func (m ssmModel) renderDetails(width int) string {
 	}
 	uptime := formatUptime(s)
 	if s.Connections > 0 {
-		uptime += m.styles.Muted.Render("  ·  " + plural(s.Connections, "connection"))
+		uptime += m.styles.Muted.Render("  ·  " + i18n.Plural(s.Connections, "ui.count.connection"))
 	}
 
 	rows := []string{title, ""}
 	if s.Direct() {
-		rows = append(rows, m.field("Server", m.styles.Title.Render(remote), inner))
+		rows = append(rows, m.field(i18n.T("ui.direct_review.server"), m.styles.Title.Render(remote), inner))
 	} else {
 		rows = append(rows,
-			m.field("Local", m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.LocalPort)), inner),
-			m.field("Remote", remote, inner),
-			m.field("AWS", s.Profile+m.styles.Faint.Render(" · ")+s.Region, inner),
+			m.field(i18n.T("ui.ssm_session_view.local"), m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.LocalPort)), inner),
+			m.field(i18n.T("ui.ssm_session_view.remote"), remote, inner),
+			m.field(i18n.T("ui.jumphost_flow_view.aws"), s.Profile+m.styles.Faint.Render(" · ")+s.Region, inner),
 		)
 	}
-	rows = append(rows, m.field("Uptime", uptime, inner))
+	rows = append(rows, m.field(i18n.T("ui.ssm_session_view.uptime"), uptime, inner))
 	if auth := strings.TrimSpace(s.Details.Auth); auth != "" {
 		if canRevealPassword(s) {
-			auth += "  " + m.styles.KeyCap.Render("p") + m.styles.Faint.Render(" show password")
+			auth += "  " + m.styles.KeyCap.Render("p") + m.styles.Faint.Render(i18n.T("ui.ssm_session_view.show_password"))
 		}
-		rows = append(rows, m.field("Auth", auth, inner))
+		rows = append(rows, m.field(i18n.T("ui.ssm_session_view.auth"), auth, inner))
 	}
 	if status := m.signInStatus(s); status != "" {
-		rows = append(rows, m.field("Sign-in", status, inner))
+		rows = append(rows, m.field(i18n.T("ui.jumphost_flow_view.sign_in"), status, inner))
 	}
 	if ide := strings.TrimSpace(s.Details.IDEDataSource); ide != "" {
-		rows = append(rows, m.field("IDE", ide, inner))
+		rows = append(rows, m.field(i18n.T("ui.ssm_session_view.ide"), ide, inner))
 	}
 	if mcp := strings.TrimSpace(s.Details.MCP); mcp != "" {
-		rows = append(rows, m.field("MCP", mcp, inner))
+		rows = append(rows, m.field(i18n.T("ui.jumphost_flow_view.mcp"), mcp, inner))
 	}
 	if kubeconfig := strings.TrimSpace(s.Details.Kubeconfig); kubeconfig != "" {
-		rows = append(rows, m.field("Kube", "KUBECONFIG="+shortenHome(kubeconfig), inner))
+		rows = append(rows, m.field(i18n.T("ui.ssm_session_view.kube"), "KUBECONFIG="+shortenHome(kubeconfig), inner))
 	}
 	if s.Err != "" && !s.StopRequested {
-		rows = append(rows, m.field("Error", m.styles.Danger.Render(s.Err), inner))
+		rows = append(rows, m.field(i18n.T("ui.ssm_session_view.error"), m.styles.Danger.Render(shownErr(s.LocalErr, s.Err)), inner))
 	}
 
 	panel := m.styles.Panel
@@ -318,18 +319,18 @@ func (m ssmModel) renderDetails(width int) string {
 }
 
 func (m ssmModel) renderLogs(width, height int) string {
-	title := m.styles.PanelTitle.Render("Logs")
+	title := m.styles.PanelTitle.Render(i18n.T("ui.ssm_session_view.logs"))
 	if s := m.selectedSession(); s != nil && s.MCP != nil {
 		// Both panels are named as tabs, the active one highlighted.
 		logs, queries := m.styles.PanelTitle, m.styles.Faint
 		if m.showQueries {
 			logs, queries = m.styles.Faint, m.styles.PanelTitle
 		}
-		title = logs.Render("Logs") + "   " + queries.Render("MCP calls") + m.styles.Faint.Render(fmt.Sprintf(" %d", s.MCP.Total))
+		title = logs.Render(i18n.T("ui.ssm_session_view.logs")) + "   " + queries.Render(i18n.T("ui.ssm_session_view.mcp_calls")) + m.styles.Faint.Render(fmt.Sprintf(" %d", s.MCP.Total))
 	}
-	follow := m.styles.Success.Render("● live")
+	follow := m.styles.Success.Render(i18n.T("ui.ssm_session_view.live"))
 	if !m.viewport.AtBottom() {
-		follow = m.styles.Warning.Render(fmt.Sprintf("❚❚ paused %d%%", int(m.viewport.ScrollPercent()*100))) + m.styles.Faint.Render("  G follow")
+		follow = m.styles.Warning.Render(i18n.Format("ui.ssm_session_view.paused", int(m.viewport.ScrollPercent()*100))) + m.styles.Faint.Render(i18n.T("ui.ssm_session_view.g_follow"))
 	}
 	header := spread(title, follow, width-4)
 
@@ -383,13 +384,13 @@ func (m ssmModel) quitDialogBody() string {
 	tunnels := m.countSessions(func(s *sessions.Session) bool { return s.Active() && !s.Direct() })
 	switch {
 	case tunnels == 0:
-		return fmt.Sprintf("This stops %s.", plural(active, "active session"))
+		return i18n.Format("ui.session.stop_sessions", i18n.Plural(active, "ui.count.active_session"))
 	case active == 1:
-		return "This stops 1 active session and frees its local port."
+		return i18n.T("ui.ssm_session_view.this_stops_1_active")
 	case tunnels == active:
-		return fmt.Sprintf("This stops %s and frees their local ports.", plural(active, "active session"))
+		return i18n.Format("ui.session.stop_sessions_ports", i18n.Plural(active, "ui.count.active_session"))
 	default:
-		return fmt.Sprintf("This stops %s and frees the local ports of their tunnels.", plural(active, "active session"))
+		return i18n.Format("ui.session.stop_sessions_tunnels", i18n.Plural(active, "ui.count.active_session"))
 	}
 }
 
@@ -397,30 +398,30 @@ func (m ssmModel) renderDialog(width int) string {
 	var title, body, confirm string
 	switch m.mode {
 	case ssmModeConfirmQuit:
-		title = "Quit airlock?"
+		title = i18n.T("ui.ssm_session_view.quit_airlock")
 		body = m.quitDialogBody()
-		confirm = "Stop all & quit"
+		confirm = i18n.T("ui.ssm_session_view.stop_all_quit")
 		if m.detach {
-			title = "Stop every session and the daemon?"
+			title = i18n.T("ui.ssm_session_view.stop_every_session_and")
 		}
 	default:
 		s := m.selectedSession()
 		if s == nil {
 			return ""
 		}
-		title = "Stop this session?"
-		body = m.badge(s.ResourceType) + " " + s.Target + m.styles.Muted.Render(" on "+sessionAddress(s))
+		title = i18n.T("ui.ssm_session_view.stop_this_session")
+		body = m.badge(s.ResourceType) + " " + s.Target + m.styles.Muted.Render(i18n.Format("ui.session.on_address", sessionAddress(s)))
 		if cmd := strings.TrimSpace(s.Details.RestartCommand); cmd != "" {
-			body += "\n\n" + m.styles.Faint.Render("Reconnect later with:") + "\n" + m.styles.Muted.Render(cmd)
+			body += "\n\n" + m.styles.Faint.Render(i18n.T("ui.ssm_session_view.reconnect_later_with")) + "\n" + m.styles.Muted.Render(cmd)
 		}
-		confirm = "Stop session"
+		confirm = i18n.T("ui.ssm_session_view.stop_session")
 	}
 
 	yes, no := m.styles.Button, m.styles.ButtonFocus
 	if m.confirmYes {
 		yes, no = m.styles.ButtonFocus, m.styles.Button
 	}
-	buttons := yes.Render(confirm) + "  " + no.Render("Cancel")
+	buttons := yes.Render(confirm) + "  " + no.Render(i18n.T("ui.ssm_session_view.cancel"))
 
 	dialogWidth := min(width-4, maxInt(lipgloss.Width(buttons), 56))
 	content := m.styles.Text.Bold(true).Render(title) + "\n\n" +
@@ -438,46 +439,46 @@ func (m ssmModel) renderFooter(width int) string {
 		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Muted.Render(m.notice)))
 	}
 	if m.connLost != "" {
-		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Danger.Render("✗ "+m.connLost)+m.styles.Faint.Render("  r reconnect · q quit")))
+		lines = append(lines, lipgloss.NewStyle().Width(width).Render(m.styles.Danger.Render("✗ "+m.connLost)+m.styles.Faint.Render(i18n.T("ui.ssm_session_view.r_reconnect_quit"))))
 	}
 	if m.quitting && m.hasActiveSessions() {
-		lines = append(lines, m.styles.Warning.Render(m.spinner()+" Stopping sessions...")+m.styles.Faint.Render("  ctrl+c again to force"))
+		lines = append(lines, m.styles.Warning.Render(m.spinner()+i18n.T("ui.session.stopping_sessions"))+m.styles.Faint.Render(i18n.T("ui.ssm_session_view.ctrl_c_again_to")))
 	}
 
 	var keys [][2]string
 	switch {
 	case m.connLost != "":
-		keys = [][2]string{{"r", "reconnect"}, {"q", "quit"}}
+		keys = [][2]string{{"r", i18n.T("ui.hint.reconnect")}, {"q", i18n.T("ui.hint.quit")}}
 	case m.mode == ssmModeConfirmQuit:
-		keys = [][2]string{{"y", "quit"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}, {"ctrl+c", "quit"}}
+		keys = [][2]string{{"y", i18n.T("ui.hint.quit")}, {"n", i18n.T("ui.hint.cancel")}, {"←→", i18n.T("ui.hint.choose")}, {"enter", i18n.T("ui.hint.select")}, {"ctrl+c", i18n.T("ui.hint.quit")}}
 		if m.detach {
-			keys[4] = [2]string{"ctrl+c", "leave"}
+			keys[4] = [2]string{"ctrl+c", i18n.T("ui.hint.leave")}
 		}
 	case m.mode == ssmModeConfirmStop:
-		keys = [][2]string{{"y", "stop"}, {"n", "cancel"}, {"←→", "choose"}, {"enter", "select"}}
+		keys = [][2]string{{"y", i18n.T("ui.hint.stop")}, {"n", i18n.T("ui.hint.cancel")}, {"←→", i18n.T("ui.hint.choose")}, {"enter", i18n.T("ui.hint.select")}}
 	case m.mode == ssmModeHelp:
-		keys = [][2]string{{"esc", "close"}}
+		keys = [][2]string{{"esc", i18n.T("ui.hint.close")}}
 	case m.mode == ssmModeCopy:
-		keys = [][2]string{{"1-9", "copy"}, {"↑↓", "move"}, {"enter", "copy"}, {"esc", "close"}}
+		keys = [][2]string{{"1-9", i18n.T("ui.hint.copy")}, {"↑↓", i18n.T("ui.hint.move")}, {"enter", i18n.T("ui.hint.copy")}, {"esc", i18n.T("ui.hint.close")}}
 	case m.mode == ssmModePassword:
-		keys = [][2]string{{"c", "copy"}, {"esc", "hide"}, {"↑↓", "move"}, {"←→", "choose"}, {"enter", "select"}}
+		keys = [][2]string{{"c", i18n.T("ui.hint.copy")}, {"esc", i18n.T("ui.hint.hide")}, {"↑↓", i18n.T("ui.hint.move")}, {"←→", i18n.T("ui.hint.choose")}, {"enter", i18n.T("ui.hint.select")}}
 	case m.mode == ssmModeSignIn:
-		keys = [][2]string{{"1-9", "choose"}, {"↑↓", "move"}, {"enter", "choose"}, {"esc", "later"}}
+		keys = [][2]string{{"1-9", i18n.T("ui.hint.choose")}, {"↑↓", i18n.T("ui.hint.move")}, {"enter", i18n.T("ui.hint.choose")}, {"esc", i18n.T("ui.hint.later")}}
 	case m.mode == ssmModeApproval:
-		keys = [][2]string{{"y", "allow"}, {"n", "deny"}, {"←→", "choose"}, {"enter", "select"}}
+		keys = [][2]string{{"y", i18n.T("ui.hint.allow")}, {"n", i18n.T("ui.hint.deny")}, {"←→", i18n.T("ui.hint.choose")}, {"enter", i18n.T("ui.hint.select")}}
 	default:
-		keys = [][2]string{{"n", "new"}}
+		keys = [][2]string{{"n", i18n.T("ui.hint.new")}}
 		switch s := m.selectedSession(); {
 		case s == nil:
 		case s.Active() && s.AWSSignInExpired:
-			keys = append(keys, [2]string{"r", "sign in to AWS"}, [2]string{"x", "stop"})
+			keys = append(keys, [2]string{"r", i18n.T("ui.ssm_session_view.sign_in_to_aws")}, [2]string{"x", i18n.T("ui.hint.stop")})
 		case s.Active():
-			keys = append(keys, [2]string{"x", "stop"})
+			keys = append(keys, [2]string{"x", i18n.T("ui.hint.stop")})
 		default:
-			keys = append(keys, [2]string{"r", "restart"}, [2]string{"x", "close"})
+			keys = append(keys, [2]string{"r", i18n.T("ui.hint.restart")}, [2]string{"x", i18n.T("ui.hint.close")})
 		}
 		if s := m.selectedSession(); s != nil {
-			keys = append(keys, [2]string{"c", "copy"})
+			keys = append(keys, [2]string{"c", i18n.T("ui.hint.copy")})
 		}
 		if s := m.selectedSession(); canRevealPassword(s) {
 			keys = append(keys, [2]string{"p", "password"})
@@ -485,23 +486,23 @@ func (m ssmModel) renderFooter(width int) string {
 		if s := m.selectedSession(); canRetrySignIn(s) {
 			switch s.SignIn.State {
 			case sessions.SignInChoosing, sessions.SignInSkipped, sessions.SignInFailed:
-				keys = append(keys, [2]string{"a", "sign in"})
+				keys = append(keys, [2]string{"a", i18n.T("ui.hint.sign_in")})
 			default:
 				// Nothing to choose while idle, listing, checking or signed in.
 			}
 		}
-		keys = append(keys, [2]string{"tab", "switch"}, [2]string{"1-9", "jump"}, [2]string{"↑↓", "scroll"})
+		keys = append(keys, [2]string{"tab", i18n.T("ui.hint.switch")}, [2]string{"1-9", i18n.T("ui.hint.jump")}, [2]string{"↑↓", i18n.T("ui.hint.scroll")})
 		if s := m.selectedSession(); s != nil && s.MCP != nil {
-			panel := "queries"
+			panel := i18n.T("ui.hint.queries")
 			if m.showQueries {
-				panel = "logs"
+				panel = i18n.T("ui.hint.logs")
 			}
 			keys = append(keys, [2]string{"m", panel})
 		}
 		if m.detach {
-			keys = append(keys, [2]string{"?", "help"}, [2]string{"q", "leave"}, [2]string{"Q", "stop all"})
+			keys = append(keys, [2]string{"?", i18n.T("ui.hint.help")}, [2]string{"q", i18n.T("ui.hint.leave")}, [2]string{"Q", i18n.T("ui.hint.stop_all")})
 		} else {
-			keys = append(keys, [2]string{"?", "help"}, [2]string{"q", "quit"})
+			keys = append(keys, [2]string{"?", i18n.T("ui.hint.help")}, [2]string{"q", i18n.T("ui.hint.quit")})
 		}
 	}
 	lines = append(lines, m.styles.KeyHintsPinned(keys, 2, width))
@@ -510,27 +511,27 @@ func (m ssmModel) renderFooter(width int) string {
 
 // helpGroups lists every key of the dashboard for its help.
 func (m ssmModel) helpGroups() []helpGroup {
-	quitKeys := [][2]string{{"?", "This help"}, {"q ctrl+c", "Stop all sessions and quit"}}
+	quitKeys := [][2]string{{"?", i18n.T("ui.ssm_session_view.this_help")}, {"q ctrl+c", i18n.T("ui.ssm_session_view.stop_all_sessions_and")}}
 	if m.detach {
-		quitKeys = [][2]string{{"?", "This help"}, {"q ctrl+c", "Leave this view (sessions keep running)"}, {"Q", "Stop every session and the daemon"}}
+		quitKeys = [][2]string{{"?", i18n.T("ui.ssm_session_view.this_help")}, {"q ctrl+c", i18n.T("ui.ssm_session_view.leave_this_view_sessions")}, {"Q", i18n.T("ui.ssm_session_view.stop_every_session_and_2")}}
 	}
 	if m.settings != nil {
-		quitKeys = append([][2]string{{",", "Settings: change config.json"}}, quitKeys...)
+		quitKeys = append([][2]string{{",", i18n.T("ui.ssm_session_view.settings_change_config_json")}}, quitKeys...)
 	}
 	return []helpGroup{
-		{title: "Sessions", keys: [][2]string{
-			{"n", "Open a new connection"},
-			{"r", "Restart an ended session, or sign in to AWS again"},
-			{"x", "Stop the session, or close it once ended"},
-			{"c", "Copy its address, a command or the last MCP call"},
-			{"a p", "Choose the database credentials, or show the password"},
-			{"tab ←→ 1-9", "Switch session, or jump to one"},
+		{title: i18n.T("ui.ssm_session_view.sessions"), keys: [][2]string{
+			{"n", i18n.T("ui.ssm_session_view.open_new_connection")},
+			{"r", i18n.T("ui.ssm_session_view.restart_ended_session_or")},
+			{"x", i18n.T("ui.ssm_session_view.stop_session_or_close")},
+			{"c", i18n.T("ui.ssm_session_view.copy_its_address_command")},
+			{"a p", i18n.T("ui.ssm_session_view.choose_database_credentials_or")},
+			{"tab ←→ 1-9", i18n.T("ui.ssm_session_view.switch_session_or_jump")},
 		}},
-		{title: "Logs", keys: [][2]string{
-			{"↑↓ pgup pgdn", "Scroll, pausing the live tail"},
-			{"g home", "Start of the logs"},
-			{"G end", "Back to the live tail"},
-			{"m", "Logs or MCP calls (sessions with an MCP server)"},
+		{title: i18n.T("ui.ssm_session_view.logs"), keys: [][2]string{
+			{"↑↓ pgup pgdn", i18n.T("ui.ssm_session_view.scroll_pausing_live_tail")},
+			{"g home", i18n.T("ui.ssm_session_view.start_of_logs")},
+			{"G end", i18n.T("ui.ssm_session_view.back_to_live_tail")},
+			{"m", i18n.T("ui.ssm_session_view.logs_or_mcp_calls")},
 		}},
 		{title: "airlock", keys: quitKeys},
 	}
@@ -541,16 +542,16 @@ func (m ssmModel) status(s *sessions.Session) (icon, label string, style lipglos
 	switch s.State {
 	case sessions.StateRunning:
 		if s.AWSSignInExpired {
-			return "⚠", "AWS sign-in expired", m.styles.Warning
+			return "⚠", i18n.T("ui.ssm_session_view.aws_sign_in_expired"), m.styles.Warning
 		}
 		if s.Ready {
-			return "●", "Ready", m.styles.Success
+			return "●", i18n.T("ui.ssm_session_view.ready_2"), m.styles.Success
 		}
-		return m.spinner(), "Connecting", m.styles.Warning
+		return m.spinner(), i18n.T("ui.ssm_session_view.connecting"), m.styles.Warning
 	case sessions.StateStarting:
-		return m.spinner(), "Starting", m.styles.Warning
+		return m.spinner(), i18n.T("ui.ssm_session_view.starting"), m.styles.Warning
 	case sessions.StateStopping:
-		return m.spinner(), "Stopping", m.styles.Warning
+		return m.spinner(), i18n.T("ui.ssm_session_view.stopping"), m.styles.Warning
 	default:
 		switch {
 		case s.Reconnecting:
@@ -558,11 +559,11 @@ func (m ssmModel) status(s *sessions.Session) (icon, label string, style lipglos
 		case s.ReconnectPending():
 			return "↻", reconnectStatus(s), m.styles.Warning
 		case s.StopRequested:
-			return "○", "Stopped", m.styles.Muted
+			return "○", i18n.T("ui.ssm_session_view.stopped"), m.styles.Muted
 		case s.Err != "":
-			return "✗", "Failed", m.styles.Danger
+			return "✗", i18n.T("ui.ssm_session_view.failed"), m.styles.Danger
 		default:
-			return "○", "Closed", m.styles.Muted
+			return "○", i18n.T("ui.ssm_session_view.closed"), m.styles.Muted
 		}
 	}
 }
@@ -662,4 +663,12 @@ func sessionOrigin(s *sessions.Session) string {
 		return s.ResourceType
 	}
 	return s.Profile + " · " + s.Region
+}
+
+// shownErr is the error text a person reads: the localized one when the session has it.
+func shownErr(local, english string) string {
+	if local != "" {
+		return local
+	}
+	return english
 }

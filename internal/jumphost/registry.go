@@ -1,12 +1,12 @@
 package jumphost
 
 import (
-	"errors"
-	"fmt"
 	"net"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 const (
@@ -46,16 +46,16 @@ func (s *SessionRegistry) PortAvailable(port int) bool {
 // CheckPort explains why port cannot be used, or returns nil when it is free.
 func (s *SessionRegistry) CheckPort(port int) error {
 	if port <= 0 || port > maxPortNumber {
-		return fmt.Errorf("port %d is out of range (1-%d)", port, maxPortNumber)
+		return i18n.NewError("jumphost.registry.port_is_out_of", port, maxPortNumber)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if owner, ok := s.ports[port]; ok {
-		return fmt.Errorf("port %d is already used by session %s", port, owner)
+		return i18n.NewError("jumphost.registry.port_is_already_used", port, owner)
 	}
 	if !s.portFree(port) {
-		return fmt.Errorf("port %d is already in use by another process", port)
+		return i18n.NewError("jumphost.registry.port_is_already_in", port)
 	}
 	return nil
 }
@@ -75,16 +75,16 @@ func (s *SessionRegistry) reserve(target string, requested, preferred int) (int,
 	defer s.mu.Unlock()
 
 	if port, ok := s.targets[target]; ok {
-		return 0, fmt.Errorf("%s is already connected on localhost:%d", target, port)
+		return 0, i18n.NewError("jumphost.registry.is_already_connected_on", target, port)
 	}
 
 	port := requested
 	if port > 0 {
 		if owner, ok := s.ports[port]; ok {
-			return 0, fmt.Errorf("port %d is already used by session %s", port, owner)
+			return 0, i18n.NewError("jumphost.registry.port_is_already_used", port, owner)
 		}
 		if !s.portFree(port) {
-			return 0, fmt.Errorf("port %d is already in use by another process", port)
+			return 0, i18n.NewError("jumphost.registry.port_is_already_in", port)
 		}
 	} else {
 		var err error
@@ -114,7 +114,7 @@ func (s *SessionRegistry) suggestPortLocked(preferred int) (int, error) {
 		return s.randomPortLocked()
 	}
 	if preferred < 0 || preferred > maxPortNumber {
-		return 0, fmt.Errorf("port %d is out of range (1-%d)", preferred, maxPortNumber)
+		return 0, i18n.NewError("jumphost.registry.port_is_out_of", preferred, maxPortNumber)
 	}
 
 	last := min(preferred+portSearchLimit, maxPortNumber)
@@ -123,7 +123,7 @@ func (s *SessionRegistry) suggestPortLocked(preferred int) (int, error) {
 			return port, nil
 		}
 	}
-	return 0, fmt.Errorf("no free local port found between %d and %d", preferred, last)
+	return 0, i18n.NewError("jumphost.registry.no_free_local_port", preferred, last)
 }
 
 // randomPortLocked asks the OS for a free loopback port no session holds.
@@ -131,14 +131,14 @@ func (s *SessionRegistry) randomPortLocked() (int, error) {
 	for range portSearchLimit {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			return 0, fmt.Errorf("no free local port: %w", err)
+			return 0, i18n.NewError("jumphost.registry.no_free_local_port_2", err)
 		}
 		port := listener.Addr().(*net.TCPAddr).Port //nolint:forcetypeassert,errcheck // a tcp listener has a TCP address.
 		if err := listener.Close(); err == nil && s.portAvailableLocked(port) {
 			return port, nil
 		}
 	}
-	return 0, errors.New("no free local port found")
+	return 0, i18n.NewError("jumphost.registry.no_free_local_port_3")
 }
 
 func (s *SessionRegistry) portAvailableLocked(port int) bool {
@@ -173,7 +173,7 @@ func (s *SessionRegistry) claim(target, display string) error {
 	defer s.mu.Unlock()
 
 	if _, ok := s.targets[target]; ok {
-		return fmt.Errorf("%s is already connected", display)
+		return i18n.NewError("jumphost.registry.is_already_connected", display)
 	}
 	// No port: release deletes ports[0], which no reservation ever holds.
 	s.targets[target] = 0

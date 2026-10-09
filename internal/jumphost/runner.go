@@ -24,6 +24,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dbuser"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
@@ -425,12 +426,12 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		return r.prepareDocker(ctx, &options)
 	}
 	if _, err := exec.LookPath("aws"); err != nil {
-		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+		return nil, i18n.NewError("jumphost.runner.aws_cli_is_not")
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
-		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
+		return nil, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
 	}
 
 	cfg, err := r.resolveAWSConfig(ctx, &options)
@@ -483,7 +484,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 
 	parameters, err := json.Marshal(ssmParameters)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize SSM parameters: %w", err)
+		return nil, i18n.NewError("jumphost.runner.failed_to_serialize_ssm", err)
 	}
 
 	session := &Session{
@@ -508,7 +509,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		Intro: append([]string{sessionDisplayName}, sessionInfo...),
 	}
 	if session.LocalPort, err = strconv.Atoi(localPort); err != nil {
-		return nil, fmt.Errorf("invalid local port %q: %w", localPort, err)
+		return nil, i18n.NewError("jumphost.runner.invalid_local_port", localPort, err)
 	}
 	if resourceType == resourceRDS {
 		session.ReadCredentials = r.secretCredentialsReader(r.awsRunner(cfg), resolvedTargetName, &target)
@@ -616,7 +617,7 @@ func (r *Runner) listProfileNames(ctx context.Context) ([]string, error) {
 // ListAWSProfileSummaries returns available AWS profiles with display details.
 func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSummary, error) {
 	if _, err := exec.LookPath("aws"); err != nil {
-		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+		return nil, i18n.NewError("jumphost.runner.aws_cli_is_not")
 	}
 
 	profiles, err := r.listProfileNames(ctx)
@@ -670,7 +671,7 @@ func (r *Runner) ListResourceNames(ctx context.Context, options *Options) ([]str
 // requireAWSCLI returns an error if the AWS CLI is not installed.
 func requireAWSCLI() error {
 	if _, err := exec.LookPath("aws"); err != nil {
-		return errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")
+		return i18n.NewError("jumphost.runner.aws_cli_is_not")
 	}
 	return nil
 }
@@ -699,7 +700,7 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 			IAMAuth       bool   `json:"iamAuth"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return nil, fmt.Errorf("failed to parse RDS instances: %w", err)
+			return nil, i18n.NewError("jumphost.runner.failed_to_parse_rds", err)
 		}
 
 		resources := make([]ResourceSummary, 0, len(instances))
@@ -736,7 +737,7 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return nil, fmt.Errorf("failed to parse EKS clusters: %w", err)
+			return nil, i18n.NewError("jumphost.runner.failed_to_parse_eks", err)
 		}
 
 		resources := make([]ResourceSummary, 0, len(clusters))
@@ -758,7 +759,7 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 		}
 		return resources, nil
 	default:
-		return nil, fmt.Errorf("unsupported resource type %q", resourceType)
+		return nil, i18n.NewError("jumphost.runner.unsupported_resource_type", resourceType)
 	}
 }
 
@@ -770,7 +771,7 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options *Options) ([
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if !supportedResourceType(resourceType) {
-		return nil, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
+		return nil, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
 	}
 
 	cfg, err := r.resolveAWSConfig(ctx, options)
@@ -1004,7 +1005,7 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options
 	case resourceElastiCache:
 		name := strings.TrimSpace(options.Name)
 		if name == "" {
-			return 0, errors.New("ElastiCache cluster name is required")
+			return 0, i18n.NewError("jumphost.runner.elasticache_cluster_name_is")
 		}
 
 		cfg, err := r.resolveAWSConfig(ctx, options)
@@ -1068,7 +1069,7 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options
 	case resourceRDS:
 		name := strings.TrimSpace(options.Name)
 		if name == "" {
-			return 0, errors.New("RDS instance name is required")
+			return 0, i18n.NewError("jumphost.runner.rds_instance_name_is")
 		}
 
 		cfg, err := r.resolveAWSConfig(ctx, options)
@@ -1092,15 +1093,15 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options
 			} `json:"Endpoint"`
 		}
 		if err := json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-			return 0, fmt.Errorf("failed to parse RDS instance details: %w", err)
+			return 0, i18n.NewError("jumphost.runner.failed_to_parse_rds_2", err)
 		}
 		if instance.Endpoint.Port == 0 {
-			return 0, errors.New("RDS instance endpoint port is missing")
+			return 0, i18n.NewError("jumphost.runner.rds_instance_endpoint_port")
 		}
 
 		return instance.Endpoint.Port, nil
 	default:
-		return 0, fmt.Errorf("unsupported resource type %q (supported: eks, rds, elasticache)", options.ResourceType)
+		return 0, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
 	}
 }
 
@@ -1112,8 +1113,7 @@ func (r *Runner) resolveAWSConfig(ctx context.Context, options *Options) (awsCon
 		region = r.ResolveRegion(ctx, profile)
 	}
 	if region == "" {
-		return awsConfig{}, fmt.Errorf(
-			"no AWS region for profile %q: pass --region, set AWS_REGION, configure the profile's region (aws configure set region <region> --profile %s), or set a default with `airlock config set defaultRegion <region>`",
+		return awsConfig{}, i18n.NewError("jumphost.runner.no_aws_region_for",
 			profile, profile)
 	}
 
@@ -1161,7 +1161,7 @@ func settingHint(key, example, flag string) string {
 // jumphostNotFoundError explains that no running instance carries the jumphost tag, which may be
 // the wrong profile or region, or a tag that does not match the account's conventions.
 func jumphostNotFoundError(tag awstag.Tag, profile, region string) error {
-	return fmt.Errorf("no running jumphost instance tagged %s in %s (profile %s). Are you using the correct profile/region? The tag comes from \"jumphostTag\": %s",
+	return i18n.NewError("jumphost.runner.no_running_jumphost_instance",
 		tag, region, profile, settingHint("jumphostTag", "Key=Value", "--jumphost-tag"))
 }
 
@@ -1200,7 +1200,7 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 	}
 
 	if !interactive {
-		return fmt.Errorf("%w: the AWS credentials of profile %s are missing or expired", ErrSignInRequired, cfg.Profile)
+		return i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
 	}
 	fprintf(r.out, "Failed. Reauthorize...\n")
 	// A profile without source_profile signs in itself.
@@ -1213,13 +1213,13 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 	}
 
 	if authErr := r.ssoLogin(ctx, loginProfile); authErr != nil {
-		return errors.New("failed to authorize. Please check your AWS CLI configuration")
+		return i18n.NewError("jumphost.runner.failed_to_authorize_please")
 	}
 
 	fprintf(r.out, "Using AWS identity... ")
 	identity, err = r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
 	if err != nil {
-		return errors.New("failed to retrieve current identity. Please check your AWS CLI configuration")
+		return i18n.NewError("jumphost.runner.failed_to_retrieve_current")
 	}
 
 	fprintf(r.out, "%s\n", identity)
@@ -1265,10 +1265,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 			Port    int    `json:"port"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return preparedTarget{}, fmt.Errorf("failed to parse RDS instances: %w", err)
+			return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_rds", err)
 		}
 		if len(instances) == 0 {
-			return preparedTarget{}, errors.New("no RDS instance found")
+			return preparedTarget{}, i18n.NewError("jumphost.runner.no_rds_instance_found")
 		}
 		if len(instances) == 1 {
 			name = instances[0].Name
@@ -1283,7 +1283,7 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 				return preparedTarget{}, err
 			}
 			if selectedName == "" {
-				return preparedTarget{}, errors.New("RDS instance name is required")
+				return preparedTarget{}, i18n.NewError("jumphost.runner.rds_instance_name_is")
 			}
 			name = selectedName
 		}
@@ -1315,20 +1315,19 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		IAMDatabaseAuthenticationEnabled bool `json:"IAMDatabaseAuthenticationEnabled"`
 	}
 	if err = json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-		return preparedTarget{}, fmt.Errorf("failed to parse RDS instance details: %w", err)
+		return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_rds_2", err)
 	}
 	if instance.Endpoint.Address == "" || instance.Endpoint.Port == 0 {
-		return preparedTarget{}, errors.New("RDS instance endpoint is missing")
+		return preparedTarget{}, i18n.NewError("jumphost.runner.rds_instance_endpoint_is")
 	}
 
 	secretID := strings.TrimSpace(options.DBSecretARN)
 	if secretID == "" && options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
-		return preparedTarget{}, errors.New("a database user is required to sign in with a password")
+		return preparedTarget{}, i18n.NewError("jumphost.runner.database_user_is_required")
 	}
 	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == "" && secretID == "" && options.SignIn != SignInAuto
 	if iamAuth && r.ResolveDBUser(instance.Engine, options.DBUser) == "" {
-		return preparedTarget{}, fmt.Errorf(
-			"a database user is required to sign in to %s with AWS IAM: pass --db-user, or set a default with `airlock config set defaultDbUser <user>`",
+		return preparedTarget{}, i18n.NewError("jumphost.runner.database_user_is_required_2",
 			instance.DBInstanceIdentifier)
 	}
 	var secretUser string
@@ -1474,10 +1473,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return preparedTarget{}, fmt.Errorf("failed to parse EKS clusters: %w", err)
+			return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_eks", err)
 		}
 		if len(clusters) == 0 {
-			return preparedTarget{}, errors.New("no EKS cluster found")
+			return preparedTarget{}, i18n.NewError("jumphost.runner.no_eks_cluster_found")
 		}
 		if len(clusters) == 1 {
 			name = clusters[0].Name
@@ -1492,7 +1491,7 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options
 				return preparedTarget{}, err
 			}
 			if selectedName == "" {
-				return preparedTarget{}, errors.New("EKS cluster name is required")
+				return preparedTarget{}, i18n.NewError("jumphost.runner.eks_cluster_name_is")
 			}
 			name = selectedName
 		}
@@ -1516,10 +1515,10 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options
 		} `json:"certificateAuthority"`
 	}
 	if err = json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
-		return preparedTarget{}, fmt.Errorf("failed to parse EKS cluster details: %w", err)
+		return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_eks_2", err)
 	}
 	if cluster.Endpoint == "" {
-		return preparedTarget{}, errors.New("EKS cluster endpoint is missing")
+		return preparedTarget{}, i18n.NewError("jumphost.runner.eks_cluster_endpoint_is")
 	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceEKS, cluster.Name, cfg), options.LocalPortNumber, defaultEKSLocalPort)
@@ -1588,7 +1587,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 			return preparedTarget{}, err
 		}
 		if len(resources) == 0 {
-			return preparedTarget{}, errors.New("no ElastiCache cluster found")
+			return preparedTarget{}, i18n.NewError("jumphost.runner.no_elasticache_cluster_found")
 		}
 		if len(resources) == 1 {
 			name = resources[0].Name
@@ -1602,7 +1601,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 				return preparedTarget{}, err
 			}
 			if selectedName == "" {
-				return preparedTarget{}, errors.New("ElastiCache cluster name is required")
+				return preparedTarget{}, i18n.NewError("jumphost.runner.elasticache_cluster_name_is")
 			}
 			name = selectedName
 		}
@@ -1689,7 +1688,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 			if cluster.ReplicationGroupId != "" {
 				// A node of a replication group signs in as its group does.
 				if groupErr := r.applyNodeReplicationGroup(ctx, cfg, cluster.ReplicationGroupId, target); groupErr != nil {
-					return preparedTarget{}, fmt.Errorf("failed to describe the replication group %s of cache node %s: %w", cluster.ReplicationGroupId, cluster.CacheClusterId, groupErr)
+					return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_describe_replication", cluster.ReplicationGroupId, cluster.CacheClusterId, groupErr)
 				}
 			}
 			return r.prepareCacheTarget(ctx, cfg, options, cluster.CacheClusterId, endpoint.Address, endpoint.Port, target, func(localPort int) string {
@@ -1707,7 +1706,7 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		"--output", "json",
 	)
 	if err != nil {
-		return preparedTarget{}, fmt.Errorf("ElastiCache cluster %q not found: %w", name, err)
+		return preparedTarget{}, i18n.NewError("jumphost.runner.elasticache_cluster_not_found", name, err)
 	}
 
 	var sc struct {
@@ -1722,10 +1721,10 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		} `json:"Endpoint"`
 	}
 	if err = json.Unmarshal([]byte(rawServerless), &sc); err != nil {
-		return preparedTarget{}, fmt.Errorf("failed to parse serverless cache details: %w", err)
+		return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_serverless", err)
 	}
 	if sc.Endpoint.Address == "" {
-		return preparedTarget{}, fmt.Errorf("serverless cache %q endpoint is missing", name)
+		return preparedTarget{}, i18n.NewError("jumphost.runner.serverless_cache_endpoint_is", name)
 	}
 
 	var userGroups []string
@@ -2219,7 +2218,7 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	// One listing may fail on its own (a region without serverless caches); all failing means
 	// the caches could not be listed at all.
 	if rgErr != nil && clErr != nil && scErr != nil {
-		return nil, fmt.Errorf("failed to list ElastiCache caches: %w", errors.Join(rgErr, clErr, scErr))
+		return nil, i18n.NewError("jumphost.runner.failed_to_list_elasticache", errors.Join(rgErr, clErr, scErr))
 	}
 
 	sort.Slice(resources, func(i, j int) bool {
@@ -2235,7 +2234,7 @@ func (r *Runner) selectName(title string, names []string, prompt string) (string
 	}
 
 	if !isInteractive(r.in) {
-		return "", fmt.Errorf("name is required. Available %s: %s", title, strings.Join(names, ", "))
+		return "", i18n.NewError("jumphost.runner.name_is_required_available", title, strings.Join(names, ", "))
 	}
 
 	tw := tabwriter.NewWriter(r.out, 0, 0, 2, ' ', 0)
@@ -2250,7 +2249,7 @@ func (r *Runner) selectName(title string, names []string, prompt string) (string
 	reader := bufio.NewReader(r.in)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("failed to read input: %w", err)
+		return "", i18n.NewError("jumphost.runner.failed_to_read_input", err)
 	}
 	return strings.TrimSpace(line), nil
 }
@@ -2278,9 +2277,9 @@ func (r *Runner) runAWSCapture(ctx context.Context, awsArgs []string, commandArg
 	if err != nil {
 		errText := strings.TrimSpace(stderr.String())
 		if errText != "" {
-			return "", fmt.Errorf("aws %s failed: %s", strings.Join(commandArgs, " "), errText)
+			return "", i18n.NewError("jumphost.runner.aws_failed_output", strings.Join(commandArgs, " "), errText)
 		}
-		return "", fmt.Errorf("aws %s failed: %w", strings.Join(commandArgs, " "), err)
+		return "", i18n.NewError("jumphost.runner.aws_failed", strings.Join(commandArgs, " "), err)
 	}
 
 	return output, nil
@@ -2300,7 +2299,7 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	cmd.Stderr = r.err
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("aws %s failed to start: %w", strings.Join(commandArgs, " "), err)
+		return i18n.NewError("jumphost.runner.aws_failed_to_start", strings.Join(commandArgs, " "), err)
 	}
 
 	// Kill the entire process group when the context is cancelled.
@@ -2316,7 +2315,7 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	err := cmd.Wait()
 	close(done)
 	if err != nil {
-		return fmt.Errorf("aws %s failed: %w", strings.Join(commandArgs, " "), err)
+		return i18n.NewError("jumphost.runner.aws_failed", strings.Join(commandArgs, " "), err)
 	}
 
 	return nil

@@ -1,0 +1,40 @@
+ ◆ airlock  Redirection de port SSM                                                                        ● 1 prête(s)
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ╭────────────────────────────────╮ ╭─────────────────────────────────────────────────────────────────────────────────╮
+ │ Sessions  1                    │ │  RDS  archive-db                                                        ● Prête │
+ │                                │ │                                                                                 │
+ │ ▌  RDS  archive-db             │ │ Local        localhost:15432                                                    │
+ │ ▌ ● Prête      localhost:15432 │ │ Distant      n/a                                                                │
+ │ ▌ dev · eu-west-3 · # … │ │ AWS  dev · eu-west-3  │
+ │  │ │ Durée  # #  │
+ │                                │ ╰─────────────────────────────────────────────────────────────────────────────────╯
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │              ╭──────────────────────────────────────────────────────╮
+ │                                │              │                                                      │
+ │                                │              │   Arrêter chaque session et le daemon ?              │
+ │                                │              │                                                      │
+ │                                │              │   Cela arrête 1 session active et libère son port    │
+ │                                │              │   local.                                             │
+ │                                │              │                                                      │
+ │                                │              │     Tout arrêter et quitter      Annuler             │
+ │                                │              │                                                      │
+ │                                │              ╰──────────────────────────────────────────────────────╯
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │ + nouvelle connexion   n       │
+ ╰────────────────────────────────╯
+  y  quitter   n  annuler   ←→  choisir   enter  valider   ctrl+c  quitter la vue

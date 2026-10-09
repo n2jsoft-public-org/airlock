@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -31,7 +32,7 @@ type dockerItem struct {
 
 func (i dockerItem) Title() string {
 	if i.connected {
-		return i.c.Name + "  ● connected"
+		return i.c.Name + i18n.T("ui.list.connected")
 	}
 	return i.c.Name
 }
@@ -115,11 +116,11 @@ func (p dockerList) Update(msg tea.Msg) (dockerList, dockerListOutcome, tea.Cmd)
 func (p dockerList) View(styles Styles, width int) string {
 	switch {
 	case !p.loaded:
-		return styles.Muted.Render(truncate("Looking for database and cache containers...", width))
+		return styles.Muted.Render(truncate(i18n.T("ui.docker_list.looking_for_database_and"), width))
 	case p.err != nil:
-		return styles.Danger.Width(width).Render(p.err.Error())
+		return styles.Danger.Width(width).Render(i18n.Localize(p.err))
 	case p.count() == 0:
-		return styles.Muted.Render(truncate("No running database or cache container", width))
+		return styles.Muted.Render(truncate(i18n.T("ui.docker_list.no_running_database_or"), width))
 	}
 	return p.list.View()
 }
@@ -194,22 +195,22 @@ func (m jumphostWizardModel) updateDockerListStep(msg tea.Msg) (tea.Model, tea.C
 // dockerListKeys are the keys of the Docker list.
 func (m jumphostWizardModel) dockerListKeys(help, quit [2]string) [][2]string {
 	if m.dockerList.typing() {
-		return [][2]string{{"enter", "select"}, {"esc", "clear filter"}}
+		return [][2]string{{"enter", i18n.T("ui.hint.select")}, {"esc", i18n.T("ui.hint.clear_filter")}}
 	}
-	keys := [][2]string{{"↑↓", "move"}, {"/", "filter"}}
+	keys := [][2]string{{"↑↓", i18n.T("ui.hint.move")}, {"/", i18n.T("ui.hint.filter")}}
 	if item, ok := m.dockerList.selectedItem(); ok {
-		enter := "select"
+		enter := i18n.T("ui.hint.select")
 		if item.connected {
-			enter = "switch to"
+			enter = i18n.T("ui.hint.switch_to")
 		}
 		keys = append(keys, [2]string{"enter", enter})
 	}
-	return append(keys, [2]string{"r", "reload"}, [2]string{"esc", "back"}, help, quit)
+	return append(keys, [2]string{"r", i18n.T("ui.hint.reload")}, [2]string{"esc", i18n.T("ui.hint.back")}, help, quit)
 }
 
 // dockerCard is the Type step card of Docker databases, offered when docker is installed.
 var dockerCard = resourceTypeOption{
-	name:  sessions.DockerResourceType,
-	title: "Docker database",
-	desc:  "PostgreSQL, SQL Server, Redis or Valkey running in a local container, signed in with its own credentials",
+	name:     sessions.DockerResourceType,
+	titleKey: "ui.card.docker.title",
+	descKey:  "ui.card.docker.desc",
 }

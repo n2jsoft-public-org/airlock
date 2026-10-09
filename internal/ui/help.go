@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // helpGroup is a titled list of "key description" pairs of the help overlay.
@@ -32,7 +34,7 @@ func (s Styles) renderHelp(groups []helpGroup, width, height int) string {
 			lines = append(lines, "  "+key+"   "+s.Muted.Render(k[1]))
 		}
 	}
-	lines = append(lines, "", s.Faint.Render("any key closes this help"))
+	lines = append(lines, "", s.Faint.Render(i18n.T("ui.help.any_key_closes_this")))
 
 	// No vertical padding: the help must fit a 24-line terminal.
 	panel := s.ModalPanel.Padding(0, 2).MaxWidth(width).Render(strings.Join(lines, "\n"))

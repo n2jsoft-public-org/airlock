@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 type regionPickerOutcome int
@@ -34,7 +36,7 @@ type regionPicker struct {
 func newRegionPicker(current string) regionPicker {
 	input := textinput.New()
 	input.SetStyles(textInputStyles())
-	input.Placeholder = "Search: paris, eu-west, tokyo..."
+	input.Placeholder = i18n.T("ui.region_picker.search_paris_eu_west")
 	input.Prompt = "⌕ "
 	input.CharLimit = 40
 	input.Focus()
@@ -109,7 +111,7 @@ func (p regionPicker) View(styles Styles, width, height int) string {
 	rows := min(regionPickerMaxRows, maxInt(height-10, 1))
 
 	title := spread(
-		styles.Text.Bold(true).Render("Switch AWS region"),
+		styles.Text.Bold(true).Render(i18n.T("ui.region_picker.switch_aws_region")),
 		styles.Faint.Render(fmt.Sprintf("%d/%d", len(p.matches), len(awsRegions))),
 		inner,
 	)
@@ -117,7 +119,7 @@ func (p regionPicker) View(styles Styles, width, height int) string {
 
 	lines := []string{title, "", inputView(p.input), styles.Rule.Render(strings.Repeat("─", inner))}
 	lines = append(lines, p.renderRows(styles, inner, rows)...)
-	lines = append(lines, "", styles.KeyHints([][2]string{{"↑↓", "move"}, {"enter", "switch"}, {"esc", "close"}}, inner))
+	lines = append(lines, "", styles.KeyHints([][2]string{{"↑↓", i18n.T("ui.hint.move")}, {"enter", i18n.T("ui.hint.switch")}, {"esc", i18n.T("ui.hint.close")}}, inner))
 
 	panel := styles.ModalPanel.Width(inner + 8).Render(strings.Join(lines, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, panel)
@@ -125,9 +127,9 @@ func (p regionPicker) View(styles Styles, width, height int) string {
 
 func (p regionPicker) renderRows(styles Styles, width, rows int) []string {
 	if len(p.matches) == 0 {
-		out := []string{styles.Muted.Render("No region matches.")}
+		out := []string{styles.Muted.Render(i18n.T("ui.region_picker.no_region_matches"))}
 		if code, ok := p.choice(); ok {
-			out = append(out, styles.Faint.Render("enter uses "+code+" as typed"))
+			out = append(out, styles.Faint.Render(i18n.Format("ui.region_picker.enter_uses", code)))
 		}
 		for len(out) < rows {
 			out = append(out, "")

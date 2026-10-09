@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -50,15 +51,14 @@ func (m ssmModel) askDirectPasswordAgain(ev sessions.Event) (tea.Model, tea.Cmd)
 	}
 	docker := s.ResourceType == sessions.DockerResourceType || s.ResourceType == sessions.DockerCacheResourceType
 	if docker && m.docker == nil {
-		m.errorMsg = "Enter the password again from `airlock docker " + ev.Name + "`."
+		m.errorMsg = i18n.Format("ui.signin.docker_again", ev.Name)
 		return m, nil
 	}
 	m = m.showWizard(m.wizardDefaults())
-	what := "database"
+	reason := i18n.Format("ui.signin.db_rejected", ev.User)
 	if s.ResourceType == sessions.DockerCacheResourceType {
-		what = "cache"
+		reason = i18n.Format("ui.signin.cache_rejected", ev.User)
 	}
-	reason := "The " + what + " rejected the password of " + ev.User + ": enter it again."
 	if docker {
 		m.wizard.dockerAtStart, m.wizard.openDocker, m.wizard.openDockerError = true, ev.Name, reason
 	} else {
@@ -168,8 +168,8 @@ func (m ssmModel) renderSignInDialog(width int) string {
 	inner := maxInt(dialogWidth-8, 20)
 
 	rows := []string{
-		m.styles.Text.Bold(true).Render("Choose the database credentials"),
-		m.styles.Muted.Render(truncate(s.Target+" · checked with SELECT 1, remembered once it works", inner)),
+		m.styles.Text.Bold(true).Render(i18n.T("ui.ssm_signin.choose_database_credentials")),
+		m.styles.Muted.Render(truncate(i18n.Format("ui.signin.checked_with", s.Target), inner)),
 		"",
 	}
 	for idx := range s.SignIn.Candidates {
@@ -182,6 +182,7 @@ func (m ssmModel) renderSignInDialog(width int) string {
 		rows = append(rows, truncate(row, inner))
 		if failed, ok := s.SignIn.Failed[sessions.CandidateKey(c)]; ok {
 			// On its own line: after the label and user, the cause would be cut off.
+			failed = shownErr(s.SignIn.LocalFailed[sessions.CandidateKey(c)], failed)
 			rows = append(rows, "     "+m.styles.Danger.Render(truncate("✗ "+failed, inner-5)))
 		}
 	}
@@ -193,25 +194,25 @@ func (m ssmModel) signInStatus(s *sessions.Session) string {
 	if !s.HasSignIn {
 		return ""
 	}
-	again := "  " + m.styles.KeyCap.Render("a") + m.styles.Faint.Render(" sign in")
+	again := "  " + m.styles.KeyCap.Render("a") + m.styles.Faint.Render(i18n.T("ui.ssm_signin.sign_in"))
 	if !canRetrySignIn(s) {
 		again = ""
 	}
 	switch s.SignIn.State {
 	case sessions.SignInListing, sessions.SignInChecking:
-		return m.styles.Warning.Render(m.spinner() + " checking")
+		return m.styles.Warning.Render(m.spinner() + i18n.T("ui.signin.checking"))
 	case sessions.SignInChoosing:
-		return m.styles.Warning.Render("choose the credentials") + again
+		return m.styles.Warning.Render(i18n.T("ui.hint.choose_credentials")) + again
 	case sessions.SignInSkipped:
-		return m.styles.Muted.Render("not checked") + again
+		return m.styles.Muted.Render(i18n.T("ui.hint.not_checked")) + again
 	case sessions.SignInDone:
-		return m.styles.Success.Render("✓ signed in as "+s.SignIn.User) + m.styles.Faint.Render(" · SELECT 1 ok")
+		return m.styles.Success.Render(i18n.Format("ui.signin.signed_in_as", s.SignIn.User)) + m.styles.Faint.Render(i18n.T("ui.ssm_signin.select_1_ok"))
 	case sessions.SignInFailed:
-		return m.styles.Danger.Render("✗ "+s.SignIn.Err) + again
+		return m.styles.Danger.Render("✗ "+shownErr(s.SignIn.LocalErr, s.SignIn.Err)) + again
 	default:
 		if !s.Active() {
-			return m.styles.Faint.Render("not checked")
+			return m.styles.Faint.Render(i18n.T("ui.hint.not_checked"))
 		}
-		return m.styles.Faint.Render("once the tunnel is ready")
+		return m.styles.Faint.Render(i18n.T("ui.ssm_signin.once_tunnel_is_ready"))
 	}
 }

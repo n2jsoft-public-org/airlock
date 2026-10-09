@@ -9,6 +9,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // ErrSignInRejected reports credentials the database refused (see SignInChecker.Check).
@@ -83,7 +84,7 @@ func (s *sessionSignIn) Candidates(ctx context.Context) ([]SignInCandidate, erro
 	}
 	tag := s.runner.readOnlySecretTag
 	if tag.IsZero() {
-		return nil, errors.New(`no read-only secret tag configured (set "readOnlySecretTag"): pick a secret or a password in the wizard`)
+		return nil, i18n.NewError("jumphost.signin.no_read_only_secret")
 	}
 	secrets, err := dbmcp.ReadReadOnlySecrets(ctx, s.aws, s.instance, target.InstanceARN, tag)
 	if err != nil {

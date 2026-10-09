@@ -1,0 +1,39 @@
+
+  ◆ airlock  Redirection de port SSM                                                  serveur billing.db.internal:1433
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ✓ Type  ›  ✓ Cible  ›  ● Connexion
+
+  Vérifier et se connecter  modifiez un champ, puis connectez-vous
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │   Type          DIRECT  sqlserver                                    │
+  │   Cible         PROD  legacy-billing                                 │
+  │   Serveur      billing.db.internal:1433 · TLS require                │
+  │   Base         la base par défaut du login                           │
+  │   Utilisateur  mcp_ro  modifiez avec e dans la liste                 │
+  │ ──────────────────────────────────────────────────────────────────── │
+  │ ▌ Mot de passe Mot de passe de la base                               │
+  │   Gardé en mémoire pour le serveur MCP, sauf s'il est retenu. L'IDE… │
+  │   Retenir      ○ désactivé  demandé à chaque connexion               │
+  │   MCP          ○ lecture seule  l'IA ne fait que lire                │
+  │   ⚠ La lecture seule repose sur les droits de mcp_ro (SQL Server)    │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+    Se connecter  ⏎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   enter  connecter   tab  champ suivant   esc  retour   ctrl+c  quitter

@@ -1,0 +1,23 @@
+
+  ◆ airlock  Redirection de port SSM
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Réglages  config.json · les options de ce lancement l'emportent
+
+  ▌ jumphostTag         Usage=jumphost            défaut
+    defaultDbUser       app_ro                    fichier
+    defaultRegion       aucune                    défaut
+    mcpServerPrefix     airlock                   défaut  ⚑ --mcp-server-pref…
+    productionProfiles  aucune                    défaut
+    mode                cli                       défaut
+  ────────────────────────────────────────────────────────────────────────
+  Tag (Key=Value) of the running SSM jumphost EC2 instance
+  /home/me/.config/airlock/config.json
+
+
+
+
+
+
+   ↑↓  naviguer   enter  changer   esc  retour   ?  aide   q  quitter

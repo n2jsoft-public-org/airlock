@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // suspendable is the part of a running tea.Program a handoff needs.
@@ -49,18 +51,18 @@ func (h *TerminalHandoff) Run(ctx context.Context, purpose, name string, args ..
 	defer h.mu.Unlock()
 	if h.terminal != nil {
 		if releaseErr := h.terminal.ReleaseTerminal(); releaseErr != nil {
-			return fmt.Errorf("failed to hand the terminal over: %w", releaseErr)
+			return i18n.NewError("ui.terminal_handoff.failed_to_hand_terminal", releaseErr)
 		}
 		defer func() {
 			if restoreErr := h.terminal.RestoreTerminal(); restoreErr != nil {
-				err = errors.Join(err, fmt.Errorf("failed to restore the dashboard: %w", restoreErr))
+				err = errors.Join(err, i18n.NewError("ui.terminal_handoff.failed_to_restore_dashboard", restoreErr))
 			}
 		}()
 	}
 
 	command := strings.Join(append([]string{name}, args...), " ")
-	if _, writeErr := fmt.Fprintf(h.out, "\nairlock: %s\nRunning %s; airlock comes back once it ends.\n\n", purpose, command); writeErr != nil {
-		return fmt.Errorf("failed to write to the terminal: %w", writeErr)
+	if _, writeErr := fmt.Fprintf(h.out, i18n.T("ui.terminal_handoff.airlock_running_airlock_comes"), purpose, command); writeErr != nil {
+		return i18n.NewError("ui.terminal_handoff.failed_to_write_to", writeErr)
 	}
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- commands are built by the jumphost runner.
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = h.in, h.out, h.errOut
@@ -72,7 +74,7 @@ func (h *TerminalHandoff) Run(ctx context.Context, purpose, name string, args ..
 
 // showFailure leaves the failure of command readable until the user presses enter, and returns it.
 func (h *TerminalHandoff) showFailure(command string, runErr error) error {
-	if _, err := fmt.Fprintf(h.out, "\n%s failed: %v\nPress enter to return to airlock.", command, runErr); err != nil {
+	if _, err := fmt.Fprintf(h.out, i18n.T("ui.terminal_handoff.failed_press_enter_to"), command, runErr); err != nil {
 		return runErr
 	}
 	if _, err := bufio.NewReader(h.in).ReadString('\n'); err != nil && !errors.Is(err, io.EOF) {

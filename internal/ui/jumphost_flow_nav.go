@@ -2,6 +2,7 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -146,8 +147,8 @@ func (m jumphostWizardModel) discoverWhenRegionKnown() (tea.Model, tea.Cmd) {
 	m.awaitingRegion = true
 	m.loading = true
 	resolve := m.await(m.resolveRegionCmd, false)
-	return m, tea.Batch(resolve, m.loadingUI.start("Resolving the AWS region...", []string{
-		"Asking the profile where it lives...",
+	return m, tea.Batch(resolve, m.loadingUI.start(i18n.T("ui.jumphost_flow_nav.resolving_aws_region"), []string{
+		i18n.T("ui.jumphost_flow_nav.asking_profile_where_it"),
 	}))
 }
 
@@ -172,10 +173,10 @@ func (m jumphostWizardModel) enterProfileStep() (tea.Model, tea.Cmd) {
 	}
 	m.loading = true
 	load := m.await(m.loadProfilesCmd, false)
-	return m, tea.Batch(load, m.loadingUI.start("Loading AWS profiles...", []string{
-		"Calibrating jump pads...",
-		"Checking which profile has the best vibes...",
-		"Talking to IAM in polite terminal language...",
-		"Summoning your AWS identities...",
+	return m, tea.Batch(load, m.loadingUI.start(i18n.T("ui.jumphost_flow_nav.loading_aws_profiles"), []string{
+		i18n.T("ui.jumphost_flow_nav.calibrating_jump_pads"),
+		i18n.T("ui.jumphost_flow_nav.checking_which_profile_has"),
+		i18n.T("ui.jumphost_flow_nav.talking_to_iam_in"),
+		i18n.T("ui.jumphost_flow_nav.summoning_your_aws_identities"),
 	}))
 }

@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -37,7 +38,7 @@ type secretPicker struct {
 func newSecretPicker(region string) secretPicker {
 	input := textinput.New()
 	input.SetStyles(textInputStyles())
-	input.Placeholder = "Search: app-user, prod, rds!db..."
+	input.Placeholder = i18n.T("ui.secret_picker.search_app_user_prod")
 	input.Prompt = "⌕ "
 	input.CharLimit = 80
 	input.Focus()
@@ -48,7 +49,7 @@ func newSecretPicker(region string) secretPicker {
 func (p secretPicker) loaded(secrets []jumphost.SecretSummary, err error) secretPicker {
 	p.loading = false
 	if err != nil {
-		p.errMsg = err.Error()
+		p.errMsg = i18n.Localize(err)
 		return p
 	}
 	p.all = secrets
@@ -132,7 +133,7 @@ func (p secretPicker) View(styles Styles, width, height int) string {
 	rows := min(secretPickerMaxRows, maxInt(height-10, 1))
 
 	title := spread(
-		styles.Text.Bold(true).Render("Pick the password secret"),
+		styles.Text.Bold(true).Render(i18n.T("ui.secret_picker.pick_password_secret")),
 		styles.Faint.Render(fmt.Sprintf("%d/%d · %s", len(p.matches), len(p.all), p.region)),
 		inner,
 	)
@@ -140,7 +141,7 @@ func (p secretPicker) View(styles Styles, width, height int) string {
 
 	lines := []string{title, "", inputView(p.input), styles.Rule.Render(strings.Repeat("─", inner))}
 	lines = append(lines, p.renderRows(styles, inner, rows)...)
-	lines = append(lines, "", styles.KeyHints([][2]string{{"↑↓", "move"}, {"enter", "pick"}, {"esc", "close"}}, inner))
+	lines = append(lines, "", styles.KeyHints([][2]string{{"↑↓", i18n.T("ui.hint.move")}, {"enter", i18n.T("ui.hint.pick")}, {"esc", i18n.T("ui.hint.close")}}, inner))
 
 	panel := styles.ModalPanel.Width(inner + 8).Render(strings.Join(lines, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, panel)
@@ -150,11 +151,11 @@ func (p secretPicker) renderRows(styles Styles, width, rows int) []string {
 	var out []string
 	switch {
 	case p.loading:
-		out = []string{styles.Muted.Render("Loading the secrets...")}
+		out = []string{styles.Muted.Render(i18n.T("ui.secret_picker.loading_secrets"))}
 	case p.errMsg != "":
 		out = []string{styles.Warning.Render(truncate(p.errMsg, width))}
 	case len(p.matches) == 0:
-		out = []string{styles.Muted.Render("No secret matches.")}
+		out = []string{styles.Muted.Render(i18n.T("ui.secret_picker.no_secret_matches"))}
 	default:
 		first := min(max(p.cursor-rows/2, 0), maxInt(len(p.matches)-rows, 0))
 		last := min(first+rows, len(p.matches))
@@ -183,7 +184,7 @@ func (p secretPicker) renderRow(styles Styles, secret jumphost.SecretSummary, se
 	}
 	detail := secret.Description
 	if secret.Linked {
-		detail = strings.TrimSpace("linked · " + detail)
+		detail = strings.TrimSpace(i18n.T("ui.secret_picker.linked") + detail)
 	}
 	row := truncate(marker+badge+name+"  "+styles.Muted.Render(detail), width)
 	if selected {

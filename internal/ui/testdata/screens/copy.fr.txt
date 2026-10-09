@@ -1,0 +1,40 @@
+ ◆ airlock  Redirection de port SSM                                                                        ● 1 prête(s)
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ╭────────────────────────────────╮ ╭─────────────────────────────────────────────────────────────────────────────────╮
+ │ Sessions  1                    │ │  RDS  archive                                                           ● Prête │
+ │                                │ │                                                                                 │
+ │ ▌  RDS  archive                │ │ Local        localhost:5432                                                     │
+ │ ▌ ● Prête       localhost:5432 │ │ Distant      n/a                                                                │
+ │ ▌ dev · eu-west-3 · # … │ │ AWS  dev · eu-west-3  │
+ │  │ │ Durée  # #  │
+ │                                │ ╰─────────────────────────────────────────────────────────────────────────────────╯
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │   ╭─────────────────────────────────────────────────────────────────────────────╮
+ │                                │   │                                                                             │
+ │                                │   │   Copier dans le presse-papiers                                             │
+ │                                │   │                                                                             │
+ │                                │   │   ▌ 1  Adresse locale           localhost:5432                              │
+ │                                │   │     2  Commande du jeton IAM    aws rds generate-db-auth-token --hostnam…   │
+ │                                │   │     3  Commande de reconnexion  airlock rds archive 5432 --profile dev -…   │
+ │                                │   │                                                                             │
+ │                                │   ╰─────────────────────────────────────────────────────────────────────────────╯
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │                                │
+ │ + nouvelle connexion   n       │
+ ╰────────────────────────────────╯
+  1-9  copier   ↑↓  naviguer   enter  copier   esc  fermer

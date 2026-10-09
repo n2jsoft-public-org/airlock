@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -28,7 +28,7 @@ func (m ssmModel) settleApprovals() ssmModel {
 			return m
 		}
 		if !m.answered[m.approvalID] {
-			m.notice = "The agent's request was answered in another view, withdrawn or expired."
+			m.notice = i18n.T("ui.ssm_approval.agent_request_was_answered")
 		}
 		m.mode = ssmModeSessions
 		m.refreshViewport()
@@ -108,16 +108,16 @@ func (m ssmModel) answer(allow bool) (ssmModel, tea.Cmd) {
 	}
 	m.answered[id] = true
 	m.mode = ssmModeSessions
-	m.notice = "Denied: the agent is told."
+	m.notice = i18n.T("ui.ssm_approval.denied_agent_is_told")
 	interactive := m.interactive
 	if allow {
-		m.notice = "Allowed: the agent's connection opens."
+		m.notice = i18n.T("ui.ssm_approval.allowed_agent_connection_opens")
 	} else {
 		interactive = nil
 	}
 	m.refreshViewport()
 	service := m.service
-	cmd := m.act("Answering the agent: ", func(ctx context.Context) error {
+	cmd := m.act(i18n.T("ui.ssm_approval.answering_agent"), func(ctx context.Context) error {
 		err := service.ResolveApproval(ctx, id, allow, interactive)
 		if errors.Is(err, sessions.ErrApprovalResolved) {
 			// Another view answered first, or the request is gone: nothing to report.
@@ -160,19 +160,19 @@ func (m ssmModel) renderApprovalDialog(width int) string {
 	if a.Writes {
 		target += " " + m.styles.WritesBadge()
 	}
-	rows := []string{m.styles.Text.Bold(true).Render(truncate(a.Agent+" asks to open a connection", inner)), "", truncate(target, inner)}
+	rows := []string{m.styles.Text.Bold(true).Render(truncate(i18n.Format("ui.approval.asks", a.Agent), inner)), "", truncate(target, inner)}
 	var where []string
 	if a.Profile != "" {
-		where = append(where, "profile "+a.Profile)
+		where = append(where, i18n.Format("ui.approval.profile", a.Profile))
 	}
 	if a.Region != "" {
-		where = append(where, "region "+a.Region)
+		where = append(where, i18n.Format("ui.approval.region", a.Region))
 	}
 	if len(where) > 0 {
 		rows = append(rows, m.styles.Muted.Render(truncate(strings.Join(where, " · "), inner)))
 	}
 	if a.Writes {
-		rows = append(rows, m.styles.Danger.Render(truncate("It asks for writes: the agent may modify data.", inner)))
+		rows = append(rows, m.styles.Danger.Render(truncate(i18n.T("ui.ssm_approval.it_asks_for_writes"), inner)))
 	}
 	if a.Reason != "" {
 		lines := strings.Split(lipgloss.NewStyle().Width(inner).Render("“"+a.Reason+"”"), "\n")
@@ -183,11 +183,11 @@ func (m ssmModel) renderApprovalDialog(width int) string {
 		rows = append(rows, "", m.styles.Muted.Render(strings.Join(lines, "\n")))
 	}
 	left := max(int(time.Until(a.ExpiresAt).Round(time.Second).Seconds()), 0)
-	rows = append(rows, "", m.styles.Faint.Render(fmt.Sprintf("Expires in %ds · Allow opens it now, Deny tells the agent no", left)))
+	rows = append(rows, "", m.styles.Faint.Render(i18n.Format("ui.ssm_approval.expires_in_ds_allow", left)))
 	allowStyle, denyStyle := m.styles.Button, m.styles.ButtonFocus
 	if m.approvalAllow {
 		allowStyle, denyStyle = m.styles.ButtonFocus, m.styles.Button
 	}
-	rows = append(rows, "", allowStyle.Render("Allow")+"  "+denyStyle.Render("Deny"))
+	rows = append(rows, "", allowStyle.Render(i18n.T("ui.ssm_approval.allow"))+"  "+denyStyle.Render(i18n.T("ui.ssm_approval.deny")))
 	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))
 }

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -33,18 +34,18 @@ func copyItems(s *sessions.Session) []copyItem {
 		}
 	}
 	if s.Direct() {
-		add("Server address", details.ConnectedServer)
-		add("User", directUser(s))
+		add(i18n.T("ui.ssm_copy.server_address"), details.ConnectedServer)
+		add(i18n.T("ui.jumphost_flow_view.user"), directUser(s))
 	} else {
-		add("Local address", fmt.Sprintf("localhost:%d", s.LocalPort))
+		add(i18n.T("ui.ssm_copy.local_address"), fmt.Sprintf("localhost:%d", s.LocalPort))
 	}
-	add("IAM token command", details.TokenCommand)
-	add("Reconnect command", details.RestartCommand)
+	add(i18n.T("ui.ssm_copy.iam_token_command"), details.TokenCommand)
+	add(i18n.T("ui.ssm_copy.reconnect_command"), details.RestartCommand)
 	if kubeconfig := strings.TrimSpace(details.Kubeconfig); kubeconfig != "" {
-		add("KUBECONFIG export", "export KUBECONFIG="+kubeconfig)
+		add(i18n.T("ui.ssm_copy.kubeconfig_export"), "export KUBECONFIG="+kubeconfig)
 	}
 	if s.MCP != nil && len(s.MCP.Events) > 0 {
-		add("Last MCP call", s.MCP.Events[len(s.MCP.Events)-1].Detail())
+		add(i18n.T("ui.ssm_copy.last_mcp_call"), s.MCP.Events[len(s.MCP.Events)-1].Detail())
 	}
 	return items
 }
@@ -111,9 +112,9 @@ func (m ssmModel) copyValue(item copyItem) (tea.Model, tea.Cmd) {
 // handleCopied confirms a copy, or shows why it failed.
 func (m ssmModel) handleCopied(msg ssmCopiedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.errorMsg = "Could not copy " + msg.label + ": " + msg.err.Error()
+		m.errorMsg = i18n.Format("ui.copy.failed", msg.label, msg.err)
 	} else {
-		m.notice = "Copied " + msg.label
+		m.notice = i18n.Format("ui.copy.copied", msg.label)
 	}
 	m.refreshViewport()
 	return m, nil
@@ -134,7 +135,7 @@ func (m ssmModel) renderCopyMenu(width int) string {
 		labelWidth = max(labelWidth, lipgloss.Width(item.label))
 	}
 
-	rows := []string{m.styles.Text.Bold(true).Render("Copy to the clipboard"), ""}
+	rows := []string{m.styles.Text.Bold(true).Render(i18n.T("ui.ssm_copy.copy_to_clipboard")), ""}
 	for idx, item := range items {
 		marker := "  "
 		label := m.styles.Text.Render(item.label + strings.Repeat(" ", labelWidth-lipgloss.Width(item.label)))

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 	"unicode"
@@ -11,6 +10,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -84,7 +84,7 @@ func (i recentItem) isDimmed() bool { return i.conn.TargetMissing }
 
 func (i recentItem) Title() string {
 	if i.connected {
-		return i.conn.Ref.Name + "  ● connected"
+		return i.conn.Ref.Name + i18n.T("ui.list.connected")
 	}
 	return i.conn.Ref.Name
 }
@@ -93,7 +93,7 @@ func (i recentItem) Description() string {
 	var parts []string
 	switch {
 	case i.direct() && i.conn.TargetMissing:
-		parts = []string{sessions.DirectResourceType, "definition removed"}
+		parts = []string{sessions.DirectResourceType, i18n.T("ui.hint.definition_removed")}
 	case i.direct() && i.db.Host != "":
 		parts = []string{sessions.DirectResourceType, i.db.Address()}
 	case i.direct():
@@ -101,7 +101,7 @@ func (i recentItem) Description() string {
 	default:
 		profile := i.conn.Prefs.Profile
 		if i.conn.ProfileMissing {
-			profile += " (missing)"
+			profile += i18n.T("ui.recent.missing")
 		}
 		parts = []string{profile, i.conn.Ref.Region}
 	}
@@ -158,7 +158,7 @@ func newRecentPicker(styles Styles, connections []jumphost.SavedConnection, acti
 		items = append(items, item)
 	}
 	l := newWizardList(styles, items)
-	l.Title = "⌕ type to filter"
+	l.Title = i18n.T("ui.recent_picker.type_to_filter")
 	return recentPicker{list: l, action: recentActionNone}
 }
 
@@ -294,15 +294,15 @@ func (p recentPicker) View(styles Styles, width int) string {
 	lines := []string{
 		p.list.View(),
 		styles.Rule.Render(strings.Repeat("─", min(width, resourceCardWidth))),
-		p.actionRow(styles, recentActionNew, "+ New connection", "n", width),
-		p.actionRow(styles, recentActionSearch, "⌕ Search a target", "s", width),
+		p.actionRow(styles, recentActionNew, i18n.T("ui.recent_picker.new_connection"), "n", width),
+		p.actionRow(styles, recentActionSearch, i18n.T("ui.recent_picker.search_target"), "s", width),
 	}
 	if p.settings {
-		lines = append(lines, p.actionRow(styles, recentActionSettings, "⚙ Settings", ",", width))
+		lines = append(lines, p.actionRow(styles, recentActionSettings, i18n.T("ui.recent_picker.settings"), ",", width))
 	}
 	switch item, _ := p.selected(); {
 	case p.confirming:
-		lines = append(lines, styles.Warning.Render(truncate("Forget "+item.conn.Ref.Name+"? y/n", width)))
+		lines = append(lines, styles.Warning.Render(truncate(i18n.Format("ui.recent.forget_confirm", item.conn.Ref.Name), width)))
 	default:
 		lines = append(lines, "")
 	}
@@ -324,12 +324,12 @@ func relativeAge(now, at time.Time) string {
 	age := now.Sub(at)
 	switch {
 	case age < time.Minute:
-		return "just now"
+		return i18n.T("ui.hint.just_now")
 	case age < time.Hour:
-		return fmt.Sprintf("%dm ago", int(age.Minutes()))
+		return i18n.Format("ui.recent_picker.dm_ago", int(age.Minutes()))
 	case age < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(age.Hours()))
+		return i18n.Format("ui.recent_picker.dh_ago", int(age.Hours()))
 	default:
-		return fmt.Sprintf("%dd ago", int(age.Hours()/24))
+		return i18n.Format("ui.recent_picker.dd_ago", int(age.Hours()/24))
 	}
 }

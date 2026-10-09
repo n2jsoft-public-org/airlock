@@ -2,8 +2,9 @@ package jumphost
 
 import (
 	"context"
-	"fmt"
 	"strings"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // unreachableMarkers are what the aws CLI prints when AWS could not be reached: such a failure
@@ -31,7 +32,7 @@ func (r *Runner) CheckIdentity(ctx context.Context, profile, region string) erro
 			return err
 		}
 	}
-	return fmt.Errorf("%w: the AWS credentials of profile %s are missing or expired", ErrSignInRequired, cfg.Profile)
+	return i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
 }
 
 // SignIn signs profile in again when its AWS sign-in expired (aws sso login, through the

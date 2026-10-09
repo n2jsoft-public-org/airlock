@@ -145,3 +145,15 @@ func TestSettingsStoreOffersTheGatewayChoices(t *testing.T) {
 		t.Fatalf("next launch flags = %+v", views)
 	}
 }
+
+func TestSnapshotOffersTheLanguages(t *testing.T) {
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), settingsFlags(t))
+	_, views := snapshotByName(t, store)
+	view, ok := views["language"]
+	if !ok {
+		t.Fatal("no language setting in the snapshot")
+	}
+	if !slices.Equal(view.Choices, []string{"auto", "en", "fr"}) || !view.NextLaunch {
+		t.Fatalf("language view = %+v, want choices auto/en/fr applied at next launch", view)
+	}
+}

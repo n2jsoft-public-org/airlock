@@ -1,0 +1,23 @@
+
+  ◆ airlock  Redirection de port SSM
+  ────────────────────────────────────────────────────────────────────────────
+  ✓ Type  ›  ● Cible  ›  ○ Connexion
+
+  Ajouter une base directe  dans saved-connections.json · sans mot de passe
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │ ▌ Nom            legacy-billing                                      │
+  │   Nom du serveur MCP, de la source IDE et de l'entrée du trousseau.  │
+  │   Moteur         ● postgres │ sqlserver                              │
+  │   Hôte           db.internal                                         │
+  │   Port           5432 (par défaut)                                   │
+  │   Base           postgres (par défaut)                               │
+  │   Utilisateur    app_ro                                              │
+  │   TLS            ● require │ verify │ disable                        │
+  │   Environnement  ○ aucun                                             │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+
+
+
+   tab  champ suivant   ctrl+s  enregistrer   esc  annuler   ctrl+c  quitter

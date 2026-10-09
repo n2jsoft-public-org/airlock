@@ -2,11 +2,11 @@ package sessions
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
@@ -369,7 +369,7 @@ func (m *Manager) output(e *entry, line string) {
 func (m *Manager) endLocked(e *entry, err error) {
 	e.info.State, e.info.EndedAt, e.process = StateEnded, m.now(), nil
 	if err != nil {
-		e.info.Err = err.Error()
+		e.info.Err, e.info.LocalErr = errTexts(err)
 	}
 	switch {
 	case e.info.StopRequested:
@@ -437,7 +437,7 @@ func (m *Manager) Remove(_ context.Context, id ID) error {
 		return ErrUnknownSession
 	}
 	if e.info.Active() {
-		return errors.New(e.info.Target + " is still running: stop it first")
+		return i18n.NewError("sessions.manager.still_running_stop_first", e.info.Target)
 	}
 	m.stopReconnectingLocked(e)
 	index := m.indexLocked(e)
@@ -515,7 +515,7 @@ func (m *Manager) Credentials(ctx context.Context, id ID) ([]jumphost.DBCredenti
 		return nil, ErrUnknownSession
 	}
 	if read == nil {
-		return nil, errors.New("this session does not read its password from Secrets Manager")
+		return nil, i18n.NewError("sessions.manager.this_session_does_not")
 	}
 	ctx, cancel := context.WithTimeout(ctx, credentialsTimeout)
 	defer cancel()

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -62,7 +63,7 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 		m.step = jumphostStepType
 	}
 	if msg.err != nil {
-		m.errorMsg = "saved-connections.json unreadable: " + msg.err.Error()
+		m.errorMsg = i18n.Format("ui.wizard.saved_unreadable", msg.err)
 	}
 	if name := m.openDirect; name != "" {
 		m.openDirect = ""
@@ -106,8 +107,8 @@ func (m jumphostWizardModel) updateStartStep(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The start screen waits for the reload: the forgotten entry must not be picked meanwhile.
 		item, _ := picker.selected()
 		m.loading = true
-		return m, tea.Batch(m.forgetCmd(item.conn.Ref), m.loadingUI.start("Forgetting "+item.conn.Ref.Name+"...", []string{
-			"Tearing the page out of the logbook...",
+		return m, tea.Batch(m.forgetCmd(item.conn.Ref), m.loadingUI.start(i18n.Format("ui.wizard.forgetting", item.conn.Ref.Name), []string{
+			i18n.T("ui.jumphost_flow_start.tearing_page_out_of"),
 		}))
 	default:
 		return m, cmd
@@ -150,9 +151,9 @@ func (m jumphostWizardModel) startLookup() (tea.Model, tea.Cmd) {
 		}
 	}
 	load := m.await(lookup, false)
-	return m, tea.Batch(load, m.loadingUI.start("Checking "+opts.Name+"...", []string{
-		"Making sure it is still there...",
-		"Knocking on the target's door...",
+	return m, tea.Batch(load, m.loadingUI.start(i18n.Format("ui.wizard.checking", opts.Name), []string{
+		i18n.T("ui.jumphost_flow_start.making_sure_it_is"),
+		i18n.T("ui.jumphost_flow_start.knocking_on_target_door"),
 	}))
 }
 
@@ -162,12 +163,12 @@ func (m jumphostWizardModel) handleLookup(msg jumphostLookupMsg) (tea.Model, tea
 	m.loading = false
 	m.loadingUI.stop()
 	if mismatch, ok := errors.AsType[*jumphost.AccountMismatchError](msg.err); ok && m.step == jumphostStepProfile {
-		m.errorMsg = mismatch.Error()
+		m.errorMsg = i18n.Localize(mismatch)
 		return m, nil
 	}
 	if msg.err != nil {
 		start, cmd := m.returnToStart()
-		start.errorMsg = msg.err.Error()
+		start.errorMsg = i18n.Localize(msg.err)
 		return start, cmd
 	}
 	m.targetIAMAuth = m.options.ResourceType == "rds" && msg.target.IAMAuth
@@ -187,7 +188,7 @@ func (m jumphostWizardModel) handleForgot(msg jumphostForgotMsg) (tea.Model, tea
 	if msg.err != nil {
 		m.loading = false
 		m.loadingUI.stop()
-		m.errorMsg = msg.err.Error()
+		m.errorMsg = i18n.Localize(msg.err)
 		return m, nil
 	}
 	m.errorMsg = ""

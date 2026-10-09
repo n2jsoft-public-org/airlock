@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -366,5 +368,16 @@ func TestWizardSettingsLateSnapshotIsIgnoredAfterLeaving(t *testing.T) {
 	m, _ = wizardUpdate(t, m, settingRefusedMsg{err: errors.New("late")})
 	if m.settingsEditor.fieldErr != "" {
 		t.Fatalf("fieldErr = %q, want the late refusal ignored", m.settingsEditor.fieldErr)
+	}
+}
+
+func TestFrenchConfirmHintsHaveNoEnglishPhrase(t *testing.T) {
+	i18n.SetLanguage("fr")
+	t.Cleanup(func() { i18n.SetLanguage("en") })
+	m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
+	m, _ = wizardUpdate(t, m, key("j"))
+	m, _ = wizardUpdate(t, m, key("d"))
+	if view := ansi.Strip(m.render()); strings.Contains(view, "any key") || !strings.Contains(view, "autre touche") {
+		t.Fatalf("the reset confirmation hints are not French:\n%s", view)
 	}
 }

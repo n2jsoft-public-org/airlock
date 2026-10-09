@@ -8,6 +8,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +16,7 @@ func newConnectionListCmd() *cobra.Command {
 	var directOnly, jumphostOnly bool
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List the saved connections, most recently used first",
+		Short: i18n.T("cli.connection_list.short"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, _, err := loadConfig(cmd)
@@ -32,15 +33,15 @@ func newConnectionListCmd() *cobra.Command {
 			}
 			entries = filterConnections(entries, directOnly, jumphostOnly)
 			if len(entries) == 0 {
-				outf(cmd, "No saved connection: add a direct database with `airlock connection add <name> --engine postgres --host <host> --user <user>`, or connect to an AWS target\n")
+				outf(cmd, "%s", i18n.T("cli.connection_list.no_saved_connection_add"))
 				return nil
 			}
 			sortConnections(entries)
 			return printConnections(cmd.OutOrStdout(), entries, cfg.EnvironmentSet())
 		},
 	}
-	cmd.Flags().BoolVar(&directOnly, "direct", false, "List only the direct databases")
-	cmd.Flags().BoolVar(&jumphostOnly, "jumphost", false, "List only the targets reached through a jumphost")
+	cmd.Flags().BoolVar(&directOnly, "direct", false, i18n.T("cli.connection_list.flag.direct"))
+	cmd.Flags().BoolVar(&jumphostOnly, "jumphost", false, i18n.T("cli.connection_list.flag.jumphost"))
 	cmd.MarkFlagsMutuallyExclusive("direct", "jumphost")
 	return cmd
 }
@@ -92,7 +93,7 @@ func printConnections(w io.Writer, entries []connections.Entry, envs environment
 		shared[entries[idx].ShortName()]++
 	}
 	table := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
-	if _, err := fmt.Fprintln(table, "NAME\tVIA\tTYPE\tTARGET\tUSER\tLAST USED\tENV"); err != nil {
+	if _, err := fmt.Fprintln(table, i18n.T("cli.connection_list.name_via_type_target")); err != nil {
 		return err
 	}
 	for idx := range entries {

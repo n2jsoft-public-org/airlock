@@ -111,6 +111,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	sc.peer = newPeer(conn, func(ctx context.Context, method string, params json.RawMessage) (any, error) {
 		return s.handle(ctx, sc, method, params)
 	}, nil)
+	sc.peer.localize = true
 	sc.peer.answered = func(method string) {
 		// The daemon may exit once the requester has its answer.
 		if method == "daemon.stop" && s.hooks.StopDaemon != nil {

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbuser"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // Config holds the settings merged from the built-in defaults, the config file and the flags.
@@ -44,6 +46,8 @@ type Config struct {
 	// AgentAutoConnect is AutoConnectNone, AutoConnectNonProd or AutoConnectAll: the agent openings
 	// that skip the dashboard prompt.
 	AgentAutoConnect string
+	// Language is LanguageAuto or one of i18n.Supported.
+	Language string
 	// MCPGatewayPort is the 127.0.0.1 port of the gateway.
 	MCPGatewayPort int
 	// AgentIdleTimeout closes an agent-opened session after this long without a relayed call.
@@ -70,6 +74,9 @@ const (
 	AutoConnectNonProd = "non-prod"
 	AutoConnectAll     = "all"
 )
+
+// LanguageAuto follows the system language.
+const LanguageAuto = "auto"
 
 // DefaultGatewayPort is the port of the MCP gateway when mcpGatewayPort is not set.
 const DefaultGatewayPort = 7821
@@ -111,6 +118,7 @@ func Defaults() Config {
 		AgentAutoConnect: AutoConnectNone,
 		AgentIdleTimeout: 30 * time.Minute,
 		RandomLocalPort:  true,
+		Language:         LanguageAuto,
 	}
 }
 
@@ -131,6 +139,7 @@ type file struct {
 	AgentWrites       *string `json:"agentWrites,omitempty"`
 	AgentIdleTimeout  *string `json:"agentIdleTimeout,omitempty"`
 	RandomLocalPort   *string `json:"randomLocalPort,omitempty"`
+	Language          *string `json:"language,omitempty"`
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
 	ProductionProfiles *string `json:"productionProfiles,omitempty"`
@@ -145,7 +154,7 @@ func Load(configPath string) (Config, error) {
 	}
 	cfg, err := f.apply(new(Defaults()))
 	if err != nil {
-		return Config{}, fmt.Errorf("invalid config %s: %w", configPath, err)
+		return Config{}, i18n.NewError("config.config.invalid_config", configPath, err)
 	}
 	return cfg, nil
 }
@@ -162,12 +171,12 @@ func readFile(configPath string) (file, error) {
 		return f, nil
 	}
 	if err != nil {
-		return file{}, fmt.Errorf("failed to read %s: %w", configPath, err)
+		return file{}, i18n.NewError("config.config.failed_to_read", configPath, err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err = decoder.Decode(&f); err != nil {
-		return file{}, fmt.Errorf("invalid config %s: %w", configPath, err)
+		return file{}, i18n.NewError("config.config.invalid_config", configPath, err)
 	}
 	return f, nil
 }
@@ -253,6 +262,11 @@ func (f *file) apply(base *Config) (Config, error) {
 			return Config{}, fmt.Errorf("randomLocalPort: %w", err)
 		}
 	}
+	if f.Language != nil {
+		if cfg.Language, err = parseLanguage(*f.Language); err != nil {
+			return Config{}, fmt.Errorf("language: %w", err)
+		}
+	}
 	return cfg, nil
 }
 
@@ -303,7 +317,7 @@ func parseRequiredTag(s string) (awstag.Tag, error) {
 		return awstag.Tag{}, err
 	}
 	if tag.IsZero() {
-		return awstag.Tag{}, errors.New("must not be empty (expected Key=Value)")
+		return awstag.Tag{}, i18n.NewError("config.config.must_not_be_empty")
 	}
 	return tag, nil
 }
@@ -317,7 +331,7 @@ func parseProfilePatterns(s string) ([]string, error) {
 			continue
 		}
 		if _, err := path.Match(pattern, ""); err != nil {
-			return nil, fmt.Errorf("invalid pattern %q (use * as wildcard, e.g. *prod*)", pattern)
+			return nil, i18n.NewError("config.config.invalid_pattern_use_as", pattern)
 		}
 		patterns = append(patterns, pattern)
 	}
@@ -338,14 +352,22 @@ func parseMode(s string) (string, error) {
 	case ModeCLI, ModeDaemon:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("unknown mode %q (valid: %s, %s)", s, ModeCLI, ModeDaemon)
+		return "", i18n.NewError("config.config.unknown_mode_valid", s, ModeCLI, ModeDaemon)
 	}
+}
+
+func parseLanguage(s string) (string, error) {
+	lang := strings.ToLower(strings.TrimSpace(s))
+	if lang == LanguageAuto || slices.Contains(i18n.Supported, lang) {
+		return lang, nil
+	}
+	return "", i18n.NewError("config.config.unknown_language_valid", s, LanguageAuto, strings.Join(i18n.Supported, ", "))
 }
 
 func parsePrefix(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return "", errors.New("must not be empty")
+		return "", i18n.NewError("config.config.must_not_be_empty_2")
 	}
 	return s, nil
 }
@@ -357,14 +379,14 @@ func parseBool(s string) (bool, error) {
 	case "false":
 		return false, nil
 	default:
-		return false, fmt.Errorf("invalid value %q (valid: true, false)", s)
+		return false, i18n.NewError("config.config.invalid_value_valid_true", s)
 	}
 }
 
 func parsePort(s string) (int, error) {
 	port, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || port < 1024 || port > 65535 {
-		return 0, fmt.Errorf("invalid port %q (valid: 1024-65535)", s)
+		return 0, i18n.NewError("config.config.invalid_port_valid_1024", s)
 	}
 	return port, nil
 }
@@ -374,14 +396,14 @@ func parseAutoConnect(s string) (string, error) {
 	case AutoConnectNone, AutoConnectNonProd, AutoConnectAll:
 		return value, nil
 	default:
-		return "", fmt.Errorf("unknown value %q (valid: %s, %s, %s)", s, AutoConnectNone, AutoConnectNonProd, AutoConnectAll)
+		return "", i18n.NewError("config.config.unknown_value_valid", s, AutoConnectNone, AutoConnectNonProd, AutoConnectAll)
 	}
 }
 
 func parseIdleTimeout(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(strings.TrimSpace(s))
 	if err != nil || d < minAgentIdleTimeout {
-		return 0, fmt.Errorf("invalid duration %q (a duration of at least 1m, e.g. 30m or 2h)", s)
+		return 0, i18n.NewError("config.config.invalid_duration_duration_of", s)
 	}
 	return d, nil
 }

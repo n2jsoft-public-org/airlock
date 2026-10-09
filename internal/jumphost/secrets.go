@@ -3,13 +3,12 @@ package jumphost
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // SecretSummary is one Secrets Manager secret offered to hold the password of a database.
@@ -61,7 +60,7 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 		MasterSecret string `json:"masterSecret"`
 	}
 	if e := json.Unmarshal([]byte(rawInstance), &described); e != nil {
-		return nil, fmt.Errorf("failed to parse RDS instance details: %w", e)
+		return nil, i18n.NewError("jumphost.runner.failed_to_parse_rds_2", e)
 	}
 
 	return r.listSecrets(ctx, cfg, instance, described.ARN, described.MasterSecret)
@@ -76,11 +75,11 @@ func (r *Runner) listSecrets(ctx context.Context, cfg awsConfig, instance, insta
 		"--output", "json",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list the secrets (missing secretsmanager:ListSecrets?): %w", err)
+		return nil, i18n.NewError("jumphost.secrets.failed_to_list_secrets", err)
 	}
 	var entries []secretListEntry
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
-		return nil, fmt.Errorf("failed to parse the secrets: %w", err)
+		return nil, i18n.NewError("jumphost.secrets.failed_to_parse_secrets", err)
 	}
 	if len(entries) == 0 {
 		// The identity check of resolveAWSConfig learned the account.
@@ -88,7 +87,7 @@ func (r *Runner) listSecrets(ctx context.Context, cfg awsConfig, instance, insta
 		if account := r.accountFor(ctx, cfg.Profile); account != "" {
 			where = account + "/" + cfg.Region
 		}
-		return nil, errors.New("no secret in " + where)
+		return nil, i18n.NewError("jumphost.secrets.no_secret_in", where)
 	}
 	return rankDBSecrets(entries, instance, instanceARN, masterSecret), nil
 }
@@ -142,7 +141,7 @@ func SecretDisplayName(secretID string) string {
 func resolveSecretSignIn(ctx context.Context, aws dbmcp.AWSRunner, secretID, typedUser string) (string, error) {
 	secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
 	if err != nil {
-		return "", fmt.Errorf("failed to read secret %s (needs secretsmanager:GetSecretValue, and kms:Decrypt for a customer-managed key): %w", secretID, err)
+		return "", i18n.NewError("jumphost.cache.failed_to_read_secret", secretID, err)
 	}
 	if secret.Username != "" {
 		return secret.Username, nil
@@ -150,7 +149,7 @@ func resolveSecretSignIn(ctx context.Context, aws dbmcp.AWSRunner, secretID, typ
 	if user := strings.TrimSpace(typedUser); user != "" {
 		return user, nil
 	}
-	return "", fmt.Errorf("secret %s has no username: fill the User field", SecretDisplayName(secretID))
+	return "", i18n.NewError("jumphost.secrets.secret_has_no_username", SecretDisplayName(secretID))
 }
 
 // DBCredentials is a database sign-in read from Secrets Manager.
@@ -182,7 +181,7 @@ func (r *Runner) secretCredentialsReader(aws dbmcp.AWSRunner, instance string, t
 		return func(ctx context.Context) ([]DBCredentials, error) {
 			secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read secret %s: %w", SecretDisplayName(secretID), err)
+				return nil, i18n.NewError("jumphost.secrets.failed_to_read_secret", SecretDisplayName(secretID), err)
 			}
 			return []DBCredentials{{User: user, Password: secret.Password}}, nil
 		}

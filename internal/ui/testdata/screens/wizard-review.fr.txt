@@ -1,0 +1,39 @@
+
+  ◆ airlock  Redirection de port SSM                                    profil dev   région eu-west-3 · Europe (Paris)
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ✓ Type  ›  ✓ Cible  ›  ● Connexion
+
+  Vérifier et se connecter  modifiez un champ, puis connectez-vous
+
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │   Type          RDS                                                  │
+  │   Cible        orders-db                                             │
+  │   AWS          dev · eu-west-3 · Europe (Paris)                      │
+  │ ──────────────────────────────────────────────────────────────────── │
+  │ ▌ Port         15443                                                 │
+  │   Ports déjà pris (sessions, applis locales) évités.                 │
+  │   MCP          ○ lecture seule  l'IA ne fait que lire                │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+    Se connecter  ⏎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   enter  connecter   tab  champ suivant   esc  retour   ctrl+c  quitter

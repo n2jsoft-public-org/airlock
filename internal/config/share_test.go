@@ -292,3 +292,76 @@ func TestExportEnvironmentsOfALegacyFileConvertsProductionProfiles(t *testing.T)
 		t.Fatalf("changes = %+v, want environments only", plan.Changes)
 	}
 }
+
+func TestExportLeavesLanguageOut(t *testing.T) {
+	shared, err := Export(writeConfig(t, `{"mcpServerPrefix": "acme", "language": "fr"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := writeConfig(t, `{}`)
+	plan, err := PlanImport(target, shared, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range plan.Changes {
+		if c.Name == "language" {
+			t.Fatalf("the shared string carries language: %+v", c)
+		}
+	}
+}
+
+func TestExportOfOnlyLanguageHasNothingToShare(t *testing.T) {
+	if _, err := Export(writeConfig(t, `{"language": "fr"}`)); err == nil {
+		t.Fatal("Export of a file setting only language succeeded")
+	}
+	if _, err := Export(writeConfig(t, `{"mode": "cli", "language": "fr"}`), "language"); err == nil ||
+		!strings.Contains(err.Error(), "personal") {
+		t.Fatalf("Export(language) = %v, want a personal-setting error", err)
+	}
+}
+
+func TestImportReplaceKeepsTheLocalLanguage(t *testing.T) {
+	shared, err := Export(writeConfig(t, `{"mcpServerPrefix": "acme"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := writeConfig(t, `{"language": "fr", "mode": "daemon"}`)
+	plan, err := PlanImport(target, shared, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyImport(&plan); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Language != "fr" || cfg.Mode != ModeCLI {
+		t.Fatalf("after import --replace: language %q mode %q; want fr and cli", cfg.Language, cfg.Mode)
+	}
+	for _, c := range plan.Changes {
+		if c.Name == "language" {
+			t.Fatalf("the plan lists language: %+v", c)
+		}
+	}
+}
+
+func TestImportIgnoresAShareCarryingLanguage(t *testing.T) {
+	shared := encodeShare([]byte(`{"mcpServerPrefix": "acme", "language": "fr"}`))
+	target := writeConfig(t, `{}`)
+	plan, err := PlanImport(target, shared, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApplyImport(&plan); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Language != LanguageAuto {
+		t.Fatalf("language = %q, want auto", cfg.Language)
+	}
+}

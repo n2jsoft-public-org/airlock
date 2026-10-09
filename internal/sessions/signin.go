@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -52,9 +53,9 @@ func (m *Manager) signInListed(e *entry, attempt int, candidates []jumphost.Sign
 	untried := e.info.SignIn.Untried()
 	switch {
 	case len(candidates) == 0:
-		m.failSignInLocked(e, errors.New("no database credentials found"), "")
+		m.failSignInLocked(e, i18n.NewError("sessions.signin.no_database_credentials_found"), "")
 	case len(untried) == 0:
-		m.failSignInLocked(e, errors.New("none of the database credentials signs in"), "")
+		m.failSignInLocked(e, i18n.NewError("sessions.signin.none_of_database_credentials"), "")
 	case len(candidates) == 1:
 		m.checkSignInLocked(e, candidates[0])
 	default:
@@ -104,8 +105,15 @@ func (m *Manager) signInChecked(e *entry, attempt int, c jumphost.SignInCandidat
 	if e.info.SignIn.Failed == nil {
 		e.info.SignIn.Failed = map[string]string{}
 	}
-	e.info.SignIn.Failed[CandidateKey(&c)] = err.Error()
-	e.info.SignIn.Err = err.Error()
+	english, local := errTexts(err)
+	e.info.SignIn.Failed[CandidateKey(&c)] = english
+	if local != "" {
+		if e.info.SignIn.LocalFailed == nil {
+			e.info.SignIn.LocalFailed = map[string]string{}
+		}
+		e.info.SignIn.LocalFailed[CandidateKey(&c)] = local
+	}
+	e.info.SignIn.Err, e.info.SignIn.LocalErr = errTexts(err)
 	m.lines(e, "Could not sign in as "+c.User+": "+err.Error())
 	switch {
 	case errors.Is(err, jumphost.ErrSignInRejected) && e.info.Direct():
@@ -113,7 +121,8 @@ func (m *Manager) signInChecked(e *entry, attempt int, c jumphost.SignInCandidat
 		e.info.SignIn.State = SignInFailed
 		m.endLocked(e, err)
 		m.lines(e, "Press n and open "+e.options.Name+" to enter the password of "+c.User+" again.")
-		m.publish(&Event{Kind: EventPasswordRejected, ID: e.info.ID, Name: e.options.Name, User: c.User, Err: err.Error()})
+		english, local := errTexts(err)
+		m.publish(&Event{Kind: EventPasswordRejected, ID: e.info.ID, Name: e.options.Name, User: c.User, Err: english, LocalErr: local})
 	case errors.Is(err, jumphost.ErrSignInRejected) && checker.Forget(c, &e.options):
 		e.info.Options = withoutPassword(e.options)
 		m.lines(e, "Forgot the saved secret "+c.Label+".")
@@ -127,7 +136,8 @@ func (m *Manager) signInChecked(e *entry, attempt int, c jumphost.SignInCandidat
 }
 
 func (m *Manager) failSignInLocked(e *entry, err error, prefix string) {
-	e.info.SignIn.State, e.info.SignIn.Err = SignInFailed, err.Error()
+	e.info.SignIn.State = SignInFailed
+	e.info.SignIn.Err, e.info.SignIn.LocalErr = errTexts(err)
 	if prefix != "" {
 		m.lines(e, prefix+err.Error())
 	}
@@ -177,7 +187,7 @@ func (m *Manager) ChooseSignIn(_ context.Context, id ID, index int) error {
 	state := e.info.SignIn.State
 	if !e.info.Active() || !e.info.Ready || e.session.SignIn == nil ||
 		(state != SignInChoosing && state != SignInSkipped) || index < 0 || index >= len(e.info.SignIn.Candidates) {
-		return errors.New("no credentials to choose for " + e.info.Target)
+		return i18n.NewError("sessions.signin.no_credentials_to_choose", e.info.Target)
 	}
 	m.checkSignInLocked(e, e.info.SignIn.Candidates[index])
 	return nil
@@ -213,7 +223,7 @@ func (m *Manager) RetrySignIn(_ context.Context, id ID) error {
 	}
 	switch e.info.SignIn.State {
 	case SignInFailed, SignInDone:
-		e.info.SignIn.Failed = nil
+		e.info.SignIn.Failed, e.info.SignIn.LocalFailed = nil, nil
 		m.listSignInLocked(e)
 	default:
 		// Idle, skipped, or a sign-in in flight: nothing to retry.

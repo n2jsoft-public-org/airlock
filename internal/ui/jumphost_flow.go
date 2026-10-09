@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -94,24 +94,25 @@ const (
 	reviewFieldMCPWrites
 )
 
-// resourceTypeOption is one card of the resource type step.
+// resourceTypeOption is one card of the resource type step; its texts are catalog keys, since the
+// cards are built before the language is set.
 type resourceTypeOption struct {
-	name  string
-	title string
-	desc  string
+	name     string
+	titleKey string
+	descKey  string
 }
 
 var resourceTypeOptions = []resourceTypeOption{
-	{name: "rds", title: "Relational Database Service", desc: "Tunnel to a database, with IDE data source and MCP server"},
-	{name: "eks", title: "Elastic Kubernetes Service", desc: "Reach a private cluster API endpoint, with kubeconfig and MCP server"},
-	{name: "elasticache", title: "ElastiCache", desc: "Tunnel to a Redis / Valkey cache, with MCP server"},
+	{name: "rds", titleKey: "ui.card.rds.title", descKey: "ui.card.rds.desc"},
+	{name: "eks", titleKey: "ui.card.eks.title", descKey: "ui.card.eks.desc"},
+	{name: "elasticache", titleKey: "ui.card.elasticache.title", descKey: "ui.card.elasticache.desc"},
 }
 
 // directCard is the Type step card of direct databases, offered when the dashboard has a store.
 var directCard = resourceTypeOption{
-	name:  sessions.DirectResourceType,
-	title: "Direct database",
-	desc:  "PostgreSQL or SQL Server reached without jumphost, with IDE data source and MCP server",
+	name:     sessions.DirectResourceType,
+	titleKey: "ui.card.direct.title",
+	descKey:  "ui.card.direct.desc",
 }
 
 type jumphostWizardModel struct {
@@ -375,19 +376,19 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 
 	portInput := textinput.New()
 	portInput.SetStyles(textInputStyles())
-	portInput.Placeholder = "Local port"
+	portInput.Placeholder = i18n.T("ui.jumphost_flow.local_port")
 	portInput.Prompt = ""
 	portInput.CharLimit = 6
 
 	userInput := textinput.New()
 	userInput.SetStyles(textInputStyles())
-	userInput.Placeholder = "Database user"
+	userInput.Placeholder = i18n.T("ui.jumphost_flow.database_user")
 	userInput.Prompt = ""
 	userInput.CharLimit = 63
 
 	passwordInput := textinput.New()
 	passwordInput.SetStyles(textInputStyles())
-	passwordInput.Placeholder = "Database password"
+	passwordInput.Placeholder = i18n.T("ui.jumphost_flow.database_password")
 	passwordInput.Prompt = ""
 	passwordInput.EchoMode = textinput.EchoPassword
 	passwordInput.EchoCharacter = '•'
@@ -414,7 +415,7 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 		dockerList: newDockerList(styles, nil, nil, nil, false),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
-	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
+	m.loadingUI.start(i18n.T("ui.jumphost_flow.loading_recent_connections"), []string{i18n.T("ui.jumphost_flow.remembering_where_you_have")})
 	return m
 }
 
@@ -536,12 +537,12 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.loadingUI.stop()
 		if msg.err != nil {
-			m.errorMsg = msg.err.Error()
+			m.errorMsg = i18n.Localize(msg.err)
 			m.step = jumphostStepProfile
 			return m, nil
 		}
 		if len(msg.profiles) == 0 {
-			m.errorMsg = "No AWS profile found"
+			m.errorMsg = i18n.T("ui.jumphost_flow.no_aws_profile_found")
 			m.step = jumphostStepProfile
 			return m, nil
 		}
@@ -564,10 +565,10 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.loadingUI.stop()
 		if msg.err != nil {
-			return m.failDiscovery(msg.err.Error(), true)
+			return m.failDiscovery(i18n.Localize(msg.err), true)
 		}
 		if len(msg.targets) == 0 {
-			return m.failDiscovery(fmt.Sprintf("No %s targets found in %s", strings.ToUpper(m.options.ResourceType), m.currentRegion()), true)
+			return m.failDiscovery(i18n.Format("ui.jumphost_flow.no_targets_found_in", strings.ToUpper(m.options.ResourceType), m.currentRegion()), true)
 		}
 
 		items := make([]list.Item, 0, len(msg.targets))
@@ -606,7 +607,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.loadingUI.stop()
 		if msg.err != nil {
-			return m.failDiscovery(msg.err.Error(), false)
+			return m.failDiscovery(i18n.Localize(msg.err), false)
 		}
 
 		m.portInput.SetValue(strconv.Itoa(msg.port))
@@ -796,24 +797,24 @@ func (m jumphostWizardModel) pickResourceType(index int) (tea.Model, tea.Cmd) {
 
 func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
 	if m.currentRegion() == "" && m.regionResolved {
-		m.errorMsg = "No AWS region set for this profile: pick one"
+		m.errorMsg = i18n.T("ui.jumphost_flow.no_aws_region_set")
 		m.regionUnblocks = true
 		return m.openRegionPicker()
 	}
 	m.errorMsg = ""
 	m.loading = true
-	label := "Discovering AWS resources..."
+	label := i18n.T("ui.jumphost_flow.discovering_aws_resources")
 	if region := m.currentRegion(); region != "" {
-		label = fmt.Sprintf("Discovering %s resources in %s...", strings.ToUpper(m.options.ResourceType), region)
+		label = i18n.Format("ui.jumphost_flow.discovering_resources_in", strings.ToUpper(m.options.ResourceType), region)
 	}
 	load := m.await(m.loadTargetsCmd, true)
 	return m, tea.Batch(
 		load,
 		m.loadingUI.start(label, []string{
-			"Opening the cloud map...",
-			"Looking for targets that answer the ping...",
-			"Querying AWS with dramatic suspense...",
-			"Trying not to wake sleepy EC2 neighbors...",
+			i18n.T("ui.jumphost_flow.opening_cloud_map"),
+			i18n.T("ui.jumphost_flow.looking_for_targets_that"),
+			i18n.T("ui.jumphost_flow.querying_aws_with_dramatic"),
+			i18n.T("ui.jumphost_flow.trying_not_to_wake"),
 		}),
 	)
 }
@@ -867,11 +868,11 @@ func (m jumphostWizardModel) startLoadingPort() (tea.Model, tea.Cmd) {
 	load := m.await(m.loadDefaultPortCmd, false)
 	return m, tea.Batch(
 		load,
-		m.loadingUI.start("Finding the best local port...", []string{
-			"Looking for a chill port number...",
-			"Avoiding port drama with your local apps...",
-			"Knocking on localhost doors...",
-			"Port scouting mission in progress...",
+		m.loadingUI.start(i18n.T("ui.jumphost_flow.finding_best_local_port"), []string{
+			i18n.T("ui.jumphost_flow.looking_for_chill_port"),
+			i18n.T("ui.jumphost_flow.avoiding_port_drama_with"),
+			i18n.T("ui.jumphost_flow.knocking_on_localhost_doors"),
+			i18n.T("ui.jumphost_flow.port_scouting_mission_in"),
 		}),
 	)
 }
@@ -1092,11 +1093,11 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 	}
 	port, err := strconv.Atoi(strings.TrimSpace(m.portInput.Value()))
 	if err != nil || port <= 0 {
-		m.errorMsg = "Port must be a positive number"
+		m.errorMsg = i18n.T("ui.jumphost_flow.port_must_be_positive")
 		return m.focusReviewField(reviewFieldPort), nil
 	}
 	if err := m.runner.CheckLocalPort(port); err != nil {
-		m.errorMsg = err.Error()
+		m.errorMsg = i18n.Localize(err)
 		return m.focusReviewField(reviewFieldPort), nil
 	}
 
@@ -1125,7 +1126,7 @@ func (m jumphostWizardModel) connectReviewed() (tea.Model, tea.Cmd) {
 	// A keychain failure is reported in the session log.
 	m.warning = ""
 	if err := m.runner.SaveConnectionPrefs(m.ctx, m.prefsOptions()); errors.Is(err, jumphost.ErrKeychain) {
-		m.warning = err.Error()
+		m.warning = i18n.Localize(err)
 	}
 	return m, m.finish()
 }

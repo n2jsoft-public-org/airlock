@@ -11,30 +11,38 @@ import (
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // Key describes one setting of config.json.
 type Key struct {
-	Name        string
-	Description string
+	Name string
+	// Personal keys are the user's own choice: config strings never carry them.
+	Personal bool
+}
+
+// Description explains the key in the user's language.
+func (k Key) Description() string {
+	return i18n.T("config.key." + k.Name)
 }
 
 // Keys lists the settings of config.json, in the order the file is written in.
 var Keys = []Key{
-	{Name: "jumphostTag", Description: "Tag (Key=Value) of the running SSM jumphost EC2 instance"},
-	{Name: "defaultDbUser", Description: "Database user prefilled on RDS when none is chosen: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or engine=user pairs (postgres, mysql, sqlserver; SQL Server signs in with a password), e.g. app_ro,sqlserver=mcp_ro"},
-	{Name: "readOnlySecretTag", Description: "Tag (Key=Value) of the per-database read-only Secrets Manager secrets of SQL Server"},
-	{Name: "mcpServerPrefix", Description: "Start of the MCP server names"},
-	{Name: "defaultRegion", Description: "Region used after --region, AWS_REGION and the profile's region"},
-	{Name: "environments", Description: "Environments badged in the TUI, separated by ;, each name=patterns of AWS profiles (* wildcard, any case); ! marks production, e.g. prod!=*prod*,*-live; staging=*stg*; dev=*dev*"},
-	{Name: "mcpClients", Description: "AI clients the MCP servers are registered in: auto (detected in the project), none, or a comma-separated list of claude, vscode, codex, cursor, gemini, each with :user for its user-level file (claude:user also covers Claude Desktop), e.g. claude:user,codex"},
-	{Name: "mode", Description: "cli: sessions live in each airlock and close with it; daemon: a background daemon keeps them, and airlock is a view of it"},
-	{Name: "mcpGateway", Description: "true: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; false: no gateway"},
-	{Name: "mcpGatewayPort", Description: "Port of the MCP gateway on 127.0.0.1 (1024-65535)"},
-	{Name: "agentAutoConnect", Description: "Agent openings that skip the dashboard prompt: none, non-prod (targets outside the production environment) or all"},
-	{Name: "agentWrites", Description: "true: agents may ask for MCP writes, always approved in a dashboard; false: agents only open read-only sessions"},
-	{Name: "agentIdleTimeout", Description: "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)"},
-	{Name: "randomLocalPort", Description: "true: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; false: on the target's port (or the next free one)"},
+	{Name: "jumphostTag"},
+	{Name: "defaultDbUser"},
+	{Name: "readOnlySecretTag"},
+	{Name: "mcpServerPrefix"},
+	{Name: "defaultRegion"},
+	{Name: "environments"},
+	{Name: "mcpClients"},
+	{Name: "mode"},
+	{Name: "mcpGateway"},
+	{Name: "mcpGatewayPort"},
+	{Name: "agentAutoConnect"},
+	{Name: "agentWrites"},
+	{Name: "agentIdleTimeout"},
+	{Name: "randomLocalPort"},
+	{Name: "language", Personal: true},
 }
 
 // Source tells where the value of a setting comes from.
@@ -52,10 +60,7 @@ const SourceDeprecated Source = "deprecated"
 const legacyProductionProfiles = "productionProfiles"
 
 // deprecatedProductionProfiles describes productionProfiles in Settings.
-var deprecatedProductionProfiles = Key{
-	Name:        legacyProductionProfiles,
-	Description: "Deprecated: replaced by environments (read as prod!=<patterns> while environments is not set)",
-}
+var deprecatedProductionProfiles = Key{Name: legacyProductionProfiles}
 
 // Setting is the effective value of one key; an empty Value means none.
 type Setting struct {
@@ -76,7 +81,7 @@ func Settings(path string) ([]Setting, error) {
 	}
 	cfg, err := f.apply(new(Defaults()))
 	if err != nil {
-		return nil, fmt.Errorf("invalid config %s: %w", path, err)
+		return nil, i18n.NewError("config.config.invalid_config", path, err)
 	}
 	values := cfg.values()
 	settings := make([]Setting, 0, len(Keys))
@@ -106,7 +111,7 @@ func Set(path, key, value string) error {
 		return err
 	}
 	if key == legacyProductionProfiles {
-		return fmt.Errorf("productionProfiles is replaced by environments: airlock config set environments 'prod!=%s'", strings.TrimSpace(value))
+		return i18n.NewError("config.settings.productionprofiles_is_replaced_by", strings.TrimSpace(value))
 	}
 	field, err := f.knownField(key)
 	if err != nil {
@@ -120,7 +125,7 @@ func Set(path, key, value string) error {
 		f.ProductionProfiles = nil
 	}
 	if _, err = f.apply(&defaults); err != nil {
-		return fmt.Errorf("invalid config %s: %w", path, err)
+		return i18n.NewError("config.config.invalid_config", path, err)
 	}
 	value = strings.TrimSpace(value)
 	*field = &value
@@ -149,8 +154,7 @@ func keepsLegacyProduction(legacy *string, value string) error {
 	if err != nil || len(set.ProductionPatterns()) > 0 {
 		return nil //nolint:nilerr // apply validated value; production keeps its own patterns.
 	}
-	return fmt.Errorf("your productionProfiles flags %s: keep them as production, e.g. airlock config set environments '%s', "+
-		"or drop them with airlock config unset productionProfiles", strings.Join(patterns, ","), set.WithProductionPatterns(patterns))
+	return i18n.NewError("config.settings.keep_legacy_production", strings.Join(patterns, ","), set.WithProductionPatterns(patterns))
 }
 
 // Unset removes key from path, so that its default applies again; removed is false when the key
@@ -187,7 +191,7 @@ func WriteTemplate(path string, force bool) error {
 			return backupErr
 		}
 	case !errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("failed to read %s: %w", path, err)
+		return i18n.NewError("config.config.failed_to_read", path, err)
 	}
 
 	defaults := Defaults()
@@ -216,6 +220,7 @@ func (c *Config) values() map[string]string {
 		"agentWrites":       strconv.FormatBool(c.AgentWrites),
 		"agentIdleTimeout":  FormatDuration(c.AgentIdleTimeout),
 		"randomLocalPort":   strconv.FormatBool(c.RandomLocalPort),
+		"language":          c.Language,
 	}
 }
 
@@ -250,6 +255,8 @@ func (f *file) field(key string) **string {
 		return &f.AgentIdleTimeout
 	case "randomLocalPort":
 		return &f.RandomLocalPort
+	case "language":
+		return &f.Language
 	case legacyProductionProfiles:
 		return &f.ProductionProfiles
 	default:
@@ -275,14 +282,14 @@ func (f *file) knownField(key string) (**string, error) {
 	for _, k := range Keys {
 		names = append(names, k.Name)
 	}
-	return nil, fmt.Errorf("unknown setting %q (valid: %s)", key, strings.Join(names, ", "))
+	return nil, i18n.NewError("config.settings.unknown_setting_valid", key, strings.Join(names, ", "))
 }
 
 // writeFile stores f as indented JSON, keys absent from f left out.
 func writeFile(path string, f *file) error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to encode %s: %w", path, err)
+		return i18n.NewError("config.settings.failed_to_encode", path, err)
 	}
 	return writeAtomic(path, append(data, '\n'))
 }
@@ -292,11 +299,11 @@ func writeFile(path string, f *file) error {
 func writeAtomic(path string, data []byte) (err error) {
 	dir := filepath.Dir(path)
 	if err = os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("failed to create %s: %w", dir, err)
+		return i18n.NewError("config.settings.failed_to_create", dir, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".config-*.json")
 	if err != nil {
-		return fmt.Errorf("failed to write %s: %w", path, err)
+		return i18n.NewError("config.settings.failed_to_write", path, err)
 	}
 	// Once renamed the temporary file is gone; before that, a failure leaves it to remove.
 	defer func() {
@@ -311,10 +318,10 @@ func writeAtomic(path string, data []byte) (err error) {
 	_, writeErr := tmp.Write(data)
 	closeErr := tmp.Close()
 	if err = errors.Join(writeErr, closeErr, os.Chmod(tmp.Name(), 0o600)); err != nil {
-		return fmt.Errorf("failed to write %s: %w", path, err)
+		return i18n.NewError("config.settings.failed_to_write", path, err)
 	}
 	if err = os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("failed to write %s: %w", path, err)
+		return i18n.NewError("config.settings.failed_to_write", path, err)
 	}
 	return nil
 }

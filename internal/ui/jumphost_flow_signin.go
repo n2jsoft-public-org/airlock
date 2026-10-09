@@ -6,15 +6,16 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
-// signInLabels names the sign-in methods in the selector.
+// signInLabels holds the catalog keys naming the sign-in methods in the selector.
 var signInLabels = map[string]string{
-	jumphost.SignInIAM:      "IAM token",
-	jumphost.SignInPassword: "Password",
-	jumphost.SignInSecret:   "Secrets Manager",
-	jumphost.SignInAuto:     "Auto",
+	jumphost.SignInIAM:      "ui.signin.iam",
+	jumphost.SignInPassword: "ui.signin.password",
+	jumphost.SignInSecret:   "ui.signin.secret",
+	jumphost.SignInAuto:     "ui.signin.auto",
 }
 
 // targetSQLServer reports whether the selected RDS target runs SQL Server.
@@ -161,7 +162,7 @@ func (m jumphostWizardModel) applySignIn() (next jumphostWizardModel, field int,
 	m.options.DBPassword, m.options.DBSecretARN, m.options.RememberPassword = "", "", false
 	user := strings.TrimSpace(m.userInput.Value())
 	if strings.ContainsAny(user, " \t") {
-		return m, reviewFieldUser, "Database user must not contain spaces"
+		return m, reviewFieldUser, i18n.T("ui.jumphost_flow_signin.database_user_must_not")
 	}
 	switch m.signIn {
 	case jumphost.SignInIAM:
@@ -171,24 +172,24 @@ func (m jumphostWizardModel) applySignIn() (next jumphostWizardModel, field int,
 		}
 		if resolved == "" {
 			if m.options.ResourceType == "elasticache" {
-				return m, reviewFieldUser, "Enter the RBAC user signing in with AWS IAM"
+				return m, reviewFieldUser, i18n.T("ui.jumphost_flow_signin.enter_rbac_user_signing")
 			}
-			return m, reviewFieldUser, "Enter the database user signing in with AWS IAM"
+			return m, reviewFieldUser, i18n.T("ui.jumphost_flow_signin.enter_database_user_signing")
 		}
 		m.options.DBUser = resolved
 	case jumphost.SignInPassword:
 		if user == "" && m.options.ResourceType != "elasticache" {
-			return m, reviewFieldUser, "Enter the database user signing in with the password"
+			return m, reviewFieldUser, i18n.T("ui.jumphost_flow_signin.enter_database_user_signing_2")
 		}
 		if m.passwordInput.Value() == "" {
-			return m, reviewFieldPassword, "Enter the database password, or pick another sign-in method"
+			return m, reviewFieldPassword, i18n.T("ui.jumphost_flow_signin.enter_database_password_or")
 		}
 		m.options.DBUser = user
 		m.options.DBPassword = m.passwordInput.Value()
 		m.options.RememberPassword = m.remember && m.keychainAvailable
 	case jumphost.SignInSecret:
 		if m.secret.ARN == "" {
-			return m, reviewFieldSecret, "Pick the secret holding the password (enter on Secret)"
+			return m, reviewFieldSecret, i18n.T("ui.jumphost_flow_signin.pick_secret_holding_password")
 		}
 		m.options.DBUser = user
 		m.options.DBSecretARN = m.secret.ARN

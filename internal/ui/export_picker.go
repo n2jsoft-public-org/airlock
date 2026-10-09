@@ -2,13 +2,13 @@ package ui
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // ErrExportCanceled is returned by PickExports when the user leaves without exporting.
@@ -129,14 +129,14 @@ func (p exportPicker) View() tea.View {
 func (p exportPicker) render() string {
 	width := maxInt(p.width, 30)
 	count := len(p.selected())
-	status := p.styles.Faint.Render(fmt.Sprintf("%d/%d selected", count, len(p.choices)))
+	status := p.styles.Faint.Render(i18n.Format("ui.export_picker.selected", count, len(p.choices)))
 	lines := []string{spread(p.styles.Title.Render(p.title), status, width), ""}
 	lines = append(lines, p.renderRows(width)...)
 	lines = append(lines, "")
 	if count == 0 {
-		lines = append(lines, p.styles.Warning.Render("Select at least one item to "+p.verb+"."))
+		lines = append(lines, p.styles.Warning.Render(i18n.Format("ui.export_picker.select_at_least_one", p.verb)))
 	}
-	hints := [][2]string{{"↑↓", "move"}, {"space", "toggle"}, {"a", "all/none"}, {"enter", p.verb}, {"esc", "cancel"}}
+	hints := [][2]string{{"↑↓", i18n.T("ui.hint.move")}, {"space", i18n.T("ui.hint.toggle")}, {"a", i18n.T("ui.hint.all_none")}, {"enter", p.verb}, {"esc", i18n.T("ui.hint.cancel")}}
 	lines = append(lines, p.styles.KeyHintsPinned(hints, 2, width))
 	return strings.Join(lines, "\n")
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -18,9 +19,9 @@ func (m ssmModel) queriesShown(s *sessions.Session) bool {
 func (m ssmModel) renderQueryLines(s *sessions.Session, width int) string {
 	queries := s.MCP
 	if len(queries.Events) == 0 {
-		text := m.styles.Muted.Render("No MCP calls yet. What AI assistants run through this session's MCP server shows up here.")
+		text := m.styles.Muted.Render(i18n.T("ui.ssm_mcp_queries.no_mcp_calls_yet"))
 		if queries.LogDir != "" {
-			text += "\n\n" + m.styles.Faint.Render("Every call is also logged to "+queries.LogDir)
+			text += "\n\n" + m.styles.Faint.Render(i18n.Format("ui.queries.logged_to", queries.LogDir))
 		}
 		return lipgloss.NewStyle().Width(width).Render(text)
 	}
@@ -29,7 +30,7 @@ func (m ssmModel) renderQueryLines(s *sessions.Session, width int) string {
 	indent := strings.Repeat(" ", logTimeWidth)
 	var out []string
 	if hidden := queries.Total - len(queries.Events); hidden > 0 {
-		out = append(out, m.styles.Faint.Render(fmt.Sprintf("%d older calls not shown", hidden)), "")
+		out = append(out, m.styles.Faint.Render(i18n.Format("ui.ssm_mcp_queries.older_calls_not_shown", hidden)), "")
 	}
 	for idx := range queries.Events {
 		e := &queries.Events[idx]
@@ -43,7 +44,7 @@ func (m ssmModel) renderQueryLines(s *sessions.Session, width int) string {
 		}{
 			{m.styles.Text, e.Detail()},
 			{m.styles.Danger, e.Error},
-			{m.styles.Warning, prefixed("not saved to the audit log: ", e.LogError)},
+			{m.styles.Warning, prefixed(i18n.T("ui.ssm_mcp_queries.not_saved_to_audit"), e.LogError)},
 		}
 		for i := range body {
 			part := &body[i]
@@ -69,11 +70,11 @@ func (m ssmModel) queryHeadline(e *mcpserve.ToolEvent) string {
 
 	var summary string
 	if e.Error != "" {
-		summary = m.styles.Danger.Render("✗ failed") + m.styles.Faint.Render(" · "+formatQueryDuration(e.Duration))
+		summary = m.styles.Danger.Render(i18n.T("ui.ssm_mcp_queries.failed")) + m.styles.Faint.Render(" · "+formatQueryDuration(e.Duration))
 	} else {
 		parts := []string{queryCount(e), formatQueryDuration(e.Duration)}
 		if e.Truncated {
-			parts = append(parts, "truncated")
+			parts = append(parts, i18n.T("ui.hint.truncated"))
 		}
 		summary = m.styles.Muted.Render(strings.Join(parts, " · "))
 	}
@@ -89,16 +90,16 @@ func querySubject(e *mcpserve.ToolEvent) string {
 	case e.Engine == "kubernetes":
 		subject := e.Resource
 		if subject == "" {
-			subject = "cluster"
+			subject = i18n.T("ui.hint.cluster")
 		}
 		if e.Namespace != "" {
-			subject += " in " + e.Namespace
+			subject = i18n.Format("ui.queries.in_namespace", subject, e.Namespace)
 		}
 		return subject
 	}
 	subject := e.Database
 	if subject == "" {
-		subject = "default database"
+		subject = i18n.T("ui.hint.default_database")
 	}
 	switch {
 	case e.Table != "":
@@ -116,30 +117,22 @@ func queryCount(e *mcpserve.ToolEvent) string {
 	}
 	if e.Engine == "kubernetes" || e.DB != nil {
 		if e.Tool == "execute" {
-			return "done"
+			return i18n.T("ui.hint.done")
 		}
-		return countLabel(n, "item")
+		return i18n.Plural(n, "ui.count.item")
 	}
 	switch e.Tool {
 	case "execute":
-		return countLabel(n, "row") + " affected"
+		return i18n.Plural(n, "ui.count.row_affected")
 	case "list_databases":
-		return countLabel(n, "database")
+		return i18n.Plural(n, "ui.count.database")
 	case "list_tables":
-		return countLabel(n, "table")
+		return i18n.Plural(n, "ui.count.table")
 	case "describe_table":
-		return countLabel(n, "column")
+		return i18n.Plural(n, "ui.count.column")
 	default:
-		return countLabel(n, "row")
+		return i18n.Plural(n, "ui.count.row")
 	}
-}
-
-// countLabel is e.g. "1 row" or "42 rows".
-func countLabel(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func formatQueryDuration(d time.Duration) string {

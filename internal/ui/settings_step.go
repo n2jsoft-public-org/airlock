@@ -3,6 +3,8 @@ package ui
 import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 // settingsLoadedMsg carries the snapshot of the Settings screen; written reports that it follows
@@ -29,7 +31,7 @@ func (m jumphostWizardModel) openSettings(leavesToHost bool) (tea.Model, tea.Cmd
 	return m, tea.Batch(func() tea.Msg {
 		snapshot, err := store.Snapshot()
 		return settingsLoadedMsg{snapshot: snapshot, err: err}
-	}, m.loadingUI.start("Reading the settings...", []string{"Leafing through config.json..."}))
+	}, m.loadingUI.start(i18n.T("ui.settings_step.reading_settings"), []string{i18n.T("ui.settings_step.leafing_through_config_json")}))
 }
 
 // writeSetting runs write, then reads the snapshot again; the screen waits for both.
@@ -42,7 +44,7 @@ func (m jumphostWizardModel) writeSetting(label string, write func() error) (tea
 		}
 		snapshot, err := store.Snapshot()
 		return settingsLoadedMsg{snapshot: snapshot, err: err, written: true}
-	}, m.loadingUI.start(label, []string{"Writing it down in config.json..."}))
+	}, m.loadingUI.start(label, []string{i18n.T("ui.settings_step.writing_it_down_in")}))
 }
 
 // handleSettingsLoaded shows the snapshot; the environment badges follow its environments. A
@@ -84,9 +86,9 @@ func (m jumphostWizardModel) updateSettingsStep(msg tea.Msg) (tea.Model, tea.Cmd
 	case settingsBack:
 		return m.leaveSettings()
 	case settingsSave:
-		return m.writeSetting("Saving "+key+"...", func() error { return store.Set(key, value) })
+		return m.writeSetting(i18n.Format("ui.saving", key), func() error { return store.Set(key, value) })
 	case settingsReset:
-		return m.writeSetting("Resetting "+key+"...", func() error { return store.Unset(key) })
+		return m.writeSetting(i18n.Format("ui.settings.resetting", key), func() error { return store.Unset(key) })
 	case settingsPickRegion:
 		setting, _ := editor.selected()
 		m.regionPicker = newRegionPicker(setting.Value)
@@ -109,7 +111,7 @@ func (m jumphostWizardModel) updateSettingsRegionPicker(msg tea.Msg) (tea.Model,
 		m.pickingRegion, m.regionForSettings = false, false
 		region, _ := picker.choice()
 		store, key := m.settings, m.settingsEditor.requestKey
-		return m.writeSetting("Saving "+key+"...", func() error { return store.Set(key, region) })
+		return m.writeSetting(i18n.Format("ui.saving", key), func() error { return store.Set(key, region) })
 	default:
 		return m, cmd
 	}
@@ -134,8 +136,8 @@ func (m jumphostWizardModel) leaveSettings() (tea.Model, tea.Cmd) {
 		return m, resolve
 	}
 	m.loading = true
-	return m, tea.Batch(resolve, m.loadSavedCmd(), m.loadingUI.start("Loading recent connections...", []string{
-		"Remembering where you have been...",
+	return m, tea.Batch(resolve, m.loadSavedCmd(), m.loadingUI.start(i18n.T("ui.jumphost_flow.loading_recent_connections"), []string{
+		i18n.T("ui.jumphost_flow.remembering_where_you_have"),
 	}))
 }
 
@@ -144,15 +146,15 @@ func (m jumphostWizardModel) settingsKeys(help, quit [2]string) [][2]string {
 	editor := m.settingsEditor
 	switch {
 	case editor.editing:
-		return [][2]string{{"enter", "save"}, {"esc", "cancel"}, {"ctrl+c", m.quitLabel()}}
+		return [][2]string{{"enter", i18n.T("ui.hint.save")}, {"esc", i18n.T("ui.hint.cancel")}, {"ctrl+c", m.quitLabel()}}
 	case editor.confirming:
-		return [][2]string{{"y", "reset"}, {"any key", "keep"}}
+		return [][2]string{{"y", i18n.T("ui.hint.reset")}, {i18n.T("ui.hint.any_key"), i18n.T("ui.hint.keep")}}
 	case editor.err != nil:
-		return [][2]string{{"esc", "back"}, quit}
+		return [][2]string{{"esc", i18n.T("ui.hint.back")}, quit}
 	}
-	keys := [][2]string{{"↑↓", "move"}, {"enter", "change"}}
+	keys := [][2]string{{"↑↓", i18n.T("ui.hint.move")}, {"enter", i18n.T("ui.hint.change")}}
 	if setting, ok := editor.selected(); ok && setting.FromFile {
-		keys = append(keys, [2]string{"d", "reset"})
+		keys = append(keys, [2]string{"d", i18n.T("ui.hint.reset")})
 	}
-	return append(keys, [2]string{"esc", "back"}, help, quit)
+	return append(keys, [2]string{"esc", i18n.T("ui.hint.back")}, help, quit)
 }

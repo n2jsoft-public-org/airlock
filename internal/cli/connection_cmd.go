@@ -9,6 +9,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/spf13/cobra"
@@ -22,11 +23,8 @@ func newConnectionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "connection",
 		Aliases: []string{"db"},
-		Short:   "Manage the saved connections: direct databases and targets reached through a jumphost",
-		Long: "airlock remembers every connection in saved-connections.json: the direct databases (PostgreSQL and SQL Server " +
-			"databases signed in to directly, declared with `airlock connection add`) and the RDS, EKS and ElastiCache targets " +
-			"reached through an SSM jumphost, added at each connection. list and remove cover both; add, edit, test, export and " +
-			"import manage the direct databases. Passwords are never written to the file, only to the OS keychain when asked.",
+		Short:   i18n.T("cli.connection.short"),
+		Long:    i18n.T("cli.connection.long"),
 		// Runnable, so that cobra checks the arguments: an unknown subcommand is an error, not the help.
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -78,7 +76,7 @@ func getDatabase(store *connections.Databases, name string) (directdb.Database, 
 func refuseJumphostEntry(store *connections.Databases, name string) error {
 	name = strings.TrimSpace(name)
 	if matches, err := store.Store().Find(name); err == nil && len(matches) > 0 && matches[0].Jumphost != nil {
-		return fmt.Errorf("%s is reached through a jumphost: it is updated at each connection", name)
+		return i18n.NewError("cli.connection.is_reached_through_jumphost", name)
 	}
 	return nil
 }
@@ -93,7 +91,7 @@ func findConnection(store *connections.Store, name string) (connections.Entry, e
 	}
 	switch len(matches) {
 	case 0:
-		return connections.Entry{}, fmt.Errorf("no saved connection named %s (see airlock connection list)", name)
+		return connections.Entry{}, i18n.NewError("cli.connection.no_saved_connection_named", name)
 	case 1:
 		return matches[0], nil
 	}
@@ -101,18 +99,18 @@ func findConnection(store *connections.Store, name string) (connections.Entry, e
 	for idx := range matches {
 		keys[idx] = matches[idx].Key
 	}
-	return connections.Entry{}, fmt.Errorf("%s matches several connections, name one by its key: %s", name, strings.Join(keys, ", "))
+	return connections.Entry{}, i18n.NewError("cli.connection.matches_several_connections_name", name, strings.Join(keys, ", "))
 }
 
 // describeConnection names entry in a question or a completion.
 func describeConnection(entry *connections.Entry) string {
 	switch {
 	case entry.Direct != nil:
-		return fmt.Sprintf("direct database %s (%s)", entry.Key, entry.Direct.Address())
+		return i18n.Format("cli.connection.direct_database", entry.Key, entry.Direct.Address())
 	case entry.Jumphost != nil:
 		return fmt.Sprintf("%s %s (%s/%s)", entry.Jumphost.Type, entry.Jumphost.Target, entry.Jumphost.Account, entry.Jumphost.Region)
 	default:
-		return "invalid connection " + entry.Key
+		return i18n.Format("cli.connection.invalid", entry.Key)
 	}
 }
 
@@ -157,14 +155,14 @@ type dbFlags struct {
 }
 
 func (f *dbFlags) register(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&f.engine, "engine", "", "Database engine: postgres or sqlserver")
-	cmd.Flags().StringVar(&f.host, "host", "", "Host name or IP address of the database server")
-	cmd.Flags().IntVar(&f.port, "port", 0, "Port (default 5432 for postgres, 1433 for sqlserver)")
-	cmd.Flags().StringVar(&f.database, "database", "", "Database to open (default postgres on PostgreSQL, the login's default on SQL Server)")
-	cmd.Flags().StringVar(&f.user, "user", "", "Database user")
-	cmd.Flags().StringVar(&f.tls, "tls", "", "TLS mode: require (default, encrypted), verify (certificate and host checked) or disable")
-	cmd.Flags().StringVar(&f.environment, "environment", "", "Environment of the environments setting (prod is production); \"\" for none")
-	cmd.Flags().BoolVar(&f.production, "production", false, "Same as --environment prod (deprecated)")
+	cmd.Flags().StringVar(&f.engine, "engine", "", i18n.T("cli.connection.flag.engine"))
+	cmd.Flags().StringVar(&f.host, "host", "", i18n.T("cli.connection.flag.host"))
+	cmd.Flags().IntVar(&f.port, "port", 0, i18n.T("cli.connection.flag.port"))
+	cmd.Flags().StringVar(&f.database, "database", "", i18n.T("cli.connection.flag.database"))
+	cmd.Flags().StringVar(&f.user, "user", "", i18n.T("cli.connection.flag.user"))
+	cmd.Flags().StringVar(&f.tls, "tls", "", i18n.T("cli.connection.flag.tls"))
+	cmd.Flags().StringVar(&f.environment, "environment", "", i18n.T("cli.connection.flag.environment"))
+	cmd.Flags().BoolVar(&f.production, "production", false, i18n.T("cli.connection.flag.production"))
 	cobra.CheckErr(cmd.Flags().MarkHidden("production"))
 	cmd.MarkFlagsMutuallyExclusive("environment", "production")
 }
@@ -190,7 +188,7 @@ func checkEnvironment(envs environment.Set, name string) error {
 	if env := envs.Lookup(name); env.IsZero() || env.Configured {
 		return nil
 	}
-	return fmt.Errorf("environment %q is not in your environments setting (%s): add it with `airlock config set environments ...`",
+	return i18n.NewError("cli.connection.environment_is_not_in",
 		strings.ToLower(strings.TrimSpace(name)), strings.Join(envs.Names(), ", "))
 }
 

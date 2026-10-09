@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
@@ -43,7 +44,7 @@ func (m jumphostWizardModel) dockerReviewFields() []int {
 func (m jumphostWizardModel) submitDockerReview() (tea.Model, tea.Cmd) {
 	c := &m.dockerContainer
 	if m.passwordInput.Value() == "" && !c.Trust {
-		m.errorMsg = "Enter the password of " + c.User
+		m.errorMsg = i18n.Format("ui.review.enter_password_of", c.User)
 		return m.focusReviewField(reviewFieldPassword), nil
 	}
 	m.options.ResourceType = sessions.DockerResourceType
@@ -68,35 +69,35 @@ func (m jumphostWizardModel) renderDockerReviewPanel(width int, compact bool) st
 	name := m.styles.Text.Bold(true).Render(c.Name)
 	var rows []string
 	if compact {
-		rows = append(rows, m.reviewRow("Target", badge+" "+name, inner))
+		rows = append(rows, m.reviewRow(i18n.T("ui.jumphost_flow_view.target"), badge+" "+name, inner))
 	} else {
 		rows = append(rows,
-			m.reviewRow("Type", badge+" "+m.styles.Muted.Render(string(c.Engine)), inner),
-			m.reviewRow("Target", name+m.styles.Faint.Render(" · "+c.Image), inner),
-			m.reviewRow("Server", c.Address()+m.styles.Faint.Render(" · TLS disable"), inner),
+			m.reviewRow(i18n.T("ui.jumphost_flow_view.type"), badge+" "+m.styles.Muted.Render(string(c.Engine)), inner),
+			m.reviewRow(i18n.T("ui.jumphost_flow_view.target"), name+m.styles.Faint.Render(" · "+c.Image), inner),
+			m.reviewRow(i18n.T("ui.direct_review.server"), c.Address()+m.styles.Faint.Render(i18n.T("ui.docker_review.tls_disable")), inner),
 		)
 		if !c.Cache() {
-			rows = append(rows, m.reviewRow("Database", m.dockerDatabaseLabel(), inner))
+			rows = append(rows, m.reviewRow(i18n.T("ui.direct_form.database"), m.dockerDatabaseLabel(), inner))
 		}
-		rows = append(rows, m.reviewRow("User", c.User, inner), m.styles.Rule.Render(strings.Repeat("─", inner)))
+		rows = append(rows, m.reviewRow(i18n.T("ui.jumphost_flow_view.user"), c.User, inner), m.styles.Rule.Render(strings.Repeat("─", inner)))
 	}
-	passwordHelp := "Read from the container's environment: edit it if it changed since."
+	passwordHelp := i18n.T("ui.docker_review.read_from_container_environment")
 	switch {
 	case c.Cache() && c.Trust && c.Password == "":
-		passwordHelp = "No password found: leave it empty if the cache has no auth."
+		passwordHelp = i18n.T("ui.docker_review.no_password_found_leave")
 	case c.Cache():
-		passwordHelp = "Read from the container's command or environment: edit it if it changed since."
+		passwordHelp = i18n.T("ui.docker_review.read_from_container_command")
 	}
-	mcpHelp := "Space toggles. On, AI assistants write as " + c.User + "."
+	mcpHelp := i18n.Format("ui.review.mcp_writes_as", c.User)
 	if compact {
 		passwordHelp, mcpHelp = "", ""
 	}
-	rows = append(rows, m.reviewInput(reviewFieldPassword, "Password", inputView(m.passwordInput), passwordHelp, inner)...)
+	rows = append(rows, m.reviewInput(reviewFieldPassword, i18n.T("ui.jumphost_flow_view.password"), inputView(m.passwordInput), passwordHelp, inner)...)
 	if m.mcpWritesApply() {
-		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, "MCP", m.mcpWritesToggle(), mcpHelp, inner)...)
+		rows = append(rows, m.reviewInput(reviewFieldMCPWrites, i18n.T("ui.jumphost_flow_view.mcp"), m.mcpWritesToggle(), mcpHelp, inner)...)
 		db := directdb.Database{Engine: directdb.Engine(c.Engine), User: c.User}
 		if !m.mcpWrites && jumphost.DirectReadOnlyWarning(&db) != "" {
-			rows = append(rows, "  "+m.styles.Warning.Render(truncate("⚠ Read-only rests on "+c.User+"'s permissions (SQL Server)", inner-2)))
+			rows = append(rows, "  "+m.styles.Warning.Render(truncate(i18n.Format("ui.review.read_only_rests_on", c.User), inner-2)))
 		}
 	}
 	return m.styles.Card.Width(panelWidth).Render(strings.Join(rows, "\n"))
@@ -107,7 +108,7 @@ func (m jumphostWizardModel) dockerDatabaseLabel() string {
 	if m.dockerContainer.Database != "" {
 		return m.dockerContainer.Database
 	}
-	return m.styles.Faint.Render("the login's default")
+	return m.styles.Faint.Render(i18n.T("ui.direct_review.login_default"))
 }
 
 // openDockerAtStart shows the Docker list as a new connection whose Type step is behind, so esc
@@ -137,7 +138,7 @@ func (m jumphostWizardModel) openPendingDocker(listErr error) (tea.Model, tea.Cm
 	item, ok := m.dockerList.selectedItem()
 	switch {
 	case !ok || item.c.Name != name:
-		m.errorMsg = "no running database or cache container named " + name
+		m.errorMsg = i18n.Format("ui.docker_review.no_container_named", name)
 		return m, nil
 	case item.c.Problem != "":
 		m.errorMsg = item.c.Problem

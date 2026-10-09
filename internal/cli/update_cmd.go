@@ -2,12 +2,12 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"runtime"
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/appdir"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
 	"github.com/n2jsoft/airlock/internal/version"
 	"github.com/spf13/cobra"
@@ -71,16 +71,15 @@ func newUpdateCmdWith(env updateEnv) *cobra.Command {
 	var check, force bool
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Update airlock to the latest release",
-		Long: "Checks the latest GitHub release of airlock and, when it is newer than this build, installs it " +
-			"in place of the running binary. GitHub access comes from GH_TOKEN, GITHUB_TOKEN or the GitHub CLI (gh auth login).",
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.update.short"),
+		Long:  i18n.T("cli.update.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUpdate(cmd, env, check, force)
 		},
 	}
-	cmd.Flags().BoolVar(&check, "check", false, "Only report whether a newer release exists")
-	cmd.Flags().BoolVar(&force, "force", false, "Install the latest release even when this build is newer, diverged or unversioned")
+	cmd.Flags().BoolVar(&check, "check", false, i18n.T("cli.update.flag.check"))
+	cmd.Flags().BoolVar(&force, "force", false, i18n.T("cli.update.flag.force"))
 	return cmd
 }
 
@@ -91,7 +90,7 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 		return err
 	}
 	if err = selfupdate.CleanupOld(target); err != nil {
-		cmd.PrintErrf("Warning: %v\n", err)
+		cmd.PrintErr(i18n.Format("cli.warning", err))
 	}
 	updater, err := env.updater(ctx)
 	if err != nil {
@@ -112,13 +111,13 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 	if path, pathErr := env.cacheFile(); pathErr == nil {
 		installed := selfupdate.Result{Current: result.Latest, Latest: result.Latest, Status: selfupdate.StatusUpToDate}
 		if saveErr := selfupdate.SaveCache(path, installed.CacheAt(time.Now())); saveErr != nil {
-			cmd.PrintErrf("Warning: %v\n", saveErr)
+			cmd.PrintErr(i18n.Format("cli.warning", saveErr))
 		}
 	}
 	reactToInstalledRelease(ctx, updater.Client, result.Release)
-	outf(cmd, "Updated airlock %s → %s\n", result.Current, result.Latest)
+	outf(cmd, i18n.T("cli.update.updated_airlock"), result.Current, result.Latest)
 	if env.daemonRunning != nil && env.daemonRunning(ctx) {
-		outf(cmd, "restart the daemon to use the new version: airlock daemon restart\n")
+		outf(cmd, "%s", i18n.T("cli.update.restart_daemon_to_use"))
 	}
 	return nil
 }
@@ -137,14 +136,14 @@ func reactToInstalledRelease(ctx context.Context, client *selfupdate.Client, rel
 func updateStatusMessage(r *selfupdate.Result) string {
 	switch r.Status {
 	case selfupdate.StatusUpToDate:
-		return fmt.Sprintf("airlock %s is up to date", r.Current)
+		return i18n.Format("cli.update.airlock_is_up_to", r.Current)
 	case selfupdate.StatusAvailable:
-		return fmt.Sprintf("airlock %s is available (this build is %s): run airlock update", r.Latest, r.Current)
+		return i18n.Format("cli.update.airlock_is_available_this", r.Latest, r.Current)
 	case selfupdate.StatusNewer:
-		return fmt.Sprintf("this build (%s) is newer than the latest release (%s): nothing to do (--force installs %s)", r.Current, r.Latest, r.Latest)
+		return i18n.Format("cli.update.this_build_is_newer", r.Current, r.Latest, r.Latest)
 	case selfupdate.StatusDiverged:
-		return fmt.Sprintf("this build (%s) comes from a commit not on main: nothing to do (--force installs %s)", r.Current, r.Latest)
+		return i18n.Format("cli.update.this_build_comes_from", r.Current, r.Latest)
 	default:
-		return fmt.Sprintf("this airlock was built without a version (go run): install it with make install (--force installs %s)", r.Latest)
+		return i18n.Format("cli.update.this_airlock_was_built", r.Latest)
 	}
 }

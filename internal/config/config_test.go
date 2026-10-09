@@ -69,6 +69,7 @@ func TestLoadACMEPreset(t *testing.T) {
 		AgentAutoConnect:  AutoConnectNone,
 		AgentIdleTimeout:  30 * time.Minute,
 		RandomLocalPort:   true,
+		Language:          LanguageAuto,
 	}
 	if cfg != want {
 		t.Fatalf("Load = %+v, want %+v", cfg, want)

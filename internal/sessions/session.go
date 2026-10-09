@@ -63,9 +63,13 @@ type LogLine struct {
 // SignIn is the sign-in check of a session (see jumphost.SignInChecker).
 type SignIn struct {
 	// Failed holds the error of each candidate tried in vain, by CandidateKey.
-	Failed     map[string]string          `json:"failed,omitempty"`
-	User       string                     `json:"user,omitempty"`
-	Err        string                     `json:"err,omitempty"`
+	Failed map[string]string `json:"failed,omitempty"`
+	// LocalFailed is Failed in the user's language, for the dashboards.
+	LocalFailed map[string]string `json:"localFailed,omitempty"`
+	User        string            `json:"user,omitempty"`
+	Err         string            `json:"err,omitempty"`
+	// LocalErr is Err in the user's language, for the dashboards; Err stays English for agents.
+	LocalErr   string                     `json:"localErr,omitempty"`
 	Candidates []jumphost.SignInCandidate `json:"candidates,omitempty"`
 	State      SignInState                `json:"state"`
 }
@@ -116,6 +120,8 @@ type Session struct {
 	Region       string `json:"region"`
 	// Err is the error the session ended on; empty when none.
 	Err string `json:"err,omitempty"`
+	// LocalErr is Err in the user's language, for the dashboards; Err stays English for agents.
+	LocalErr string `json:"localErr,omitempty"`
 	// Cleanup describes what ending the session removed (IDE data source, MCP entries).
 	Cleanup string `json:"cleanup,omitempty"`
 	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
@@ -171,6 +177,7 @@ func (s *Session) Clone() Session {
 	c.Lines = append([]LogLine(nil), s.Lines...)
 	c.SignIn.Candidates = append([]jumphost.SignInCandidate(nil), s.SignIn.Candidates...)
 	c.SignIn.Failed = maps.Clone(s.SignIn.Failed)
+	c.SignIn.LocalFailed = maps.Clone(s.SignIn.LocalFailed)
 	if s.MCP != nil {
 		mcp := *s.MCP
 		mcp.Events = append([]mcpserve.ToolEvent(nil), s.MCP.Events...)

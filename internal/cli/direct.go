@@ -2,11 +2,11 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/ui"
@@ -22,21 +22,21 @@ var directRefusedFlags = []string{"profile", "aws-profile", "region", "db-user",
 func checkDirectTarget(cmd *cobra.Command, args []string, databases jumphost.DirectDatabases) (string, error) {
 	for _, flag := range directRefusedFlags {
 		if cmd.Flags().Changed(flag) {
-			return "", fmt.Errorf("--%s does not apply to direct databases", flag)
+			return "", i18n.NewError("cli.direct.does_not_apply_to", flag)
 		}
 	}
 	if len(args) > 2 {
-		return "", errors.New("a local port does not apply to direct databases")
+		return "", errors.New(i18n.T("cli.direct.local_port_does_not"))
 	}
 	name := ""
 	if len(args) > 1 {
 		name = strings.TrimSpace(args[1])
 	}
 	if name == "" {
-		return "", errors.New("a direct database name is required: airlock direct <name> (see airlock connection list)")
+		return "", errors.New(i18n.T("cli.direct.direct_database_name_is"))
 	}
 	if databases == nil {
-		return "", errors.New("direct databases are unavailable: the config directory cannot be resolved")
+		return "", errors.New(i18n.T("cli.direct.direct_databases_are_unavailable"))
 	}
 	_, found, err := databases.Get(name)
 	if err != nil {
@@ -83,10 +83,10 @@ func openDirect(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 func directRunError(name string, err error) error {
 	switch {
 	case errors.Is(err, jumphost.ErrPasswordRequired):
-		return fmt.Errorf("no password remembered for %s: open it once from the dashboard with \"Remember in keychain\"", name)
+		return i18n.NewError("cli.direct.no_password_remembered_for", name)
 	case errors.Is(err, jumphost.ErrSignInRejected):
 		// The runner already forgot the rejected keychain password.
-		return fmt.Errorf("%w: open it from the dashboard to enter the password again", err)
+		return i18n.NewError("cli.direct.open_it_from_dashboard", err)
 	default:
 		return err
 	}

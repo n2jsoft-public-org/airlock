@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -12,6 +11,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/gateway"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/keychain"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
@@ -80,17 +80,15 @@ func newUninstallCmdWith(env *uninstallEnv) *cobra.Command {
 	var purge, yes bool
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove airlock from this computer",
-		Long: "Removes the airlock binary and the PATH entry its installer added, after listing them. " +
-			"--purge also removes the settings, recent connections, MCP query logs and kubeconfigs, " +
-			"and the database passwords saved in the OS keychain.",
-		Args: cobra.NoArgs,
+		Short: i18n.T("cli.uninstall.short"),
+		Long:  i18n.T("cli.uninstall.long"),
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUninstall(cmd, env, purge, yes)
 		},
 	}
-	cmd.Flags().BoolVar(&purge, "purge", false, "Also remove settings, recent connections, logs and saved passwords")
-	cmd.Flags().BoolVar(&yes, "yes", false, "Remove without asking")
+	cmd.Flags().BoolVar(&purge, "purge", false, i18n.T("cli.uninstall.flag.purge"))
+	cmd.Flags().BoolVar(&yes, "yes", false, i18n.T("cli.uninstall.flag.yes"))
 	return cmd
 }
 
@@ -110,7 +108,7 @@ func runUninstall(cmd *cobra.Command, env *uninstallEnv, purge, yes bool) error 
 		return err
 	}
 	if others > 0 {
-		return fmt.Errorf("another airlock is running from %s: quit it, then run airlock uninstall again", machine.Executable)
+		return i18n.NewError("cli.uninstall.another_airlock_is_running", machine.Executable)
 	}
 	plan, err := uninstall.NewPlan(machine, purge)
 	if err != nil {
@@ -119,10 +117,10 @@ func runUninstall(cmd *cobra.Command, env *uninstallEnv, purge, yes bool) error 
 	printUninstallPlan(cmd, &plan, running)
 	if !yes {
 		if !env.interactive(cmd.InOrStdin()) {
-			return errors.New("airlock uninstall asks before removing anything: run it in a terminal, or pass --yes")
+			return errors.New(i18n.T("cli.uninstall.airlock_uninstall_asks_before"))
 		}
-		if !confirm(cmd, "Remove airlock? [y/N] ") {
-			return errors.New("nothing removed")
+		if !confirm(cmd, i18n.T("cli.uninstall.remove_airlock_y")) {
+			return errors.New(i18n.T("cli.uninstall.nothing_removed"))
 		}
 	}
 
@@ -130,10 +128,10 @@ func runUninstall(cmd *cobra.Command, env *uninstallEnv, purge, yes bool) error 
 	if running != nil {
 		stopped, stopErr := env.stopDaemon(cmd.Context())
 		if stopErr != nil {
-			return fmt.Errorf("failed to stop the airlock daemon: %w", stopErr)
+			return i18n.NewError("cli.uninstall.failed_to_stop_airlock", stopErr)
 		}
 		if stopped {
-			outf(cmd, "Stopped the airlock daemon and its sessions.\n")
+			outf(cmd, "%s", i18n.T("cli.uninstall.stopped_airlock_daemon_and"))
 		}
 	}
 
@@ -141,19 +139,19 @@ func runUninstall(cmd *cobra.Command, env *uninstallEnv, purge, yes bool) error 
 	err = uninstall.Apply(&plan, machine, func(item uninstall.Item) {
 		switch {
 		case item.Kind == uninstall.Binary && env.goos == "windows":
-			outf(cmd, "Removing %s once this airlock exits\n", item.Describe())
+			outf(cmd, i18n.T("cli.uninstall.removing_once_this_airlock"), item.Describe())
 		case item.Kind == uninstall.InstallDir:
 		default:
-			outf(cmd, "Removed %s\n", item.Describe())
+			outf(cmd, i18n.T("cli.uninstall.removed"), item.Describe())
 		}
 		pathChanged = pathChanged || item.Kind == uninstall.ProfileEntry || item.Kind == uninstall.UserPathEntry
 	})
 	if err != nil {
 		return err
 	}
-	outf(cmd, "airlock is uninstalled.")
+	outf(cmd, "%s", i18n.T("cli.uninstall.airlock_is_uninstalled"))
 	if pathChanged {
-		outf(cmd, " Open a new terminal to refresh your PATH.")
+		outf(cmd, "%s", i18n.T("cli.uninstall.open_new_terminal_to"))
 	}
 	outf(cmd, "\n")
 	return nil
@@ -167,7 +165,7 @@ func (e *uninstallEnv) machine() (*uninstall.Env, error) {
 	}
 	home, err := e.home()
 	if err != nil {
-		return nil, fmt.Errorf("cannot find your home folder: %w", err)
+		return nil, i18n.NewError("cli.uninstall.cannot_find_your_home", err)
 	}
 	dataDir, err := e.dataDir()
 	if err != nil {
@@ -206,19 +204,15 @@ func defaultGatewayEntries() (files []string, remove func(string) error) {
 }
 
 func printUninstallPlan(cmd *cobra.Command, plan *uninstall.Plan, running *runningDaemon) {
-	outf(cmd, "airlock uninstall removes:\n")
+	outf(cmd, "%s", i18n.T("cli.uninstall.airlock_uninstall_removes"))
 	for _, item := range plan.Remove {
 		outf(cmd, "  - %s\n", item.Describe())
 	}
 	if running != nil {
-		sessions := "sessions"
-		if running.Sessions == 1 {
-			sessions = "session"
-		}
-		outf(cmd, "\nAlso stops the airlock daemon and its %d %s.\n", running.Sessions, sessions)
+		outf(cmd, i18n.T("cli.uninstall.also_stops_airlock_daemon"), i18n.Plural(running.Sessions, "cli.count.session"))
 	}
 	if len(plan.Kept) > 0 {
-		outf(cmd, "\nIt keeps:\n")
+		outf(cmd, "%s", i18n.T("cli.uninstall.it_keeps"))
 		for _, kept := range plan.Kept {
 			outf(cmd, "  - %s\n", kept)
 		}

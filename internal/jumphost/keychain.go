@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/keychain"
 )
 
@@ -73,7 +74,7 @@ func (r *Runner) ForgetDirectPassword(name, user string, flagged bool) error {
 		return nil
 	}
 	if err := r.keychain.Delete(keychainAccount(ref, user)); err != nil {
-		return fmt.Errorf("%w: failed to forget the password: %w", ErrKeychain, err)
+		return i18n.NewError("jumphost.keychain.failed_to_forget_password", ErrKeychain, err)
 	}
 	return nil
 }
@@ -108,7 +109,7 @@ func (r *Runner) syncKeychain(target TargetRef, previous, next *ConnectionPrefs,
 	sameAccount := remembered && keychainAccount(target, previous.DBUser) == newAccount
 	if remembered && !sameAccount {
 		if err := r.keychain.Delete(keychainAccount(target, previous.DBUser)); err != nil {
-			errs = append(errs, fmt.Errorf("failed to forget the previous password: %w", err))
+			errs = append(errs, i18n.NewError("jumphost.keychain.failed_to_forget_previous", err))
 		}
 	}
 	if !remember {
@@ -116,7 +117,7 @@ func (r *Runner) syncKeychain(target TargetRef, previous, next *ConnectionPrefs,
 		return joinKeychainErrors(errs)
 	}
 	if err := r.keychain.Set(newAccount, options.DBPassword); err != nil {
-		errs = append(errs, fmt.Errorf("the password was not remembered: %w", err))
+		errs = append(errs, i18n.NewError("jumphost.keychain.password_was_not_remembered", err))
 		// The entry of the same user is still there, with the password it had.
 		next.PasswordInKeychain = sameAccount
 		return joinKeychainErrors(errs)
@@ -156,7 +157,7 @@ func (r *Runner) forgetKeychainPassword(target TargetRef, prefs *ConnectionPrefs
 		return nil
 	}
 	if err := r.keychain.Delete(keychainAccount(target, prefs.DBUser)); err != nil {
-		return fmt.Errorf("%w: failed to forget the password: %w", ErrKeychain, err)
+		return i18n.NewError("jumphost.keychain.failed_to_forget_password", ErrKeychain, err)
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
 const (
@@ -159,7 +160,7 @@ func (s Styles) contextChip(label, value string) string {
 
 // regionChip renders the region code followed by its friendly name when known.
 func (s Styles) regionChip(code string) string {
-	chip := s.contextChip("region", code)
+	chip := s.contextChip(i18n.T("ui.hint.region"), code)
 	if name := awsRegionName(code); name != "" {
 		chip += s.Faint.Render(" · " + name)
 	}
@@ -171,7 +172,7 @@ func (s Styles) regionChip(code string) string {
 func newWizardList(styles Styles, items []list.Item) list.Model {
 	l := list.New(items, cardDelegate{styles: styles}, 0, 0)
 	// The title row doubles as the filter input: it hints at "/" until the user starts typing.
-	l.Title = "⌕ / to filter"
+	l.Title = i18n.T("ui.wizard_frame.to_filter")
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(false)
 	l.SetFilteringEnabled(true)
