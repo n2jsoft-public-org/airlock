@@ -19,6 +19,9 @@ const (
 	MaxMCPQueries = 500
 	// DirectResourceType is the type of direct database sessions: they run no aws process.
 	DirectResourceType = "direct"
+	// DockerResourceType is the type of the sessions of local Docker databases: like direct ones,
+	// they run no aws process.
+	DockerResourceType = "docker"
 )
 
 // ID identifies a session; a restart or reconnection keeps it.
@@ -139,8 +142,10 @@ type Session struct {
 // Active reports whether the session has not ended.
 func (s *Session) Active() bool { return s.State != StateEnded }
 
-// Direct reports a direct database session, which runs no aws process.
-func (s *Session) Direct() bool { return s.ResourceType == DirectResourceType }
+// Direct reports a session reached without tunnel (a direct or Docker database): it runs no aws process.
+func (s *Session) Direct() bool {
+	return s.ResourceType == DirectResourceType || s.ResourceType == DockerResourceType
+}
 
 // ReconnectPending reports a session waiting for, or going through, an automatic reconnection.
 func (s *Session) ReconnectPending() bool { return s.Reconnecting || !s.ReconnectAt.IsZero() }
@@ -151,7 +156,7 @@ func (s *Session) MCPWrites() bool { return s.MCP != nil && s.MCP.Writes }
 // Key identifies the target of s: two running sessions never share one.
 func (s *Session) Key() string {
 	if s.Direct() {
-		return DirectResourceType + "|" + strings.ToLower(s.Target)
+		return s.ResourceType + "|" + strings.ToLower(s.Target)
 	}
 	return strings.ToLower(strings.Join([]string{s.Profile, s.Region, s.ResourceType, s.Target}, "|"))
 }

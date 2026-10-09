@@ -44,12 +44,22 @@ func firstUntried(s *sessions.Session) int {
 // list showing that session: a wizard, a preparation, a dialog or another session stays, and the
 // log tells how to enter the password again.
 func (m ssmModel) askDirectPasswordAgain(ev sessions.Event) (tea.Model, tea.Cmd) { //nolint:gocritic // the event as the service sent it.
-	if s := m.selectedSession(); m.mode != ssmModeSessions || s == nil || s.ID != ev.ID {
+	s := m.selectedSession()
+	if m.mode != ssmModeSessions || s == nil || s.ID != ev.ID {
+		return m, nil
+	}
+	docker := s.ResourceType == sessions.DockerResourceType
+	if docker && m.docker == nil {
+		m.errorMsg = "Enter the password again from `airlock docker " + ev.Name + "`."
 		return m, nil
 	}
 	m = m.showWizard(m.wizardDefaults())
-	m.wizard.openDirect = ev.Name
-	m.wizard.openDirectError = "The database rejected the password of " + ev.User + ": enter it again."
+	reason := "The database rejected the password of " + ev.User + ": enter it again."
+	if docker {
+		m.wizard.dockerAtStart, m.wizard.openDocker, m.wizard.openDockerError = true, ev.Name, reason
+	} else {
+		m.wizard.openDirect, m.wizard.openDirectError = ev.Name, reason
+	}
 	return m.startWizard()
 }
 

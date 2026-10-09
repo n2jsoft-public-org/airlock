@@ -32,10 +32,10 @@ func NewRootCmd() *cobra.Command {
 	options := jumphost.Options{}
 
 	cmd := &cobra.Command{
-		Use:   "airlock [eks|rds|elasticache|direct] [name] [local-port]",
-		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct database",
+		Use:   "airlock [eks|rds|elasticache|direct|docker] [name] [local-port]",
+		Short: "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct or local Docker database",
 		Long: "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, " +
-			"or to a direct database declared with `airlock connection add` (`airlock direct <name>`). " +
+			"or to a direct database declared with `airlock connection add` (`airlock direct <name>`), or to a local Docker database (`airlock docker <name>`). " +
 			"When values are omitted in an interactive shell, a wizard asks for them.",
 		Args:         cobra.MaximumNArgs(3),
 		SilenceUsage: true,
@@ -192,6 +192,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	if databaseStore != nil {
 		dashboard.Databases = databaseStore
 	}
+	dashboard.Docker = shared.Containers
 	if latestRelease != "" {
 		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
 	}
@@ -219,6 +220,14 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 			return err
 		}
 		return openDirect(cmd, options, interactive, &directEnv{
+			discovery: discovery, manager: manager, dashboard: &dashboard, shared: &shared, cfg: &cfg, prefsPath: prefsPath,
+		})
+	}
+	if options.ResourceType == dockerResourceType {
+		if options.Name, err = checkDockerTarget(cmd, args, shared.Containers, interactive); err != nil {
+			return err
+		}
+		return openDocker(cmd, options, interactive, &directEnv{
 			discovery: discovery, manager: manager, dashboard: &dashboard, shared: &shared, cfg: &cfg, prefsPath: prefsPath,
 		})
 	}
@@ -285,6 +294,7 @@ func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry,
 		MCPServerPrefix:   cfg.MCPServerPrefix,
 		KubeconfigDir:     kubeconfigDir,
 		Databases:         databases,
+		Containers:        dockerContainers(),
 		Environments:      cfg.EnvironmentSet(),
 	}
 }

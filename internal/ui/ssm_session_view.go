@@ -659,7 +659,7 @@ func sessionAddress(s *sessions.Session) string {
 // origin says how s is reached: its AWS profile and region, or "direct".
 func sessionOrigin(s *sessions.Session) string {
 	if s.Direct() {
-		return sessions.DirectResourceType
+		return s.ResourceType
 	}
 	return s.Profile + " · " + s.Region
 }

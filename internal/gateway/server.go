@@ -22,7 +22,7 @@ import (
 // endpointPath is where the gateway answers.
 const endpointPath = "/mcp"
 
-const instructions = "airlock opens connections to private AWS resources (RDS and direct databases, EKS clusters, " +
+const instructions = "airlock opens connections to private AWS resources (RDS, direct and local Docker databases, EKS clusters, " +
 	"ElastiCache caches) and serves their tools. Call list_sessions to see what is open, list_targets to see what can " +
 	"be opened, and open_session to open a target: the user may have to approve it in the airlock dashboard. The " +
 	"db_, k8s_ and cache_ tools take the id of a session. Close the sessions you opened with close_session when done."
@@ -35,6 +35,8 @@ type Config struct {
 	Discovery func() (Discovery, error)
 	// Databases finds the direct databases; nil when they are unavailable.
 	Databases jumphost.DirectDatabases
+	// Containers finds the database containers of the local Docker; nil when unavailable.
+	Containers jumphost.DockerContainers
 	// Activity is called on each authenticated request (the daemon's idle clock); nil ignores them.
 	Activity func()
 	Log      func(format string, args ...any)
@@ -100,7 +102,7 @@ func Start(ctx context.Context, cfg *Config) (*Gateway, error) {
 	}
 	g.relay.audit(cfg.Name, record)
 	g.tools = &toolset{
-		manager: cfg.Manager, relay: g.relay, settings: cfg.Settings, discovery: cfg.Discovery, databases: cfg.Databases,
+		manager: cfg.Manager, relay: g.relay, settings: cfg.Settings, discovery: cfg.Discovery, databases: cfg.Databases, containers: cfg.Containers,
 		record: record, now: now, name: cfg.Name, startTimeout: defaultStartTimeout,
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: cfg.Name, Version: serverVersion}, &mcp.ServerOptions{Instructions: instructions})

@@ -75,6 +75,12 @@ func (m jumphostWizardModel) contextChips() []string {
 		return nil
 	}
 	// A direct database has no AWS context; its review shows the server it connects to.
+	if m.isDocker() {
+		if m.step != jumphostStepReview {
+			return nil
+		}
+		return []string{m.styles.contextChip("server", m.dockerContainer.Address())}
+	}
 	if m.isDirect() {
 		if m.step != jumphostStepReview {
 			return nil
@@ -145,6 +151,8 @@ func (m jumphostWizardModel) stepHeading() string {
 		switch {
 		case m.flow == flowSearch:
 			return "Search a target"
+		case m.isDocker():
+			return "Choose a Docker database"
 		case m.isDirect():
 			return "Choose a direct database"
 		}
@@ -170,6 +178,12 @@ func (m jumphostWizardModel) stepHint() string {
 	case jumphostStepProfile:
 		return plural(len(m.profileList.Items()), "profile")
 	case jumphostStepTarget:
+		if m.isDocker() {
+			if m.dockerList.err != nil || !m.dockerList.loaded {
+				return ""
+			}
+			return plural(m.dockerList.count(), "container")
+		}
 		if m.isDirect() {
 			if m.directList.err != nil {
 				return ""
@@ -199,6 +213,9 @@ func (m jumphostWizardModel) stepBody(width, height int) string {
 	case jumphostStepType:
 		return m.renderResourceCards(width, height)
 	case jumphostStepTarget:
+		if m.isDocker() {
+			return m.dockerList.View(m.styles, width)
+		}
 		if m.isDirect() {
 			return m.directList.View(m.styles, width)
 		}
@@ -261,6 +278,9 @@ func (m jumphostWizardModel) stepKeys() [][2]string {
 		}
 		return append(keys, help, quit)
 	case jumphostStepTarget:
+		if m.isDocker() {
+			return m.dockerListKeys(help, quit)
+		}
 		if m.isDirect() {
 			return m.directListKeys(help, quit)
 		}
@@ -376,6 +396,9 @@ func (m jumphostWizardModel) reviewUserInput() textinput.Model {
 }
 
 func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
+	if m.isDocker() {
+		return m.renderDockerReviewPanel(width, compact)
+	}
 	if m.isDirect() {
 		return m.renderDirectReviewPanel(width, compact)
 	}

@@ -35,7 +35,7 @@ var kinds = []kind{kindDB, kindK8s, kindCache}
 // kindOf is the kind of the sessions of resourceType; empty when they serve no tool.
 func kindOf(resourceType string) kind {
 	switch resourceType {
-	case "rds", sessions.DirectResourceType:
+	case "rds", sessions.DirectResourceType, sessions.DockerResourceType:
 		return kindDB
 	case "eks":
 		return kindK8s

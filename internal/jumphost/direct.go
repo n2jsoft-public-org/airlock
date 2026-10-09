@@ -142,63 +142,81 @@ func (r *Runner) prepareDirect(ctx context.Context, options *Options) (*Session,
 		}
 	}
 
-	label := directLabel(name)
-	if err := r.registry.claim(label, name); err != nil {
-		return nil, err
-	}
-
 	// A remembered password the database rejects is forgotten, so the next connection asks again.
 	account := ""
 	if (options.RememberPassword || fromKeychain) && r.KeychainAvailable() {
 		account = keychainAccount(DirectTargetRef(name), db.User)
 	}
-	addr := directAddress(&db)
+	return r.openDatabase(options, &db, engine, password, &databaseSpec{
+		resourceType: resourceDirect, label: directLabel(name), title: name, account: account,
+		intro: fmt.Sprintf("Direct database %s (%s) at %s", name, db.Engine, directAddress(&db)),
+	})
+}
+
+// databaseSpec is what tells the session of a direct database from a Docker container's.
+type databaseSpec struct {
+	resourceType string
+	// label keys the session in the registry.
+	label string
+	// title names the IDE data source ("airlock <title>") and the MCP server.
+	title string
+	// intro is the first line of the session intro.
+	intro string
+	// account is the keychain entry of the password, forgotten once rejected; "" when none.
+	account string
+}
+
+// openDatabase opens db signed in with password: no AWS step, no process, no local port. It
+// registers the IDE data source and starts the MCP server unless options skip them.
+func (r *Runner) openDatabase(options *Options, db *directdb.Database, engine dbmcp.Engine, password string, spec *databaseSpec) (*Session, error) {
+	name := db.Name
+	if err := r.registry.claim(spec.label, name); err != nil {
+		return nil, err
+	}
+	addr := directAddress(db)
 	session := &Session{
-		Label:        label,
-		ResourceType: resourceDirect,
+		Label:        spec.label,
+		ResourceType: spec.resourceType,
 		Target:       name,
 		Environment:  db.Environment,
 		Production:   r.environments.Lookup(db.Environment).Production,
 		Details: SessionDetails{
 			ConnectedServer: addr.String(),
-			RestartCommand:  "airlock direct " + name,
+			RestartCommand:  "airlock " + spec.resourceType + " " + name,
 			Auth:            "password · " + db.User,
 		},
-		Intro: []string{
-			fmt.Sprintf("Direct database %s (%s) at %s", name, db.Engine, addr),
-			"TLS: " + string(db.EffectiveTLS()),
-		},
+		Intro: []string{spec.intro, "TLS: " + string(db.EffectiveTLS())},
 	}
 
 	var removeDataSource func() string
 	if !options.SkipIDEDataSource {
 		session.Details.IDEDataSource, removeDataSource = r.registerDataSource(options, &ideadatasource.DataSource{
-			Key:        resourceDirect + "|" + name,
-			Name:       "airlock " + name,
+			Key:        spec.resourceType + "|" + name,
+			Name:       "airlock " + spec.title,
 			Engine:     string(db.Engine),
 			Host:       jdbcHost(db.Host),
 			Port:       db.EffectivePort(),
 			Database:   db.Database,
 			User:       db.User,
-			Properties: jdbcTLSProperties(&db),
+			Properties: jdbcTLSProperties(db),
 		}, addr.String())
 		if session.Details.IDEDataSource != "" {
 			session.Intro = append(session.Intro, session.Details.IDEDataSource)
 		}
 	}
 	if !options.SkipMCP {
-		handle, display := r.startDirectMCP(options, &db, engine, name, password, account, options.MCPAllowWrites)
+		handle, display := r.startDirectMCP(options, db, engine, spec.title, password, spec.account, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	session.SignIn = &directSignIn{
-		forget:   r.forgetKeychainFunc(account, password),
+		forget:   r.forgetKeychainFunc(spec.account, password),
 		engine:   engine,
 		user:     db.User,
 		password: password,
 		database: dbmcp.DefaultDatabase(string(db.Engine), db.Database),
 		addr:     addr,
 	}
-	session.release = sessionRelease(func() { r.registry.release(label) }, session.mcp, removeDataSource)
+	session.release = sessionRelease(func() { r.registry.release(spec.label) }, session.mcp, removeDataSource)
 	return session, nil
 }
 

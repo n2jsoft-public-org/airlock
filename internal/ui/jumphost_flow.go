@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft/airlock/internal/dockerdb"
 	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -135,6 +136,12 @@ type jumphostWizardModel struct {
 	// directList is the target step of a direct database; directDB the database the review
 	// step connects to.
 	directList directList
+	// docker finds the database containers; nil hides the Docker database card.
+	docker jumphost.DockerContainers
+	// dockerList is the target step of a Docker database; dockerContainer the container the
+	// review step connects to.
+	dockerList      dockerList
+	dockerContainer dockerdb.Container
 
 	// recentAccount is the AWS account the recent connection was saved in.
 	recentAccount string
@@ -155,6 +162,11 @@ type jumphostWizardModel struct {
 
 	// openDirectError is shown on the review openDirect opens: why it asks the password again.
 	openDirectError string
+	// dockerAtStart opens the Docker list once the history is loaded (`airlock docker`), and the
+	// review of openDocker when set; openDockerError shows on that review.
+	dockerAtStart   bool
+	openDocker      string
+	openDockerError string
 
 	// warning is shown in the session log once connected (e.g. the keychain failed).
 	warning      string
@@ -399,6 +411,7 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 		recent:        newRecentPicker(styles, nil, nil, environment.Set{}, nil, time.Now()),
 		// fitLists sizes it on every update: a zero-value list has no delegate and would panic.
 		directList: newDirectList(styles, nil, nil, nil, environment.Set{}),
+		dockerList: newDockerList(styles, nil, nil, nil, false),
 	}
 	// Started here rather than in Init so the label survives: Init works on a copy of the model.
 	m.loadingUI.start("Loading recent connections...", []string{"Remembering where you have been..."})
@@ -408,10 +421,20 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 // typeOptions are the cards of the Type step: the AWS types, and direct databases when the
 // dashboard has their store.
 func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
-	if m.databases == nil {
-		return resourceTypeOptions
+	options := append([]resourceTypeOption{}, resourceTypeOptions...)
+	if m.databases != nil {
+		options = append(options, directCard)
 	}
-	return append(append([]resourceTypeOption{}, resourceTypeOptions...), directCard)
+	if m.docker != nil {
+		options = append(options, dockerCard)
+	}
+	return options
+}
+
+// isDocker reports whether a new connection works on a Docker database, past the Type step.
+func (m jumphostWizardModel) isDocker() bool {
+	return m.flow == flowNew && m.options.ResourceType == sessions.DockerResourceType &&
+		m.step != jumphostStepType && m.step != jumphostStepStart
 }
 
 // isDirect reports whether the flow works on a direct database: its type is chosen and the Type
@@ -446,6 +469,7 @@ func (m jumphostWizardModel) fitLists() jumphostWizardModel {
 	m.targetList.SetSize(bodyWidth, bodyHeight)
 	m.recent.SetSize(bodyWidth, bodyHeight)
 	m.directList.SetSize(bodyWidth, bodyHeight)
+	m.dockerList.SetSize(bodyWidth, bodyHeight)
 	return m
 }
 
@@ -563,6 +587,8 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleLookup(msg)
 	case jumphostForgotMsg:
 		return m.handleForgot(msg)
+	case dockerListedMsg:
+		return m.handleDockerListed(msg)
 	case directDeletedMsg:
 		return m.handleDirectDeleted(msg)
 	case directSavedMsg:
@@ -665,6 +691,9 @@ func (m jumphostWizardModel) typingText() bool {
 	case jumphostStepProfile:
 		return m.profileList.SettingFilter()
 	case jumphostStepTarget:
+		if m.isDocker() {
+			return m.dockerList.typing()
+		}
 		if m.isDirect() {
 			return m.directList.typing() || m.directList.confirmingDelete()
 		}
@@ -756,6 +785,9 @@ func (m jumphostWizardModel) pickResourceType(index int) (tea.Model, tea.Cmd) {
 	if m.options.ResourceType == sessions.DirectResourceType {
 		return m.enterDirectList()
 	}
+	if m.options.ResourceType == sessions.DockerResourceType {
+		return m.enterDockerList()
+	}
 	if m.askProfile {
 		return m.enterProfileStep()
 	}
@@ -787,6 +819,9 @@ func (m jumphostWizardModel) startLoadingTargets() (tea.Model, tea.Cmd) {
 }
 
 func (m jumphostWizardModel) updateTargetStep(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.isDocker() {
+		return m.updateDockerListStep(msg)
+	}
 	if m.isDirect() {
 		return m.updateDirectListStep(msg)
 	}
@@ -948,6 +983,9 @@ func (m jumphostWizardModel) toggleReviewField(delta int) jumphostWizardModel {
 // RDS targets offering a method, depend on it, and the MCP write toggle only to targets whose MCP
 // server can write.
 func (m jumphostWizardModel) reviewFields() []int {
+	if m.isDocker() {
+		return m.dockerReviewFields()
+	}
 	if m.isDirect() {
 		return m.directReviewFields()
 	}
@@ -969,7 +1007,7 @@ func (m jumphostWizardModel) mcpApplies() bool {
 		return false
 	}
 	switch m.options.ResourceType {
-	case "rds", "eks", sessions.DirectResourceType:
+	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType:
 		return true
 	case "elasticache":
 		return jumphost.CacheEngineSupported(m.targetEngine)
@@ -1046,6 +1084,9 @@ func (m jumphostWizardModel) blurReviewInputs() jumphostWizardModel {
 
 // submitReview validates every field, focusing the first invalid one, and connects when all are valid.
 func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
+	if m.isDocker() {
+		return m.submitDockerReview()
+	}
 	if m.isDirect() {
 		return m.submitDirectReview()
 	}

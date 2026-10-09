@@ -70,12 +70,18 @@ func savedRDS(name, profile string) jumphost.SavedConnection {
 // newToolset serves the gateway tools over m; events collects the audit events.
 func newToolset(t *testing.T, m *sessions.Manager, settings Settings, d *fakeDiscovery, dbs fakeDatabases) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {
 	t.Helper()
+	return newToolsetWith(t, m, &settings, d, dbs, nil)
+}
+
+// newToolsetWith is newToolset with the Docker containers of containers (nil: none).
+func newToolsetWith(t *testing.T, m *sessions.Manager, settings *Settings, d *fakeDiscovery, dbs fakeDatabases, containers jumphost.DockerContainers) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {
+	t.Helper()
 	var events []mcpserve.ToolEvent
-	r := newRelay(t.Context(), m, time.Now, func() Settings { return settings })
+	r := newRelay(t.Context(), m, time.Now, func() Settings { return *settings })
 	t.Cleanup(r.closeAll)
 	tools := &toolset{
-		manager: m, relay: r, settings: func() Settings { return settings },
-		discovery: func() (Discovery, error) { return d, nil }, databases: dbs,
+		manager: m, relay: r, settings: func() Settings { return *settings },
+		discovery: func() (Discovery, error) { return d, nil }, databases: dbs, containers: containers,
 		record: func(e *mcpserve.ToolEvent) { events = append(events, *e) }, now: time.Now, name: "airlock",
 		startTimeout: 5 * time.Second,
 	}
@@ -96,13 +102,14 @@ func decodeText[T any](t *testing.T, text string) T {
 type targetsReply struct {
 	Failures map[string]string `json:"failures"`
 	Targets  []struct {
-		Type       string `json:"type"`
-		Name       string `json:"name"`
-		Profile    string `json:"profile"`
-		Region     string `json:"region"`
-		Opens      string `json:"opens"`
-		Production bool   `json:"production"`
-		Saved      bool   `json:"saved"`
+		Type        string `json:"type"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Profile     string `json:"profile"`
+		Region      string `json:"region"`
+		Opens       string `json:"opens"`
+		Production  bool   `json:"production"`
+		Saved       bool   `json:"saved"`
 	} `json:"targets"`
 	Profiles []string `json:"profiles"`
 }

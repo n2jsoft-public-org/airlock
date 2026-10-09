@@ -180,6 +180,7 @@ airlock rds my-db 5432               # tunnel to an RDS instance on localhost:54
 airlock eks my-cluster 15432         # tunnel to a private EKS API endpoint
 airlock elasticache my-cache 6379    # tunnel to an ElastiCache cluster
 airlock direct legacy-billing        # a direct database declared with airlock connection add
+airlock docker pg                    # a database running in a local Docker container
 airlock rds my-db 5432 --db-user app_ro
 ```
 
@@ -482,6 +483,28 @@ until `airlock daemon restart`.
 > are no read-only secrets as on RDS, and SQL Server has no read-only transaction to fall back on.
 > Declare a user that can only read, unless you mean to allow writes.
 
+### Docker databases
+
+airlock finds the PostgreSQL and SQL Server databases running in local Docker containers and
+signs in with the credentials of their environment: nothing to declare, nothing saved.
+
+```bash
+docker run -d --name pg -e POSTGRES_PASSWORD=secret -p 55432:5432 postgres:16
+airlock docker pg
+```
+
+- `airlock docker` opens the dashboard on the list of database containers; the Type step also
+  offers a **Docker database** card.
+- User, password and database come from `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`
+  (Bitnami: `POSTGRESQL_*`), or `sa` and `MSSQL_SA_PASSWORD` / `SA_PASSWORD` for SQL Server. A
+  password given as a `*_FILE` secret is typed in the dashboard.
+- The engine port must be published (`-p <host-port>:5432`); TLS is off.
+- The active Docker context must be the local daemon: published ports are reached on
+  `127.0.0.1`, so remote contexts are not supported.
+- MCP writes are on by default. Without a terminal, `--mcp-allow-writes=false` turns them off; in
+  the dashboard, the `MCP` toggle of the review does. Agents list the containers with `list_targets` and open them with `open_session`
+  (`type: "docker"`) under the usual agent policy.
+
 ### Parallel sessions
 
 While a session runs, press `n` to open another one, with any profile and any resource. Running
@@ -658,7 +681,7 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 
 | Tool | Description |
 |---|---|
-| `list_targets` | The saved connections and direct databases, or a live search of an AWS profile, each telling whether it opens at once or after your approval |
+| `list_targets` | The saved connections, direct databases and local Docker databases, or a live search of an AWS profile, each telling whether it opens at once or after your approval |
 | `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
 | `open_session` | Open a target, with a reason you read |
 | `close_session` | Close a session an agent opened |

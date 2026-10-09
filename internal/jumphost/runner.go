@@ -133,6 +133,8 @@ type RunnerOptions struct {
 	Keychain keychain.Store
 	// Databases finds the direct databases; nil disables them.
 	Databases DirectDatabases
+	// Containers finds the database containers of the local Docker; nil disables them.
+	Containers DockerContainers
 	// Environments resolves the environment of direct databases.
 	Environments environment.Set
 	// Registry tracks ports and targets of parallel sessions; share it between runners of one process.
@@ -245,6 +247,8 @@ type Runner struct {
 	accounts map[string]string
 	// databases finds the direct databases; nil when they are disabled.
 	databases DirectDatabases
+	// containers finds the database containers of the local Docker; nil when unavailable.
+	containers DockerContainers
 	// environments resolves the environment of direct databases.
 	environments environment.Set
 	interactive  InteractiveFunc
@@ -365,6 +369,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
 		databases:    opts.Databases,
+		containers:   opts.Containers,
 		environments: opts.Environments,
 		interactive:  opts.Interactive,
 	}
@@ -392,7 +397,7 @@ func (r *Runner) Run(ctx context.Context, options *Options) error {
 		release()
 	}()
 
-	if session.ResourceType == resourceDirect {
+	if session.ResourceType == resourceDirect || session.ResourceType == resourceDocker {
 		return r.serveDirect(ctx, session)
 	}
 
@@ -411,6 +416,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	// A direct database is reached without AWS: no CLI, identity, jumphost nor local port.
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDirect) {
 		return r.prepareDirect(ctx, &options)
+	}
+	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDocker) {
+		return r.prepareDocker(ctx, &options)
 	}
 	if _, err := exec.LookPath("aws"); err != nil {
 		return nil, errors.New("AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html")

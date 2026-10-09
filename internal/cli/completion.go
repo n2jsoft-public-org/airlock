@@ -29,9 +29,12 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 	case 0:
 		return []string{
 			"rds\tRDS database", "eks\tEKS cluster API endpoint", "elasticache\tElastiCache cluster",
-			"direct\tDirect database (airlock connection add)",
+			"direct\tDirect database (airlock connection add)", "docker\tDatabase of a local Docker container",
 		}, cobra.ShellCompDirectiveNoFileComp
 	case 1:
+		if strings.EqualFold(args[0], dockerResourceType) {
+			return dockerCompletions(cmd), cobra.ShellCompDirectiveNoFileComp
+		}
 		if strings.EqualFold(args[0], directResourceType) {
 			return directDatabaseCompletions(), cobra.ShellCompDirectiveNoFileComp
 		}
@@ -46,7 +49,7 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 		}
 		return names, cobra.ShellCompDirectiveNoFileComp
 	case 2:
-		if strings.EqualFold(args[0], directResourceType) {
+		if strings.EqualFold(args[0], directResourceType) || strings.EqualFold(args[0], dockerResourceType) {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 		recent := recentConnections(cmd, args[0])
@@ -57,6 +60,23 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 		}
 	}
 	return nil, cobra.ShellCompDirectiveNoFileComp
+}
+
+// dockerCompletions lists the running database containers with their description; none without docker.
+func dockerCompletions(cmd *cobra.Command) []string {
+	containers := dockerContainers()
+	if containers == nil {
+		return nil
+	}
+	list, err := containers.List(cmd.Context())
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(list))
+	for idx := range list {
+		names = append(names, list[idx].Name+"\t"+list[idx].Description())
+	}
+	return names
 }
 
 // recentConnections lists the remembered connections of resourceType, most recent first, limited

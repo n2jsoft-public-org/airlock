@@ -107,7 +107,12 @@ type ssmModel struct {
 	updateNotice string
 	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
 	openDirect string
-	projectDir string
+	// docker finds the database containers (DashboardOptions.Docker); dockerAtStart and
+	// openDocker open the startup wizard on them (DashboardOptions.DockerAtStart, OpenDocker).
+	docker        jumphost.DockerContainers
+	dockerAtStart bool
+	openDocker    string
+	projectDir    string
 	// connLost, when not empty, says why the daemon is out of reach; r calls reconnect.
 	connLost string
 	// exitNotice is printed once the dashboard left the screen.
@@ -172,6 +177,12 @@ type DashboardOptions struct {
 	// OpenDirect, when not empty, opens the startup wizard on the review step of that direct
 	// database (`airlock direct <name>`).
 	OpenDirect string
+	// Docker finds the database containers of the local Docker; nil hides the Docker database card.
+	Docker jumphost.DockerContainers
+	// DockerAtStart opens the startup wizard on the Docker list (`airlock docker`), on the review
+	// of OpenDocker when it is set (`airlock docker <container>`).
+	DockerAtStart bool
+	OpenDocker    string
 	// ProjectDir is set on every opening's Options.ProjectDir.
 	ProjectDir string
 	// Notice, when not empty, is shown from the start (a daemon view: why the MCP gateway is off).
@@ -244,6 +255,7 @@ func newDashboardModel(ctx context.Context, service sessions.Service, discovery 
 	model.styles = NewStyles(!opts.lightBackground)
 	model.environments = opts.Environments
 	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
+	model.docker, model.dockerAtStart, model.openDocker = opts.Docker, opts.DockerAtStart, opts.OpenDocker
 	model.settings, model.notice = opts.Settings, opts.Notice
 	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
 	if opts.Handoff != nil {
@@ -769,6 +781,7 @@ func (m ssmModel) startupWizard() ssmModel {
 	m = m.showWizard(base)
 	// `airlock direct <name>` opens on that database's review; later wizards (n) start as usual.
 	m.wizard.openDirect = m.openDirect
+	m.wizard.dockerAtStart, m.wizard.openDocker = m.dockerAtStart, m.openDocker
 	return m
 }
 
@@ -779,6 +792,7 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic
 	m.wizard.environments = m.environments
 	m.wizard.updateNotice = m.updateNotice
 	m.wizard.databases = m.databases
+	m.wizard.docker = m.docker
 	m.wizard.settings = m.settings
 	m.wizard.active = m.activeConnectionKeys()
 	m.mode = ssmModeWizard
@@ -815,7 +829,7 @@ func (m ssmModel) startWizard() (tea.Model, tea.Cmd) {
 // sessionKey identifies the target of s as the wizard's recent connections do (see connectionKey).
 func sessionKey(s *sessions.Session) string {
 	if s.Direct() {
-		return directConnectionKey(s.Target)
+		return connectionKey("", "", s.ResourceType, s.Target)
 	}
 	return connectionKey(s.Profile, s.Region, s.ResourceType, s.Target)
 }
@@ -925,7 +939,7 @@ func (m ssmModel) signInAWSSelected(s *sessions.Session) (tea.Model, tea.Cmd) {
 // prepareLines entertain while a session of resourceType is prepared: a direct database has no
 // local port, jumphost or tunnel.
 func prepareLines(resourceType string) []string {
-	if resourceType == sessions.DirectResourceType {
+	if resourceType == sessions.DirectResourceType || resourceType == sessions.DockerResourceType {
 		return []string{
 			"Looking up the database's address...",
 			"Setting up a seat for your AI assistant...",

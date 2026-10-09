@@ -55,7 +55,7 @@ func startGatewayFunc(configPath, tokenDir, logDir string, source *runnerSource[
 			return nil, errors.New(gatewayTurnedOff)
 		}
 		g, err := gateway.Start(ctx, &gateway.Config{
-			Manager: env.Manager, Activity: env.Activity, Log: env.Log, Databases: databases,
+			Manager: env.Manager, Activity: env.Activity, Log: env.Log, Databases: databases, Containers: dockerContainers(),
 			Settings: func() gateway.Settings {
 				if runner, currentErr := source.Current(); currentErr == nil {
 					return gatewaySettings(&runner.cfg)

@@ -68,6 +68,9 @@ func (m jumphostWizardModel) handleSavedLoaded(msg jumphostSavedLoadedMsg) (tea.
 		m.openDirect = ""
 		return m.openDirectAtStart(name)
 	}
+	if m.dockerAtStart {
+		return m.openDockerAtStart()
+	}
 	if m.settingsAtStart {
 		m.settingsAtStart = false
 		return m.openSettings(true)

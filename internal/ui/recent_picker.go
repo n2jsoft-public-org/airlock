@@ -52,6 +52,11 @@ func directConnectionKey(name string) string {
 	return connectionKey("", "", sessions.DirectResourceType, name)
 }
 
+// dockerConnectionKey identifies the Docker container name among the running sessions.
+func dockerConnectionKey(name string) string {
+	return connectionKey("", "", sessions.DockerResourceType, name)
+}
+
 // recentItem is one remembered connection of the start screen.
 type recentItem struct {
 	age string
