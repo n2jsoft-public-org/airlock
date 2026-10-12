@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1
 	github.com/beevik/etree v1.8.1
-	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
