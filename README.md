@@ -793,6 +793,7 @@ unknown key or a malformed value is an error that names the file.
 | `environments` | none | `prod!=` | Environments badged in the TUI, separated by `;`, each `name=patterns` of AWS profiles (`*` wildcard, any case); `!` marks production, e.g. `prod!=*prod*,*-live; staging=*stg*; dev=*dev*` |
 | `mcpClients` | `--mcp-clients` | `auto` | AI clients the MCP servers are registered in: `auto`, `none`, or e.g. `claude:user,codex` (see [AI access with MCP](#-ai-access-with-mcp)) |
 | `mode` | `--mode` | `cli` | `cli`: sessions live in each `airlock` and close with it; `daemon`: a background daemon keeps them (see [Daemon mode](#daemon-mode)) |
+| `daemonIdleTimeout` | none | `10m` | Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. `10m` or `8h` (at least `1m`); read at the daemon's start |
 | `mcpGateway` | none | `true` | `true`: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; `false`: no gateway (see [AI access with MCP](#-ai-access-with-mcp)) |
 | `mcpGatewayPort` | none | `7821` | Port of the MCP gateway on `127.0.0.1` (1024-65535) |
 | `agentAutoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside the production environment) or `all` |
@@ -885,8 +886,8 @@ connects to the daemon.
 `mcpGateway`, `mcpGatewayPort`, `mcpServerPrefix` and `mcpClients` apply to the gateway at the next
 daemon start: run `airlock daemon restart`.
 
-It stops on its own after 10 minutes without running session nor dashboard; ended sessions go
-with it. It listens on a socket only you can open (`~/Library/Caches/airlock/daemon/daemon.sock` on
+It stops on its own after `daemonIdleTimeout` (`10m`) without running session, dashboard nor call
+through the gateway; ended sessions go with it. Run `airlock daemon restart` after changing it. It listens on a socket only you can open (`~/Library/Caches/airlock/daemon/daemon.sock` on
 macOS, `~/.cache/airlock/daemon/daemon.sock` on Linux, or under `$XDG_CACHE_HOME` when set,
 `%LocalAppData%\airlock\daemon\daemon.sock` on Windows); on macOS and Linux, airlock refuses a
 daemon directory owned by another user. It logs to `daemon.log` in airlock's logs

@@ -52,6 +52,8 @@ type Config struct {
 	MCPGatewayPort int
 	// AgentIdleTimeout closes an agent-opened session after this long without a relayed call.
 	AgentIdleTimeout time.Duration
+	// DaemonIdleTimeout stops the daemon after this long without session, view nor gateway call.
+	DaemonIdleTimeout time.Duration
 	// MCPGateway serves the MCP gateway in daemon mode.
 	MCPGateway bool
 	// AgentWrites lets agents ask for MCP writes (always prompted).
@@ -81,8 +83,8 @@ const LanguageAuto = "auto"
 // DefaultGatewayPort is the port of the MCP gateway when mcpGatewayPort is not set.
 const DefaultGatewayPort = 7821
 
-// minAgentIdleTimeout is the shortest agentIdleTimeout accepted.
-const minAgentIdleTimeout = time.Minute
+// minIdleTimeout is the shortest agentIdleTimeout and daemonIdleTimeout accepted.
+const minIdleTimeout = time.Minute
 
 // EnvironmentSet returns the parsed Environments.
 func (c *Config) EnvironmentSet() environment.Set {
@@ -113,6 +115,8 @@ func Defaults() Config {
 		MCPClients:      aiclient.Auto,
 		Mode:            ModeCLI,
 
+		DaemonIdleTimeout: 10 * time.Minute,
+
 		MCPGateway:       true,
 		MCPGatewayPort:   DefaultGatewayPort,
 		AgentAutoConnect: AutoConnectNone,
@@ -133,6 +137,7 @@ type file struct {
 	Environments      *string `json:"environments,omitempty"`
 	MCPClients        *string `json:"mcpClients,omitempty"`
 	Mode              *string `json:"mode,omitempty"`
+	DaemonIdleTimeout *string `json:"daemonIdleTimeout,omitempty"`
 	MCPGateway        *string `json:"mcpGateway,omitempty"`
 	MCPGatewayPort    *string `json:"mcpGatewayPort,omitempty"`
 	AgentAutoConnect  *string `json:"agentAutoConnect,omitempty"`
@@ -250,6 +255,11 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.AgentWrites != nil {
 		if cfg.AgentWrites, err = parseBool(*f.AgentWrites); err != nil {
 			return Config{}, fmt.Errorf("agentWrites: %w", err)
+		}
+	}
+	if f.DaemonIdleTimeout != nil {
+		if cfg.DaemonIdleTimeout, err = parseIdleTimeout(*f.DaemonIdleTimeout); err != nil {
+			return Config{}, fmt.Errorf("daemonIdleTimeout: %w", err)
 		}
 	}
 	if f.AgentIdleTimeout != nil {
@@ -402,7 +412,7 @@ func parseAutoConnect(s string) (string, error) {
 
 func parseIdleTimeout(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(strings.TrimSpace(s))
-	if err != nil || d < minAgentIdleTimeout {
+	if err != nil || d < minIdleTimeout {
 		return 0, i18n.NewError("config.config.invalid_duration_duration_of", s)
 	}
 	return d, nil

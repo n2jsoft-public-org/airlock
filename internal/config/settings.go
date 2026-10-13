@@ -36,6 +36,7 @@ var Keys = []Key{
 	{Name: "environments"},
 	{Name: "mcpClients"},
 	{Name: "mode"},
+	{Name: "daemonIdleTimeout"},
 	{Name: "mcpGateway"},
 	{Name: "mcpGatewayPort"},
 	{Name: "agentAutoConnect"},
@@ -214,6 +215,7 @@ func (c *Config) values() map[string]string {
 		"environments":      c.Environments,
 		"mcpClients":        c.MCPClients,
 		"mode":              c.Mode,
+		"daemonIdleTimeout": FormatDuration(c.DaemonIdleTimeout),
 		"mcpGateway":        strconv.FormatBool(c.MCPGateway),
 		"mcpGatewayPort":    strconv.Itoa(c.MCPGatewayPort),
 		"agentAutoConnect":  c.AgentAutoConnect,
@@ -243,6 +245,8 @@ func (f *file) field(key string) **string {
 		return &f.MCPClients
 	case "mode":
 		return &f.Mode
+	case "daemonIdleTimeout":
+		return &f.DaemonIdleTimeout
 	case "mcpGateway":
 		return &f.MCPGateway
 	case "mcpGatewayPort":

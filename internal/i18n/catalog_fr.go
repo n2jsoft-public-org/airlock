@@ -15,6 +15,7 @@ var fr = map[string]string{
 	"config.key.mcpGatewayPort":     "Port de la passerelle MCP sur 127.0.0.1 (1024-65535)",
 	"config.key.agentAutoConnect":   "Ouvertures par un agent qui se passent de la confirmation du tableau de bord : none, non-prod (cibles hors de l'environnement de production) ou all",
 	"config.key.agentWrites":        "true : les agents peuvent demander des écritures MCP, toujours approuvées dans un tableau de bord ; false : les agents n'ouvrent que des sessions en lecture seule",
+	"config.key.daemonIdleTimeout":  "Arrêter le daemon après cette durée sans session, tableau de bord ni appel via la passerelle, ex. 10m ou 8h (au moins 1m)",
 	"config.key.agentIdleTimeout":   "Fermer une session ouverte par un agent après cette durée sans appel via la passerelle, ex. 30m ou 2h (au moins 1m)",
 	"config.key.randomLocalPort":    "true : les tunnels SSM écoutent sur un port local libre choisi par l'OS, sans conflit ; false : sur le port de la cible (ou le suivant libre)",
 	"config.key.language":           "Langue d'airlock : auto (celle du système), en ou fr ; lue au démarrage",

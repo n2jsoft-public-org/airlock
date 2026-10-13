@@ -64,6 +64,7 @@ func TestLoadACMEPreset(t *testing.T) {
 		Environments:      "prod!=",
 		MCPClients:        "auto",
 		Mode:              ModeCLI,
+		DaemonIdleTimeout: 10 * time.Minute,
 		MCPGateway:        true,
 		MCPGatewayPort:    DefaultGatewayPort,
 		AgentAutoConnect:  AutoConnectNone,

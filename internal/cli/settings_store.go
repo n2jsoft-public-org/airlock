@@ -68,7 +68,7 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 		case "mcpGateway":
 			// The gateway starts with the daemon: only its next start reads it.
 			view.Choices, view.NextLaunch = []string{"true", "false"}, true
-		case "mcpGatewayPort":
+		case "mcpGatewayPort", "daemonIdleTimeout":
 			view.NextLaunch = true
 		case "agentAutoConnect":
 			view.Choices = []string{config.AutoConnectNone, config.AutoConnectNonProd, config.AutoConnectAll}

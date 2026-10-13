@@ -15,6 +15,7 @@ var en = map[string]string{
 	"config.key.mcpGatewayPort":     "Port of the MCP gateway on 127.0.0.1 (1024-65535)",
 	"config.key.agentAutoConnect":   "Agent openings that skip the dashboard prompt: none, non-prod (targets outside the production environment) or all",
 	"config.key.agentWrites":        "true: agents may ask for MCP writes, always approved in a dashboard; false: agents only open read-only sessions",
+	"config.key.daemonIdleTimeout":  "Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. 10m or 8h (at least 1m)",
 	"config.key.agentIdleTimeout":   "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)",
 	"config.key.randomLocalPort":    "true: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; false: on the target's port (or the next free one)",
 	"config.key.language":           "Language of airlock: auto (the system's), en or fr; read at start",

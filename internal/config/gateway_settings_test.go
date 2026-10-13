@@ -27,6 +27,21 @@ func TestGatewaySettingsLoad(t *testing.T) {
 	}
 }
 
+func TestDaemonIdleTimeout(t *testing.T) {
+	if got := Defaults().DaemonIdleTimeout; got != 10*time.Minute {
+		t.Fatalf("default = %v, want 10m", got)
+	}
+	cfg, err := Load(writeConfig(t, `{"daemonIdleTimeout": "8h"}`))
+	if err != nil || cfg.DaemonIdleTimeout != 8*time.Hour {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	for _, body := range []string{`{"daemonIdleTimeout": "30s"}`, `{"daemonIdleTimeout": "never"}`} {
+		if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), "daemonIdleTimeout") {
+			t.Errorf("%s: err = %v, want one naming daemonIdleTimeout", body, err)
+		}
+	}
+}
+
 func TestGatewaySettingsRejectInvalidValues(t *testing.T) {
 	cases := map[string]string{
 		`{"mcpGateway": "yes"}`:         "mcpGateway",
