@@ -600,7 +600,20 @@ at their server.
 | `list_tables` | List the tables of a database |
 | `describe_table` | Show the columns of a table |
 | `query` | Run a single read-only `SELECT` / `WITH` (max 1000 rows, 30 s timeout) |
+| `query_plan` | SQL Server only: execution plan of a single read-only `SELECT` / `WITH`, summarized (operators with estimated and actual rows, costs, seeks, predicates, warnings, missing indexes, parameter values) with the `STATISTICS IO` and `TIME` output. See below. |
 | `execute` | Run a statement that modifies data. **Only with `--mcp-allow-writes`.** |
+
+`query_plan` has two modes:
+
+- `actual` (default) runs the statement in a transaction always rolled back, with `SET STATISTICS XML, IO, TIME ON`.
+  A parameterized statement is passed as applications send it: `parameters` takes the declaration
+  (`@p0 int, @p1 nvarchar(6)`) and `values` one value per parameter, and the statement runs through
+  `sp_executesql`, so the plan is compiled for the same types and sniffed values as the application's.
+- `estimated` only compiles the statement (`SET SHOWPLAN_XML ON`). It takes no parameters: SQL Server does
+  not compile the statement of `sp_executesql` without running it.
+
+`include_xml` also returns the raw showplan, to save as a `.sqlplan` file and open in SSMS. The login
+needs the `SHOWPLAN` permission in the database.
 
 **Kubernetes tools (EKS, always read-only)**
 

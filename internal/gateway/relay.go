@@ -48,8 +48,9 @@ func kindOf(resourceType string) kind {
 
 // neutralDescriptions replace the session tool descriptions that name one SQL dialect.
 var neutralDescriptions = map[string]string{
-	"db_query":   "Run a single read-only SELECT or WITH statement, in the session's SQL dialect (see about in list_sessions), and return its rows.",
-	"db_execute": "Run a single statement that may modify data or schema, in the session's SQL dialect. Only for sessions opened with writes. Confirm with the user first.",
+	"db_query":      "Run a single read-only SELECT or WITH statement, in the session's SQL dialect (see about in list_sessions), and return its rows.",
+	"db_query_plan": "SQL Server sessions only: get the execution plan of a single read-only SELECT or WITH statement, with estimated and actual rows, costs, warnings, missing indexes, and STATISTICS IO and TIME.",
+	"db_execute":    "Run a single statement that may modify data or schema, in the session's SQL dialect. Only for sessions opened with writes. Confirm with the user first.",
 }
 
 // prototype builds the server of k with writes on and nothing to reach: its tools are those the

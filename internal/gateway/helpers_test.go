@@ -90,6 +90,12 @@ func (q *fakeQuerier) Exec(_ context.Context, _, statement string) (int64, error
 	q.execs = append(q.execs, statement)
 	return 1, nil
 }
+func (q *fakeQuerier) Plan(_ context.Context, req dbmcp.PlanRequest) (dbmcp.PlanResult, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.queries = append(q.queries, req.SQL)
+	return dbmcp.PlanResult{Mode: req.Mode, Statements: []dbmcp.StatementPlan{}}, nil
+}
 func (q *fakeQuerier) Close() error { return nil }
 
 func (q *fakeQuerier) ran() []string {

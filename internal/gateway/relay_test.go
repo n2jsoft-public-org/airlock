@@ -40,7 +40,7 @@ func TestRelayedToolsMirrorTheSessionTools(t *testing.T) {
 	for _, tool := range res.Tools {
 		tools[tool.Name] = tool
 	}
-	for _, name := range []string{"db_list_databases", "db_list_tables", "db_describe_table", "db_query", "db_execute",
+	for _, name := range []string{"db_list_databases", "db_list_tables", "db_describe_table", "db_query", "db_query_plan", "db_execute",
 		"k8s_list_namespaces", "k8s_list_resource_types", "k8s_list_resources", "k8s_get_resource", "k8s_pod_logs", "k8s_list_events",
 		"cache_info", "cache_scan_keys", "cache_get_key", "cache_command", "cache_execute"} {
 		tool, ok := tools[name]
@@ -56,6 +56,9 @@ func TestRelayedToolsMirrorTheSessionTools(t *testing.T) {
 	}
 	if strings.Contains(tools["db_query"].Description, "PostgreSQL") {
 		t.Fatalf("db_query names one dialect: %q", tools["db_query"].Description)
+	}
+	if !strings.HasPrefix(tools["db_query_plan"].Description, "SQL Server sessions only") {
+		t.Fatalf("db_query_plan must say it serves SQL Server only: %q", tools["db_query_plan"].Description)
 	}
 	if hint := tools["db_execute"].Annotations.DestructiveHint; hint == nil || !*hint {
 		t.Fatal("db_execute must keep its destructive hint")

@@ -44,6 +44,15 @@ type queryInput struct {
 	MaxRows  int    `json:"max_rows,omitempty" jsonschema:"maximum number of rows to return (default 200, max 1000)"`
 }
 
+type queryPlanInput struct {
+	SQL        string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement, which may use the declared parameters"`
+	Database   string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
+	Parameters string `json:"parameters,omitempty" jsonschema:"parameter declaration, as sp_executesql takes it and applications send it, e.g. @p0 int, @p2 nvarchar(6)"`
+	Values     []any  `json:"values,omitempty" jsonschema:"one value per declared parameter, in order: string, number, boolean or null"`
+	Mode       string `json:"mode,omitempty" jsonschema:"actual (default) runs the statement in a transaction rolled back; estimated only compiles it and takes no parameters"`
+	IncludeXML bool   `json:"include_xml,omitempty" jsonschema:"also return the raw showplan XML, to save as a .sqlplan file for SSMS"`
+}
+
 type executeInput struct {
 	SQL      string `json:"sql" jsonschema:"a single statement that may modify data or schema"`
 	Database string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
@@ -112,6 +121,22 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 		return nil, result, err
 	})
 
+	// The gateway lists the tools of a server without engine: it offers query_plan to SQL Server sessions.
+	if cfg.Engine != EnginePostgres {
+		mcp.AddTool(server, &mcp.Tool{
+			Name: "query_plan",
+			Description: "Get the execution plan of a single read-only SELECT or WITH statement: operators with estimated " +
+				"and actual rows, costs, seeks and predicates, warnings, missing indexes, parameters, and STATISTICS IO and TIME.",
+			Annotations: readOnly,
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryPlanInput) (*mcp.CallToolResult, PlanResult, error) {
+			result, err := q.Plan(ctx, PlanRequest{
+				Database: in.Database, SQL: in.SQL, Parameters: in.Parameters, Values: in.Values,
+				Mode: in.Mode, IncludeXML: in.IncludeXML,
+			})
+			return nil, result, err
+		})
+	}
+
 	if cfg.AllowWrites {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "execute",
@@ -149,7 +174,16 @@ func instructions(cfg *ServerConfig) string {
 	return fmt.Sprintf(
 		"Database %s (%s dialect), %s %s "+
 			"Explore with list_databases, list_tables and describe_table before writing queries. "+
-			"The query tool runs one SELECT/WITH statement and returns at most %d rows.",
-		cfg.Target, cfg.Engine.Dialect(), via, access, maxRowsLimit,
+			"The query tool runs one SELECT/WITH statement and returns at most %d rows.%s",
+		cfg.Target, cfg.Engine.Dialect(), via, access, maxRowsLimit, planInstructions(cfg.Engine),
 	)
+}
+
+func planInstructions(engine Engine) string {
+	if engine != EngineSQLServer {
+		return ""
+	}
+	return " To analyze a slow query, get its plan with query_plan, passing the parameters the application sends " +
+		"(e.g. (@p0 int,@p1 nvarchar(6))select ... becomes parameters \"@p0 int,@p1 nvarchar(6)\"); " +
+		"Query Store (sys.query_store_*) tells which queries cost the most, when the login may read it."
 }

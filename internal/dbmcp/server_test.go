@@ -44,6 +44,11 @@ func (f *fakeQuerier) Exec(_ context.Context, _, statement string) (int64, error
 	return 7, nil
 }
 
+func (f *fakeQuerier) Plan(_ context.Context, req PlanRequest) (PlanResult, error) {
+	f.lastDB, f.lastSQL = req.Database, req.SQL
+	return PlanResult{Mode: req.Mode, Statements: []StatementPlan{{Statement: req.SQL, Operators: []string{"Index Seek"}}}}, nil
+}
+
 func (*fakeQuerier) Close() error { return nil }
 
 func connect(t *testing.T, cfg *ServerConfig, q Querier) *mcp.ClientSession {
@@ -217,5 +222,42 @@ func TestInstructionsOfADirectDatabase(t *testing.T) {
 	}
 	if strings.Contains(got, "SSM") || strings.Contains(got, "AWS profile") {
 		t.Fatalf("a direct database has no tunnel nor AWS profile: %q", got)
+	}
+}
+
+func TestServerOffersQueryPlanToSQLServerOnly(t *testing.T) {
+	sqlServer := &ServerConfig{Name: "acme-dev-app", Target: "app", Profile: "dev", Region: "eu-west-3", Engine: EngineSQLServer}
+	session := connect(t, sqlServer, &fakeQuerier{})
+	if got := strings.Join(toolNames(t, session), ","); got != "describe_table,list_databases,list_tables,query,query_plan" {
+		t.Fatalf("SQL Server tools = %s", got)
+	}
+	if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "query_plan") {
+		t.Fatalf("instructions = %q", instructions)
+	}
+
+	postgres := connect(t, testServerConfig(false), &fakeQuerier{})
+	if got := strings.Join(toolNames(t, postgres), ","); strings.Contains(got, "query_plan") {
+		t.Fatalf("PostgreSQL tools = %s", got)
+	}
+	if instructions := postgres.InitializeResult().Instructions; strings.Contains(instructions, "query_plan") {
+		t.Fatalf("PostgreSQL instructions = %q", instructions)
+	}
+}
+
+func TestServerQueryPlanPassesTheRequest(t *testing.T) {
+	q := &fakeQuerier{}
+	session := connect(t, &ServerConfig{Name: "acme-dev-app", Target: "app", Engine: EngineSQLServer}, q)
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "query_plan", Arguments: map[string]any{
+		"sql": "select ID from T where A = @p0", "database": "app", "parameters": "@p0 int", "values": []any{42}, "mode": "actual",
+	}})
+	if err != nil || result.IsError {
+		t.Fatalf("query_plan = %v, %v", resultText(result), err)
+	}
+	if q.lastSQL != "select ID from T where A = @p0" || q.lastDB != "app" {
+		t.Fatalf("passed sql %q, database %q", q.lastSQL, q.lastDB)
+	}
+	if text := resultText(result); !strings.Contains(text, `"operators":["Index Seek"]`) {
+		t.Fatalf("result = %s", text)
 	}
 }
