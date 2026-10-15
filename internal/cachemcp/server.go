@@ -48,7 +48,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "info", Description: "Show the cache state: INFO sections (server, memory, keyspace, stats, replication by default) and the number of keys.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in infoInput) (*mcp.CallToolResult, infoOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in infoInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 		sections := strings.TrimSpace(in.Section)
@@ -58,13 +58,13 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		_, done := start("info", in.DB, "INFO "+strings.ReplaceAll(sections, " ", ""))
 		out, err := c.Info(ctx, &in)
 		done(int64(len(out.Sections)), err)
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "scan_keys", Description: "Find keys with SCAN (never KEYS), with their type and TTL. Continue with the returned cursor until it is \"0\".",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scanInput) (*mcp.CallToolResult, scanOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scanInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 		args := []string{"SCAN", orValue(in.Cursor, "0"), "MATCH", orValue(in.Pattern, "*")}
@@ -77,33 +77,33 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		if out.Keys == nil {
 			out.Keys = []keyInfo{}
 		}
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_key", Description: "Read a key whatever its type (string, hash, list, set, sorted set, stream), with its TTL and memory usage.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getKeyInput) (*mcp.CallToolResult, keyValue, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getKeyInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 		e, done := start("get_key", in.DB, commandLine([]string{"get_key", in.Key}))
 		out, err := c.Get(ctx, &in)
 		e.Truncated = out.Truncated
 		done(1, err)
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "command", Description: "Run one read command (GET, HGET, LRANGE, ZRANGE, TTL, XRANGE, MEMORY USAGE, SLOWLOG GET…). Other commands are refused.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commandInput) (*mcp.CallToolResult, commandOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commandInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 		e, done := start("command", in.DB, commandLine(in.Args))
 		out, count, err := c.Command(ctx, &in, false)
 		e.Truncated = out.Truncated
 		done(count, err)
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	if cfg.AllowWrites {
@@ -111,14 +111,14 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 			Name:        "execute",
 			Description: "Run one command that may modify data (SET, DEL, HSET, EXPIRE…). FLUSHALL, KEYS, scripts and blocking commands are refused. Confirm with the user first.",
 			Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true)},
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in commandInput) (*mcp.CallToolResult, commandOutput, error) {
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in commandInput) (*mcp.CallToolResult, any, error) {
 			ctx, cancel := context.WithTimeout(ctx, callTimeout)
 			defer cancel()
 			e, done := start("execute", in.DB, commandLine(in.Args))
 			out, count, err := c.Command(ctx, &in, true)
 			e.Truncated = out.Truncated
 			done(count, err)
-			return nil, out, err
+			return mcpserve.ToolResult(out, err)
 		})
 	}
 	return server

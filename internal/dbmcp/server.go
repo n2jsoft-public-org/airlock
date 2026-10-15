@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 const (
@@ -83,42 +84,42 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 		Name:        "list_databases",
 		Description: "List the databases this session can query.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, databasesOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		names, err := q.Databases(ctx)
 		if names == nil {
 			names = []string{}
 		}
-		return nil, databasesOutput{Databases: names}, err
+		return mcpserve.ToolResult(databasesOutput{Databases: names}, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_tables",
 		Description: "List tables and views, optionally of one schema.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTablesInput) (*mcp.CallToolResult, tablesOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTablesInput) (*mcp.CallToolResult, any, error) {
 		tables, truncated, err := q.Tables(ctx, in.Database, in.Schema)
 		if tables == nil {
 			tables = []Table{}
 		}
-		return nil, tablesOutput{Tables: tables, Truncated: truncated}, err
+		return mcpserve.ToolResult(tablesOutput{Tables: tables, Truncated: truncated}, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "describe_table",
 		Description: "Describe a table: columns, primary key, foreign keys and indexes.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in describeTableInput) (*mcp.CallToolResult, TableDescription, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in describeTableInput) (*mcp.CallToolResult, any, error) {
 		description, err := q.Describe(ctx, in.Database, in.Schema, in.Table)
-		return nil, description, err
+		return mcpserve.ToolResult(description, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "query",
 		Description: fmt.Sprintf("Run a single read-only %s SELECT or WITH statement and return its rows.", cfg.Engine.Dialect()),
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryInput) (*mcp.CallToolResult, Result, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryInput) (*mcp.CallToolResult, any, error) {
 		result, err := q.Query(ctx, in.Database, in.SQL, clampRows(in.MaxRows))
-		return nil, result, err
+		return mcpserve.ToolResult(result, err)
 	})
 
 	// The gateway lists the tools of a server without engine: it offers query_plan to SQL Server sessions.
@@ -128,12 +129,12 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 			Description: "Get the execution plan of a single read-only SELECT or WITH statement: operators with estimated " +
 				"and actual rows, costs, seeks and predicates, warnings, missing indexes, parameters, and STATISTICS IO and TIME.",
 			Annotations: readOnly,
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryPlanInput) (*mcp.CallToolResult, PlanResult, error) {
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryPlanInput) (*mcp.CallToolResult, any, error) {
 			result, err := q.Plan(ctx, PlanRequest{
 				Database: in.Database, SQL: in.SQL, Parameters: in.Parameters, Values: in.Values,
 				Mode: in.Mode, IncludeXML: in.IncludeXML,
 			})
-			return nil, result, err
+			return mcpserve.ToolResult(result, err)
 		})
 	}
 
@@ -142,9 +143,9 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 			Name:        "execute",
 			Description: fmt.Sprintf("Run a single %s statement that may modify data or schema. Confirm with the user first.", cfg.Engine.Dialect()),
 			Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true)},
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in executeInput) (*mcp.CallToolResult, executeOutput, error) {
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in executeInput) (*mcp.CallToolResult, any, error) {
 			affected, err := q.Exec(ctx, in.Database, in.SQL)
-			return nil, executeOutput{RowsAffected: affected}, err
+			return mcpserve.ToolResult(executeOutput{RowsAffected: affected}, err)
 		})
 	}
 

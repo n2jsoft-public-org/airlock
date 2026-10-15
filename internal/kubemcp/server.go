@@ -57,7 +57,7 @@ func NewServer(cfg *ServerConfig, c cluster, record func(*mcpserve.ToolEvent)) *
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_namespaces", Description: "List the namespaces of the cluster with their phase.", Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, namespacesOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		_, done := mcpserve.StartEvent(&base, "list_namespaces", record)
@@ -66,14 +66,14 @@ func NewServer(cfg *ServerConfig, c cluster, record func(*mcpserve.ToolEvent)) *
 		if namespaces == nil {
 			namespaces = []namespaceSummary{}
 		}
-		return nil, namespacesOutput{Namespaces: namespaces}, err
+		return mcpserve.ToolResult(namespacesOutput{Namespaces: namespaces}, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_resource_types",
 		Description: "List the resource types this cluster serves (built-in and custom), with group, version, kind and short names.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, resourceTypesOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		_, done := mcpserve.StartEvent(&base, "list_resource_types", record)
@@ -82,14 +82,14 @@ func NewServer(cfg *ServerConfig, c cluster, record func(*mcpserve.ToolEvent)) *
 		if types == nil {
 			types = []resourceType{}
 		}
-		return nil, resourceTypesOutput{Types: types}, err
+		return mcpserve.ToolResult(resourceTypesOutput{Types: types}, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_resources",
 		Description: "List objects of one resource type, summarized (name, namespace, age, status). Use get_resource for a full object.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listResourcesInput) (*mcp.CallToolResult, listResourcesOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listResourcesInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		e, done := mcpserve.StartEvent(&base, "list_resources", record)
@@ -100,28 +100,28 @@ func NewServer(cfg *ServerConfig, c cluster, record func(*mcpserve.ToolEvent)) *
 		if out.Items == nil {
 			out.Items = []itemSummary{}
 		}
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_resource",
 		Description: "Get one object as JSON (managed fields removed). Secret values are always <redacted>.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getResourceInput) (*mcp.CallToolResult, map[string]any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getResourceInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		e, done := mcpserve.StartEvent(&base, "get_resource", record)
 		e.Namespace, e.Resource, e.Name = in.Namespace, in.Resource, in.Name
 		obj, err := c.Get(ctx, &in)
 		done(1, err)
-		return nil, obj, err
+		return mcpserve.ToolResult(obj, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pod_logs",
 		Description: fmt.Sprintf("Read the last lines of a container's logs (default %d, max %d lines, at most 256 KiB).", defaultTailLines, maxTailLines),
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in podLogsInput) (*mcp.CallToolResult, podLogsOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in podLogsInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		e, done := mcpserve.StartEvent(&base, "pod_logs", record)
@@ -129,12 +129,12 @@ func NewServer(cfg *ServerConfig, c cluster, record func(*mcpserve.ToolEvent)) *
 		out, err := c.Logs(ctx, &in)
 		e.Truncated = out.Truncated
 		done(int64(strings.Count(out.Log, "\n")), err)
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_events", Description: "List recent events, newest first, optionally of one object.", Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listEventsInput) (*mcp.CallToolResult, eventsOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listEventsInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		e, done := mcpserve.StartEvent(&base, "list_events", record)
@@ -148,7 +148,7 @@ func NewServer(cfg *ServerConfig, c cluster, record func(*mcpserve.ToolEvent)) *
 		if more {
 			out.Note = moreEventsNote
 		}
-		return nil, out, err
+		return mcpserve.ToolResult(out, err)
 	})
 
 	return server

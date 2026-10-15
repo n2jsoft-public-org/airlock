@@ -150,3 +150,15 @@ func TestServerListEventsNotesTheEventsNotFetched(t *testing.T) {
 		t.Fatalf("result = %s, want no note when every event was fetched", text)
 	}
 }
+
+// An integer over 2^53 in an object must reach the client exactly, not rounded through a float64.
+func TestServerGetResourceKeepsBigIntegers(t *testing.T) {
+	api := newFakeAPI()
+	api.route("/api/v1/namespaces/web/pods/ids", `{"kind":"Pod","metadata":{"name":"ids","generation":1234567890123456789}}`)
+	session, _ := connect(t, testAPICluster(t, api))
+
+	result := callTool(t, session, "get_resource", map[string]any{"resource": "pods", "namespace": "web", "name": "ids"})
+	if text := resultText(result); result.IsError || !strings.Contains(text, `"generation":1234567890123456789`) {
+		t.Fatalf("result = %s", text)
+	}
+}

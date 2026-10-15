@@ -1,6 +1,7 @@
 package kubemcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -176,7 +177,9 @@ func (c *apiCluster) Get(ctx context.Context, in *getResourceInput) (map[string]
 		return nil, fmt.Errorf("%s/%s is %d KiB, over the 1 MiB limit: use list_resources", t.Name, in.Name, len(raw)>>10)
 	}
 	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber() // keeps integers over 2^53 exact
+	if err := decoder.Decode(&obj); err != nil {
 		return nil, fmt.Errorf("unexpected answer from the Kubernetes API: %w", err)
 	}
 	if metadata, ok := obj["metadata"].(map[string]any); ok {

@@ -168,3 +168,13 @@ func TestInstructionsDescribeHowTheCacheIsReached(t *testing.T) {
 		t.Fatalf("elasticache instructions = %q", aws)
 	}
 }
+
+// An integer reply over 2^53 must reach the client exactly, not rounded through a float64.
+func TestServerKeepsBigIntegers(t *testing.T) {
+	c, _ := testCache(t)
+	session, _ := connect(t, c, true)
+	text, isErr := callTool(t, session, "execute", map[string]any{"args": []string{"INCRBY", "counter", "1234567890123456789"}})
+	if isErr || !strings.Contains(text, `"reply":1234567890123456789`) {
+		t.Fatalf("execute = %s", text)
+	}
+}

@@ -14,6 +14,7 @@ import (
 // fakeQuerier records tool calls and returns canned values.
 type fakeQuerier struct {
 	queryErr    error
+	rows        [][]any
 	lastSQL     string
 	lastDB      string
 	lastMaxRows int
@@ -35,6 +36,9 @@ func (f *fakeQuerier) Query(_ context.Context, database, query string, maxRows i
 	f.lastDB, f.lastSQL, f.lastMaxRows = database, query, maxRows
 	if f.queryErr != nil {
 		return Result{}, f.queryErr
+	}
+	if f.rows != nil {
+		return Result{Columns: []string{"n"}, Rows: f.rows, RowCount: len(f.rows)}, nil
 	}
 	return Result{Columns: []string{"n"}, Rows: [][]any{{1}}, RowCount: 1}, nil
 }
@@ -169,6 +173,16 @@ func TestQueryToolDefaultsAndClampsRows(t *testing.T) {
 	call(t, session, "query", map[string]any{"sql": "SELECT 1", "max_rows": 5000, "database": "reporting"})
 	if q.lastMaxRows != maxRowsLimit || q.lastDB != "reporting" {
 		t.Fatalf("max rows = %d database = %q", q.lastMaxRows, q.lastDB)
+	}
+}
+
+// A bigint over 2^53 must reach the client exactly, not rounded through a float64.
+func TestQueryToolKeepsBigIntegers(t *testing.T) {
+	session := connect(t, testServerConfig(false), &fakeQuerier{rows: [][]any{{int64(1234567890123456789)}}})
+
+	result := call(t, session, "query", map[string]any{"sql": "SELECT id FROM t"})
+	if text := resultText(result); result.IsError || !strings.Contains(text, "[[1234567890123456789]]") {
+		t.Fatalf("query result = %s", text)
 	}
 }
 
