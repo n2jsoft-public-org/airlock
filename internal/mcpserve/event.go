@@ -39,8 +39,10 @@ type ToolEvent struct {
 	// or refused: <reason>; and "refused: <reason>" for a relayed call the gateway refused itself.
 	Decision string `json:"decision,omitempty"`
 	// LogError explains why the event could not be written to the audit log (empty when it was).
-	LogError  string        `json:"-"`
-	Duration  time.Duration `json:"-"`
+	LogError string `json:"-"`
+	// Duration travels in nanoseconds between the daemon and the dashboards; the audit log writes
+	// duration_ms instead.
+	Duration  time.Duration `json:"duration_ns,omitempty"`
 	MaxRows   int           `json:"max_rows,omitempty"`
 	Truncated bool          `json:"truncated,omitempty"`
 }

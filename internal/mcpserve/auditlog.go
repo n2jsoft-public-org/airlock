@@ -20,7 +20,9 @@ type AuditLog struct {
 // auditLine is the on-disk form of an event.
 type auditLine struct {
 	*ToolEvent
-	DurationMS float64 `json:"duration_ms"`
+	// NoNS shadows the embedded duration_ns key, always empty so never written.
+	NoNS       struct{} `json:"duration_ns,omitzero"`
+	DurationMS float64  `json:"duration_ms"`
 }
 
 // NewAuditLog writes to dir, created on the first write.

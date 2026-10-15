@@ -46,6 +46,9 @@ func TestAuditLogAppendsJSONLinesPerDay(t *testing.T) {
 			t.Errorf("%s = %v, want %v", key, record[key], value)
 		}
 	}
+	if _, ok := record["duration_ns"]; ok {
+		t.Errorf("record has duration_ns: %s", lines[0])
+	}
 	if at, ok := record["time"].(string); !ok {
 		t.Errorf("time = %v, want a string", record["time"])
 	} else if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
@@ -58,6 +61,22 @@ func TestAuditLogAppendsJSONLinesPerDay(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		assertMode(t, dir, 0o700)
 		assertMode(t, path, 0o600)
+	}
+}
+
+func TestToolEventJSONKeepsDuration(t *testing.T) {
+	sent := testBaseEvent()
+	sent.Duration = 1500 * time.Millisecond
+	data, err := json.Marshal(&sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ToolEvent
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Duration != sent.Duration {
+		t.Fatalf("Duration = %v, want %v", got.Duration, sent.Duration)
 	}
 }
 
