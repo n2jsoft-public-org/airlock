@@ -74,7 +74,7 @@ func TestDockerRunError(t *testing.T) {
 		err.Error() != "pg: the database rejected the credentials: set the right password on the container, or open it from the dashboard" {
 		t.Fatalf("rejected = %v", err)
 	}
-	if other := errors.New("boom"); dockerRunError(other) != other {
+	if other := errors.New("boom"); !errors.Is(dockerRunError(other), other) || dockerRunError(other).Error() != "boom" {
 		t.Fatal("other errors pass through")
 	}
 }

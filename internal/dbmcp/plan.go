@@ -127,7 +127,7 @@ func planBatch(statement, parameters string, values []any, mode string) (string,
 		if err != nil {
 			return "", nil, fmt.Errorf("value of %s: %w", name, err)
 		}
-		fmt.Fprintf(&b, ", %s = @airlock_v%d", name, i)
+		b.WriteString(", " + name + " = @airlock_v" + strconv.Itoa(i))
 		args = append(args, sql.Named(fmt.Sprintf("airlock_v%d", i), value))
 	}
 	return b.String(), args, nil

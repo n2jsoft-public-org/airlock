@@ -130,7 +130,8 @@ func TestCacheSignInErrorKeepsTheCacheMessage(t *testing.T) {
 	if !errors.Is(err, ErrSignInRejected) || !errors.Is(err, cachemcp.ErrSignInRejected) || err.Error() != rejected.Error() {
 		t.Fatalf("err = %v, want the cache's message matching both rejections", err)
 	}
-	if other := errors.New("dial tcp: connection refused"); cacheSignInError(other) != other {
+	if other := errors.New("dial tcp: connection refused"); !errors.Is(cacheSignInError(other), other) ||
+		cacheSignInError(other).Error() != other.Error() {
 		t.Fatal("other errors pass through")
 	}
 }

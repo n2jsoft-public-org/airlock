@@ -86,6 +86,7 @@ func TestMapError(t *testing.T) {
 		}
 	}
 	// The server's final period would end the middle of a longer message ("required.: set …").
+	//goland:noinspection GoErrorStringFormat // the server's own message, verbatim
 	if got := mapError(errors.New("NOAUTH Authentication required.")); got.Error() != "the cache rejected the credentials: NOAUTH Authentication required" {
 		t.Errorf("rejection = %q", got)
 	}

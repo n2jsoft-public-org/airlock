@@ -35,7 +35,7 @@ func TestRunDockerRefusesARejectedPasswordBeforeServing(t *testing.T) {
 	runner := directRunner(t, &RunnerOptions{Out: &out, Containers: fakeContainers{"pg": pgContainer()}})
 
 	err := runner.Run(context.Background(), &Options{ResourceType: "docker", Name: "pg"})
-	if !errors.Is(err, ErrSignInRejected) || !strings.HasPrefix(err.Error(), "pg: ") {
+	if err == nil || !errors.Is(err, ErrSignInRejected) || !strings.HasPrefix(err.Error(), "pg: ") {
 		t.Fatalf("err = %v, want the rejection of pg", err)
 	}
 	if strings.Contains(out.String(), "Ctrl+C") {
@@ -53,7 +53,7 @@ func TestRunDockerCacheRefusesARejectedPasswordBeforeServing(t *testing.T) {
 	runner := directRunner(t, &RunnerOptions{Out: &out, Containers: fakeContainers{"cache": redisContainer()}})
 
 	err := runner.Run(context.Background(), &Options{ResourceType: "docker", Name: "cache"})
-	if !errors.Is(err, ErrSignInRejected) || err.Error() != "cache: the cache rejected the credentials: NOAUTH Authentication required" ||
+	if err == nil || !errors.Is(err, ErrSignInRejected) || err.Error() != "cache: the cache rejected the credentials: NOAUTH Authentication required" ||
 		strings.Contains(out.String(), "Ctrl+C") {
 		t.Fatalf("err = %v, output:\n%s", err, out.String())
 	}

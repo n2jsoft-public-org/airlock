@@ -46,7 +46,7 @@ func Parse(s string) (Defaults, error) {
 		if strings.ContainsAny(user, " \t") {
 			return Defaults{}, fmt.Errorf("invalid user %q: must not contain spaces", user)
 		}
-		field, err := d.field(engine, hasEngine)
+		field, err := fieldOf(&d, engine, hasEngine)
 		if err != nil {
 			return Defaults{}, err
 		}
@@ -61,8 +61,9 @@ func Parse(s string) (Defaults, error) {
 	return d, nil
 }
 
-// field returns the field of engine; the bare user when hasEngine is false.
-func (d *Defaults) field(engine string, hasEngine bool) (*string, error) {
+// fieldOf returns the field of d for engine; the bare user when hasEngine is false. A function,
+// not a method: Defaults keeps value receivers only.
+func fieldOf(d *Defaults, engine string, hasEngine bool) (*string, error) {
 	switch {
 	case !hasEngine:
 		return &d.IAM, nil

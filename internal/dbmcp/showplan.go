@@ -143,8 +143,7 @@ func (r *showplanReader) start(name string, a map[string]string) {
 		}
 	case "QueryTimeStats":
 		if n == nil {
-			cpu, elapsed := integer(a["CpuTime"]), integer(a["ElapsedTime"])
-			s.CPUTimeMs, s.ElapsedTimeMs = &cpu, &elapsed
+			s.CPUTimeMs, s.ElapsedTimeMs = new(integer(a["CpuTime"])), new(integer(a["ElapsedTime"]))
 		}
 	case "Wait":
 		if r.parent() == "WaitStats" {
@@ -156,12 +155,12 @@ func (r *showplanReader) start(name string, a map[string]string) {
 		r.missing.Reset()
 		r.missingImpact = a["Impact"]
 	case "MissingIndex":
-		fmt.Fprintf(&r.missing, "%s.%s", a["Schema"], a["Table"])
+		r.missing.WriteString(a["Schema"] + "." + a["Table"])
 	case "ColumnGroup":
-		fmt.Fprintf(&r.missing, " %s:", a["Usage"])
+		r.missing.WriteString(" " + a["Usage"] + ":")
 	case "Column":
 		if r.parent() == "ColumnGroup" {
-			fmt.Fprintf(&r.missing, " %s", a["Name"])
+			r.missing.WriteString(" " + a["Name"])
 		}
 	case "Warnings":
 		r.warningsDepth = len(r.elements)
@@ -310,36 +309,36 @@ func appendOperator(lines []string, n *planNode, statementCost float64, level in
 	b.WriteString(strings.Repeat("  ", level))
 	b.WriteString(n.physicalOp)
 	if n.logicalOp != "" && n.logicalOp != n.physicalOp {
-		fmt.Fprintf(&b, " (%s)", n.logicalOp)
+		b.WriteString(" (" + n.logicalOp + ")")
 	}
 	if n.object != "" {
-		fmt.Fprintf(&b, " %s", n.object)
+		b.WriteString(" " + n.object)
 	}
 	own := n.subtreeCost
 	for _, child := range n.children {
 		own -= child.subtreeCost
 	}
 	if statementCost > 0 {
-		fmt.Fprintf(&b, " | cost %.0f%%", max(own, 0)/statementCost*100)
+		b.WriteString(" | cost " + strconv.FormatFloat(max(own, 0)/statementCost*100, 'f', 0, 64) + "%")
 	}
-	fmt.Fprintf(&b, " | est rows %s", formatNumber(n.estRows))
+	b.WriteString(" | est rows " + formatNumber(n.estRows))
 	if n.estExecs > 1 {
-		fmt.Fprintf(&b, " x %s execs", formatNumber(n.estExecs))
+		b.WriteString(" x " + formatNumber(n.estExecs) + " execs")
 	}
 	if n.hasActual {
-		fmt.Fprintf(&b, " | actual rows %d in %d execs", n.actualRows, n.actualExecs)
+		b.WriteString(" | actual rows " + strconv.FormatInt(n.actualRows, 10) + " in " + strconv.FormatInt(n.actualExecs, 10) + " execs")
 		if n.logicalReads > 0 {
-			fmt.Fprintf(&b, " | %d logical reads", n.logicalReads)
+			b.WriteString(" | " + strconv.FormatInt(n.logicalReads, 10) + " logical reads")
 		}
 	}
 	if len(n.seeks) > 0 {
-		fmt.Fprintf(&b, " | seek %s", strings.Join(n.seeks, "; "))
+		b.WriteString(" | seek " + strings.Join(n.seeks, "; "))
 	}
 	if n.predicate != "" {
-		fmt.Fprintf(&b, " | predicate %s", n.predicate)
+		b.WriteString(" | predicate " + n.predicate)
 	}
 	if len(n.warnings) > 0 {
-		fmt.Fprintf(&b, " | WARNINGS %s", strings.Join(n.warnings, "; "))
+		b.WriteString(" | WARNINGS " + strings.Join(n.warnings, "; "))
 	}
 	lines = append(lines, b.String())
 	for _, child := range n.children {

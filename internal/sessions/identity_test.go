@@ -98,6 +98,7 @@ func TestUnreachableAWSLeavesTheSignInAlone(t *testing.T) {
 	mustOpen(t, m, &jumphost.Options{ResourceType: "eks", Name: "tf-eks-dev"})
 	launcher.Next(t)
 
+	//goland:noinspection GoErrorStringFormat // the AWS CLI's own message, verbatim
 	runner.expire(errors.New("Could not connect to the endpoint URL"))
 	timers.fire()
 	if s := snapshotOf(t, m).Sessions[0]; s.AWSSignInExpired {
