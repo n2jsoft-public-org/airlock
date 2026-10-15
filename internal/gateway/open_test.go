@@ -66,7 +66,7 @@ func TestOpenSessionRefusals(t *testing.T) {
 		{args: map[string]any{"type": "rds", "name": "orders-db"}, want: "several profiles (dev, prod)"},
 		{args: map[string]any{"type": "rds", "name": "unknown-db"}, want: "pass its profile"},
 		{args: map[string]any{"type": "direct", "name": "nope"}, want: "no direct database named"},
-		{args: map[string]any{"type": "s3", "name": "bucket"}, want: "unknown type"},
+		{args: map[string]any{"type": "kafka", "name": "bucket"}, want: "unknown type"},
 	}
 	for _, tc := range cases {
 		if text, isError := callTool(t, cs, "open_session", tc.args); !isError || !strings.Contains(text, tc.want) {

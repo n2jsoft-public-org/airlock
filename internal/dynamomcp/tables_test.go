@@ -121,13 +121,13 @@ func TestGetItemFoundAndMissing(t *testing.T) {
 }
 
 func TestAWSErrorKeepsCodeAndMessage(t *testing.T) {
-	err := awsError(&smithy.GenericAPIError{Code: "ValidationException", Message: "Query condition missed key schema element: sk"})
+	err := mcpserve.AWSError(&smithy.GenericAPIError{Code: "ValidationException", Message: "Query condition missed key schema element: sk"})
 	if err.Error() != "ValidationException: Query condition missed key schema element: sk" {
 		t.Fatalf("err = %v", err)
 	}
 	credErr := &mcpserve.CredentialsError{Err: errors.New("the SSO session has expired")}
 	chained := fmt.Errorf("operation error DynamoDB: Query, get identity: get credentials: %w", credErr)
-	if got := awsError(chained); got.Error() != credErr.Error() {
+	if got := mcpserve.AWSError(chained); got.Error() != credErr.Error() {
 		t.Fatalf("err = %v", got)
 	}
 }

@@ -65,7 +65,7 @@ type Config struct {
 }
 
 // Modules are the target families disabledModules can turn off.
-var Modules = []string{"sql", "k8s", "cache", "dynamodb"}
+var Modules = []string{"sql", "k8s", "cache", "dynamodb", "s3"}
 
 // Modes of the mode setting.
 const (

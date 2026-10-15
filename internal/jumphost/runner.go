@@ -48,7 +48,7 @@ const (
 
 // supportedResourceType reports whether resourceType (lower case) is one airlock connects to.
 func supportedResourceType(resourceType string) bool {
-	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB
+	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3
 }
 
 type Options struct {
@@ -406,7 +406,7 @@ func (r *Runner) Run(ctx context.Context, options *Options) error {
 		release()
 	}()
 
-	if session.ResourceType == resourceDirect || session.ResourceType == resourceDocker || session.ResourceType == resourceDockerCache || session.ResourceType == resourceDynamoDB {
+	if session.ResourceType == resourceDirect || session.ResourceType == resourceDocker || session.ResourceType == resourceDockerCache || APIOnly(session.ResourceType) {
 		return r.serveDirect(ctx, session)
 	}
 
@@ -438,6 +438,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDynamoDB) {
 		return r.prepareDynamoDB(ctx, &options)
+	}
+	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceS3) {
+		return r.prepareS3(ctx, &options)
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
@@ -692,6 +695,8 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 	switch resourceType {
 	case resourceDynamoDB:
 		return r.dynamoDBTargets(ctx, cfg)
+	case resourceS3:
+		return r.s3Targets(ctx, cfg)
 	case resourceRDS:
 		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
 			"rds", "describe-db-instances",
@@ -857,8 +862,8 @@ func formatRDSResourceDescription(engine, engineVersion, host string, port, size
 // the remote port when it is free locally, otherwise the next free port above it; with
 // randomLocalPort, a free port chosen by the OS.
 func (r *Runner) ResolveDefaultLocalPort(ctx context.Context, options Options) (int, error) { //nolint:gocritic // signature fixed by ui.JumphostDiscovery.
-	// A DynamoDB session listens on no port.
-	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDynamoDB) {
+	// An API-only session listens on no port.
+	if APIOnly(options.ResourceType) {
 		return 0, nil
 	}
 	if r.randomLocalPort {

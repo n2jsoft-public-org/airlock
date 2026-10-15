@@ -18,6 +18,8 @@ func ModuleOf(resourceType string) string {
 		return "cache"
 	case resourceDynamoDB:
 		return "dynamodb"
+	case resourceS3:
+		return "s3"
 	default:
 		return ""
 	}

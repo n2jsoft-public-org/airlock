@@ -13,6 +13,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/s3mcp"
 	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
@@ -50,6 +51,16 @@ func (r *Runner) Direct(name string) *jumphost.Session {
 		Details: jumphost.SessionDetails{ConnectedServer: name + ".internal:5432"}}
 	r.mu.Lock()
 	r.Sessions[name] = s
+	r.mu.Unlock()
+	return s
+}
+
+// S3 registers the S3 session of profile dev, named after its one target.
+func (r *Runner) S3() *jumphost.Session {
+	s := &jumphost.Session{Label: "S3 buckets", ResourceType: sessions.S3ResourceType, Target: s3mcp.Target, Profile: "dev", Region: "eu-west-3",
+		Details: jumphost.SessionDetails{ConnectedServer: "s3.eu-west-3.amazonaws.com"}}
+	r.mu.Lock()
+	r.Sessions[s3mcp.Target] = s
 	r.mu.Unlock()
 	return s
 }

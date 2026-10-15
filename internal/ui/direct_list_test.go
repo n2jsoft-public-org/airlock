@@ -103,20 +103,20 @@ func wizardView(m jumphostWizardModel) string {
 
 func TestWizardOffersDirectCardOnlyWithStore(t *testing.T) {
 	without := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
-	if len(without.typeOptions()) != 4 || strings.Contains(wizardView(without), "Direct database") {
+	if len(without.typeOptions()) != 5 || strings.Contains(wizardView(without), "Direct database") {
 		t.Fatalf("options = %d, want no Direct card without store:\n%s", len(without.typeOptions()), wizardView(without))
 	}
 
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
-	if view := wizardView(m); !strings.Contains(view, "Direct database") || !strings.Contains(view, "1-5") {
-		t.Fatalf("view lacks the fifth card:\n%s", view)
+	if view := wizardView(m); !strings.Contains(view, "Direct database") || !strings.Contains(view, "1-6") {
+		t.Fatalf("view lacks the sixth card:\n%s", view)
 	}
 }
 
 func TestWizardDirectCardSkipsProfileAndRegion(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
 
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 	if m.step != jumphostStepTarget || m.options.ResourceType != "direct" || m.loading || m.pickingRegion {
 		t.Fatalf("step = %v type = %q loading = %v region picker = %v, want the database list at once",
 			m.step, m.options.ResourceType, m.loading, m.pickingRegion)
@@ -131,7 +131,7 @@ func TestWizardDirectCardSkipsProfileAndRegion(t *testing.T) {
 
 func TestDirectListShowsDatabases(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	view := wizardView(m)
 	for _, want := range []string{
@@ -147,7 +147,7 @@ func TestDirectListShowsDatabases(t *testing.T) {
 
 func TestDirectListEmptyState(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{})
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	if view := wizardView(m); !strings.Contains(view, "No direct database yet — press a to add one") {
 		t.Fatalf("view lacks the empty state:\n%s", view)
@@ -161,7 +161,7 @@ func TestDirectListEmptyState(t *testing.T) {
 func TestDirectListShowsStoreError(t *testing.T) {
 	store := &fakeDirectStore{listErr: errors.New("invalid /home/dev/.config/airlock/databases.json: legacy-billing: host: must not be empty")}
 	m := newDirectWizard(t, fakeSessionRunner{}, store)
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	view := wizardView(m)
 	if !strings.Contains(view, "databases.json") || !strings.Contains(view, "host: must not be empty") {
@@ -174,7 +174,7 @@ func TestDirectListShowsStoreError(t *testing.T) {
 
 func TestDirectListEnterOpensReview(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	m, _ = wizardUpdate(t, m, key("down"))
 	m, _ = wizardUpdate(t, m, key("enter"))
@@ -191,7 +191,7 @@ func TestDirectListEnterOpensReview(t *testing.T) {
 
 func TestDirectListFiltersWithoutQuitting(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	for _, k := range []string{"/", "q", "b"} {
 		m, _ = wizardUpdate(t, m, key(k))
@@ -208,7 +208,7 @@ func TestDirectListDeleteForgetsConnection(t *testing.T) {
 	store := &fakeDirectStore{dbs: testDirectDatabases()}
 	forgotten := &[]jumphost.TargetRef{}
 	m := newDirectWizard(t, forgetRecorder{forgotten: forgotten}, store)
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	m, _ = wizardUpdate(t, m, key("x"))
 	if view := wizardView(m); !strings.Contains(view, "Delete analytics? y/n") {
@@ -228,7 +228,7 @@ func TestDirectListDeleteForgetsConnection(t *testing.T) {
 func TestDirectListDeleteKeepsOnOtherKey(t *testing.T) {
 	store := &fakeDirectStore{dbs: testDirectDatabases()}
 	m := newDirectWizard(t, fakeSessionRunner{}, store)
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	m, _ = wizardUpdate(t, m, key("x"))
 	m, cmd := wizardUpdate(t, m, key("n"))
@@ -239,7 +239,7 @@ func TestDirectListDeleteKeepsOnOtherKey(t *testing.T) {
 
 func TestDirectListEscGoesBackToType(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	m, _ = wizardUpdate(t, m, key("esc"))
 	if m.step != jumphostStepType {
@@ -251,7 +251,7 @@ func TestDirectListConnectedEntrySwitchesToSession(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
 	m.embedded = true
 	m.active = map[string]bool{directConnectionKey("analytics"): true}
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 
 	if view := wizardView(m); !strings.Contains(view, "analytics  ● connected") {
 		t.Fatalf("view lacks the connected marker:\n%s", view)
@@ -306,7 +306,7 @@ func TestSearchAfterDirectListPicksAWSTarget(t *testing.T) {
 	runner := searchRunner{prefsRunner: newPrefsRunner(), targets: everyTypeTargets}
 	m := newTestWizard(t, runner, jumphost.Options{AwsRegion: "eu-west-3"})
 	m.databases = &fakeDirectStore{dbs: testDirectDatabases()}
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 	m, _ = wizardUpdate(t, m, key("esc"))
 	m, cmd := wizardUpdate(t, m, key("s"))
 	m = runCmd(t, m, cmd)
@@ -325,7 +325,7 @@ func TestDirectListForgetsBeforeDeleting(t *testing.T) {
 	store := &fakeDirectStore{dbs: testDirectDatabases()}
 	forgotten, defined := &[]jumphost.TargetRef{}, &[]bool{}
 	m := newDirectWizard(t, forgetRecorder{forgotten: forgotten, store: store, definedAtForget: defined}, store)
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 	m, _ = wizardUpdate(t, m, key("x"))
 	m, cmd := wizardUpdate(t, m, key("y"))
 	runCmd(t, m, cmd)
@@ -338,7 +338,7 @@ func TestDirectListForgetsBeforeDeleting(t *testing.T) {
 func TestDirectListKeepsTheDatabaseWhenForgettingFails(t *testing.T) {
 	store := &fakeDirectStore{dbs: testDirectDatabases()}
 	m := newDirectWizard(t, forgetRecorder{forgotten: &[]jumphost.TargetRef{}, err: errors.New("keychain locked")}, store)
-	m, _ = wizardUpdate(t, m, key("5"))
+	m, _ = wizardUpdate(t, m, key("6"))
 	m, _ = wizardUpdate(t, m, key("x"))
 	m, cmd := wizardUpdate(t, m, key("y"))
 	m = runCmd(t, m, cmd)

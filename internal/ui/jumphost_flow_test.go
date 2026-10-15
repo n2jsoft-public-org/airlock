@@ -1020,3 +1020,30 @@ func TestWizardHidesDynamoDBCardWithoutMCP(t *testing.T) {
 		}
 	}
 }
+
+func TestS3ReviewHasNoPortAndOffersWrites(t *testing.T) {
+	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
+	m.flow, m.step = flowNew, jumphostStepReview
+	m.options.ResourceType, m.options.Name, m.options.AwsProfile = "s3", "buckets", "dev"
+	if got := m.reviewFields(); len(got) != 1 || got[0] != reviewFieldMCPWrites {
+		t.Fatalf("fields = %v, want only the MCP write toggle", got)
+	}
+	if !m.mcpApplies() {
+		t.Fatal("an S3 session is its MCP server")
+	}
+	if strings.Contains(m.renderReviewPanel(100, false), i18n.T("ui.jumphost_flow_view.port")) {
+		t.Fatal("the review must not show a port")
+	}
+}
+
+func TestWizardOffersS3OnlyWithMCP(t *testing.T) {
+	hasS3 := func(m jumphostWizardModel) bool {
+		return slices.ContainsFunc(m.typeOptions(), func(o resourceTypeOption) bool { return o.name == "s3" })
+	}
+	if !hasS3(newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})) {
+		t.Fatal("the S3 card is missing")
+	}
+	if hasS3(newTestWizard(t, fakeSessionRunner{}, jumphost.Options{SkipMCP: true})) {
+		t.Fatal("--no-mcp refuses S3 sessions: the card must be hidden")
+	}
+}

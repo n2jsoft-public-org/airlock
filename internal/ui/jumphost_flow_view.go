@@ -10,6 +10,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft/airlock/internal/sessions"
 )
 
 // Catalog keys of the help lines of the review's password fields, shared by every target signing in
@@ -453,13 +454,16 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 			userHelp = i18n.T("ui.jumphost_flow_view.rbac_user_leave_empty")
 		}
 	}
-	if m.isDynamoDB() {
+	switch m.options.ResourceType {
+	case sessions.DynamoDBResourceType:
 		mcpHelp = i18n.T("ui.jumphost_flow_view.space_toggles_dynamodb_writes")
+	case sessions.S3ResourceType:
+		mcpHelp = i18n.T("ui.jumphost_flow_view.space_toggles_s3_writes")
 	}
 	if compact {
 		portHelp, signInHelp, userHelp, passwordHelp, rememberHelp, secretHelp, mcpHelp = "", "", "", "", "", "", ""
 	}
-	if !m.isDynamoDB() {
+	if !m.isAPIOnly() {
 		rows = append(rows, m.reviewInput(reviewFieldPort, i18n.T("ui.jumphost_flow_view.port"), inputView(m.portInput), portHelp, inner)...)
 	}
 	if len(m.signInOptions()) > 0 {

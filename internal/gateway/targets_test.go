@@ -154,7 +154,7 @@ func TestListTargetsRefusesUnknownType(t *testing.T) {
 	m, _ := newTestManager(t, sessionstest.NewRunner())
 	d := &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev")}}
 	cs, _ := newToolset(t, m, Settings{}, d, fakeDatabases{})
-	text, isError := callTool(t, cs, "list_targets", map[string]any{"type": "s3"})
+	text, isError := callTool(t, cs, "list_targets", map[string]any{"type": "kafka"})
 	if !isError || !strings.Contains(text, "unknown type") {
 		t.Fatalf("isError = %v, text = %q", isError, text)
 	}

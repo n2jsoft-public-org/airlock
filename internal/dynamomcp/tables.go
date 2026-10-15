@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/smithy-go"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
@@ -54,18 +53,6 @@ func newTables(a api) *tables {
 	return &tables{api: a, described: map[string]*types.TableDescription{}}
 }
 
-// awsError keeps the code and message of an AWS API error, or the credentials failure, without the
-// SDK's operation chain.
-func awsError(err error) error {
-	if credErr, ok := errors.AsType[*mcpserve.CredentialsError](err); ok {
-		return credErr
-	}
-	if apiErr, ok := errors.AsType[smithy.APIError](err); ok {
-		return fmt.Errorf("%s: %s", apiErr.ErrorCode(), apiErr.ErrorMessage())
-	}
-	return err
-}
-
 type listTablesInput struct {
 	Start string `json:"start,omitempty" jsonschema:"next of the previous page, to continue the listing"`
 }
@@ -82,7 +69,7 @@ func (t *tables) List(ctx context.Context, in *listTablesInput) (listTablesOutpu
 	}
 	out, err := t.api.ListTables(ctx, req)
 	if err != nil {
-		return listTablesOutput{Tables: []string{}}, awsError(err)
+		return listTablesOutput{Tables: []string{}}, mcpserve.AWSError(err)
 	}
 	res := listTablesOutput{Tables: out.TableNames, Next: aws.ToString(out.LastEvaluatedTableName)}
 	if res.Tables == nil {
@@ -130,7 +117,7 @@ func (t *tables) table(ctx context.Context, name string) (*types.TableDescriptio
 	}
 	out, err := t.api.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(name)})
 	if err != nil {
-		return nil, awsError(err)
+		return nil, mcpserve.AWSError(err)
 	}
 	t.described[name] = out.Table
 	return out.Table, nil
@@ -213,7 +200,7 @@ func (t *tables) Get(ctx context.Context, in *getItemInput) (getItemOutput, erro
 		ProjectionExpression: optional(in.Projection), ExpressionAttributeNames: names(in.Names),
 	})
 	if err != nil {
-		return getItemOutput{}, awsError(err)
+		return getItemOutput{}, mcpserve.AWSError(err)
 	}
 	item, err := plainItem(out.Item)
 	if err != nil || item == nil {
@@ -307,7 +294,7 @@ func (t *tables) Query(ctx context.Context, in *queryInput) (pageOutput, error) 
 		Limit: limit(in.Limit), ScanIndexForward: aws.Bool(!in.Descending), ExclusiveStartKey: start,
 	})
 	if err != nil {
-		return pageOutput{}, awsError(err)
+		return pageOutput{}, mcpserve.AWSError(err)
 	}
 	return t.page(ctx, in.Table, in.Index, out.Items, out.LastEvaluatedKey, int(out.ScannedCount))
 }
@@ -332,7 +319,7 @@ func (t *tables) Scan(ctx context.Context, in *scanInput) (pageOutput, error) {
 		Limit: limit(in.Limit), ExclusiveStartKey: start,
 	})
 	if err != nil {
-		return pageOutput{}, awsError(err)
+		return pageOutput{}, mcpserve.AWSError(err)
 	}
 	return t.page(ctx, in.Table, in.Index, out.Items, out.LastEvaluatedKey, int(out.ScannedCount))
 }

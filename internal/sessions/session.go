@@ -28,6 +28,9 @@ const (
 	// DynamoDBResourceType is the type of DynamoDB sessions: an AWS profile and region reached
 	// through the AWS API, with no aws process to run but an AWS identity to watch.
 	DynamoDBResourceType = "dynamodb"
+	// S3ResourceType is the type of S3 sessions: every bucket of an AWS profile, reached through the
+	// AWS API, with no aws process to run but an AWS identity to watch.
+	S3ResourceType = "s3"
 )
 
 // ID identifies a session; a restart or reconnection keeps it.
@@ -160,10 +163,10 @@ func (s *Session) Direct() bool {
 	return s.ResourceType == DirectResourceType || s.ResourceType == DockerResourceType || s.ResourceType == DockerCacheResourceType
 }
 
-// NoTunnel reports a session running no aws process: a direct or Docker session, or a DynamoDB
-// one (which, unlike them, has an AWS profile and region).
+// NoTunnel reports a session running no aws process: a direct or Docker session, or an API-only one
+// (DynamoDB, S3), which, unlike them, has an AWS profile and region.
 func (s *Session) NoTunnel() bool {
-	return s.Direct() || s.ResourceType == DynamoDBResourceType
+	return s.Direct() || jumphost.APIOnly(s.ResourceType)
 }
 
 // ReconnectPending reports a session waiting for, or going through, an automatic reconnection.

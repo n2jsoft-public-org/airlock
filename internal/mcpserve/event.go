@@ -19,7 +19,7 @@ type ToolEvent struct {
 	Profile string `json:"profile"`
 	Region  string `json:"region"`
 	Target  string `json:"target"`
-	// Engine is postgres, sqlserver, kubernetes, redis or valkey.
+	// Engine is postgres, sqlserver, kubernetes, redis, valkey, dynamodb or s3.
 	Engine string `json:"engine"`
 	Access string `json:"access"`
 	Tool   string `json:"tool"`
@@ -32,7 +32,7 @@ type ToolEvent struct {
 	Namespace string `json:"namespace,omitempty"`
 	Resource  string `json:"resource,omitempty"`
 	Name      string `json:"name,omitempty"`
-	// Command is the cache command line, cut at 1 KiB (cache tools only).
+	// Command is the command line of a cache, DynamoDB or S3 call, cut at 1 KiB.
 	Command string `json:"command,omitempty"`
 	Error   string `json:"error,omitempty"`
 	// Decision is how the gateway answered an opening (gateway tools only): auto, approved, reused,

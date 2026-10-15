@@ -22,10 +22,10 @@ const reasonNoPassword = "no saved password for this connection: ask the user to
 // defaultStartTimeout bounds how long open_session waits for the session to run.
 const defaultStartTimeout = 3 * time.Minute
 
-var openableTypes = []string{"rds", "eks", "elasticache", sessions.DynamoDBResourceType, sessions.DirectResourceType, sessions.DockerResourceType, sessions.DockerCacheResourceType}
+var openableTypes = []string{"rds", "eks", "elasticache", sessions.DynamoDBResourceType, sessions.S3ResourceType, sessions.DirectResourceType, sessions.DockerResourceType, sessions.DockerCacheResourceType}
 
 type openInput struct {
-	Type    string `json:"type" jsonschema:"rds, eks, elasticache, dynamodb, direct, docker or docker-cache"`
+	Type    string `json:"type" jsonschema:"rds, eks, elasticache, dynamodb, s3, direct, docker or docker-cache"`
 	Name    string `json:"name" jsonschema:"the target name, as list_targets gives it"`
 	Profile string `json:"profile,omitempty" jsonschema:"AWS profile; needed when the target is not a saved connection, or is saved in several profiles"`
 	Region  string `json:"region,omitempty" jsonschema:"AWS region; defaults to the saved connection's, else the profile's"`

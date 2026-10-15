@@ -21,6 +21,10 @@
   │  DYNAMODB   DynamoDB                                               4 │
   │ Tables of a region for your AI assistant (MCP), no tunnel            │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  S3   S3                                                           5 │
+  │ Buckets of a profile for your AI assistant (MCP), no tunnel          │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
@@ -32,8 +36,4 @@
 
 
 
-
-
-
-
-   ↑↓  move   1-4  pick   enter  select   r  region   s  search   ?  help   q  quit
+   ↑↓  move   1-5  pick   enter  select   r  region   s  search   ?  help   q  quit

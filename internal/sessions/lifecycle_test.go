@@ -285,3 +285,21 @@ func TestDynamoDBSessionRunsAtOnceAndStopsWithoutProcess(t *testing.T) {
 		t.Fatalf("session = %+v", s)
 	}
 }
+
+func TestS3SessionRunsAtOnceAndStopsWithoutProcess(t *testing.T) {
+	m, runner, _ := newManager(t)
+	runner.S3()
+	id, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: "s3", Name: "buckets", AwsProfile: "dev"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := snapshotOf(t, m).Sessions[0]; s.State != sessions.StateRunning || !s.Ready {
+		t.Fatalf("session = %+v", s)
+	}
+	if err := m.Stop(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if s := snapshotOf(t, m).Sessions[0]; s.State != sessions.StateEnded || !s.StopRequested {
+		t.Fatalf("session = %+v", s)
+	}
+}

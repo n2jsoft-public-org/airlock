@@ -59,7 +59,7 @@ func TestDirectWithoutRememberedPasswordFailsOutsideATerminal(t *testing.T) {
 }
 
 func TestRootHelpNamesTheDirectType(t *testing.T) {
-	if use := NewRootCmd().Use; use != "airlock [eks|rds|elasticache|dynamodb|direct|docker] [name] [local-port]" {
+	if use := NewRootCmd().Use; use != "airlock [eks|rds|elasticache|dynamodb|s3|direct|docker] [name] [local-port]" {
 		t.Fatalf("Use = %q", use)
 	}
 }

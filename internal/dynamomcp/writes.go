@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 type putItemInput struct {
@@ -51,7 +52,7 @@ func (t *tables) Put(ctx context.Context, in *putItemInput) (writeOutput, error)
 		TableName: aws.String(in.Table), Item: item, ConditionExpression: optional(in.Condition),
 		ExpressionAttributeValues: values, ExpressionAttributeNames: names(in.Names),
 	}); err != nil {
-		return writeOutput{}, awsError(err)
+		return writeOutput{}, mcpserve.AWSError(err)
 	}
 	return writeOutput{Written: true}, nil
 }
@@ -70,7 +71,7 @@ func (t *tables) Update(ctx context.Context, in *updateItemInput) (writeOutput, 
 		ExpressionAttributeValues: values, ExpressionAttributeNames: names(in.Names), ReturnValues: types.ReturnValueAllNew,
 	})
 	if err != nil {
-		return writeOutput{}, awsError(err)
+		return writeOutput{}, mcpserve.AWSError(err)
 	}
 	item, err := plainItem(out.Attributes)
 	return writeOutput{Item: item, Written: err == nil}, err
@@ -89,7 +90,7 @@ func (t *tables) Delete(ctx context.Context, in *deleteItemInput) (writeOutput, 
 		TableName: aws.String(in.Table), Key: key, ConditionExpression: optional(in.Condition),
 		ExpressionAttributeValues: values, ExpressionAttributeNames: names(in.Names),
 	}); err != nil {
-		return writeOutput{}, awsError(err)
+		return writeOutput{}, mcpserve.AWSError(err)
 	}
 	return writeOutput{Written: true}, nil
 }

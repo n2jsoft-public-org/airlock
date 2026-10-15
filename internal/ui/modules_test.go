@@ -18,7 +18,7 @@ func (r disabledModulesRunner) ModuleDisabled(resourceType string) bool {
 }
 
 func TestWizardHidesCardsOfDisabledModules(t *testing.T) {
-	runner := disabledModulesRunner{types: []string{"rds", "dynamodb"}}
+	runner := disabledModulesRunner{types: []string{"rds", "dynamodb", "s3"}}
 	m := newTestWizard(t, runner, jumphost.Options{})
 	var names []string
 	for _, option := range m.typeOptions() {

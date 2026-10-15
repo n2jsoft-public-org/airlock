@@ -19,7 +19,7 @@ func TestSearchResourcesMergesTypesByName(t *testing.T) {
 		return listed[resourceType], nil
 	})
 
-	if calls.Load() != 4 || len(failures) != 0 {
+	if calls.Load() != 5 || len(failures) != 0 {
 		t.Fatalf("calls = %d failures = %v", calls.Load(), failures)
 	}
 	want := []string{"archive/eks", "archive/rds", "cache/elasticache", "orders/rds"}
@@ -43,7 +43,7 @@ func TestSearchResourcesKeepsResultsOfTypesThatWork(t *testing.T) {
 		}
 		return []ResourceSummary{{Name: resourceType + "-target"}}, nil
 	})
-	if len(got) != 3 || len(failures) != 1 || failures["eks"] == nil {
+	if len(got) != 4 || len(failures) != 1 || failures["eks"] == nil {
 		t.Fatalf("got = %+v failures = %v", got, failures)
 	}
 }

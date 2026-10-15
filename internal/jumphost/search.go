@@ -12,7 +12,7 @@ import (
 )
 
 // searchableResourceTypes are the types SearchResources looks through, in display order.
-var searchableResourceTypes = []string{resourceRDS, resourceEKS, resourceElastiCache, resourceDynamoDB}
+var searchableResourceTypes = []string{resourceRDS, resourceEKS, resourceElastiCache, resourceDynamoDB, resourceS3}
 
 // SearchResources lists the targets of every type in the profile and region of options. The
 // region and identity are resolved once, then each type is listed concurrently: a type whose

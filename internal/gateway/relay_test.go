@@ -16,6 +16,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/dynamomcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/s3mcp"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
 )
@@ -259,5 +260,60 @@ func TestRelayedDynamoItemKeepsBigIntegersExact(t *testing.T) {
 	}
 	if text, ok := res.Content[0].(*mcp.TextContent); !ok || res.IsError || res.StructuredContent != nil || text.Text != item {
 		t.Fatalf("res = %+v, %v", res, err)
+	}
+}
+
+func TestS3SessionsServeTheS3Tools(t *testing.T) {
+	if kindOf("s3") != kindS3 {
+		t.Fatalf("kindOf(s3) = %q", kindOf("s3"))
+	}
+	if !slices.Contains(openableTypes, "s3") {
+		t.Fatal("s3 must be openable")
+	}
+	cs, err := connectClient(t.Context(), prototype(kindS3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close() //nolint:errcheck // an in-memory session.
+	listed, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, proto := range listed.Tools {
+		tool, rerr := relayTool(kindS3, proto)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		names = append(names, tool.Name)
+	}
+	if !slices.Contains(names, "s3_get_object") || !slices.Contains(names, "s3_put_object") {
+		t.Fatalf("tools = %v", names)
+	}
+}
+
+// An image read through the gateway reaches the agent as an image, not only as text.
+func TestRelayedS3ImageReachesTheAgent(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "s3", Version: "1"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_object"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{
+			&mcp.TextContent{Text: `{"key":"a.png","size":4}`}, &mcp.ImageContent{Data: []byte("\x89PNG"), MIMEType: "image/png"},
+		}}, nil, nil
+	})
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	runner.S3()
+	runner.WithMCP(s3mcp.Target, &sessionstest.MCPServer{S: server})
+	id, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: sessions.S3ResourceType, Name: s3mcp.Target}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cs := relayServer(t, m, Settings{})
+	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "s3_get_object", Arguments: map[string]any{"session": int(id), "bucket": "b", "key": "a.png"}})
+	if err != nil || res.IsError || len(res.Content) != 2 {
+		t.Fatalf("res = %+v, %v", res, err)
+	}
+	if image, ok := res.Content[1].(*mcp.ImageContent); !ok || image.MIMEType != "image/png" || string(image.Data) != "\x89PNG" {
+		t.Fatalf("content = %#v", res.Content[1])
 	}
 }

@@ -29,3 +29,10 @@ func TestDynamoDBSessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
 		t.Fatal("direct sessions have no tunnel, RDS ones have one")
 	}
 }
+
+func TestS3SessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
+	s := Session{ResourceType: S3ResourceType, Target: "buckets", Profile: "dev", Region: "eu-west-3"}
+	if !s.NoTunnel() || s.Direct() || s.Key() != "dev|eu-west-3|s3|buckets" {
+		t.Fatalf("no tunnel = %v direct = %v key = %q", s.NoTunnel(), s.Direct(), s.Key())
+	}
+}

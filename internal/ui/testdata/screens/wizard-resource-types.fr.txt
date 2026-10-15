@@ -21,6 +21,10 @@
   │  DYNAMODB   DynamoDB                                               4 │
   │ Tables d'une région pour votre assistant IA (MCP), sans tunnel       │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  S3   S3                                                           5 │
+  │ Buckets d'un profil pour votre assistant IA (MCP), sans tunnel       │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
@@ -32,8 +36,4 @@
 
 
 
-
-
-
-
-   ↑↓  naviguer   1-4  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter
+   ↑↓  naviguer   1-5  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter

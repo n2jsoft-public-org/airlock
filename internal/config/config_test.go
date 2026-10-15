@@ -289,7 +289,7 @@ func TestParseModules(t *testing.T) {
 	if got, err = parseModules(" "); err != nil || got != nil {
 		t.Fatalf("parseModules(blank) = %v, %v; want none", got, err)
 	}
-	if _, err = parseModules("sql,s3"); err == nil {
-		t.Fatal("parseModules(s3) succeeded; want an unknown module error")
+	if _, err = parseModules("sql,kafka"); err == nil {
+		t.Fatal("parseModules(kafka) succeeded; want an unknown module error")
 	}
 }
