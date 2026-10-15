@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/dynamomcp"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -169,5 +172,92 @@ func TestAgentName(t *testing.T) {
 	}
 	if agentName(&mcp.CallToolRequest{}) != "agent" {
 		t.Fatal("no header gives agent")
+	}
+}
+
+func TestDynamoDBSessionsServeTheDynamoTools(t *testing.T) {
+	if kindOf("dynamodb") != kindDynamo {
+		t.Fatalf("kindOf(dynamodb) = %q", kindOf("dynamodb"))
+	}
+	if !slices.Contains(openableTypes, "dynamodb") {
+		t.Fatal("dynamodb must be openable")
+	}
+	cs, err := connectClient(t.Context(), prototype(kindDynamo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close() //nolint:errcheck // an in-memory session.
+	listed, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, proto := range listed.Tools {
+		tool, rerr := relayTool(kindDynamo, proto)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		names = append(names, tool.Name)
+	}
+	if !slices.Contains(names, "dynamo_query") || !slices.Contains(names, "dynamo_put_item") {
+		t.Fatalf("tools = %v", names)
+	}
+}
+
+// Every destructive relayed tool follows agentWrites and the session's writes, not only execute.
+func TestRelayDestructiveDynamoToolsFollowWrites(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	for _, writes := range []bool{true, false} {
+		region := "eu-west-1"
+		if !writes {
+			region = "eu-west-3"
+		}
+		runner.DynamoDB(region)
+		server := dynamomcp.NewServer(&dynamomcp.ServerConfig{Name: "dynamodb-" + region, Region: region, AllowWrites: writes}, nil, nil)
+		runner.WithMCP(region, &sessionstest.MCPServer{S: server, Writes: writes})
+		id, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: sessions.DynamoDBResourceType, Name: region}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := map[string]any{"session": int(id), "table": "t", "item": map[string]any{"pk": "1"}}
+		_, off := relayServer(t, m, Settings{})
+		for _, tool := range []string{"dynamo_put_item", "dynamo_update_item", "dynamo_delete_item"} {
+			if text, isError := callTool(t, off, tool, args); !isError || !strings.Contains(text, "agent writes are off") {
+				t.Fatalf("%s with agentWrites false = %q (error %v)", tool, text, isError)
+			}
+		}
+		if !writes {
+			_, on := relayServer(t, m, Settings{AgentWrites: true})
+			if text, isError := callTool(t, on, "dynamo_put_item", args); !isError || !strings.Contains(text, "read-only") {
+				t.Fatalf("put_item on a read-only session = %q (error %v)", text, isError)
+			}
+		}
+	}
+}
+
+// A relayed result keeps its text only: the client decoding of its structured content would round
+// big integers through float64.
+func TestRelayedDynamoItemKeepsBigIntegersExact(t *testing.T) {
+	const item = `{"found":true,"item":{"pk":12345678901234567890}}`
+	server := mcp.NewServer(&mcp.Implementation{Name: "dynamodb", Version: "1"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_item"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: item}}, StructuredContent: json.RawMessage(item)}, nil, nil
+	})
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	runner.DynamoDB("eu-west-3")
+	runner.WithMCP("eu-west-3", &sessionstest.MCPServer{S: server})
+	id, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: sessions.DynamoDBResourceType, Name: "eu-west-3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cs := relayServer(t, m, Settings{})
+	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "dynamo_get_item", Arguments: map[string]any{"session": int(id), "table": "t", "key": map[string]any{"pk": 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, ok := res.Content[0].(*mcp.TextContent); !ok || res.IsError || res.StructuredContent != nil || text.Text != item {
+		t.Fatalf("res = %+v, %v", res, err)
 	}
 }

@@ -117,3 +117,13 @@ func TestDirectSessionsCheckNoAWSIdentity(t *testing.T) {
 		t.Fatal("a direct database has no AWS sign-in")
 	}
 }
+
+func TestExpiredAWSSignInOfADynamoDBSessionNamesNoTunnel(t *testing.T) {
+	m, runner, _, timers := newIdentityManager(t)
+	runner.DynamoDB("eu-west-3")
+	events := subscribe(t, m)
+	id := mustOpen(t, m, &jumphost.Options{ResourceType: "dynamodb", Name: "eu-west-3", AwsProfile: "dev"})
+	runner.expire(jumphost.ErrSignInRequired)
+	timers.fire()
+	sessionstest.Wait(t, events, sessionstest.Line(id, "The AWS sign-in of profile dev expired: the calls of the MCP server fail. Press r to sign in again."))
+}

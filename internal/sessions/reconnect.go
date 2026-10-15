@@ -21,7 +21,7 @@ const reconnectResetAfter = time.Minute
 // scheduleReconnectLocked plans the automatic reconnection of e, which just ended. Only a session
 // that ended on its own after it worked, or that a reconnection opened, is reconnected.
 func (m *Manager) scheduleReconnectLocked(e *entry) {
-	if e.info.Direct() || e.info.StopRequested || m.closing || (!e.info.Ready && e.info.Reconnects == 0) {
+	if e.info.NoTunnel() || e.info.StopRequested || m.closing || (!e.info.Ready && e.info.Reconnects == 0) {
 		return
 	}
 	if m.now().Sub(e.info.StartedAt) >= reconnectResetAfter {

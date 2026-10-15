@@ -33,7 +33,7 @@ func copyItems(s *sessions.Session) []copyItem {
 			items = append(items, copyItem{label: label, value: value})
 		}
 	}
-	if s.Direct() {
+	if s.NoTunnel() {
 		add(i18n.T("ui.ssm_copy.server_address"), details.ConnectedServer)
 		add(i18n.T("ui.jumphost_flow_view.user"), directUser(s))
 	} else {

@@ -837,3 +837,14 @@ func TestOpeningSetsTheProjectDirectoryAndTheTerminal(t *testing.T) {
 		t.Fatalf("opened = %+v", service.opened)
 	}
 }
+
+func TestDynamoDBSessionShowsItsEndpointNotAPort(t *testing.T) {
+	s := &sessions.Session{ResourceType: sessions.DynamoDBResourceType, Target: "eu-west-3", Profile: "dev", Region: "eu-west-3",
+		Details: jumphost.SessionDetails{ConnectedServer: "dynamodb.eu-west-3.amazonaws.com"}}
+	if got := sessionAddress(s); got != "dynamodb.eu-west-3.amazonaws.com" {
+		t.Fatalf("address = %q", got)
+	}
+	if got := sessionOrigin(s); got != "dev · eu-west-3" {
+		t.Fatalf("origin = %q", got)
+	}
+}

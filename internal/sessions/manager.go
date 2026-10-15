@@ -296,17 +296,17 @@ func (m *Manager) addQuery(e *entry, query *mcpserve.ToolEvent) {
 	m.publish(&Event{Kind: EventMCPQuery, ID: e.info.ID, Query: query})
 }
 
-// startLocked starts e: its aws process, or, for a direct database, its sign-in right away.
+// startLocked starts e: its aws process, or, for a session without tunnel, its sign-in right away.
 func (m *Manager) startLocked(e *entry) {
-	if e.info.Direct() {
+	if e.identity != nil && !e.info.Direct() {
+		m.watchIdentityLocked()
+	}
+	if e.info.NoTunnel() {
 		e.info.State, e.info.Ready = StateRunning, true
 		m.lines(e, "Connected directly to "+e.info.Details.ConnectedServer+": no tunnel to wait for.")
 		m.changed(e)
 		m.startSignInLocked(e)
 		return
-	}
-	if e.identity != nil {
-		m.watchIdentityLocked()
 	}
 	args := append(append([]string{}, e.session.CommandArgs...), e.session.AwsArgs...)
 	go m.run(e, args)
@@ -415,7 +415,7 @@ func (m *Manager) stopLocked(e *entry) {
 	e.info.StopRequested = true
 	m.lines(e, "", "Stopping session...")
 	switch {
-	case e.info.Direct():
+	case e.info.NoTunnel():
 		// No process to wait for: the session ends here.
 		m.endLocked(e, nil)
 	case e.process != nil:

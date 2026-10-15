@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
@@ -996,5 +997,26 @@ func TestWizardEKSReviewWithoutMCP(t *testing.T) {
 	m := wizardAtReviewOfType(t, jumphost.Options{SkipMCP: true}, "eks", jumphost.ResourceSummary{Name: "platform"})
 	if strings.Contains(ansi.Strip(m.render()), "can only read the cluster") {
 		t.Fatal("--no-mcp must hide the MCP row")
+	}
+}
+
+func TestDynamoDBReviewHasNoPortAndOffersWrites(t *testing.T) {
+	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
+	m.flow, m.step = flowNew, jumphostStepReview
+	m.options.ResourceType, m.options.Name, m.options.AwsProfile = "dynamodb", "eu-west-3", "dev"
+	if got := m.reviewFields(); len(got) != 1 || got[0] != reviewFieldMCPWrites {
+		t.Fatalf("fields = %v, want only the MCP write toggle", got)
+	}
+	if strings.Contains(m.renderReviewPanel(100, false), i18n.T("ui.jumphost_flow_view.port")) {
+		t.Fatal("the review must not show a port")
+	}
+}
+
+func TestWizardHidesDynamoDBCardWithoutMCP(t *testing.T) {
+	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{SkipMCP: true})
+	for _, option := range m.typeOptions() {
+		if option.name == "dynamodb" {
+			t.Fatal("--no-mcp refuses DynamoDB sessions: the card must be hidden")
+		}
 	}
 }

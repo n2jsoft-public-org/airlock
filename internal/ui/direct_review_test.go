@@ -28,7 +28,7 @@ func (*directKeychainRunner) LoadKeychainPassword(_ context.Context, options jum
 func directReview(t *testing.T, runner JumphostDiscovery, store *fakeDirectStore, name string) jumphostWizardModel {
 	t.Helper()
 	m := newDirectWizard(t, runner, store)
-	m, _ = wizardUpdate(t, m, key("4"))
+	m, _ = wizardUpdate(t, m, key("5"))
 	m.directList.selectName(name)
 	m, cmd := wizardUpdate(t, m, key("enter"))
 	m, _ = wizardUpdate(t, m, findMsg[directChoicesLoadedMsg](t, cmd))
@@ -360,7 +360,7 @@ func TestDirectReviewUserDoesNotLeakIntoNextRDSReview(t *testing.T) {
 	m.databases = &fakeDirectStore{dbs: testDirectDatabases()}
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = pastStart(t, m)
-	m, _ = wizardUpdate(t, m, key("4"))
+	m, _ = wizardUpdate(t, m, key("5"))
 	m.directList.selectName("legacy-billing")
 	m, _ = wizardUpdate(t, m, key("enter"))
 	if m.step != jumphostStepReview || m.options.DBUser != "mcp_ro" {

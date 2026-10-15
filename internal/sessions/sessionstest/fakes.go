@@ -54,6 +54,16 @@ func (r *Runner) Direct(name string) *jumphost.Session {
 	return s
 }
 
+// DynamoDB registers the DynamoDB session of region, named after it.
+func (r *Runner) DynamoDB(region string) *jumphost.Session {
+	s := &jumphost.Session{Label: "DYNAMODB " + region, ResourceType: sessions.DynamoDBResourceType, Target: region, Profile: "dev", Region: region,
+		Details: jumphost.SessionDetails{ConnectedServer: "dynamodb." + region + ".amazonaws.com"}}
+	r.mu.Lock()
+	r.Sessions[region] = s
+	r.mu.Unlock()
+	return s
+}
+
 func (r *Runner) Prepare(ctx context.Context, o jumphost.Options) (*jumphost.Session, error) { //nolint:gocritic // implements sessions.Runner.
 	r.mu.Lock()
 	r.Prepared = append(r.Prepared, o)

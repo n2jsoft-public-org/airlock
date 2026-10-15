@@ -103,9 +103,12 @@ func (m *Manager) setSignInExpiredLocked(e *entry, expired bool) {
 		return
 	}
 	e.info.AWSSignInExpired = expired
-	if expired {
+	switch {
+	case expired && e.info.NoTunnel():
+		m.lines(e, "", fmt.Sprintf("The AWS sign-in of profile %s expired: the calls of the MCP server fail. Press r to sign in again.", e.info.Profile))
+	case expired:
 		m.lines(e, "", fmt.Sprintf("The AWS sign-in of profile %s expired: the tunnel stays open, but the tools signing in with AWS through it (kubectl, IAM database tokens, the MCP server) fail. Press r to sign in again.", e.info.Profile))
-	} else {
+	default:
 		m.lines(e, fmt.Sprintf("Signed in to AWS again with profile %s.", e.info.Profile))
 	}
 	m.changed(e)

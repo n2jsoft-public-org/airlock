@@ -3,9 +3,12 @@ package cachemcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 func TestPasswordCredentialsDefaultUser(t *testing.T) {
@@ -39,6 +42,19 @@ func TestSecretCredentialsReadOnceAndRetryFailures(t *testing.T) {
 	if reads != 2 {
 		t.Fatalf("secret read %d times, want 2", reads)
 	}
+}
+
+// exportAWS prints credentials expiring at expires and counts the calls.
+func exportAWS(expires time.Time) (runner mcpserve.AWSRunner, calls *int) {
+	count := 0
+	return func(_ context.Context, args ...string) (string, error) {
+		if strings.Join(args, " ") != "configure export-credentials --format process" {
+			return "", fmt.Errorf("unexpected aws %v", args)
+		}
+		count++
+		return fmt.Sprintf(`{"Version":1,"AccessKeyId":"AKID%d","SecretAccessKey":"SECRET","SessionToken":"TOKEN","Expiration":%q}`,
+			count, expires.UTC().Format(time.RFC3339)), nil
+	}, &count
 }
 
 func TestIAMCredentialsSignAFreshTokenPerConnection(t *testing.T) {

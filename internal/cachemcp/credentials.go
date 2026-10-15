@@ -52,9 +52,9 @@ func SecretCredentials(read func(ctx context.Context) (user, password string, er
 // IAMCredentials signs user in with a new AWS IAM token per connection, signed with the AWS
 // credentials of the session's profile (aws is its runner).
 func IAMCredentials(aws mcpserve.AWSRunner, cacheName, user, region string, serverless bool) CredentialProvider {
-	exported := &exportedCredentials{aws: aws, now: time.Now}
+	exported := mcpserve.NewExportedCredentials(aws)
 	return func(ctx context.Context) (string, string, error) {
-		creds, err := exported.get(ctx)
+		creds, err := exported.Retrieve(ctx)
 		if err != nil {
 			return "", "", err
 		}

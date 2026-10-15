@@ -15,6 +15,7 @@ import (
 
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/dynamomcp"
 	"github.com/n2jsoft/airlock/internal/kubemcp"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -24,13 +25,14 @@ import (
 type kind string
 
 const (
-	kindDB    kind = "db"
-	kindK8s   kind = "k8s"
-	kindCache kind = "cache"
+	kindDB     kind = "db"
+	kindK8s    kind = "k8s"
+	kindCache  kind = "cache"
+	kindDynamo kind = "dynamo"
 )
 
 // kinds is the order the relayed tools are listed in.
-var kinds = []kind{kindDB, kindK8s, kindCache}
+var kinds = []kind{kindDB, kindK8s, kindCache, kindDynamo}
 
 // kindOf is the kind of the sessions of resourceType; empty when they serve no tool.
 func kindOf(resourceType string) kind {
@@ -41,6 +43,8 @@ func kindOf(resourceType string) kind {
 		return kindK8s
 	case "elasticache", sessions.DockerCacheResourceType:
 		return kindCache
+	case sessions.DynamoDBResourceType:
+		return kindDynamo
 	default:
 		return ""
 	}
@@ -61,8 +65,10 @@ func prototype(k kind) *mcp.Server {
 		return dbmcp.NewServer(&dbmcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil)
 	case kindK8s:
 		return kubemcp.NewServer(&kubemcp.ServerConfig{Name: "prototype"}, nil, nil)
-	default:
+	case kindCache:
 		return cachemcp.NewServer(&cachemcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil)
+	default:
+		return dynamomcp.NewServer(&dynamomcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil)
 	}
 }
 
@@ -146,7 +152,7 @@ func (r *relay) add(ctx context.Context, server *mcp.Server) error {
 			if err != nil {
 				return err
 			}
-			server.AddTool(tool, r.handler(k, proto.Name))
+			server.AddTool(tool, r.handler(k, proto.Name, destructive(proto)))
 		}
 	}
 	return nil
@@ -217,8 +223,13 @@ func splitSession(raw json.RawMessage) (map[string]any, sessions.ID, error) {
 	return args, sessions.ID(id), nil
 }
 
+// destructive is whether tool declares it may modify data: the tools that need agent writes.
+func destructive(tool *mcp.Tool) bool {
+	return tool.Annotations != nil && tool.Annotations.DestructiveHint != nil && *tool.Annotations.DestructiveHint
+}
+
 // handler relays the calls of the tool name of kind k to the session the call names.
-func (r *relay) handler(k kind, name string) mcp.ToolHandler {
+func (r *relay) handler(k kind, name string, writes bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, id, err := splitSession(req.Params.Arguments)
 		if err != nil {
@@ -244,10 +255,10 @@ func (r *relay) handler(k kind, name string) mcp.ToolHandler {
 		if got := kindOf(access.ResourceType); got != k {
 			return refuse("session %d is a %s session: use the %s_ tools", id, access.ResourceType, got), nil
 		}
-		if name == "execute" && !r.settings().AgentWrites {
+		if writes && !r.settings().AgentWrites {
 			return refuse("%s", reasonWritesOff), nil
 		}
-		if name == "execute" && !access.Writes {
+		if writes && !access.Writes {
 			return refuse("session %d is read-only: open it with writes, or ask the user", id), nil
 		}
 		cs, err := r.client(id, access.Server)
@@ -259,6 +270,8 @@ func (r *relay) handler(k kind, name string) mcp.ToolHandler {
 		if err != nil {
 			return refuse("%v", err), nil
 		}
+		// The text carries the result; the structured content, decoded as float64, would round big integers.
+		res.StructuredContent = nil
 		return res, nil
 	}
 }

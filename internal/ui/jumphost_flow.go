@@ -106,6 +106,7 @@ var resourceTypeOptions = []resourceTypeOption{
 	{name: "rds", titleKey: "ui.card.rds.title", descKey: "ui.card.rds.desc"},
 	{name: "eks", titleKey: "ui.card.eks.title", descKey: "ui.card.eks.desc"},
 	{name: "elasticache", titleKey: "ui.card.elasticache.title", descKey: "ui.card.elasticache.desc"},
+	{name: "dynamodb", titleKey: "ui.card.dynamodb.title", descKey: "ui.card.dynamodb.desc"},
 }
 
 // directCard is the Type step card of direct databases, offered when the dashboard has a store.
@@ -419,10 +420,15 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 	return m
 }
 
-// typeOptions are the cards of the Type step: the AWS types, and direct databases when the
-// dashboard has their store.
+// typeOptions are the cards of the Type step: the AWS types (DynamoDB only with MCP, as its session
+// is its MCP server), and direct databases when the dashboard has their store.
 func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
-	options := append([]resourceTypeOption{}, resourceTypeOptions...)
+	options := make([]resourceTypeOption, 0, len(resourceTypeOptions)+2)
+	for _, option := range resourceTypeOptions {
+		if option.name != sessions.DynamoDBResourceType || !m.options.SkipMCP {
+			options = append(options, option)
+		}
+	}
 	if m.databases != nil {
 		options = append(options, directCard)
 	}
@@ -436,6 +442,12 @@ func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
 func (m jumphostWizardModel) isDocker() bool {
 	return m.flow == flowNew && m.options.ResourceType == sessions.DockerResourceType &&
 		m.step != jumphostStepType && m.step != jumphostStepStart
+}
+
+// isDynamoDB reports whether the flow works on DynamoDB tables: no port, no sign-in, only the MCP
+// write toggle.
+func (m jumphostWizardModel) isDynamoDB() bool {
+	return m.options.ResourceType == sessions.DynamoDBResourceType
 }
 
 // isDirect reports whether the flow works on a direct database: its type is chosen and the Type
@@ -990,6 +1002,9 @@ func (m jumphostWizardModel) reviewFields() []int {
 	if m.isDirect() {
 		return m.directReviewFields()
 	}
+	if m.isDynamoDB() {
+		return []int{reviewFieldMCPWrites}
+	}
 	fields := []int{reviewFieldPort}
 	if len(m.signInOptions()) > 0 {
 		fields = append(fields, reviewFieldSignIn)
@@ -1008,7 +1023,7 @@ func (m jumphostWizardModel) mcpApplies() bool {
 		return false
 	}
 	switch m.options.ResourceType {
-	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType:
+	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType, sessions.DynamoDBResourceType:
 		return true
 	case "elasticache":
 		return jumphost.CacheEngineSupported(m.targetEngine)
@@ -1090,6 +1105,9 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 	}
 	if m.isDirect() {
 		return m.submitDirectReview()
+	}
+	if m.isDynamoDB() {
+		return m.connectReviewed()
 	}
 	port, err := strconv.Atoi(strings.TrimSpace(m.portInput.Value()))
 	if err != nil || port <= 0 {

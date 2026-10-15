@@ -17,6 +17,10 @@
   │  CACHE   ElastiCache                                               3 │
   │ Tunnel to a Redis / Valkey cache, with MCP server                    │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  DYNAMODB   DynamoDB                                               4 │
+  │ Tables of a region for your AI assistant (MCP), no tunnel            │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
@@ -32,8 +36,4 @@
 
 
 
-
-
-
-
-   ↑↓  move   1-3  pick   enter  select   r  region   s  search   ?  help   q  quit
+   ↑↓  move   1-4  pick   enter  select   r  region   s  search   ?  help   q  quit

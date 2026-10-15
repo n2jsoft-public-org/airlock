@@ -453,10 +453,15 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 			userHelp = i18n.T("ui.jumphost_flow_view.rbac_user_leave_empty")
 		}
 	}
+	if m.isDynamoDB() {
+		mcpHelp = i18n.T("ui.jumphost_flow_view.space_toggles_dynamodb_writes")
+	}
 	if compact {
 		portHelp, signInHelp, userHelp, passwordHelp, rememberHelp, secretHelp, mcpHelp = "", "", "", "", "", "", ""
 	}
-	rows = append(rows, m.reviewInput(reviewFieldPort, i18n.T("ui.jumphost_flow_view.port"), inputView(m.portInput), portHelp, inner)...)
+	if !m.isDynamoDB() {
+		rows = append(rows, m.reviewInput(reviewFieldPort, i18n.T("ui.jumphost_flow_view.port"), inputView(m.portInput), portHelp, inner)...)
+	}
 	if len(m.signInOptions()) > 0 {
 		rows = append(rows, m.reviewInput(reviewFieldSignIn, i18n.T("ui.jumphost_flow_view.sign_in"), m.signInSelector(), signInHelp, inner)...)
 		for _, field := range m.signInFields() {

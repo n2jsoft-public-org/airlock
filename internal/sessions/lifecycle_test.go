@@ -267,3 +267,21 @@ func TestRestartedDirectSessionRunsAgain(t *testing.T) {
 		t.Fatalf("prepared = %+v, want the restart prepared with the typed password", prepared)
 	}
 }
+
+func TestDynamoDBSessionRunsAtOnceAndStopsWithoutProcess(t *testing.T) {
+	m, runner, _ := newManager(t)
+	runner.DynamoDB("eu-west-3")
+	id, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: "dynamodb", Name: "eu-west-3", AwsProfile: "dev"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := snapshotOf(t, m).Sessions[0]; s.State != sessions.StateRunning || !s.Ready {
+		t.Fatalf("session = %+v", s)
+	}
+	if err := m.Stop(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if s := snapshotOf(t, m).Sessions[0]; s.State != sessions.StateEnded || !s.StopRequested {
+		t.Fatalf("session = %+v", s)
+	}
+}

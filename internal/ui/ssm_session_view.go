@@ -207,7 +207,7 @@ func (m ssmModel) renderPills(width int) string {
 		s := &m.sessions[idx]
 		icon, _, style := m.status(s)
 		pill := style.Render(icon) + " " + s.Target
-		if !s.Direct() {
+		if !s.NoTunnel() {
 			pill += fmt.Sprintf(" :%d", s.LocalPort)
 		}
 		if env := m.sessionEnvironment(s); !env.IsZero() {
@@ -279,8 +279,11 @@ func (m ssmModel) renderDetails(width int) string {
 	}
 
 	rows := []string{title, ""}
-	if s.Direct() {
+	if s.NoTunnel() {
 		rows = append(rows, m.field(i18n.T("ui.direct_review.server"), m.styles.Title.Render(remote), inner))
+		if !s.Direct() {
+			rows = append(rows, m.field(i18n.T("ui.jumphost_flow_view.aws"), s.Profile+m.styles.Faint.Render(" · ")+s.Region, inner))
+		}
 	} else {
 		rows = append(rows,
 			m.field(i18n.T("ui.ssm_session_view.local"), m.styles.Title.Render(fmt.Sprintf("localhost:%d", s.LocalPort)), inner),
@@ -381,7 +384,7 @@ func (m ssmModel) logStyle(text string) lipgloss.Style {
 // port to free, only the tunnels do.
 func (m ssmModel) quitDialogBody() string {
 	active := m.countSessions(func(s *sessions.Session) bool { return s.Active() })
-	tunnels := m.countSessions(func(s *sessions.Session) bool { return s.Active() && !s.Direct() })
+	tunnels := m.countSessions(func(s *sessions.Session) bool { return s.Active() && !s.NoTunnel() })
 	switch {
 	case tunnels == 0:
 		return i18n.Format("ui.session.stop_sessions", i18n.Plural(active, "ui.count.active_session"))
@@ -651,7 +654,7 @@ func formatUptime(s *sessions.Session) string {
 
 // address is where tools reach s: the tunnel's local port, or the server of a direct database.
 func sessionAddress(s *sessions.Session) string {
-	if s.Direct() {
+	if s.NoTunnel() {
 		return s.Details.ConnectedServer
 	}
 	return fmt.Sprintf("localhost:%d", s.LocalPort)

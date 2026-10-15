@@ -30,7 +30,7 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 	case 0:
 		return []string{
 			"rds\t" + i18n.T("cli.completion.rds"), "eks\t" + i18n.T("cli.completion.eks"), "elasticache\t" + i18n.T("cli.completion.elasticache"),
-			"direct\t" + i18n.T("cli.completion.direct"), "docker\t" + i18n.T("cli.completion.docker"),
+			"dynamodb\t" + i18n.T("cli.completion.dynamodb"), "direct\t" + i18n.T("cli.completion.direct"), "docker\t" + i18n.T("cli.completion.docker"),
 		}, cobra.ShellCompDirectiveNoFileComp
 	case 1:
 		if strings.EqualFold(args[0], dockerResourceType) {

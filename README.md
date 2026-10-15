@@ -31,7 +31,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 | 🧭 **Guided wizard** | Pick a recent connection, or go resource type → profile → target → review. Search every target of a profile in one list. |
 | 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password and AWS Secrets Manager sign-in are available too, with an optional OS keychain. |
 | 🪟 **Parallel sessions** | Open as many tunnels as you need, switch between them with a keystroke. Local ports never collide. |
-| 🤖 **AI-ready** | Each database, EKS and cache session serves a guarded MCP server and registers it for Claude Code and VS Code. |
+| 🤖 **AI-ready** | Each database, EKS, cache and DynamoDB session serves a guarded MCP server and registers it for Claude Code and VS Code. |
 | 🗄 **Direct databases** | Declare the PostgreSQL and SQL Server databases you reach without jumphost, and get the same MCP server, audit log and IDE data source. |
 | 🧾 **Audited** | Every MCP call is shown live in the dashboard and written to a daily JSONL audit log. |
 | 🧩 **IDE integration** | Registers the tunnel as an IntelliJ data source in `.idea/dataSources.xml`. |
@@ -137,7 +137,7 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
   When a profile's credentials are missing or expired, airlock runs `aws sso login` for you: the
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
-- **A running jumphost**: an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
+- **A running jumphost** (not for DynamoDB): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
 
 ## 🛰 How it works
 
@@ -179,6 +179,7 @@ airlock                              # interactive wizard
 airlock rds my-db 5432               # tunnel to an RDS instance on localhost:5432
 airlock eks my-cluster 15432         # tunnel to a private EKS API endpoint
 airlock elasticache my-cache 6379    # tunnel to an ElastiCache cluster
+airlock dynamodb eu-west-3         # DynamoDB tables of a region, for the AI assistant (MCP)
 airlock direct legacy-billing        # a direct database declared with airlock connection add
 airlock docker pg                    # a database running in a local Docker container
 airlock rds my-db 5432 --db-user app_ro
@@ -195,7 +196,7 @@ airlock rds my-db 5432 --db-user app_ro
 | `--db-secret` | Secrets Manager secret (ARN or name) holding the database or cache password |
 | `--no-ide-datasource` | Do not register the connection in `./.idea/dataSources.xml` |
 | `--no-mcp` | Do not serve the MCP server |
-| `--mcp-allow-writes` | Let the MCP server modify data (databases and caches) |
+| `--mcp-allow-writes` | Let the MCP server modify data (databases, caches and DynamoDB tables) |
 | `--jumphost-tag` | Tag of the jumphost instance, as `Key=Value` |
 | `--read-only-secret-tag` | Tag of the read-only SQL Server secrets, as `Key=Value` |
 | `--mcp-server-prefix` | Prefix of the MCP server names |
@@ -310,7 +311,7 @@ on the resource type step.
 |---|---|
 | any letter · `/` | Filter recent connections by name, type, profile or region: type right away, or press `/` first when the name starts with a shortcut letter (`n`, `s`, `d`, `q`, `j`, `k`…) |
 | `n` | Start a new connection (resource type → AWS profile → target → review) |
-| `s` | Search a target: choose a profile, then pick among all its RDS, EKS and ElastiCache targets in one list |
+| `s` | Search a target: choose a profile, then pick among all its RDS, EKS, ElastiCache and DynamoDB targets in one list |
 | `d` | Forget a recent connection |
 | `r` | Switch region (on the resource type, target and search steps) |
 | `esc` | Go back one step (from the first step of a wizard opened with `n`, back to the sessions); while AWS answers, cancel |
@@ -588,9 +589,9 @@ session instead.
 ## 🤖 AI access with MCP
 
 For **RDS PostgreSQL** and **SQL Server** sessions, **direct databases**, **EKS** clusters and
-**Redis / Valkey ElastiCache** caches, airlock serves an MCP server on `127.0.0.1` for as long as the
-session runs, so AI assistants can explore them, through the tunnel or, for direct databases, straight
-at their server.
+**Redis / Valkey ElastiCache** caches and **DynamoDB** tables, airlock serves an MCP server on
+`127.0.0.1` for as long as the session runs, so AI assistants can explore them: through the tunnel,
+straight at the server for direct databases, or through the AWS API for DynamoDB.
 
 **Database tools**
 
@@ -662,9 +663,24 @@ AWS IAM tokens are signed by airlock with your profile's credentials (it needs
 encrypts in transit, always for serverless caches. With cluster mode enabled, only the shard behind
 the tunnel is reachable: keys of other shards answer `MOVED`. Memcached sessions stay plain tunnels.
 
+**DynamoDB tools**
+
+| Tool | Description |
+|---|---|
+| `list_tables` | List the tables of the region |
+| `describe_table` | Keys, indexes, billing mode, item count and TTL of a table |
+| `get_item`, `query`, `scan` | Read items (replies are capped, with a `truncated` flag) |
+| `put_item`, `update_item`, `delete_item` | Modify items. **Only with `--mcp-allow-writes`.** |
+
+A DynamoDB session is the region of a profile: no tunnel, no jumphost, no port. The tools run with
+your profile's credentials, so the profile needs `dynamodb:ListTables`, `dynamodb:DescribeTable`,
+`dynamodb:DescribeTimeToLive`, `dynamodb:GetItem`, `dynamodb:Query` and `dynamodb:Scan`, plus
+`dynamodb:PutItem`, `dynamodb:UpdateItem` and `dynamodb:DeleteItem` for `--mcp-allow-writes`. No SSM
+permission is needed, and `--no-mcp` is refused for DynamoDB (the MCP server is all it does).
+
 **Registration.** The server is registered as `<prefix>-<profile>-<instance>` for a database,
 `<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
-cache (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
+cache and `<prefix>-<profile>-dynamodb-<region>` for DynamoDB (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
 name never share one, in the configuration of the AI clients chosen by `mcpClients` (or
 `--mcp-clients`):
 
@@ -732,7 +748,7 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 | `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
 | `open_session` | Open a target, with a reason you read |
 | `close_session` | Close a session an agent opened |
-| `db_*`, `k8s_*`, `cache_*` | The tools of the sessions above, with a `session` argument |
+| `db_*`, `k8s_*`, `cache_*`, `dynamo_*` | The tools of the sessions above, with a `session` argument |
 
 An opening asked by an agent shows an **approval dialog** in every open dashboard (`y` allow, `n`
 deny, 2 minutes to answer); with no dashboard open it is refused at once. `agentAutoConnect` lets
@@ -758,7 +774,7 @@ airlock daemon status                            # the gateway line: URL, files,
   database. Without that tag, SQL Server read-only access is off.
 
 **Write access.** `--mcp-allow-writes`, or the `MCP` toggle on the review step, adds the destructive
-`execute` tool. PostgreSQL still signs in as the chosen database user, so pick a user that is allowed
+`execute` tool (for DynamoDB, the `put_item`, `update_item` and `delete_item` tools: see the DynamoDB tools table). PostgreSQL still signs in as the chosen database user, so pick a user that is allowed
 to write: its grants decide what can change. SQL Server has no IAM sign-in and switches to the RDS
 master user secret (administrators only). `--no-mcp` disables the server entirely.
 

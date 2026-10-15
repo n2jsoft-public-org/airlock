@@ -185,6 +185,8 @@ func (s Styles) ResourceBadge(resourceType string) string {
 		return s.Badge.Background(s.BadgeEKS).Render("EKS")
 	case "elasticache":
 		return s.Badge.Background(s.BadgeCache).Render("CACHE")
+	case "dynamodb":
+		return s.Badge.Background(s.BadgeOther).Render("DYNAMODB")
 	case "docker", "docker-cache":
 		return s.Badge.Background(s.BadgeOther).Render("DOCKER")
 	default:

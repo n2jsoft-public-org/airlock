@@ -25,6 +25,9 @@ const (
 	// DockerCacheResourceType is the type of the sessions of local Redis / Valkey containers: they
 	// run no aws process, and serve the cache tools.
 	DockerCacheResourceType = "docker-cache"
+	// DynamoDBResourceType is the type of DynamoDB sessions: an AWS profile and region reached
+	// through the AWS API, with no aws process to run but an AWS identity to watch.
+	DynamoDBResourceType = "dynamodb"
 )
 
 // ID identifies a session; a restart or reconnection keeps it.
@@ -155,6 +158,12 @@ func (s *Session) Active() bool { return s.State != StateEnded }
 // cache): it runs no aws process.
 func (s *Session) Direct() bool {
 	return s.ResourceType == DirectResourceType || s.ResourceType == DockerResourceType || s.ResourceType == DockerCacheResourceType
+}
+
+// NoTunnel reports a session running no aws process: a direct or Docker session, or a DynamoDB
+// one (which, unlike them, has an AWS profile and region).
+func (s *Session) NoTunnel() bool {
+	return s.Direct() || s.ResourceType == DynamoDBResourceType
 }
 
 // ReconnectPending reports a session waiting for, or going through, an automatic reconnection.

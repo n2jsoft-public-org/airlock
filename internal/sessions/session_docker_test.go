@@ -19,3 +19,13 @@ func TestDockerCacheSessionRunsNoProcessAndKeysByType(t *testing.T) {
 		t.Fatalf("direct = %v key = %q", s.Direct(), s.Key())
 	}
 }
+
+func TestDynamoDBSessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
+	s := Session{ResourceType: DynamoDBResourceType, Target: "eu-west-3", Profile: "dev", Region: "eu-west-3"}
+	if !s.NoTunnel() || s.Direct() || s.Key() != "dev|eu-west-3|dynamodb|eu-west-3" {
+		t.Fatalf("no tunnel = %v direct = %v key = %q", s.NoTunnel(), s.Direct(), s.Key())
+	}
+	if !(&Session{ResourceType: DirectResourceType}).NoTunnel() || (&Session{ResourceType: "rds"}).NoTunnel() {
+		t.Fatal("direct sessions have no tunnel, RDS ones have one")
+	}
+}
