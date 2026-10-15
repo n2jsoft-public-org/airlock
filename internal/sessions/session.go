@@ -180,6 +180,10 @@ func (s *Session) Key() string {
 	if s.Direct() {
 		return s.ResourceType + "|" + strings.ToLower(s.Target)
 	}
+	if s.ResourceType == S3ResourceType {
+		// An S3 session covers every region of its profile.
+		return strings.ToLower(strings.Join([]string{s.Profile, s.ResourceType, s.Target}, "|"))
+	}
 	return strings.ToLower(strings.Join([]string{s.Profile, s.Region, s.ResourceType, s.Target}, "|"))
 }
 

@@ -32,7 +32,11 @@ func TestDynamoDBSessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
 
 func TestS3SessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
 	s := Session{ResourceType: S3ResourceType, Target: "buckets", Profile: "dev", Region: "eu-west-3"}
-	if !s.NoTunnel() || s.Direct() || s.Key() != "dev|eu-west-3|s3|buckets" {
+	if !s.NoTunnel() || s.Direct() || s.Key() != "dev|s3|buckets" {
 		t.Fatalf("no tunnel = %v direct = %v key = %q", s.NoTunnel(), s.Direct(), s.Key())
+	}
+	other := Session{ResourceType: S3ResourceType, Target: "buckets", Profile: "dev", Region: "us-east-1"}
+	if other.Key() != s.Key() {
+		t.Fatalf("keys differ by region: %q, %q", s.Key(), other.Key())
 	}
 }

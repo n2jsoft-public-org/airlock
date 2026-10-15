@@ -270,7 +270,7 @@ func (t *toolset) running(ctx context.Context, tg *target) *sessions.Session {
 		if !s.Active() || s.ResourceType != tg.typ || !strings.EqualFold(s.Target, tg.name) {
 			continue
 		}
-		if tg.typ == sessions.DirectResourceType || ((tg.profile == "" || s.Profile == tg.profile) && (tg.region == "" || s.Region == tg.region)) {
+		if tg.typ == sessions.DirectResourceType || ((tg.profile == "" || s.Profile == tg.profile) && (tg.region == "" || s.Region == tg.region || tg.typ == sessions.S3ResourceType)) {
 			return s
 		}
 	}

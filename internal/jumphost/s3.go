@@ -43,7 +43,8 @@ func (r *Runner) prepareS3(ctx context.Context, options *Options) (*Session, err
 	if err := r.checkS3(ctx, cfg); err != nil {
 		return nil, i18n.NewError("jumphost.s3.unreachable", cfg.Profile, err)
 	}
-	label := sessionLabel(resourceS3, s3mcp.Target, cfg)
+	// Region-free: one S3 session per profile, whatever region it was opened with.
+	label := fmt.Sprintf("%s %s (%s)", strings.ToUpper(resourceS3), s3mcp.Target, cfg.Profile)
 	if err := r.registry.claim(label, s3mcp.Target); err != nil {
 		return nil, err
 	}

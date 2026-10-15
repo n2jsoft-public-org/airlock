@@ -81,3 +81,24 @@ func TestPrepareS3RefusesAnotherTarget(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestPrepareS3RefusesTheSameProfileInAnotherRegion(t *testing.T) {
+	installS3AWS(t, true)
+	s3mcpStart = func(*mcpserve.Host, *s3mcp.SessionConfig) (*mcpserve.Handle, error) { return nil, nil }
+	t.Cleanup(func() { s3mcpStart = s3mcp.Start })
+
+	runner := testRunner(t)
+	first, err := runner.Prepare(t.Context(), Options{ResourceType: "s3", AwsProfile: "dev", AwsRegion: "eu-west-3", Unattended: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.Prepare(t.Context(), Options{ResourceType: "s3", AwsProfile: "dev", AwsRegion: "us-east-1", Unattended: true}); err == nil {
+		t.Fatal("a second S3 session of the same profile was opened")
+	}
+	first.Release()
+	second, err := runner.Prepare(t.Context(), Options{ResourceType: "s3", AwsProfile: "dev", AwsRegion: "us-east-1", Unattended: true})
+	if err != nil {
+		t.Fatalf("after release: %v", err)
+	}
+	second.Release()
+}

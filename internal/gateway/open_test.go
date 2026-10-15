@@ -441,3 +441,19 @@ func TestOpenSessionNonProdOpensAStagingProfileAlone(t *testing.T) {
 		t.Fatalf("prepared = %+v", runner.PreparedOptions())
 	}
 }
+
+func TestRunningFindsTheS3SessionOfTheProfileInAnyRegion(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	runner.S3()
+	m, _ := newTestManager(t, runner)
+	if _, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: sessions.S3ResourceType, Name: "buckets", AwsProfile: "dev", AwsRegion: "eu-west-3"}}); err != nil {
+		t.Fatal(err)
+	}
+	tools := &toolset{manager: m}
+	if tools.running(t.Context(), &target{typ: sessions.S3ResourceType, name: "buckets", profile: "dev", region: "us-east-1"}) == nil {
+		t.Fatal("the S3 session of dev must be reused from another region")
+	}
+	if tools.running(t.Context(), &target{typ: sessions.S3ResourceType, name: "buckets", profile: "prod", region: "eu-west-3"}) != nil {
+		t.Fatal("the S3 session of dev must not serve prod")
+	}
+}

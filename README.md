@@ -584,7 +584,7 @@ session instead.
 
 - **Ports never collide.** The suggested port skips ports used by other sessions or other local
   processes (a second `5432` RDS gets `5433`). A busy port requested explicitly is rejected.
-- **No duplicates.** Connecting twice to the same target (same type, name, profile and region) is
+- **No duplicates.** Connecting twice to the same target (same type, name, profile and region; S3 has one session per profile, whatever its region) is
   refused.
 
 ## 🤖 AI access with MCP
