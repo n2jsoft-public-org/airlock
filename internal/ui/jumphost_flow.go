@@ -51,6 +51,8 @@ type JumphostDiscovery interface {
 	// FindResource returns the target of options, or an error when it no longer exists; a
 	// non-empty account must be the profile's, else a *jumphost.AccountMismatchError is returned.
 	FindResource(ctx context.Context, options *jumphost.Options, account string) (jumphost.ResourceSummary, error)
+	// ModuleDisabled reports whether config.json turns off the targets of resourceType.
+	ModuleDisabled(resourceType string) bool
 }
 
 // DirectDatabaseStore holds the direct database definitions (saved-connections.json), which the wizard
@@ -421,18 +423,20 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 }
 
 // typeOptions are the cards of the Type step: the AWS types (DynamoDB only with MCP, as its session
-// is its MCP server), and direct databases when the dashboard has their store.
+// is its MCP server), and direct databases when the dashboard has their store; disabled modules
+// have none.
 func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
 	options := make([]resourceTypeOption, 0, len(resourceTypeOptions)+2)
 	for _, option := range resourceTypeOptions {
-		if option.name != sessions.DynamoDBResourceType || !m.options.SkipMCP {
+		if (option.name != sessions.DynamoDBResourceType || !m.options.SkipMCP) && !m.runner.ModuleDisabled(option.name) {
 			options = append(options, option)
 		}
 	}
-	if m.databases != nil {
+	if m.databases != nil && !m.runner.ModuleDisabled(sessions.DirectResourceType) {
 		options = append(options, directCard)
 	}
-	if m.docker != nil {
+	// Docker lists both databases and caches.
+	if m.docker != nil && (!m.runner.ModuleDisabled(sessions.DockerResourceType) || !m.runner.ModuleDisabled(sessions.DockerCacheResourceType)) {
 		options = append(options, dockerCard)
 	}
 	return options

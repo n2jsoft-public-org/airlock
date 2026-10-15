@@ -105,6 +105,10 @@ func (d reloadingDiscovery) ForgetConnection(ctx context.Context, ref jumphost.T
 	return d.runner().ForgetConnection(ctx, ref)
 }
 
+func (d reloadingDiscovery) ModuleDisabled(resourceType string) bool {
+	return d.runner().ModuleDisabled(resourceType)
+}
+
 func (d reloadingDiscovery) KeychainAvailable() bool {
 	return d.runner().KeychainAvailable()
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,14 +33,14 @@ func TestDefaults(t *testing.T) {
 
 func TestLoadMissingFileGivesDefaults(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "absent.json"))
-	if err != nil || cfg != Defaults() {
+	if err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("Load(missing) = %+v, %v", cfg, err)
 	}
 }
 
 func TestLoadEmptyPathGivesDefaults(t *testing.T) {
 	cfg, err := Load("")
-	if err != nil || cfg != Defaults() {
+	if err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("Load(\"\") = %+v, %v", cfg, err)
 	}
 }
@@ -72,7 +73,7 @@ func TestLoadACMEPreset(t *testing.T) {
 		RandomLocalPort:   true,
 		Language:          LanguageAuto,
 	}
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load = %+v, want %+v", cfg, want)
 	}
 }
@@ -151,7 +152,7 @@ func TestApplyNilKeepsFile(t *testing.T) {
 	cfg := Defaults()
 	cfg.MCPServerPrefix = "acme"
 	got, err := cfg.Apply(Overrides{})
-	if err != nil || got != cfg {
+	if err != nil || !reflect.DeepEqual(got, cfg) {
 		t.Fatalf("Apply(no overrides) = %+v, %v", got, err)
 	}
 }
@@ -277,5 +278,18 @@ func TestModeSetting(t *testing.T) {
 	}
 	if out.Mode != ModeDaemon {
 		t.Fatalf("override = %q", out.Mode)
+	}
+}
+
+func TestParseModules(t *testing.T) {
+	got, err := parseModules(" DynamoDB, sql,,sql ")
+	if err != nil || !reflect.DeepEqual(got, []string{"sql", "dynamodb"}) {
+		t.Fatalf("parseModules = %v, %v; want [sql dynamodb] in Modules order", got, err)
+	}
+	if got, err = parseModules(" "); err != nil || got != nil {
+		t.Fatalf("parseModules(blank) = %v, %v; want none", got, err)
+	}
+	if _, err = parseModules("sql,s3"); err == nil {
+		t.Fatal("parseModules(s3) succeeded; want an unknown module error")
 	}
 }

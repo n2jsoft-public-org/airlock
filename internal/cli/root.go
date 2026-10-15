@@ -303,6 +303,7 @@ func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry,
 		Containers:        dockerContainers(),
 		Environments:      cfg.EnvironmentSet(),
 		RandomLocalPort:   cfg.RandomLocalPort,
+		DisabledModules:   cfg.DisabledModules,
 	}
 }
 

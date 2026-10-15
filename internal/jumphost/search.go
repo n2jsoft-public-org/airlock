@@ -3,6 +3,7 @@ package jumphost
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -27,7 +28,8 @@ func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]Resou
 		return nil, nil, err
 	}
 	options.AwsRegion = cfg.Region
-	resources, failures := searchResources(searchableResourceTypes, func(resourceType string) ([]ResourceSummary, error) {
+	types := slices.DeleteFunc(slices.Clone(searchableResourceTypes), r.ModuleDisabled)
+	resources, failures := searchResources(types, func(resourceType string) ([]ResourceSummary, error) {
 		return r.listResources(ctx, cfg, resourceType)
 	})
 	return resources, failures, nil

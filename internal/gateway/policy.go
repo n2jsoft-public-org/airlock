@@ -4,9 +4,11 @@
 package gateway
 
 import (
+	"slices"
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
 // AutoConnect is which agent openings skip the dashboard prompt (agentAutoConnect).
@@ -26,6 +28,13 @@ type Settings struct {
 	IdleTimeout time.Duration
 	// AgentWrites lets agents ask for MCP writes, always prompted.
 	AgentWrites bool
+	// DisabledModules are the modules (jumphost.ModuleOf) agents neither list nor open.
+	DisabledModules []string
+}
+
+// disabled reports whether the targets of resourceType belong to a disabled module.
+func (s *Settings) disabled(resourceType string) bool {
+	return slices.Contains(s.DisabledModules, jumphost.ModuleOf(resourceType))
 }
 
 // Verdict is what Decide concludes for an opening.

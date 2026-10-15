@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -107,7 +108,7 @@ func TestConfigInitWritesTheTemplateOnce(t *testing.T) {
 			t.Fatalf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if cfg, loadErr := config.Load(path); loadErr != nil || cfg != config.Defaults() {
+	if cfg, loadErr := config.Load(path); loadErr != nil || !reflect.DeepEqual(cfg, config.Defaults()) {
 		t.Fatalf("template = %+v, %v", cfg, loadErr)
 	}
 

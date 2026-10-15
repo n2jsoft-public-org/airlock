@@ -60,7 +60,12 @@ type Config struct {
 	AgentWrites bool
 	// RandomLocalPort binds SSM tunnels to a free port chosen by the OS instead of the target's port.
 	RandomLocalPort bool
+	// DisabledModules are the Modules airlock neither lists nor opens, in Modules order.
+	DisabledModules []string
 }
+
+// Modules are the target families disabledModules can turn off.
+var Modules = []string{"sql", "k8s", "cache", "dynamodb"}
 
 // Modes of the mode setting.
 const (
@@ -144,6 +149,7 @@ type file struct {
 	AgentWrites       *string `json:"agentWrites,omitempty"`
 	AgentIdleTimeout  *string `json:"agentIdleTimeout,omitempty"`
 	RandomLocalPort   *string `json:"randomLocalPort,omitempty"`
+	DisabledModules   *string `json:"disabledModules,omitempty"`
 	Language          *string `json:"language,omitempty"`
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
@@ -272,6 +278,11 @@ func (f *file) apply(base *Config) (Config, error) {
 			return Config{}, fmt.Errorf("randomLocalPort: %w", err)
 		}
 	}
+	if f.DisabledModules != nil {
+		if cfg.DisabledModules, err = parseModules(*f.DisabledModules); err != nil {
+			return Config{}, fmt.Errorf("disabledModules: %w", err)
+		}
+	}
 	if f.Language != nil {
 		if cfg.Language, err = parseLanguage(*f.Language); err != nil {
 			return Config{}, fmt.Errorf("language: %w", err)
@@ -372,6 +383,25 @@ func parseLanguage(s string) (string, error) {
 		return lang, nil
 	}
 	return "", i18n.NewError("config.config.unknown_language_valid", s, LanguageAuto, strings.Join(i18n.Supported, ", "))
+}
+
+// parseModules reads comma-separated Modules, in any case; the result is in Modules order.
+func parseModules(s string) ([]string, error) {
+	var modules []string
+	for name := range strings.SplitSeq(s, ",") {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		if !slices.Contains(Modules, name) {
+			return nil, i18n.NewError("config.config.unknown_module_valid", name, strings.Join(Modules, ", "))
+		}
+		modules = append(modules, name)
+	}
+	if len(modules) == 0 {
+		return nil, nil
+	}
+	return slices.DeleteFunc(slices.Clone(Modules), func(m string) bool { return !slices.Contains(modules, m) }), nil
 }
 
 func parsePrefix(s string) (string, error) {

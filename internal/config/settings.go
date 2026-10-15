@@ -43,6 +43,7 @@ var Keys = []Key{
 	{Name: "agentWrites"},
 	{Name: "agentIdleTimeout"},
 	{Name: "randomLocalPort"},
+	{Name: "disabledModules"},
 	{Name: "language", Personal: true},
 }
 
@@ -222,6 +223,7 @@ func (c *Config) values() map[string]string {
 		"agentWrites":       strconv.FormatBool(c.AgentWrites),
 		"agentIdleTimeout":  FormatDuration(c.AgentIdleTimeout),
 		"randomLocalPort":   strconv.FormatBool(c.RandomLocalPort),
+		"disabledModules":   strings.Join(c.DisabledModules, ","),
 		"language":          c.Language,
 	}
 }
@@ -259,6 +261,8 @@ func (f *file) field(key string) **string {
 		return &f.AgentIdleTimeout
 	case "randomLocalPort":
 		return &f.RandomLocalPort
+	case "disabledModules":
+		return &f.DisabledModules
 	case "language":
 		return &f.Language
 	case legacyProductionProfiles:

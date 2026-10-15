@@ -18,6 +18,7 @@ var en = map[string]string{
 	"config.key.daemonIdleTimeout":  "Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. 10m or 8h (at least 1m)",
 	"config.key.agentIdleTimeout":   "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)",
 	"config.key.randomLocalPort":    "true: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; false: on the target's port (or the next free one)",
+	"config.key.disabledModules":    "modules airlock neither lists nor opens, comma-separated: sql (RDS, direct and Docker databases), k8s (EKS), cache (ElastiCache and Docker caches), dynamodb",
 	"config.key.language":           "Language of airlock: auto (the system's), en or fr; read at start",
 	"config.key.productionProfiles": "Deprecated: replaced by environments (read as prod!=<patterns> while environments is not set)",
 
@@ -772,6 +773,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"config.config.must_not_be_empty":            "must not be empty (expected Key=Value)",
 	"config.config.invalid_pattern_use_as":       "invalid pattern %q (use * as wildcard, e.g. *prod*)",
 	"config.config.unknown_mode_valid":           "unknown mode %q (valid: %s, %s)",
+	"config.config.unknown_module_valid":         "unknown module %q (valid: %s)",
 	"config.config.unknown_language_valid":       "unknown language %q (valid: %s, %s)",
 	"config.config.must_not_be_empty_2":          "must not be empty",
 	"config.config.invalid_value_valid_true":     "invalid value %q (valid: true, false)",
@@ -837,6 +839,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"jumphost.dynamodb.unreachable":                       "DynamoDB is not reachable with profile %s in %s: %v",
 	"jumphost.runner.aws_cli_is_not":                      "AWS CLI is not installed. Please install it from https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",
 	"jumphost.runner.unsupported_resource_type_supported": "unsupported resource type %q (supported: eks, rds, elasticache, dynamodb)",
+	"jumphost.modules.disabled":                           "the %s module is disabled (disabledModules in config.json): %s targets cannot be opened",
 	"jumphost.runner.failed_to_serialize_ssm":             "failed to serialize SSM parameters: %w",
 	"jumphost.runner.invalid_local_port":                  "invalid local port %q: %w",
 	"jumphost.runner.failed_to_parse_rds":                 "failed to parse RDS instances: %w",

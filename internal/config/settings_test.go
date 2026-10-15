@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -183,11 +184,11 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"environments\": \"prod!=\",\n  \"mcpClients\": \"auto\",\n  \"mode\": \"cli\",\n  \"daemonIdleTimeout\": \"10m\",\n  \"mcpGateway\": \"true\",\n  \"mcpGatewayPort\": \"7821\",\n  \"agentAutoConnect\": \"none\",\n  \"agentWrites\": \"false\",\n  \"agentIdleTimeout\": \"30m\",\n  \"randomLocalPort\": \"true\",\n  \"language\": \"auto\"\n}\n"
+	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"environments\": \"prod!=\",\n  \"mcpClients\": \"auto\",\n  \"mode\": \"cli\",\n  \"daemonIdleTimeout\": \"10m\",\n  \"mcpGateway\": \"true\",\n  \"mcpGatewayPort\": \"7821\",\n  \"agentAutoConnect\": \"none\",\n  \"agentWrites\": \"false\",\n  \"agentIdleTimeout\": \"30m\",\n  \"randomLocalPort\": \"true\",\n  \"disabledModules\": \"\",\n  \"language\": \"auto\"\n}\n"
 	if string(data) != want {
 		t.Fatalf("template = %q, want %q", data, want)
 	}
-	if cfg, err := Load(path); err != nil || cfg != Defaults() {
+	if cfg, err := Load(path); err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("the template must load as the defaults: %+v, %v", cfg, err)
 	}
 }
@@ -205,7 +206,7 @@ func TestWriteTemplateRefusesAnExistingFileUnlessForced(t *testing.T) {
 	if err != nil || string(backup) != `{"mcpServerPrefix": "acme"}` {
 		t.Fatalf("backup = %q, %v, want the previous file", backup, err)
 	}
-	if cfg, err := Load(path); err != nil || cfg != Defaults() {
+	if cfg, err := Load(path); err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("forced template = %+v, %v", cfg, err)
 	}
 }

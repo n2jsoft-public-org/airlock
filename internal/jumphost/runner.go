@@ -151,6 +151,8 @@ type RunnerOptions struct {
 	ReadOnlySecretTag awstag.Tag
 	// RandomLocalPort binds tunnels to a free port chosen by the OS instead of the target's port.
 	RandomLocalPort bool
+	// DisabledModules are the modules (ModuleOf) whose targets are neither searched nor opened.
+	DisabledModules []string
 	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
@@ -265,6 +267,7 @@ type Runner struct {
 	readOnlySecretTag awstag.Tag
 	mcpServerPrefix   string
 	randomLocalPort   bool
+	disabledModules   []string
 	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
 	kubeconfigDir string
 	accountsMu    sync.Mutex
@@ -373,6 +376,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
 		randomLocalPort: opts.RandomLocalPort,
+		disabledModules: opts.DisabledModules,
 		databases:       opts.Databases,
 		containers:      opts.Containers,
 		environments:    opts.Environments,
@@ -418,6 +422,9 @@ func (r *Runner) Run(ctx context.Context, options *Options) error {
 // Prepare resolves the target, reserves a free local port and registers the IDE data source.
 // The caller starts the returned session (aws CommandArgs + AwsArgs; none for a direct database) and must Release it once finished.
 func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error) { //nolint:gocritic // signature fixed by sessions.Runner.
+	if err := r.checkModule(options.ResourceType); err != nil {
+		return nil, err
+	}
 	// A direct database is reached without AWS: no CLI, identity, jumphost nor local port.
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDirect) {
 		return r.prepareDirect(ctx, &options)

@@ -829,6 +829,7 @@ unknown key or a malformed value is an error that names the file.
 | `agentWrites` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
 | `agentIdleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
 | `randomLocalPort` | none | `true` | `true`: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; `false`: on the target's port (or the next free one) |
+| `disabledModules` | none | none | Modules airlock neither lists nor opens, comma-separated: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, e.g. `cache,dynamodb` |
 
 `defaultDbUser` takes comma-separated entries. A bare user (`app_ro`) is the AWS IAM user of
 PostgreSQL and MySQL; an `engine=user` pair sets the user of one engine and wins over the bare user.

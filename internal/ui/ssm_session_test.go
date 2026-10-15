@@ -57,6 +57,8 @@ func (fakeSessionRunner) LoadConnectionPrefs(context.Context, jumphost.Options) 
 
 func (fakeSessionRunner) KeychainAvailable() bool { return true }
 
+func (fakeSessionRunner) ModuleDisabled(string) bool { return false }
+
 func (fakeSessionRunner) LoadKeychainPassword(context.Context, jumphost.Options) (string, bool) {
 	return "", false
 }

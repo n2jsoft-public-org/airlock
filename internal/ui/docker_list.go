@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
@@ -140,11 +141,17 @@ func (m jumphostWizardModel) enterDockerList() (tea.Model, tea.Cmd) {
 	return m, m.listDockerCmd()
 }
 
-// listDockerCmd lists the database and cache containers.
+// listDockerCmd lists the database and cache containers, but those of a disabled module.
 func (m jumphostWizardModel) listDockerCmd() tea.Cmd {
-	source, ctx := m.docker, m.ctx
+	source, ctx, runner := m.docker, m.ctx, m.runner
 	return func() tea.Msg {
 		containers, err := source.List(ctx)
+		containers = slices.DeleteFunc(containers, func(c dockerdb.Container) bool {
+			if c.Cache() {
+				return runner.ModuleDisabled(sessions.DockerCacheResourceType)
+			}
+			return runner.ModuleDisabled(sessions.DockerResourceType)
+		})
 		return dockerListedMsg{containers: containers, err: err}
 	}
 }
