@@ -296,9 +296,13 @@ function Invoke-AirlockUninstall([string]$target) {
         throw "airlock uninstall failed with exit code $LASTEXITCODE"
     }
     $dir = Split-Path $target
+    $name = Split-Path -Leaf $target
     for ($i = 0; $i -lt 120; $i++) {
-        $emptyDir = (Test-Path $dir) -and -not (Get-ChildItem -Force $dir)
-        if (-not (Test-Path $target) -and -not $emptyDir) {
+        # Done once the folder is gone, or keeps other files. Not while it holds only what the
+        # hidden PowerShell deletes after the binary: airlock.exe.old*, airlock.exe.new, nothing.
+        $others = Get-ChildItem -Force $dir -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne $name -and $_.Name -notlike "$name.old*" -and $_.Name -ne "$name.new" }
+        if (-not (Test-Path $target) -and ($others -or -not (Test-Path $dir))) {
             break
         }
         Start-Sleep -Milliseconds 250
