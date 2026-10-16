@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/sharecode"
 )
 
 func changeOf(t *testing.T, plan *Plan, key string) Change {
@@ -25,8 +27,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(shared, "airlock1:") || strings.ContainsAny(shared, " \n{}\"") {
-		t.Fatalf("shared = %q, want one opaque airlock1: string", shared)
+	if !strings.HasPrefix(shared, "airlock2:") || strings.ContainsAny(shared, " \n{}\"") {
+		t.Fatalf("shared = %q, want one opaque airlock2: string", shared)
 	}
 
 	target := filepath.Join(t.TempDir(), "airlock", "config.json")
@@ -37,7 +39,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if len(plan.Changes) != 2 || !plan.HasChanges() {
 		t.Fatalf("changes = %+v, want the two exported keys", plan.Changes)
 	}
-	if c := changeOf(t, &plan, "mcpServerPrefix"); c.Kind != ChangeAdded || c.Old != "airlock" || !c.OldDefault || c.New != "acme" || c.NewDefault {
+	if c := changeOf(t, &plan, "mcp.serverPrefix"); c.Kind != ChangeAdded || c.Old != "airlock" || !c.OldDefault || c.New != "acme" || c.NewDefault {
 		t.Fatalf("mcpServerPrefix change = %+v", c)
 	}
 	if err = ApplyImport(&plan); err != nil {
@@ -51,7 +53,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 
 func TestExportKeepsTheNamedKeys(t *testing.T) {
 	source := writeConfig(t, `{"mcpServerPrefix": "acme", "defaultRegion": "eu-west-3", "mode": "daemon"}`)
-	shared, err := Export(source, "defaultRegion", "mode")
+	shared, err := Export(source, "aws.defaultRegion", "mode")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,14 +64,14 @@ func TestExportKeepsTheNamedKeys(t *testing.T) {
 	if len(plan.Changes) != 2 {
 		t.Fatalf("changes = %+v, want defaultRegion and mode only", plan.Changes)
 	}
-	if changeOf(t, &plan, "defaultRegion").New != "eu-west-3" || changeOf(t, &plan, "mode").New != "daemon" {
+	if changeOf(t, &plan, "aws.defaultRegion").New != "eu-west-3" || changeOf(t, &plan, "mode").New != "daemon" {
 		t.Fatalf("changes = %+v", plan.Changes)
 	}
 }
 
 func TestExportRefusesKeysNotInTheFile(t *testing.T) {
 	source := writeConfig(t, `{"mcpServerPrefix": "acme"}`)
-	if _, err := Export(source, "defaultRegion"); err == nil || !strings.Contains(err.Error(), "does not set defaultRegion") {
+	if _, err := Export(source, "aws.defaultRegion"); err == nil || !strings.Contains(err.Error(), "does not set aws.defaultRegion") {
 		t.Fatalf("err = %v, want defaultRegion refused", err)
 	}
 	if _, err := Export(source, "nope"); err == nil || !strings.Contains(err.Error(), `unknown setting "nope"`) {
@@ -106,9 +108,9 @@ func TestImportRejectsDamagedStrings(t *testing.T) {
 	for name, s := range map[string]string{
 		"truncated":    shared[:len(shared)-4],
 		"altered":      string(altered),
-		"wrong prefix": "airlock2:" + strings.TrimPrefix(shared, "airlock1:"),
-		"not base64":   "airlock1:!!!",
-		"empty":        "airlock1:",
+		"wrong prefix": "airlock3:" + strings.TrimPrefix(shared, "airlock2:"),
+		"not base64":   "airlock2:!!!",
+		"empty":        "airlock2:",
 		"not a string": "hello",
 	} {
 		if _, err := PlanImport(target, s, false); !errors.Is(err, ErrInvalidShare) {
@@ -126,8 +128,8 @@ func TestImportRejectsUnknownKeysAndInvalidValues(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "futureKey") || !strings.Contains(err.Error(), "update airlock") {
 		t.Fatalf("unknown key err = %v", err)
 	}
-	_, err = PlanImport(target, encodeShare([]byte(`{"jumphostTag": "Usage"}`)), false)
-	if err == nil || !strings.Contains(err.Error(), "jumphostTag") {
+	_, err = PlanImport(target, encodeShare([]byte(`{"aws": {"jumphostTag": "Usage"}}`)), false)
+	if err == nil || !strings.Contains(err.Error(), "aws.jumphostTag") {
 		t.Fatalf("invalid value err = %v", err)
 	}
 }
@@ -140,17 +142,17 @@ func TestPlanImportMergesByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := changeOf(t, &plan, "jumphostTag"); c.Kind != ChangeUpdated || c.Old != "Usage=jumphost" || c.OldDefault || c.New != "Env=bastion" {
+	if c := changeOf(t, &plan, "aws.jumphostTag"); c.Kind != ChangeUpdated || c.Old != "Usage=jumphost" || c.OldDefault || c.New != "Env=bastion" {
 		t.Fatalf("jumphostTag = %+v", c)
 	}
-	if c := changeOf(t, &plan, "mcpServerPrefix"); c.Kind != ChangeUnchanged {
+	if c := changeOf(t, &plan, "mcp.serverPrefix"); c.Kind != ChangeUnchanged {
 		t.Fatalf("mcpServerPrefix = %+v", c)
 	}
-	if c := changeOf(t, &plan, "defaultRegion"); c.Kind != ChangeAdded || c.Old != "" || !c.OldDefault || c.New != "eu-west-3" {
+	if c := changeOf(t, &plan, "aws.defaultRegion"); c.Kind != ChangeAdded || c.Old != "" || !c.OldDefault || c.New != "eu-west-3" {
 		t.Fatalf("defaultRegion = %+v", c)
 	}
 	for _, c := range plan.Changes {
-		if c.Name == "defaultDbUser" {
+		if c.Name == "modules.sql.defaultDbUser" {
 			t.Fatalf("a merge must not mention local keys absent from the string: %+v", c)
 		}
 	}
@@ -172,7 +174,7 @@ func TestPlanImportReplaceRemovesLocalKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := changeOf(t, &plan, "defaultDbUser"); c.Kind != ChangeRemoved || c.Old != "acme_ro" || c.New != "" || !c.NewDefault {
+	if c := changeOf(t, &plan, "modules.sql.defaultDbUser"); c.Kind != ChangeRemoved || c.Old != "acme_ro" || c.New != "" || !c.NewDefault {
 		t.Fatalf("defaultDbUser = %+v", c)
 	}
 	if err = ApplyImport(&plan); err != nil {
@@ -182,7 +184,7 @@ func TestPlanImportReplaceRemovesLocalKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := settingOf(t, settings, "defaultDbUser"); s.Source != SourceDefault {
+	if s := settingOf(t, settings, "modules.sql.defaultDbUser"); s.Source != SourceDefault {
 		t.Fatalf("defaultDbUser = %+v, want removed from the file", s)
 	}
 }
@@ -191,11 +193,11 @@ func TestPlanImportOfChosenKeysLeavesTheOthers(t *testing.T) {
 	shared := encodeShare([]byte(`{"jumphostTag": "Env=bastion", "defaultRegion": "eu-west-3"}`))
 	target := writeConfig(t, `{"jumphostTag": "Usage=jumphost", "defaultDbUser": "acme_ro"}`)
 
-	plan, err := PlanImport(target, shared, false, "defaultRegion")
+	plan, err := PlanImport(target, shared, false, "aws.defaultRegion")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Changes) != 1 || plan.Changes[0].Name != "defaultRegion" {
+	if len(plan.Changes) != 1 || plan.Changes[0].Name != "aws.defaultRegion" {
 		t.Fatalf("changes = %+v, want only defaultRegion", plan.Changes)
 	}
 	if err = ApplyImport(&plan); err != nil {
@@ -211,7 +213,7 @@ func TestPlanImportReplaceKeepsTheKeysLeftOut(t *testing.T) {
 	shared := encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`))
 	target := writeConfig(t, `{"defaultDbUser": "acme_ro", "mcpServerPrefix": "acme"}`)
 
-	plan, err := PlanImport(target, shared, true, "defaultRegion", "mcpServerPrefix")
+	plan, err := PlanImport(target, shared, true, "aws.defaultRegion", "mcp.serverPrefix")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,10 +224,10 @@ func TestPlanImportReplaceKeepsTheKeysLeftOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := settingOf(t, settings, "defaultDbUser"); s.Source != SourceFile || s.Value != "acme_ro" {
+	if s := settingOf(t, settings, "modules.sql.defaultDbUser"); s.Source != SourceFile || s.Value != "acme_ro" {
 		t.Fatalf("defaultDbUser = %+v, want kept", s)
 	}
-	if s := settingOf(t, settings, "mcpServerPrefix"); s.Source != SourceDefault {
+	if s := settingOf(t, settings, "mcp.serverPrefix"); s.Source != SourceDefault {
 		t.Fatalf("mcpServerPrefix = %+v, want removed", s)
 	}
 }
@@ -363,5 +365,31 @@ func TestImportIgnoresAShareCarryingLanguage(t *testing.T) {
 	}
 	if cfg.Language != LanguageAuto {
 		t.Fatalf("language = %q, want auto", cfg.Language)
+	}
+}
+
+func TestImportOfAnAirlock1StringRenamesItsKeys(t *testing.T) {
+	shared := sharecode.Encode("airlock1:", []byte(`{"mcpGatewayPort": "8123", "disabledModules": "k8s", "language": "fr"}`))
+	target := writeConfig(t, `{}`)
+	plan, err := PlanImport(target, shared, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := changeOf(t, &plan, "mcp.gateway.port"); c.Kind != ChangeAdded || c.New != "8123" {
+		t.Fatalf("mcp.gateway.port = %+v", c)
+	}
+	if c := changeOf(t, &plan, "modules.k8s.enabled"); c.Kind != ChangeAdded || c.New != "false" {
+		t.Fatalf("modules.k8s.enabled = %+v", c)
+	}
+	if err = ApplyImport(&plan); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(target) // #nosec G304 -- test file under t.TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"mcp\": {\n    \"gateway\": {\n      \"port\": 8123\n    }\n  },\n  \"modules\": {\n    \"k8s\": {\n      \"enabled\": false\n    }\n  }\n}\n"
+	if string(raw) != want {
+		t.Fatalf("file = %q, want %q", raw, want)
 	}
 }

@@ -12,8 +12,12 @@ import (
 	"github.com/n2jsoft/airlock/internal/sharecode"
 )
 
-// sharePrefix starts every config string; its number is the format version.
-const sharePrefix = "airlock1:"
+// sharePrefix starts every config string; its number is the format version: 2 carries the
+// nested layout of config.json.
+const sharePrefix = "airlock2:"
+
+// legacySharePrefix starts the strings of the flat layout, still imported.
+const legacySharePrefix = "airlock1:"
 
 // ErrInvalidShare refuses a string that is not an intact config string.
 var ErrInvalidShare = errors.New("not a valid airlock config string (damaged or incomplete)")
@@ -175,7 +179,10 @@ func encodeShare(data []byte) string {
 func decodeShare(shared string) (file, error) {
 	data, err := sharecode.Decode(sharePrefix, shared)
 	if err != nil {
-		return file{}, ErrInvalidShare
+		// A string of an earlier airlock: its flat keys decode into the keys replacing them.
+		if data, err = sharecode.Decode(legacySharePrefix, shared); err != nil {
+			return file{}, ErrInvalidShare
+		}
 	}
 
 	var f file

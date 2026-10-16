@@ -15,8 +15,8 @@ func TestGatewaySettingsDefaults(t *testing.T) {
 }
 
 func TestGatewaySettingsLoad(t *testing.T) {
-	path := writeConfig(t, `{"mcpGateway": "false", "mcpGatewayPort": "8123", "agentAutoConnect": "NON-PROD",
-		"agentWrites": "true", "agentIdleTimeout": "1h30m"}`)
+	path := writeConfig(t, `{"mcp": {"gateway": {"enabled": false, "port": 8123}},
+		"agent": {"autoConnect": "NON-PROD", "writes": "true", "idleTimeout": "1h30m"}}`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
@@ -31,26 +31,26 @@ func TestDaemonIdleTimeout(t *testing.T) {
 	if got := Defaults().DaemonIdleTimeout; got != 10*time.Minute {
 		t.Fatalf("default = %v, want 10m", got)
 	}
-	cfg, err := Load(writeConfig(t, `{"daemonIdleTimeout": "8h"}`))
+	cfg, err := Load(writeConfig(t, `{"daemon": {"idleTimeout": "8h"}}`))
 	if err != nil || cfg.DaemonIdleTimeout != 8*time.Hour {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
-	for _, body := range []string{`{"daemonIdleTimeout": "30s"}`, `{"daemonIdleTimeout": "never"}`} {
-		if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), "daemonIdleTimeout") {
-			t.Errorf("%s: err = %v, want one naming daemonIdleTimeout", body, err)
+	for _, body := range []string{`{"daemon": {"idleTimeout": "30s"}}`, `{"daemon": {"idleTimeout": "never"}}`} {
+		if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), "daemon.idleTimeout") {
+			t.Errorf("%s: err = %v, want one naming daemon.idleTimeout", body, err)
 		}
 	}
 }
 
 func TestGatewaySettingsRejectInvalidValues(t *testing.T) {
 	cases := map[string]string{
-		`{"mcpGateway": "yes"}`:         "mcpGateway",
-		`{"mcpGatewayPort": "80"}`:      "mcpGatewayPort",
-		`{"mcpGatewayPort": "70000"}`:   "mcpGatewayPort",
-		`{"agentAutoConnect": "some"}`:  "agentAutoConnect",
-		`{"agentWrites": "1"}`:          "agentWrites",
-		`{"agentIdleTimeout": "30s"}`:   "agentIdleTimeout",
-		`{"agentIdleTimeout": "never"}`: "agentIdleTimeout",
+		`{"mcp": {"gateway": {"enabled": "yes"}}}`: "mcp.gateway.enabled",
+		`{"mcp": {"gateway": {"port": 80}}}`:       "mcp.gateway.port",
+		`{"mcp": {"gateway": {"port": "70000"}}}`:  "mcp.gateway.port",
+		`{"agent": {"autoConnect": "some"}}`:       "agent.autoConnect",
+		`{"agent": {"writes": 1}}`:                 "agent.writes",
+		`{"agent": {"idleTimeout": "30s"}}`:        "agent.idleTimeout",
+		`{"agentIdleTimeout": "never"}`:            "agent.idleTimeout",
 	}
 	for body, key := range cases {
 		if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), key) {
@@ -60,7 +60,7 @@ func TestGatewaySettingsRejectInvalidValues(t *testing.T) {
 }
 
 func TestGatewaySettingsRender(t *testing.T) {
-	settings, err := Settings(writeConfig(t, `{"agentIdleTimeout": "2h"}`))
+	settings, err := Settings(writeConfig(t, `{"agent": {"idleTimeout": "2h"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +68,8 @@ func TestGatewaySettingsRender(t *testing.T) {
 	for _, s := range settings {
 		values[s.Name] = s.Value
 	}
-	want := map[string]string{"mcpGateway": "true", "mcpGatewayPort": "7821", "agentAutoConnect": "none",
-		"agentWrites": "false", "agentIdleTimeout": "2h"}
+	want := map[string]string{"mcp.gateway.enabled": "true", "mcp.gateway.port": "7821", "agent.autoConnect": "none",
+		"agent.writes": "false", "agent.idleTimeout": "2h"}
 	for key, value := range want {
 		if values[key] != value {
 			t.Errorf("%s = %q, want %q", key, values[key], value)
@@ -79,10 +79,10 @@ func TestGatewaySettingsRender(t *testing.T) {
 
 func TestSetValidatesGatewaySettings(t *testing.T) {
 	path := writeConfig(t, `{}`)
-	if err := Set(path, "agentAutoConnect", "all"); err != nil {
+	if err := Set(path, "agent.autoConnect", "all"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Set(path, "agentIdleTimeout", "10s"); err == nil {
+	if err := Set(path, "agent.idleTimeout", "10s"); err == nil {
 		t.Fatal("a timeout under 1m must be refused")
 	}
 	cfg, err := Load(path)

@@ -5,12 +5,12 @@
 
   Réglages  config.json · les options de ce lancement l'emportent
 
-  ▌ jumphostTag         Usage=jumphost            défaut
-    defaultDbUser       app_ro                    fichier
-    defaultRegion       aucune                    défaut
-    mcpServerPrefix     airlock                   défaut  ⚑ --mcp-server-pref…
-    productionProfiles  aucune                    défaut
-    mode                cli                       défaut
+  ▌ aws.jumphostTag                Usage=jumphost            défaut
+    modules.sql.defaultDbUser      app_ro                    fichier
+    aws.defaultRegion              aucune                    défaut
+    mcp.serverPrefix               airlock                   défaut  ⚑ --mcp-…
+    modules.sql.readOnlySecretTag  aucune                    défaut
+    mode                           cli                       défaut
   ────────────────────────────────────────────────────────────────────────
   Tag (Key=Value) of the running SSM jumphost EC2 instance
   /home/me/.config/airlock/config.json

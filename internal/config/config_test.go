@@ -87,8 +87,8 @@ func TestLoadDefaultDBUserPerEngine(t *testing.T) {
 		t.Fatalf("DefaultDBUser = %+v", cfg.DefaultDBUser)
 	}
 	values := cfg.values()
-	if values["defaultDbUser"] != "app_ro,sqlserver=mcp_ro" {
-		t.Fatalf("defaultDbUser value = %q, want the normalized form", values["defaultDbUser"])
+	if values["modules.sql.defaultDbUser"] != "app_ro,sqlserver=mcp_ro" {
+		t.Fatalf("defaultDbUser value = %q, want the normalized form", values["modules.sql.defaultDbUser"])
 	}
 }
 
@@ -241,7 +241,7 @@ func TestLoadMCPClients(t *testing.T) {
 
 func TestLoadRejectsUnknownMCPClient(t *testing.T) {
 	_, err := Load(writeConfig(t, `{"mcpClients": "claude,emacs"}`))
-	if err == nil || !strings.Contains(err.Error(), "mcpClients") || !strings.Contains(err.Error(), "emacs") {
+	if err == nil || !strings.Contains(err.Error(), "mcp.clients") || !strings.Contains(err.Error(), "emacs") {
 		t.Fatalf("err = %v, want the key and the client named", err)
 	}
 }

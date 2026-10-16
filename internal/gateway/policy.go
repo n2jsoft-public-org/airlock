@@ -11,7 +11,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/jumphost"
 )
 
-// AutoConnect is which agent openings skip the dashboard prompt (agentAutoConnect).
+// AutoConnect is which agent openings skip the dashboard prompt (agent.autoConnect).
 type AutoConnect string
 
 const (
@@ -56,8 +56,8 @@ type Decision struct {
 }
 
 const (
-	reasonWritesOff = "agent writes are off: the user can turn them on with `airlock config set agentWrites true`"
-	reasonNoView    = "no airlock dashboard is open to approve: ask the user to open `airlock`, or to set agentAutoConnect"
+	reasonWritesOff = "agent writes are off: the user can turn them on with `airlock config set agent.writes true`"
+	reasonNoView    = "no airlock dashboard is open to approve: ask the user to open `airlock`, or to set agent.autoConnect"
 )
 
 // Decide applies the settings to an opening asking for writes or not, of a production target or

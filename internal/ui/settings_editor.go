@@ -65,8 +65,8 @@ const (
 )
 
 const (
-	// settingsNameWidth fits the longest key, "readOnlySecretTag".
-	settingsNameWidth = 20
+	// settingsNameWidth fits the longest key, "modules.sql.readOnlySecretTag".
+	settingsNameWidth = 31
 	// settingsValueWidth is the value column; longer values are cut with the row.
 	settingsValueWidth = 24
 	// settingsNextLaunch (a catalog key) is shown under the description of a NextLaunch key.

@@ -34,27 +34,27 @@ func TestSettingsWithoutFileAreDefaults(t *testing.T) {
 			t.Fatalf("settings[%d] = %+v, want %s from the defaults", idx, s, Keys[idx].Name)
 		}
 	}
-	if got := settingOf(t, settings, "jumphostTag").Value; got != "Usage=jumphost" {
+	if got := settingOf(t, settings, "aws.jumphostTag").Value; got != "Usage=jumphost" {
 		t.Fatalf("jumphostTag = %q", got)
 	}
-	if got := settingOf(t, settings, "defaultRegion").Value; got != "" {
+	if got := settingOf(t, settings, "aws.defaultRegion").Value; got != "" {
 		t.Fatalf("defaultRegion = %q, want none", got)
 	}
 }
 
 func TestSettingsTellFileValuesApart(t *testing.T) {
-	path := writeConfig(t, `{"defaultRegion": "eu-west-3", "readOnlySecretTag": "AccessRole=ro-access"}`)
+	path := writeConfig(t, `{"aws": {"defaultRegion": "eu-west-3"}, "modules": {"sql": {"readOnlySecretTag": "AccessRole=ro-access"}}}`)
 	settings, err := Settings(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := settingOf(t, settings, "defaultRegion"); s.Value != "eu-west-3" || s.Source != SourceFile {
+	if s := settingOf(t, settings, "aws.defaultRegion"); s.Value != "eu-west-3" || s.Source != SourceFile {
 		t.Fatalf("defaultRegion = %+v", s)
 	}
-	if s := settingOf(t, settings, "readOnlySecretTag"); s.Value != "AccessRole=ro-access" || s.Source != SourceFile {
+	if s := settingOf(t, settings, "modules.sql.readOnlySecretTag"); s.Value != "AccessRole=ro-access" || s.Source != SourceFile {
 		t.Fatalf("readOnlySecretTag = %+v", s)
 	}
-	if s := settingOf(t, settings, "mcpServerPrefix"); s.Value != "airlock" || s.Source != SourceDefault {
+	if s := settingOf(t, settings, "mcp.serverPrefix"); s.Value != "airlock" || s.Source != SourceDefault {
 		t.Fatalf("mcpServerPrefix = %+v", s)
 	}
 }
@@ -68,14 +68,14 @@ func TestSettingsRejectInvalidFile(t *testing.T) {
 
 func TestSetCreatesTheFileWithOnlyThatKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "airlock", "config.json")
-	if err := Set(path, "defaultRegion", " eu-west-3 "); err != nil {
+	if err := Set(path, "aws.defaultRegion", " eu-west-3 "); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "{\n  \"defaultRegion\": \"eu-west-3\"\n}\n"; got != want {
+	if got, want := string(data), "{\n  \"aws\": {\n    \"defaultRegion\": \"eu-west-3\"\n  }\n}\n"; got != want {
 		t.Fatalf("file = %q, want %q", got, want)
 	}
 	if runtime.GOOS != "windows" {
@@ -90,31 +90,31 @@ func TestSetCreatesTheFileWithOnlyThatKey(t *testing.T) {
 }
 
 func TestSetKeepsTheOtherKeysInKeyOrder(t *testing.T) {
-	path := writeConfig(t, `{"mcpServerPrefix": "acme", "defaultRegion": "eu-west-3"}`)
-	if err := Set(path, "jumphostTag", "Env=bastion"); err != nil {
+	path := writeConfig(t, `{"mcp": {"serverPrefix": "acme"}, "aws": {"defaultRegion": "eu-west-3"}}`)
+	if err := Set(path, "aws.jumphostTag", "Env=bastion"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"jumphostTag\": \"Env=bastion\",\n  \"mcpServerPrefix\": \"acme\",\n  \"defaultRegion\": \"eu-west-3\"\n}\n"
+	want := "{\n  \"aws\": {\n    \"defaultRegion\": \"eu-west-3\",\n    \"jumphostTag\": \"Env=bastion\"\n  },\n  \"mcp\": {\n    \"serverPrefix\": \"acme\"\n  }\n}\n"
 	if string(data) != want {
 		t.Fatalf("file = %q, want %q", data, want)
 	}
 }
 
 func TestSetValidatesKeyAndValue(t *testing.T) {
-	path := writeConfig(t, `{"defaultRegion": "eu-west-3"}`)
+	path := writeConfig(t, `{"aws": {"defaultRegion": "eu-west-3"}}`)
 
 	err := Set(path, "jumphost", "Env=bastion")
-	if err == nil || !strings.Contains(err.Error(), `unknown setting "jumphost"`) || !strings.Contains(err.Error(), "jumphostTag") {
+	if err == nil || !strings.Contains(err.Error(), `unknown setting "jumphost"`) || !strings.Contains(err.Error(), "aws.jumphostTag") {
 		t.Fatalf("unknown key err = %v, want the valid keys listed", err)
 	}
-	if err = Set(path, "jumphostTag", "Env"); err == nil || !strings.Contains(err.Error(), "jumphostTag") {
+	if err = Set(path, "aws.jumphostTag", "Env"); err == nil || !strings.Contains(err.Error(), "aws.jumphostTag") {
 		t.Fatalf("malformed tag err = %v", err)
 	}
-	if err = Set(path, "mcpServerPrefix", " "); err == nil {
+	if err = Set(path, "mcp.serverPrefix", " "); err == nil {
 		t.Fatal("an empty MCP server prefix must be refused")
 	}
 
@@ -125,8 +125,8 @@ func TestSetValidatesKeyAndValue(t *testing.T) {
 }
 
 func TestSetClearsAnOptionalTag(t *testing.T) {
-	path := writeConfig(t, `{"readOnlySecretTag": "AccessRole=ro-access"}`)
-	if err := Set(path, "readOnlySecretTag", ""); err != nil {
+	path := writeConfig(t, `{"modules": {"sql": {"readOnlySecretTag": "AccessRole=ro-access"}}}`)
+	if err := Set(path, "modules.sql.readOnlySecretTag", ""); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
@@ -137,7 +137,7 @@ func TestSetClearsAnOptionalTag(t *testing.T) {
 
 func TestSetRefusesToRewriteAnInvalidFile(t *testing.T) {
 	path := writeConfig(t, `{not json`)
-	if err := Set(path, "defaultRegion", "eu-west-3"); err == nil {
+	if err := Set(path, "aws.defaultRegion", "eu-west-3"); err == nil {
 		t.Fatal("Set must not rewrite a file it cannot parse")
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
@@ -147,8 +147,8 @@ func TestSetRefusesToRewriteAnInvalidFile(t *testing.T) {
 }
 
 func TestUnsetRemovesTheKey(t *testing.T) {
-	path := writeConfig(t, `{"defaultRegion": "eu-west-3", "mcpServerPrefix": "acme"}`)
-	removed, err := Unset(path, "defaultRegion")
+	path := writeConfig(t, `{"aws": {"defaultRegion": "eu-west-3"}, "mcp": {"serverPrefix": "acme"}}`)
+	removed, err := Unset(path, "aws.defaultRegion")
 	if err != nil || !removed {
 		t.Fatalf("Unset = %v, %v", removed, err)
 	}
@@ -156,21 +156,21 @@ func TestUnsetRemovesTheKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := settingOf(t, settings, "defaultRegion"); s.Source != SourceDefault || s.Value != "" {
+	if s := settingOf(t, settings, "aws.defaultRegion"); s.Source != SourceDefault || s.Value != "" {
 		t.Fatalf("defaultRegion = %+v, want the default again", s)
 	}
-	if s := settingOf(t, settings, "mcpServerPrefix"); s.Value != "acme" {
+	if s := settingOf(t, settings, "mcp.serverPrefix"); s.Value != "acme" {
 		t.Fatalf("mcpServerPrefix = %+v, the other keys must stay", s)
 	}
 
-	removed, err = Unset(path, "defaultRegion")
+	removed, err = Unset(path, "aws.defaultRegion")
 	if err != nil || removed {
 		t.Fatalf("second Unset = %v, %v, want nothing to remove", removed, err)
 	}
 	if _, err := Unset(path, "region"); err == nil {
 		t.Fatal("unknown keys must be refused")
 	}
-	if removed, err := Unset(filepath.Join(t.TempDir(), "absent.json"), "defaultRegion"); err != nil || removed {
+	if removed, err := Unset(filepath.Join(t.TempDir(), "absent.json"), "aws.defaultRegion"); err != nil || removed {
 		t.Fatalf("Unset without file = %v, %v", removed, err)
 	}
 }
@@ -184,7 +184,52 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"jumphostTag\": \"Usage=jumphost\",\n  \"defaultDbUser\": \"\",\n  \"readOnlySecretTag\": \"\",\n  \"mcpServerPrefix\": \"airlock\",\n  \"defaultRegion\": \"\",\n  \"environments\": \"prod!=\",\n  \"mcpClients\": \"auto\",\n  \"mode\": \"cli\",\n  \"daemonIdleTimeout\": \"10m\",\n  \"mcpGateway\": \"true\",\n  \"mcpGatewayPort\": \"7821\",\n  \"agentAutoConnect\": \"none\",\n  \"agentWrites\": \"false\",\n  \"agentIdleTimeout\": \"30m\",\n  \"randomLocalPort\": \"true\",\n  \"disabledModules\": \"\",\n  \"language\": \"auto\"\n}\n"
+	want := `{
+  "language": "auto",
+  "mode": "cli",
+  "environments": "prod!=",
+  "aws": {
+    "defaultRegion": "",
+    "jumphostTag": "Usage=jumphost",
+    "randomLocalPort": true
+  },
+  "mcp": {
+    "serverPrefix": "airlock",
+    "clients": "auto",
+    "gateway": {
+      "enabled": true,
+      "port": 7821
+    }
+  },
+  "agent": {
+    "autoConnect": "none",
+    "writes": false,
+    "idleTimeout": "30m"
+  },
+  "daemon": {
+    "idleTimeout": "10m"
+  },
+  "modules": {
+    "sql": {
+      "enabled": true,
+      "defaultDbUser": "",
+      "readOnlySecretTag": ""
+    },
+    "k8s": {
+      "enabled": true
+    },
+    "cache": {
+      "enabled": true
+    },
+    "dynamodb": {
+      "enabled": true
+    },
+    "s3": {
+      "enabled": true
+    }
+  }
+}
+`
 	if string(data) != want {
 		t.Fatalf("template = %q, want %q", data, want)
 	}
@@ -212,12 +257,12 @@ func TestWriteTemplateRefusesAnExistingFileUnlessForced(t *testing.T) {
 }
 
 func TestSetNamesTheFileWhenAnotherKeyIsInvalid(t *testing.T) {
-	path := writeConfig(t, `{"jumphostTag": "Usage"}`)
-	err := Set(path, "defaultRegion", "eu-west-3")
-	if err == nil || !strings.Contains(err.Error(), "invalid config "+path+": jumphostTag") {
+	path := writeConfig(t, `{"aws": {"jumphostTag": "Usage"}}`)
+	err := Set(path, "aws.defaultRegion", "eu-west-3")
+	if err == nil || !strings.Contains(err.Error(), "invalid config "+path+": aws.jumphostTag") {
 		t.Fatalf("err = %v, want the invalid file and key named", err)
 	}
-	if err := Set(path, "jumphostTag", "Env=bastion"); err != nil {
+	if err := Set(path, "aws.jumphostTag", "Env=bastion"); err != nil {
 		t.Fatalf("setting the invalid key must repair the file: %v", err)
 	}
 	if cfg, err := Load(path); err != nil || cfg.JumphostTag.String() != "Env=bastion" {
@@ -320,5 +365,140 @@ func TestUnsetEnvironmentsClearsTheLegacyKeyToo(t *testing.T) {
 	}
 	if removed, err = Unset(path, "environments"); err != nil || removed {
 		t.Fatalf("second Unset = %v, %v, want not set", removed, err)
+	}
+}
+
+func TestFlatFileLoadsAndIsRewrittenNestedOnSet(t *testing.T) {
+	path := writeConfig(t, `{"jumphostTag": "Env=bastion", "mcpGatewayPort": "8123", "agentWrites": "true",
+		"defaultDbUser": "app_ro", "productionProfiles": "*prod*"}`)
+	cfg, err := Load(path)
+	if err != nil || cfg.JumphostTag.String() != "Env=bastion" || cfg.MCPGatewayPort != 8123 || !cfg.AgentWrites ||
+		cfg.DefaultDBUser.IAM != "app_ro" {
+		t.Fatalf("Load = %+v, %v, want the flat keys read", cfg, err)
+	}
+	if raw, readErr := os.ReadFile(path); readErr != nil || !strings.Contains(string(raw), `"jumphostTag"`) { // #nosec G304 -- test file under t.TempDir.
+		t.Fatalf("file = %s (%v), want it untouched by Load", raw, readErr)
+	}
+	settings, err := Settings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := settingOf(t, settings, "aws.jumphostTag"); s.Value != "Env=bastion" || s.Source != SourceFile {
+		t.Fatalf("aws.jumphostTag = %+v, want the flat value from the file", s)
+	}
+	if s := settingOf(t, settings, "jumphostTag"); s.Value != "Env=bastion" || s.Source != SourceDeprecated {
+		t.Fatalf("jumphostTag = %+v, want it listed as deprecated", s)
+	}
+
+	if err = Set(path, "aws.defaultRegion", "eu-west-3"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path) // #nosec G304 -- test file under t.TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{
+  "aws": {
+    "defaultRegion": "eu-west-3",
+    "jumphostTag": "Env=bastion"
+  },
+  "mcp": {
+    "gateway": {
+      "port": 8123
+    }
+  },
+  "agent": {
+    "writes": true
+  },
+  "modules": {
+    "sql": {
+      "defaultDbUser": "app_ro"
+    }
+  },
+  "productionProfiles": "*prod*"
+}
+`
+	if string(raw) != want {
+		t.Fatalf("file = %s, want %s", raw, want)
+	}
+	if after, err := Load(path); err != nil || after.JumphostTag != cfg.JumphostTag || after.Environments != cfg.Environments {
+		t.Fatalf("rewritten file loads as %+v, %v", after, err)
+	}
+}
+
+func TestNestedKeyWinsOverItsFlatKey(t *testing.T) {
+	path := writeConfig(t, `{"jumphostTag": "Env=old", "aws": {"jumphostTag": "Env=new"}}`)
+	settings, err := Settings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := settingOf(t, settings, "aws.jumphostTag"); s.Value != "Env=new" {
+		t.Fatalf("aws.jumphostTag = %+v, want the nested value", s)
+	}
+	if s := settingOf(t, settings, "jumphostTag"); s.Value != "Env=old (ignored: aws.jumphostTag is set)" {
+		t.Fatalf("jumphostTag = %+v, want it flagged as ignored", s)
+	}
+}
+
+func TestDisabledModulesMapsToModulesEnabled(t *testing.T) {
+	path := writeConfig(t, `{"disabledModules": "K8s, s3", "modules": {"s3": {"enabled": true}}}`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.DisabledModules, []string{"k8s"}) {
+		t.Fatalf("DisabledModules = %v, want k8s only (s3 enabled by its own key)", cfg.DisabledModules)
+	}
+	settings, err := Settings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := settingOf(t, settings, "modules.k8s.enabled"); s.Value != "false" || s.Source != SourceFile {
+		t.Fatalf("modules.k8s.enabled = %+v", s)
+	}
+	if s := settingOf(t, settings, "disabledModules"); s.Source != SourceDeprecated {
+		t.Fatalf("disabledModules = %+v, want it listed as deprecated", s)
+	}
+	if _, err = Load(writeConfig(t, `{"disabledModules": "kafka"}`)); err == nil || !strings.Contains(err.Error(), "disabledModules") {
+		t.Fatalf("err = %v, want the unknown module refused naming disabledModules", err)
+	}
+	if err = Set(path, "disabledModules", "sql"); err == nil || !strings.Contains(err.Error(), "modules.<name>.enabled") {
+		t.Fatalf("err = %v, want the replacing key named", err)
+	}
+}
+
+func TestSetAcceptsTheFlatNames(t *testing.T) {
+	path := writeConfig(t, `{}`)
+	if err := Set(path, "mcpGateway", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != "{\n  \"mcp\": {\n    \"gateway\": {\n      \"enabled\": false\n    }\n  }\n}\n" { // #nosec G304 -- test file under t.TempDir.
+		t.Fatalf("file = %q (%v)", raw, err)
+	}
+	if removed, err := Unset(path, "mcpGateway"); err != nil || !removed {
+		t.Fatalf("Unset = %v, %v", removed, err)
+	}
+	if newKey, ok := Renamed("mcpGateway"); !ok || newKey != "mcp.gateway.enabled" {
+		t.Fatalf("Renamed = %q, %v", newKey, ok)
+	}
+	if _, ok := Renamed("mode"); ok {
+		t.Fatal("mode is not renamed")
+	}
+}
+
+func TestValuesAcceptStringsAndJSONTypes(t *testing.T) {
+	for _, body := range []string{
+		`{"mcp": {"gateway": {"enabled": "false", "port": "8123"}}, "modules": {"sql": {"enabled": "false"}}}`,
+		`{"mcp": {"gateway": {"enabled": false, "port": 8123}}, "modules": {"sql": {"enabled": false}}}`,
+	} {
+		cfg, err := Load(writeConfig(t, body))
+		if err != nil || cfg.MCPGateway || cfg.MCPGatewayPort != 8123 || !reflect.DeepEqual(cfg.DisabledModules, []string{"sql"}) {
+			t.Fatalf("%s: %+v, %v", body, cfg, err)
+		}
+	}
+	for _, body := range []string{`{"aws": {"region": "x"}}`, `{"aws": "x"}`, `{"mode": ["cli"]}`} {
+		if _, err := Load(writeConfig(t, body)); err == nil {
+			t.Fatalf("%s: loaded, want it refused", body)
+		}
 	}
 }

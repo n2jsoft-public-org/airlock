@@ -64,7 +64,7 @@ type Config struct {
 	DisabledModules []string
 }
 
-// Modules are the target families disabledModules can turn off.
+// Modules are the target families modules.<name>.enabled can turn off.
 var Modules = []string{"sql", "k8s", "cache", "dynamodb", "s3"}
 
 // Modes of the mode setting.
@@ -75,7 +75,7 @@ const (
 	ModeDaemon = "daemon"
 )
 
-// Values of the agentAutoConnect setting.
+// Values of the agent.autoConnect setting.
 const (
 	AutoConnectNone    = "none"
 	AutoConnectNonProd = "non-prod"
@@ -85,10 +85,10 @@ const (
 // LanguageAuto follows the system language.
 const LanguageAuto = "auto"
 
-// DefaultGatewayPort is the port of the MCP gateway when mcpGatewayPort is not set.
+// DefaultGatewayPort is the port of the MCP gateway when mcp.gateway.port is not set.
 const DefaultGatewayPort = 7821
 
-// minIdleTimeout is the shortest agentIdleTimeout and daemonIdleTimeout accepted.
+// minIdleTimeout is the shortest agent.idleTimeout and daemon.idleTimeout accepted.
 const minIdleTimeout = time.Minute
 
 // EnvironmentSet returns the parsed Environments.
@@ -131,29 +131,36 @@ func Defaults() Config {
 	}
 }
 
-// file is the JSON layout of config.json; a nil field is a key absent from the file. Fields are
-// in the order the file is written in.
+// file holds the keys config.json sets, one field per key of Keys; a nil field is a key absent
+// from the file. Its JSON layout (file_json.go) nests the dotted names of Keys.
 type file struct {
-	JumphostTag       *string `json:"jumphostTag,omitempty"`
-	DefaultDBUser     *string `json:"defaultDbUser,omitempty"`
-	ReadOnlySecretTag *string `json:"readOnlySecretTag,omitempty"`
-	MCPServerPrefix   *string `json:"mcpServerPrefix,omitempty"`
-	DefaultRegion     *string `json:"defaultRegion,omitempty"`
-	Environments      *string `json:"environments,omitempty"`
-	MCPClients        *string `json:"mcpClients,omitempty"`
-	Mode              *string `json:"mode,omitempty"`
-	DaemonIdleTimeout *string `json:"daemonIdleTimeout,omitempty"`
-	MCPGateway        *string `json:"mcpGateway,omitempty"`
-	MCPGatewayPort    *string `json:"mcpGatewayPort,omitempty"`
-	AgentAutoConnect  *string `json:"agentAutoConnect,omitempty"`
-	AgentWrites       *string `json:"agentWrites,omitempty"`
-	AgentIdleTimeout  *string `json:"agentIdleTimeout,omitempty"`
-	RandomLocalPort   *string `json:"randomLocalPort,omitempty"`
-	DisabledModules   *string `json:"disabledModules,omitempty"`
-	Language          *string `json:"language,omitempty"`
+	Language          *string
+	Mode              *string
+	Environments      *string
+	DefaultRegion     *string
+	JumphostTag       *string
+	RandomLocalPort   *string
+	MCPServerPrefix   *string
+	MCPClients        *string
+	MCPGateway        *string
+	MCPGatewayPort    *string
+	AgentAutoConnect  *string
+	AgentWrites       *string
+	AgentIdleTimeout  *string
+	DaemonIdleTimeout *string
+	SQLEnabled        *string
+	DefaultDBUser     *string
+	ReadOnlySecretTag *string
+	K8sEnabled        *string
+	CacheEnabled      *string
+	DynamoDBEnabled   *string
+	S3Enabled         *string
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
-	ProductionProfiles *string `json:"productionProfiles,omitempty"`
+	ProductionProfiles *string
+	// legacy lists the flat keys of an earlier layout the file still sets, in file order; their
+	// values are already in the fields above.
+	legacy []legacyKey
 }
 
 // Load reads configPath over the defaults. A missing file (or an empty path) gives the defaults; invalid
@@ -198,22 +205,22 @@ func (f *file) apply(base *Config) (Config, error) {
 	var err error
 	if f.JumphostTag != nil {
 		if cfg.JumphostTag, err = parseRequiredTag(*f.JumphostTag); err != nil {
-			return Config{}, fmt.Errorf("jumphostTag: %w", err)
+			return Config{}, fmt.Errorf("aws.jumphostTag: %w", err)
 		}
 	}
 	if f.ReadOnlySecretTag != nil {
 		if cfg.ReadOnlySecretTag, err = awstag.Parse(*f.ReadOnlySecretTag); err != nil {
-			return Config{}, fmt.Errorf("readOnlySecretTag: %w", err)
+			return Config{}, fmt.Errorf("modules.sql.readOnlySecretTag: %w", err)
 		}
 	}
 	if f.MCPServerPrefix != nil {
 		if cfg.MCPServerPrefix, err = parsePrefix(*f.MCPServerPrefix); err != nil {
-			return Config{}, fmt.Errorf("mcpServerPrefix: %w", err)
+			return Config{}, fmt.Errorf("mcp.serverPrefix: %w", err)
 		}
 	}
 	if f.DefaultDBUser != nil {
 		if cfg.DefaultDBUser, err = dbuser.Parse(*f.DefaultDBUser); err != nil {
-			return Config{}, fmt.Errorf("defaultDbUser: %w", err)
+			return Config{}, fmt.Errorf("modules.sql.defaultDbUser: %w", err)
 		}
 	}
 	if f.DefaultRegion != nil {
@@ -235,7 +242,7 @@ func (f *file) apply(base *Config) (Config, error) {
 	}
 	if f.MCPClients != nil {
 		if cfg.MCPClients, err = parseMCPClients(*f.MCPClients); err != nil {
-			return Config{}, fmt.Errorf("mcpClients: %w", err)
+			return Config{}, fmt.Errorf("mcp.clients: %w", err)
 		}
 	}
 	if f.Mode != nil {
@@ -245,43 +252,41 @@ func (f *file) apply(base *Config) (Config, error) {
 	}
 	if f.MCPGateway != nil {
 		if cfg.MCPGateway, err = parseBool(*f.MCPGateway); err != nil {
-			return Config{}, fmt.Errorf("mcpGateway: %w", err)
+			return Config{}, fmt.Errorf("mcp.gateway.enabled: %w", err)
 		}
 	}
 	if f.MCPGatewayPort != nil {
 		if cfg.MCPGatewayPort, err = parsePort(*f.MCPGatewayPort); err != nil {
-			return Config{}, fmt.Errorf("mcpGatewayPort: %w", err)
+			return Config{}, fmt.Errorf("mcp.gateway.port: %w", err)
 		}
 	}
 	if f.AgentAutoConnect != nil {
 		if cfg.AgentAutoConnect, err = parseAutoConnect(*f.AgentAutoConnect); err != nil {
-			return Config{}, fmt.Errorf("agentAutoConnect: %w", err)
+			return Config{}, fmt.Errorf("agent.autoConnect: %w", err)
 		}
 	}
 	if f.AgentWrites != nil {
 		if cfg.AgentWrites, err = parseBool(*f.AgentWrites); err != nil {
-			return Config{}, fmt.Errorf("agentWrites: %w", err)
+			return Config{}, fmt.Errorf("agent.writes: %w", err)
 		}
 	}
 	if f.DaemonIdleTimeout != nil {
 		if cfg.DaemonIdleTimeout, err = parseIdleTimeout(*f.DaemonIdleTimeout); err != nil {
-			return Config{}, fmt.Errorf("daemonIdleTimeout: %w", err)
+			return Config{}, fmt.Errorf("daemon.idleTimeout: %w", err)
 		}
 	}
 	if f.AgentIdleTimeout != nil {
 		if cfg.AgentIdleTimeout, err = parseIdleTimeout(*f.AgentIdleTimeout); err != nil {
-			return Config{}, fmt.Errorf("agentIdleTimeout: %w", err)
+			return Config{}, fmt.Errorf("agent.idleTimeout: %w", err)
 		}
 	}
 	if f.RandomLocalPort != nil {
 		if cfg.RandomLocalPort, err = parseBool(*f.RandomLocalPort); err != nil {
-			return Config{}, fmt.Errorf("randomLocalPort: %w", err)
+			return Config{}, fmt.Errorf("aws.randomLocalPort: %w", err)
 		}
 	}
-	if f.DisabledModules != nil {
-		if cfg.DisabledModules, err = parseModules(*f.DisabledModules); err != nil {
-			return Config{}, fmt.Errorf("disabledModules: %w", err)
-		}
+	if cfg.DisabledModules, err = f.disabledModules(cfg.DisabledModules); err != nil {
+		return Config{}, err
 	}
 	if f.Language != nil {
 		if cfg.Language, err = parseLanguage(*f.Language); err != nil {
@@ -289,6 +294,35 @@ func (f *file) apply(base *Config) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// disabledModules returns the Modules turned off: those whose modules.<name>.enabled f sets to
+// false, plus those of base f leaves unset, in Modules order.
+func (f *file) disabledModules(base []string) ([]string, error) {
+	var disabled []string
+	for _, module := range Modules {
+		key := moduleEnabledKey(module)
+		value := *f.field(key)
+		if value == nil {
+			if slices.Contains(base, module) {
+				disabled = append(disabled, module)
+			}
+			continue
+		}
+		enabled, err := parseBool(*value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
+		}
+		if !enabled {
+			disabled = append(disabled, module)
+		}
+	}
+	return disabled, nil
+}
+
+// moduleEnabledKey is the key turning module on or off.
+func moduleEnabledKey(module string) string {
+	return "modules." + module + ".enabled"
 }
 
 // Overrides are the flags given on the command line; nil means the flag was not given.

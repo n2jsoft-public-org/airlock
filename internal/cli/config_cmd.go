@@ -165,10 +165,11 @@ func newConfigSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := config.Set(path, args[0], args[1]); err != nil {
+			key := currentKey(cmd, args[0])
+			if err := config.Set(path, key, args[1]); err != nil {
 				return err
 			}
-			outf(cmd, i18n.T("cli.config.set_value"), args[0], strings.TrimSpace(args[1]), path)
+			outf(cmd, i18n.T("cli.config.set_value"), key, strings.TrimSpace(args[1]), path)
 			return nil
 		},
 	}
@@ -184,18 +185,30 @@ func newConfigUnsetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			removed, err := config.Unset(path, args[0])
+			key := currentKey(cmd, args[0])
+			removed, err := config.Unset(path, key)
 			if err != nil {
 				return err
 			}
 			if removed {
-				outf(cmd, i18n.T("cli.config.removed_from_default_applies"), args[0], path)
+				outf(cmd, i18n.T("cli.config.removed_from_default_applies"), key, path)
 			} else {
-				outf(cmd, i18n.T("cli.config.was_not_set_in"), args[0], path)
+				outf(cmd, i18n.T("cli.config.was_not_set_in"), key, path)
 			}
 			return nil
 		},
 	}
+}
+
+// currentKey returns the key replacing key when it is a flat key of the earlier config.json
+// layout, telling the user its new name on standard error; key otherwise.
+func currentKey(cmd *cobra.Command, key string) string {
+	newKey, renamed := config.Renamed(key)
+	if !renamed {
+		return key
+	}
+	cmd.PrintErr(i18n.Format("cli.config.key_renamed", key, newKey))
+	return newKey
 }
 
 // outf prints to the command's standard output, where scripts read results; cobra's own Print

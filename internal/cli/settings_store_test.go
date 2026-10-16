@@ -54,14 +54,14 @@ func TestConfigSettingsStoreSnapshot(t *testing.T) {
 	if !slices.Equal(names, want) {
 		t.Fatalf("keys = %v, want config.Keys order %v", names, want)
 	}
-	if v := views["defaultDbUser"]; !v.FromFile || v.Value != "app_ro" || v.Description == "" {
-		t.Fatalf("defaultDbUser = %+v", v)
+	if v := views["modules.sql.defaultDbUser"]; !v.FromFile || v.Value != "app_ro" || v.Description == "" {
+		t.Fatalf("modules.sql.defaultDbUser = %+v", v)
 	}
-	if v := views["jumphostTag"]; v.FromFile || v.Value != "Usage=jumphost" || v.OverriddenBy != "--jumphost-tag" {
-		t.Fatalf("jumphostTag = %+v, want the default overridden by the flag", v)
+	if v := views["aws.jumphostTag"]; v.FromFile || v.Value != "Usage=jumphost" || v.OverriddenBy != "--jumphost-tag" {
+		t.Fatalf("aws.jumphostTag = %+v, want the default overridden by the flag", v)
 	}
-	if v := views["defaultRegion"]; !v.Region || v.OverriddenBy != "" {
-		t.Fatalf("defaultRegion = %+v", v)
+	if v := views["aws.defaultRegion"]; !v.Region || v.OverriddenBy != "" {
+		t.Fatalf("aws.defaultRegion = %+v", v)
 	}
 	if v := views["mode"]; !slices.Equal(v.Choices, []string{"cli", "daemon"}) || !v.NextLaunch {
 		t.Fatalf("mode = %+v", v)
@@ -94,17 +94,17 @@ func TestConfigSettingsStoreSkipsTheDeprecatedKey(t *testing.T) {
 func TestConfigSettingsStoreSetAndUnset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	store := newConfigSettingsStore(path, settingsFlags(t))
-	if err := store.Set("jumphostTag", "Env=bastion"); err != nil {
+	if err := store.Set("aws.jumphostTag", "Env=bastion"); err != nil {
 		t.Fatal(err)
 	}
-	if _, views := snapshotByName(t, store); views["jumphostTag"].Value != "Env=bastion" || !views["jumphostTag"].FromFile {
-		t.Fatalf("jumphostTag = %+v, want the written value", views["jumphostTag"])
+	if _, views := snapshotByName(t, store); views["aws.jumphostTag"].Value != "Env=bastion" || !views["aws.jumphostTag"].FromFile {
+		t.Fatalf("aws.jumphostTag = %+v, want the written value", views["aws.jumphostTag"])
 	}
-	if err := store.Unset("jumphostTag"); err != nil {
+	if err := store.Unset("aws.jumphostTag"); err != nil {
 		t.Fatal(err)
 	}
-	if _, views := snapshotByName(t, store); views["jumphostTag"].FromFile {
-		t.Fatalf("jumphostTag = %+v, want its default back", views["jumphostTag"])
+	if _, views := snapshotByName(t, store); views["aws.jumphostTag"].FromFile {
+		t.Fatalf("aws.jumphostTag = %+v, want its default back", views["aws.jumphostTag"])
 	}
 }
 
@@ -112,11 +112,11 @@ func TestConfigSettingsStoreRefusesAnInvalidValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"jumphostTag": "Env=bastion"}`)
 	store := newConfigSettingsStore(path, settingsFlags(t))
-	if err := store.Set("jumphostTag", "bastion"); err == nil {
+	if err := store.Set("aws.jumphostTag", "bastion"); err == nil {
 		t.Fatal("a tag without = must be refused")
 	}
-	if _, views := snapshotByName(t, store); views["jumphostTag"].Value != "Env=bastion" {
-		t.Fatalf("jumphostTag = %+v, want the file untouched", views["jumphostTag"])
+	if _, views := snapshotByName(t, store); views["aws.jumphostTag"].Value != "Env=bastion" {
+		t.Fatalf("aws.jumphostTag = %+v, want the file untouched", views["aws.jumphostTag"])
 	}
 }
 
@@ -138,10 +138,10 @@ func TestSettingsStoreOffersTheGatewayChoices(t *testing.T) {
 	for _, view := range snapshot.Settings {
 		views[view.Name] = view
 	}
-	if got := views["agentAutoConnect"].Choices; len(got) != 3 || got[0] != "none" {
-		t.Fatalf("agentAutoConnect choices = %v", got)
+	if got := views["agent.autoConnect"].Choices; len(got) != 3 || got[0] != "none" {
+		t.Fatalf("agent.autoConnect choices = %v", got)
 	}
-	if !views["mcpGateway"].NextLaunch || !views["mcpGatewayPort"].NextLaunch || views["agentWrites"].NextLaunch {
+	if !views["mcp.gateway.enabled"].NextLaunch || !views["mcp.gateway.port"].NextLaunch || views["agent.writes"].NextLaunch {
 		t.Fatalf("next launch flags = %+v", views)
 	}
 }

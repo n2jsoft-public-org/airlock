@@ -286,7 +286,7 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	}
 	// Read once, at start; an invalid file leaves the daemon's default.
 	cfg, err := config.Load(configPath)
-	log.warnLookup("daemonIdleTimeout is ignored", err)
+	log.warnLookup("daemon.idleTimeout is ignored", err)
 	return daemon.Run(ctx, &daemon.RunConfig{
 		Paths: paths, Version: version.String(), Runner: source.Source(), Log: log,
 		Gateway:     startGatewayFunc(configPath, tokenDir, mcpLogDir, source, databases),

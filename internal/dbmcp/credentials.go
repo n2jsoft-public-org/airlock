@@ -306,7 +306,7 @@ func (p *readOnlySecretsProvider) load(ctx context.Context) error {
 		byDatabase[database] = Credentials{User: payload.Username, Password: payload.Password, Database: database}
 	}
 	if len(byDatabase) == 0 {
-		message := fmt.Sprintf("no usable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue; tag from \"readOnlySecretTag\", see `airlock config show`)", p.tag, p.instance)
+		message := fmt.Sprintf("no usable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue; tag from \"modules.sql.readOnlySecretTag\", see `airlock config show`)", p.tag, p.instance)
 		if len(warnings) > 0 {
 			message += ": " + strings.Join(warnings, "; ")
 		}
@@ -404,7 +404,7 @@ func ReadReadOnlySecrets(ctx context.Context, aws AWSRunner, instance, instanceA
 		secrets = append(secrets, ReadOnlySecret{ARN: arn, Credentials: Credentials{User: payload.Username, Password: payload.Password, Database: database}})
 	}
 	if len(secrets) == 0 {
-		message := fmt.Sprintf("no readable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue; tag from \"readOnlySecretTag\", see `airlock config show`)", tag, instance)
+		message := fmt.Sprintf("no readable read-only secret (%s) found for %s (not created yet, or missing secretsmanager:ListSecrets / GetSecretValue; tag from \"modules.sql.readOnlySecretTag\", see `airlock config show`)", tag, instance)
 		if len(failures) > 0 {
 			message += ": " + strings.Join(failures, "; ")
 		}

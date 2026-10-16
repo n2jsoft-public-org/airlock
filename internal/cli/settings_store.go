@@ -8,13 +8,13 @@ import (
 
 // settingFlagNames maps each key of config.json to the flag of the root command overriding it.
 var settingFlagNames = map[string]string{
-	"jumphostTag":       "jumphost-tag",
-	"defaultDbUser":     "db-user",
-	"readOnlySecretTag": "read-only-secret-tag",
-	"mcpServerPrefix":   "mcp-server-prefix",
-	"defaultRegion":     "region",
-	"mcpClients":        "mcp-clients",
-	"mode":              "mode",
+	"aws.jumphostTag":               "jumphost-tag",
+	"modules.sql.defaultDbUser":     "db-user",
+	"modules.sql.readOnlySecretTag": "read-only-secret-tag",
+	"mcp.serverPrefix":              "mcp-server-prefix",
+	"aws.defaultRegion":             "region",
+	"mcp.clients":                   "mcp-clients",
+	"mode":                          "mode",
 }
 
 // configSettingsStore is the ui.SettingsStore of config.json at path.
@@ -63,16 +63,17 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 		case "language":
 			// The language is read once at start.
 			view.Choices, view.NextLaunch = []string{config.LanguageAuto, "en", "fr"}, true
-		case "defaultRegion":
+		case "aws.defaultRegion":
 			view.Region = true
-		case "mcpGateway":
+		case "mcp.gateway.enabled":
 			// The gateway starts with the daemon: only its next start reads it.
 			view.Choices, view.NextLaunch = []string{"true", "false"}, true
-		case "mcpGatewayPort", "daemonIdleTimeout":
+		case "mcp.gateway.port", "daemon.idleTimeout":
 			view.NextLaunch = true
-		case "agentAutoConnect":
+		case "agent.autoConnect":
 			view.Choices = []string{config.AutoConnectNone, config.AutoConnectNonProd, config.AutoConnectAll}
-		case "agentWrites", "randomLocalPort":
+		case "agent.writes", "aws.randomLocalPort", "modules.sql.enabled", "modules.k8s.enabled",
+			"modules.cache.enabled", "modules.dynamodb.enabled", "modules.s3.enabled":
 			view.Choices = []string{"false", "true"}
 		}
 		views = append(views, view)

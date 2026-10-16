@@ -185,7 +185,7 @@ func (e *uninstallEnv) machine() (*uninstall.Env, error) {
 	return env, nil
 }
 
-// defaultGatewayEntries finds the gateway entry config.json names (mcpServerPrefix, mcpGatewayPort)
+// defaultGatewayEntries finds the gateway entry config.json names (mcp.serverPrefix, mcp.gateway.port)
 // in the user-level file of every AI client.
 func defaultGatewayEntries() (files []string, remove func(string) error) {
 	cfg := config.Defaults()

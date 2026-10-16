@@ -83,7 +83,7 @@ func TestWizardStartScreenOpensSettings(t *testing.T) {
 		t.Fatalf("step = %v loading = %v, want the Settings screen", m.step, m.loading)
 	}
 	view := wizardView(m)
-	for _, want := range []string{"Settings", "jumphostTag", "Usage=jumphost", "/home/me/.config/airlock/config.json"} {
+	for _, want := range []string{"Settings", "aws.jumphostTag", "Usage=jumphost", "/home/me/.config/airlock/config.json"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view lacks %q:\n%s", want, view)
 		}
@@ -126,7 +126,7 @@ func TestWizardSettingsSaveWritesAndReloads(t *testing.T) {
 	m, _ = wizardUpdate(t, m, key("enter"))
 	m, _ = wizardUpdate(t, m, key("Env=bastion"))
 	m = pressWizard(t, m, key("enter"))
-	if !slices.Equal(store.calls, []string{"set jumphostTag=Env=bastion"}) {
+	if !slices.Equal(store.calls, []string{"set aws.jumphostTag=Env=bastion"}) {
 		t.Fatalf("calls = %v", store.calls)
 	}
 	if m.loading || m.settingsEditor.editing {
@@ -172,7 +172,7 @@ func TestWizardSettingsResetUnsets(t *testing.T) {
 	m, _ = wizardUpdate(t, m, key("j"))
 	m, _ = wizardUpdate(t, m, key("d"))
 	_ = pressWizard(t, m, key("y"))
-	if !slices.Equal(store.calls, []string{"unset defaultDbUser"}) {
+	if !slices.Equal(store.calls, []string{"unset modules.sql.defaultDbUser"}) {
 		t.Fatalf("calls = %v", store.calls)
 	}
 }
@@ -188,7 +188,7 @@ func TestWizardSettingsRegionPickerSavesTheRegion(t *testing.T) {
 	}
 	m, _ = wizardUpdate(t, m, key("paris"))
 	m = pressWizard(t, m, key("enter"))
-	if m.pickingRegion || m.regionForSettings || !slices.Equal(store.calls, []string{"set defaultRegion=eu-west-3"}) {
+	if m.pickingRegion || m.regionForSettings || !slices.Equal(store.calls, []string{"set aws.defaultRegion=eu-west-3"}) {
 		t.Fatalf("picking = %v calls = %v, want eu-west-3 saved", m.pickingRegion, store.calls)
 	}
 	if m.options.AwsRegion != "" {

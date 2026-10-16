@@ -51,7 +51,7 @@ func TestConfigExportPrintsOnlyTheString(t *testing.T) {
 		t.Fatal(err)
 	}
 	shared := strings.TrimSuffix(out, "\n")
-	if !strings.HasPrefix(shared, "airlock1:") || strings.Contains(shared, "\n") {
+	if !strings.HasPrefix(shared, "airlock2:") || strings.Contains(shared, "\n") {
 		t.Fatalf("out = %q, want a single config string", out)
 	}
 	if want, exportErr := config.Export(path); exportErr != nil || shared != want {
@@ -84,9 +84,9 @@ func TestConfigImportShowsTheChangesAndAbortsWithoutYes(t *testing.T) {
 		}
 		for _, want := range []string{
 			"Import into " + path,
-			"~ jumphostTag", "Usage=jumphost → Env=bastion", "Tag (Key=Value) of the running SSM jumphost EC2 instance",
-			"+ defaultRegion", "(none, default) → eu-west-3",
-			"= mcpServerPrefix", "acme (unchanged)",
+			"~ aws.jumphostTag", "Usage=jumphost → Env=bastion", "Tag (Key=Value) of the running SSM jumphost EC2 instance",
+			"+ aws.defaultRegion", "(none, default) → eu-west-3",
+			"= mcp.serverPrefix", "acme (unchanged)",
 			"Apply these changes to " + path + "? [y/N]",
 		} {
 			if !strings.Contains(out, want) {
@@ -131,7 +131,7 @@ func TestConfigImportReplaceShowsRemovedKeys(t *testing.T) {
 	writeTestFile(t, path, `{"defaultDbUser": "acme_ro"}`)
 
 	out, err := runAirlockWithInput(t, "y\n", "config", "import", "--replace", shared)
-	if err != nil || !strings.Contains(out, "- defaultDbUser") || !strings.Contains(out, "acme_ro → (none, default)") {
+	if err != nil || !strings.Contains(out, "- modules.sql.defaultDbUser") || !strings.Contains(out, "acme_ro → (none, default)") {
 		t.Fatalf("out = %q, %v", out, err)
 	}
 	if got := readConfigFile(t, path); strings.Contains(got, "defaultDbUser") {

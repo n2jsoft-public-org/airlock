@@ -14,7 +14,7 @@ import (
 )
 
 // gatewayTurnedOff is why the gateway is off when the user turned it off.
-const gatewayTurnedOff = "turned off (mcpGateway is false)"
+const gatewayTurnedOff = "turned off (mcp.gateway.enabled is false)"
 
 // gatewayNotice is the dashboard notice of a daemon whose gateway failed to start; empty when it
 // runs, or the user turned it off.
@@ -45,7 +45,7 @@ func gatewaySettings(cfg *config.Config) gateway.Settings {
 }
 
 // startGatewayFunc starts the daemon's gateway from config.json as it is when the daemon starts
-// (mcpGateway, mcpGatewayPort, mcpServerPrefix, mcpClients); the agent settings and the discovery
+// (mcp.gateway.enabled, mcp.gateway.port, mcp.serverPrefix, mcp.clients); the agent settings and the discovery
 // follow source, rebuilt when the file changes.
 func startGatewayFunc(configPath, tokenDir, logDir string, source *runnerSource[*daemonRunner], databases jumphost.DirectDatabases) daemon.StartGatewayFunc {
 	return func(ctx context.Context, env daemon.GatewayEnv) (daemon.Gateway, error) {

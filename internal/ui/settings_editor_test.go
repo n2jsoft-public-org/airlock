@@ -18,11 +18,11 @@ func testSettings() SettingsSnapshot {
 	return SettingsSnapshot{
 		Path: "/home/me/.config/airlock/config.json",
 		Settings: []SettingView{
-			{Name: "jumphostTag", Description: "Tag (Key=Value) of the running SSM jumphost EC2 instance", Value: "Usage=jumphost"},
-			{Name: "defaultDbUser", Description: "Database user signing in with AWS IAM", Value: "app_ro", FromFile: true},
-			{Name: "defaultRegion", Description: "Region used after --region", Region: true},
-			{Name: "mcpServerPrefix", Description: "Start of the MCP server names", Value: "airlock", OverriddenBy: "--mcp-server-prefix"},
-			{Name: "productionProfiles", Description: "Patterns of the production profiles"},
+			{Name: "aws.jumphostTag", Description: "Tag (Key=Value) of the running SSM jumphost EC2 instance", Value: "Usage=jumphost"},
+			{Name: "modules.sql.defaultDbUser", Description: "Database user signing in with AWS IAM", Value: "app_ro", FromFile: true},
+			{Name: "aws.defaultRegion", Description: "Region used after --region", Region: true},
+			{Name: "mcp.serverPrefix", Description: "Start of the MCP server names", Value: "airlock", OverriddenBy: "--mcp-server-prefix"},
+			{Name: "modules.sql.readOnlySecretTag", Description: "Tag of the read-only secrets of SQL Server"},
 			{Name: "mode", Description: "cli or daemon", Value: "cli", Choices: []string{"cli", "daemon"}, NextLaunch: true},
 		},
 		Environments: environment.FromProductionProfiles([]string{"*prod*"}),
@@ -61,7 +61,7 @@ func TestSettingsEditorEditsADefaultKeyFromEmpty(t *testing.T) {
 		t.Fatalf("editing = %v outcome = %v value = %q placeholder = %q", e.editing, outcome, e.input.Value(), e.input.Placeholder)
 	}
 	e, outcome = editorPress(t, e, key(" Env=bastion "), key("enter"))
-	if outcome != settingsSave || e.requestKey != "jumphostTag" || e.requestValue != "Env=bastion" {
+	if outcome != settingsSave || e.requestKey != "aws.jumphostTag" || e.requestValue != "Env=bastion" {
 		t.Fatalf("outcome = %v request = %q=%q, want a trimmed save", outcome, e.requestKey, e.requestValue)
 	}
 }
@@ -75,7 +75,7 @@ func TestSettingsEditorUnchangedDefaultKeyIsNotSaved(t *testing.T) {
 
 func TestSettingsEditorClearedFileKeySavesEmpty(t *testing.T) {
 	e, outcome := editorPress(t, editorDown(t, loadedEditor(), 1), key("enter"), key("ctrl+u"), key("enter"))
-	if outcome != settingsSave || e.requestKey != "defaultDbUser" || e.requestValue != "" {
+	if outcome != settingsSave || e.requestKey != "modules.sql.defaultDbUser" || e.requestValue != "" {
 		t.Fatalf("outcome = %v request = %q=%q, want the empty value saved", outcome, e.requestKey, e.requestValue)
 	}
 }
@@ -114,14 +114,14 @@ func TestSettingsEditorRefusedValueKeepsTheField(t *testing.T) {
 
 func TestSettingsEditorReloadKeepsTheSelectedKey(t *testing.T) {
 	e := editorDown(t, loadedEditor(), 3).closeEdit().loaded(testSettings(), nil)
-	if s, ok := e.selected(); !ok || s.Name != "mcpServerPrefix" {
-		t.Fatalf("selected = %q, want mcpServerPrefix", s.Name)
+	if s, ok := e.selected(); !ok || s.Name != "mcp.serverPrefix" {
+		t.Fatalf("selected = %q, want mcp.serverPrefix", s.Name)
 	}
 }
 
 func TestSettingsEditorResetAsksFirst(t *testing.T) {
 	e, _ := editorPress(t, editorDown(t, loadedEditor(), 1), key("d"))
-	if !e.confirming || !strings.Contains(editorView(e), "Reset defaultDbUser to its default? y/n") {
+	if !e.confirming || !strings.Contains(editorView(e), "Reset modules.sql.defaultDbUser to its default? y/n") {
 		t.Fatalf("confirming = %v, want the question:\n%s", e.confirming, editorView(e))
 	}
 	kept, outcome := editorPress(t, e, key("n"))
@@ -129,7 +129,7 @@ func TestSettingsEditorResetAsksFirst(t *testing.T) {
 		t.Fatalf("n: confirming = %v outcome = %v, want nothing", kept.confirming, outcome)
 	}
 	e, outcome = editorPress(t, e, key("y"))
-	if outcome != settingsReset || e.requestKey != "defaultDbUser" {
+	if outcome != settingsReset || e.requestKey != "modules.sql.defaultDbUser" {
 		t.Fatalf("y: outcome = %v key = %q, want the reset", outcome, e.requestKey)
 	}
 }
@@ -158,7 +158,7 @@ func TestSettingsEditorChoiceWithoutValueTakesTheFirst(t *testing.T) {
 
 func TestSettingsEditorRegionOpensThePicker(t *testing.T) {
 	e, outcome := editorPress(t, editorDown(t, loadedEditor(), 2), key("enter"))
-	if outcome != settingsPickRegion || e.requestKey != "defaultRegion" || e.editing {
+	if outcome != settingsPickRegion || e.requestKey != "aws.defaultRegion" || e.editing {
 		t.Fatalf("outcome = %v key = %q editing = %v, want the region picker", outcome, e.requestKey, e.editing)
 	}
 }
@@ -172,7 +172,7 @@ func TestSettingsEditorEscGoesBack(t *testing.T) {
 func TestSettingsEditorView(t *testing.T) {
 	view := editorView(loadedEditor())
 	for _, want := range []string{
-		"jumphostTag", "Usage=jumphost", "default", "app_ro", "file", "none",
+		"aws.jumphostTag", "Usage=jumphost", "default", "app_ro", "file", "none",
 		"⚑ --mcp-server-prefix for this run",
 		"Tag (Key=Value) of the running SSM jumphost EC2 instance",
 		"/home/me/.config/airlock/config.json",
@@ -206,7 +206,7 @@ func TestSettingsEditorLongValueScrollsInItsColumn(t *testing.T) {
 	e, _ := editorPress(t, loadedEditor(), key("enter"), key(typed))
 	var row string
 	for _, line := range strings.Split(e.View(NewStyles(true), 120), "\n") {
-		if strings.Contains(line, "jumphostTag") {
+		if strings.Contains(line, "aws.jumphostTag") {
 			row = line
 		}
 	}

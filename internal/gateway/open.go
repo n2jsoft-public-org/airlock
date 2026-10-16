@@ -123,7 +123,7 @@ func (t *toolset) openSession(ctx context.Context, req *mcp.CallToolRequest, in 
 		return refuse("%s", openFailure(err, &tg))
 	}
 	t.relay.touch(id)
-	how := "without asking (agentAutoConnect)"
+	how := "without asking (agent.autoConnect)"
 	if audit.Decision == "approved" {
 		how = "approved in a dashboard"
 	}
@@ -195,7 +195,7 @@ func (t *toolset) resolve(ctx context.Context, discovery Discovery, settings *Se
 		return target{}, fmt.Errorf("unknown type %q (valid: %s)", in.Type, strings.Join(openableTypes, ", "))
 	}
 	if settings.disabled(tg.typ) {
-		return target{}, fmt.Errorf("%s targets are disabled in airlock's config (disabledModules)", tg.typ)
+		return target{}, fmt.Errorf("%s targets are disabled in airlock's config (modules.<name>.enabled)", tg.typ)
 	}
 	if tg.name == "" {
 		return target{}, errors.New("name is required: a target from list_targets")

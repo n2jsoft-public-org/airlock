@@ -66,7 +66,7 @@ func TestResolveAWSConfigWithoutRegionErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("resolveAWSConfig without any region must fail")
 	}
-	for _, want := range []string{"--region", "`airlock config set defaultRegion <region>`"} {
+	for _, want := range []string{"--region", "`airlock config set aws.defaultRegion <region>`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not mention %q", err, want)
 		}

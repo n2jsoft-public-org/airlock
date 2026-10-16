@@ -1,5 +1,5 @@
 // Package aiclient names the AI clients (coding agents and editors) airlock registers its MCP
-// servers in, and parses the selection of the "mcpClients" setting.
+// servers in, and parses the selection of the "mcp.clients" setting.
 package aiclient
 
 import (
@@ -54,7 +54,7 @@ const (
 	None = "none"
 )
 
-// Selection is the parsed "mcpClients" setting.
+// Selection is the parsed "mcp.clients" setting.
 type Selection struct {
 	// Targets are the files chosen explicitly.
 	Targets []Target

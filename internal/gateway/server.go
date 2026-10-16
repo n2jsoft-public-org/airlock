@@ -90,7 +90,7 @@ func Start(ctx context.Context, cfg *Config) (*Gateway, error) {
 	}
 	listener, err := listen()
 	if err != nil {
-		return nil, fmt.Errorf("cannot listen on 127.0.0.1:%d (set mcpGatewayPort to another port): %w", cfg.Port, err)
+		return nil, fmt.Errorf("cannot listen on 127.0.0.1:%d (set mcp.gateway.port to another port): %w", cfg.Port, err)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	g := &Gateway{cfg: cfg, token: token, cancel: cancel, url: "http://" + listener.Addr().String() + endpointPath}

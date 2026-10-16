@@ -125,7 +125,7 @@ func TestPrepareRDSWithoutIAMUserFailsBeforeReservingAPort(t *testing.T) {
 	if err == nil {
 		t.Fatal("IAM sign-in without a database user must fail")
 	}
-	for _, want := range []string{"--db-user", "`airlock config set defaultDbUser <user>`"} {
+	for _, want := range []string{"--db-user", "`airlock config set modules.sql.defaultDbUser <user>`"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not mention %q", err, want)
 		}
@@ -139,9 +139,9 @@ func TestJumphostNotFoundErrorNamesTheSetting(t *testing.T) {
 	err := jumphostNotFoundError(awstag.Tag{Key: "Usage", Value: "jumphost"}, "dev", "eu-west-3")
 	for _, want := range []string{
 		"no running jumphost instance tagged Usage=jumphost in eu-west-3 (profile dev)",
-		`"jumphostTag"`,
+		`"aws.jumphostTag"`,
 		"`airlock config show`",
-		"`airlock config set jumphostTag Key=Value`",
+		"`airlock config set aws.jumphostTag Key=Value`",
 		"--jumphost-tag",
 	} {
 		if !strings.Contains(err.Error(), want) {

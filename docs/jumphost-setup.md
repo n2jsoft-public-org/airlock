@@ -66,7 +66,7 @@ aws ec2 run-instances --region <region> \
 
 - **The tag** is how airlock finds the instance: it looks for a *running* instance tagged
   `Usage=jumphost`. To use another tag, set it once with
-  `airlock config set jumphostTag <Key>=<Value>` (see the README's Configuration section) and share
+  `airlock config set aws.jumphostTag <Key>=<Value>` (see the README's Configuration section) and share
   it with `airlock config export`.
 - No key pair and no SSH: Session Manager replaces them.
 - `HttpTokens=required` enforces IMDSv2.
@@ -96,7 +96,7 @@ route to Systems Manager (step 1).
   encryption, connect with TLS and the endpoint's host name as SNI.
 - **SQL Server read-only access for the MCP server** (optional): tag the per-database read-only
   Secrets Manager secrets with one tag and set it with
-  `airlock config set readOnlySecretTag <Key>=<Value>`.
+  `airlock config set modules.sql.readOnlySecretTag <Key>=<Value>`.
 
 ## 5. Developer permissions
 
@@ -158,7 +158,7 @@ regions.
 ```
 
 - `PortForwardThroughTaggedJumphosts` only allows sessions on instances carrying the jumphost tag
-  (adapt the condition key if you changed `jumphostTag`), and `PortForwardDocument` only allows
+  (adapt the condition key if you changed `aws.jumphostTag`), and `PortForwardDocument` only allows
   port forwarding, not shell sessions.
 - `McpServerSecrets` is only needed for SQL Server through the MCP server (read-only secrets, or the
   RDS-managed master user secret when writes are enabled); restrict `GetSecretValue` to those
@@ -169,7 +169,7 @@ regions.
 ## 6. Check
 
 ```bash
-airlock config show          # jumphostTag matches the tag of step 3
+airlock config show          # aws.jumphostTag matches the tag of step 3
 airlock rds <db-instance-id> # or just `airlock` for the wizard
 ```
 

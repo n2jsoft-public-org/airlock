@@ -1186,7 +1186,7 @@ func settingHint(key, example, flag string) string {
 // the wrong profile or region, or a tag that does not match the account's conventions.
 func jumphostNotFoundError(tag awstag.Tag, profile, region string) error {
 	return i18n.NewError("jumphost.runner.no_running_jumphost_instance",
-		tag, region, profile, settingHint("jumphostTag", "Key=Value", "--jumphost-tag"))
+		tag, region, profile, settingHint("aws.jumphostTag", "Key=Value", "--jumphost-tag"))
 }
 
 // ssoLogin signs profile in again with AWS IAM Identity Center, on the user's terminal.

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -26,25 +27,57 @@ func (k Key) Description() string {
 	return i18n.T("config.key." + k.Name)
 }
 
-// Keys lists the settings of config.json, in the order the file is written in.
+// Keys lists the settings of config.json by their dotted path in the file, in the order the
+// file is written in.
 var Keys = []Key{
-	{Name: "jumphostTag"},
-	{Name: "defaultDbUser"},
-	{Name: "readOnlySecretTag"},
-	{Name: "mcpServerPrefix"},
-	{Name: "defaultRegion"},
-	{Name: "environments"},
-	{Name: "mcpClients"},
-	{Name: "mode"},
-	{Name: "daemonIdleTimeout"},
-	{Name: "mcpGateway"},
-	{Name: "mcpGatewayPort"},
-	{Name: "agentAutoConnect"},
-	{Name: "agentWrites"},
-	{Name: "agentIdleTimeout"},
-	{Name: "randomLocalPort"},
-	{Name: "disabledModules"},
 	{Name: "language", Personal: true},
+	{Name: "mode"},
+	{Name: "environments"},
+	{Name: "aws.defaultRegion"},
+	{Name: "aws.jumphostTag"},
+	{Name: "aws.randomLocalPort"},
+	{Name: "mcp.serverPrefix"},
+	{Name: "mcp.clients"},
+	{Name: "mcp.gateway.enabled"},
+	{Name: "mcp.gateway.port"},
+	{Name: "agent.autoConnect"},
+	{Name: "agent.writes"},
+	{Name: "agent.idleTimeout"},
+	{Name: "daemon.idleTimeout"},
+	{Name: "modules.sql.enabled"},
+	{Name: "modules.sql.defaultDbUser"},
+	{Name: "modules.sql.readOnlySecretTag"},
+	{Name: "modules.k8s.enabled"},
+	{Name: "modules.cache.enabled"},
+	{Name: "modules.dynamodb.enabled"},
+	{Name: "modules.s3.enabled"},
+}
+
+// renamedKeys maps each flat key of the earlier layout to the key replacing it.
+var renamedKeys = map[string]string{
+	"jumphostTag":       "aws.jumphostTag",
+	"defaultRegion":     "aws.defaultRegion",
+	"randomLocalPort":   "aws.randomLocalPort",
+	"mcpServerPrefix":   "mcp.serverPrefix",
+	"mcpClients":        "mcp.clients",
+	"mcpGateway":        "mcp.gateway.enabled",
+	"mcpGatewayPort":    "mcp.gateway.port",
+	"agentAutoConnect":  "agent.autoConnect",
+	"agentWrites":       "agent.writes",
+	"agentIdleTimeout":  "agent.idleTimeout",
+	"daemonIdleTimeout": "daemon.idleTimeout",
+	"defaultDbUser":     "modules.sql.defaultDbUser",
+	"readOnlySecretTag": "modules.sql.readOnlySecretTag",
+}
+
+// legacyDisabledModules is the flat key modules.<name>.enabled replaces.
+const legacyDisabledModules = "disabledModules"
+
+// Renamed returns the key replacing key, a flat key of the earlier layout; ok is false for any
+// other key.
+func Renamed(key string) (newKey string, ok bool) {
+	newKey, ok = renamedKeys[key]
+	return newKey, ok
 }
 
 // Source tells where the value of a setting comes from.
@@ -101,6 +134,13 @@ func Settings(path string) ([]Setting, error) {
 		}
 		settings = append(settings, Setting{Key: deprecatedProductionProfiles, Value: value, Source: SourceDeprecated})
 	}
+	for _, legacy := range f.legacy {
+		value := legacy.value
+		if legacy.ignoredBy != "" {
+			value += " (ignored: " + legacy.ignoredBy + " is set)"
+		}
+		settings = append(settings, Setting{Key: Key{Name: legacy.name}, Value: value, Source: SourceDeprecated})
+	}
 	return settings, nil
 }
 
@@ -115,6 +155,7 @@ func Set(path, key, value string) error {
 	if key == legacyProductionProfiles {
 		return i18n.NewError("config.settings.productionprofiles_is_replaced_by", strings.TrimSpace(value))
 	}
+	key = currentName(key)
 	field, err := f.knownField(key)
 	if err != nil {
 		return err
@@ -166,6 +207,7 @@ func Unset(path, key string) (removed bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	key = currentName(key)
 	field, err := f.knownField(key)
 	if err != nil {
 		return false, err
@@ -205,66 +247,77 @@ func WriteTemplate(path string, force bool) error {
 	return writeFile(path, &f)
 }
 
-// values renders every setting of c as written in config.json.
+// values renders every setting of c as config.json holds it.
 func (c *Config) values() map[string]string {
-	return map[string]string{
-		"jumphostTag":       c.JumphostTag.String(),
-		"defaultDbUser":     c.DefaultDBUser.String(),
-		"readOnlySecretTag": c.ReadOnlySecretTag.String(),
-		"mcpServerPrefix":   c.MCPServerPrefix,
-		"defaultRegion":     c.DefaultRegion,
-		"environments":      c.Environments,
-		"mcpClients":        c.MCPClients,
-		"mode":              c.Mode,
-		"daemonIdleTimeout": FormatDuration(c.DaemonIdleTimeout),
-		"mcpGateway":        strconv.FormatBool(c.MCPGateway),
-		"mcpGatewayPort":    strconv.Itoa(c.MCPGatewayPort),
-		"agentAutoConnect":  c.AgentAutoConnect,
-		"agentWrites":       strconv.FormatBool(c.AgentWrites),
-		"agentIdleTimeout":  FormatDuration(c.AgentIdleTimeout),
-		"randomLocalPort":   strconv.FormatBool(c.RandomLocalPort),
-		"disabledModules":   strings.Join(c.DisabledModules, ","),
-		"language":          c.Language,
+	values := map[string]string{
+		"language":                      c.Language,
+		"mode":                          c.Mode,
+		"environments":                  c.Environments,
+		"aws.defaultRegion":             c.DefaultRegion,
+		"aws.jumphostTag":               c.JumphostTag.String(),
+		"aws.randomLocalPort":           strconv.FormatBool(c.RandomLocalPort),
+		"mcp.serverPrefix":              c.MCPServerPrefix,
+		"mcp.clients":                   c.MCPClients,
+		"mcp.gateway.enabled":           strconv.FormatBool(c.MCPGateway),
+		"mcp.gateway.port":              strconv.Itoa(c.MCPGatewayPort),
+		"agent.autoConnect":             c.AgentAutoConnect,
+		"agent.writes":                  strconv.FormatBool(c.AgentWrites),
+		"agent.idleTimeout":             FormatDuration(c.AgentIdleTimeout),
+		"daemon.idleTimeout":            FormatDuration(c.DaemonIdleTimeout),
+		"modules.sql.defaultDbUser":     c.DefaultDBUser.String(),
+		"modules.sql.readOnlySecretTag": c.ReadOnlySecretTag.String(),
 	}
+	for _, module := range Modules {
+		values[moduleEnabledKey(module)] = strconv.FormatBool(!slices.Contains(c.DisabledModules, module))
+	}
+	return values
 }
 
-// field returns the field of f holding key, which must be one of Keys.
+// field returns the field of f holding key, one of Keys or productionProfiles; nil for any other.
 func (f *file) field(key string) **string {
 	switch key {
-	case "jumphostTag":
-		return &f.JumphostTag
-	case "defaultDbUser":
-		return &f.DefaultDBUser
-	case "readOnlySecretTag":
-		return &f.ReadOnlySecretTag
-	case "mcpServerPrefix":
-		return &f.MCPServerPrefix
-	case "defaultRegion":
-		return &f.DefaultRegion
-	case "environments":
-		return &f.Environments
-	case "mcpClients":
-		return &f.MCPClients
-	case "mode":
-		return &f.Mode
-	case "daemonIdleTimeout":
-		return &f.DaemonIdleTimeout
-	case "mcpGateway":
-		return &f.MCPGateway
-	case "mcpGatewayPort":
-		return &f.MCPGatewayPort
-	case "agentAutoConnect":
-		return &f.AgentAutoConnect
-	case "agentWrites":
-		return &f.AgentWrites
-	case "agentIdleTimeout":
-		return &f.AgentIdleTimeout
-	case "randomLocalPort":
-		return &f.RandomLocalPort
-	case "disabledModules":
-		return &f.DisabledModules
 	case "language":
 		return &f.Language
+	case "mode":
+		return &f.Mode
+	case "environments":
+		return &f.Environments
+	case "aws.defaultRegion":
+		return &f.DefaultRegion
+	case "aws.jumphostTag":
+		return &f.JumphostTag
+	case "aws.randomLocalPort":
+		return &f.RandomLocalPort
+	case "mcp.serverPrefix":
+		return &f.MCPServerPrefix
+	case "mcp.clients":
+		return &f.MCPClients
+	case "mcp.gateway.enabled":
+		return &f.MCPGateway
+	case "mcp.gateway.port":
+		return &f.MCPGatewayPort
+	case "agent.autoConnect":
+		return &f.AgentAutoConnect
+	case "agent.writes":
+		return &f.AgentWrites
+	case "agent.idleTimeout":
+		return &f.AgentIdleTimeout
+	case "daemon.idleTimeout":
+		return &f.DaemonIdleTimeout
+	case "modules.sql.enabled":
+		return &f.SQLEnabled
+	case "modules.sql.defaultDbUser":
+		return &f.DefaultDBUser
+	case "modules.sql.readOnlySecretTag":
+		return &f.ReadOnlySecretTag
+	case "modules.k8s.enabled":
+		return &f.K8sEnabled
+	case "modules.cache.enabled":
+		return &f.CacheEnabled
+	case "modules.dynamodb.enabled":
+		return &f.DynamoDBEnabled
+	case "modules.s3.enabled":
+		return &f.S3Enabled
 	case legacyProductionProfiles:
 		return &f.ProductionProfiles
 	default:
@@ -286,11 +339,23 @@ func (f *file) knownField(key string) (**string, error) {
 	if field := f.field(key); field != nil {
 		return field, nil
 	}
+	if key == legacyDisabledModules {
+		return nil, i18n.NewError("config.settings.disabledmodules_is_replaced_by", strings.Join(Modules, ", "))
+	}
 	names := make([]string, 0, len(Keys))
 	for _, k := range Keys {
 		names = append(names, k.Name)
 	}
 	return nil, i18n.NewError("config.settings.unknown_setting_valid", key, strings.Join(names, ", "))
+}
+
+// currentName returns the key replacing key when it is a flat key of the earlier layout, key
+// otherwise.
+func currentName(key string) string {
+	if newKey, ok := renamedKeys[key]; ok {
+		return newKey
+	}
+	return key
 }
 
 // writeFile stores f as indented JSON, keys absent from f left out.

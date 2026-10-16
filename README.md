@@ -329,7 +329,7 @@ on the resource type step.
 The wizard never asks for a region up front: the header shows the current one, resolved in this
 order:
 
-`--region` → `AWS_REGION` → the profile's configured region → `defaultRegion`
+`--region` → `AWS_REGION` → the profile's configured region → `aws.defaultRegion`
 
 Without any of them, the header shows `region none` and the wizard opens the region list before it
 looks for targets. Non-interactive runs fail and name the settings to add. Press `r` to switch region
@@ -361,7 +361,7 @@ the MCP server. Elsewhere (MySQL, or `--no-mcp`) only IAM token is shown when en
 asks for the password as before.
 
 - **IAM token.** airlock signs in without a password, generating short-lived AWS IAM tokens. The user
-  is prefilled with `--db-user`, then the user saved for that database, then the `defaultDbUser` of
+  is prefilled with `--db-user`, then the user saved for that database, then the `modules.sql.defaultDbUser` of
   its engine.
 - **Password.** Enter a user and its password. It stays in memory for the MCP server; the IntelliJ
   data source switches to user & password (the IDE asks for the password), and the restart command
@@ -385,7 +385,7 @@ airlock rds my-db 5432 --db-secret prod/app-user
 
 Once the tunnel is up, airlock checks the sign-in with `SELECT 1` and shows the result on the
 **Sign-in** row of the session. With **Auto** on SQL Server, it looks for the instance's read-only
-secrets (tag `readOnlySecretTag`), with or without a `dbname`: one is used right away, several are
+secrets (tag `modules.sql.readOnlySecretTag`), with or without a `dbname`: one is used right away, several are
 offered in a dialog (`1`–`9` or `enter`; `esc` decides later). A working secret becomes the session's
 sign-in (MCP server, IntelliJ data source, reconnect command) and is remembered in `saved-connections.json`
 as a Secrets Manager sign-in, its ARN and user only, so the next connection skips the choice. When a
@@ -699,7 +699,7 @@ session), `s3:ListBucket` and `s3:GetObject` (`s3:GetObjectVersion` with `versio
 **Registration.** The server is registered as `<prefix>-<profile>-<instance>` for a database,
 `<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
 cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB and `<prefix>-<profile>-s3` for S3 (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
-name never share one, in the configuration of the AI clients chosen by `mcpClients` (or
+name never share one, in the configuration of the AI clients chosen by `mcp.clients` (or
 `--mcp-clients`):
 
 | Client | Name | Project file (`<client>`) | User file (`<client>:user`) | Detected by `auto` when |
@@ -710,7 +710,7 @@ name never share one, in the configuration of the AI clients chosen by `mcpClien
 | **Cursor** | `cursor` | `.cursor/mcp.json` | `~/.cursor/mcp.json` | `.cursor/` exists |
 | **Gemini CLI** | `gemini` | `.gemini/settings.json` | `~/.gemini/settings.json` | `.gemini/` exists |
 
-`mcpClients` is `auto` by default: the project files of the clients the working directory uses.
+`mcp.clients` is `auto` by default: the project files of the clients the working directory uses.
 For Claude Code, that means `.mcp.json` is only updated when it already exists: create it (`{}`)
 or select `claude` to have airlock write it.
 Otherwise it lists clients, comma-separated, each written in its project file, or in its user file
@@ -718,8 +718,8 @@ with `:user`. The user file serves every project, wherever airlock runs. `auto` 
 the list, and `none` registers nothing:
 
 ```sh
-airlock config set mcpClients claude:user,codex   # Claude Code everywhere, Codex in the current project
-airlock config set mcpClients auto,codex:user     # detected project clients, plus Codex everywhere
+airlock config set mcp.clients claude:user,codex   # Claude Code everywhere, Codex in the current project
+airlock config set mcp.clients auto,codex:user     # detected project clients, plus Codex everywhere
 airlock --mcp-clients none                        # this run only: register nowhere
 ```
 
@@ -734,7 +734,7 @@ files are never written when the working directory is your home directory: use `
 file is edited in place: the other servers and settings are kept. JSON files must be plain JSON,
 without comments. Codex's TOML keeps its comments.
 
-The entry is removed when the session stops. The prefix comes from `mcpServerPrefix` (default `airlock`)
+The entry is removed when the session stops. The prefix comes from `mcp.serverPrefix` (default `airlock`)
 and is not repeated for profiles that already start with it: prefix `team` with profile `team-prod`
 gives `team-prod-<instance>`. A red `WRITES` badge flags the sessions whose server can modify
 data, in the sidebar and the compact pills. The dashboard's `MCP` row shows `read-only` or
@@ -752,8 +752,8 @@ written, it also shows the bearer token so you can configure a client by hand.
 > Claude Code is open.
 
 **Gateway (daemon mode).** With `"mode": "daemon"`, the daemon also serves the **gateway**: one MCP
-server on `http://127.0.0.1:7821/mcp` (`mcpGatewayPort`), registered as `airlock` (the
-`mcpServerPrefix`) in the **user-level** files of the clients of `mcpClients` (`claude:user`,
+server on `http://127.0.0.1:7821/mcp` (`mcp.gateway.port`), registered as `airlock` (the
+`mcp.serverPrefix`) in the **user-level** files of the clients of `mcp.clients` (`claude:user`,
 `codex:user`…; project files never get it). Its URL and token stay the same across daemon restarts,
 so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon stops on its own
 (idle stop, a signal): it is still valid at the next start, and agents get connection errors until
@@ -769,18 +769,18 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 | `db_*`, `k8s_*`, `cache_*`, `dynamo_*`, `s3_*` | The tools of the sessions above, with a `session` argument |
 
 An opening asked by an agent shows an **approval dialog** in every open dashboard (`y` allow, `n`
-deny, 2 minutes to answer); with no dashboard open it is refused at once. `agentAutoConnect` lets
+deny, 2 minutes to answer); with no dashboard open it is refused at once. `agent.autoConnect` lets
 agents open without asking: `non-prod` (targets outside the production environment) or `all`. Agents
-never get writes unless `agentWrites` is `true`, not even on your own sessions opened with writes,
+never get writes unless `agent.writes` is `true`, not even on your own sessions opened with writes,
 and a write request is always approved in a dashboard. A session an agent opened carries `AGENT ·
 <name>`, gets no IntelliJ data source nor entry of its own, signs in with the choices saved for that
-connection, and closes after `agentIdleTimeout` (`30m`) without a call through the gateway. An agent
+connection, and closes after `agent.idleTimeout` (`30m`) without a call through the gateway. An agent
 opening never signs in to AWS in the background: an expired SSO session is refused (or, when
 approved, signs in in the approving dashboard's terminal).
 
 ```sh
-airlock config set mcpClients auto,claude:user   # register the gateway for Claude Code
-airlock config set agentAutoConnect non-prod     # let agents open non-production targets alone
+airlock config set mcp.clients auto,claude:user # register the gateway for Claude Code
+airlock config set agent.autoConnect non-prod   # let agents open non-production targets alone
 airlock daemon status                            # the gateway line: URL, files, or why it is off
 ```
 
@@ -788,7 +788,7 @@ airlock daemon status                            # the gateway line: URL, files,
 
 - **PostgreSQL** uses an IAM token for the chosen database user. Read-only mode relies on that user
   being read-only in the database, in addition to the query guard.
-- **SQL Server** uses the read-only secrets of the instance tagged with `readOnlySecretTag`, one per
+- **SQL Server** uses the read-only secrets of the instance tagged with `modules.sql.readOnlySecretTag`, one per
   database. Without that tag, SQL Server read-only access is off.
 
 **Write access.** `--mcp-allow-writes`, or the `MCP` toggle on the review step, adds the destructive
@@ -814,7 +814,7 @@ jq -r 'select(.command) | "\(.time) \(.server) db\(.db) \(.command)"' ~/.config/
 ```
 
 In daemon mode the MCP gateway adds its own lines: each `open_session` and `close_session` with its
-`decision`, and the calls it refuses before they reach a session (a write while `agentWrites` is
+`decision`, and the calls it refuses before they reach a session (a write while `agent.writes` is
 off, a read-only session, the wrong kind of tool) as `refused: <reason>`, with the SQL tried:
 
 ```sh
@@ -828,28 +828,58 @@ contain sensitive values.
 
 Settings live in `~/.config/airlock/config.json` (`$XDG_CONFIG_HOME/airlock` when set,
 `%AppData%\airlock` on Windows). Every key is optional and flags take precedence over the file. An
-unknown key or a malformed value is an error that names the file.
+unknown key or a malformed value is an error that names the file. Global settings sit at the top,
+the others in one section per concern and one per module; commands name a setting by its dotted
+path, e.g. `modules.sql.defaultDbUser`:
+
+```json
+{
+  "language": "auto",
+  "mode": "cli",
+  "environments": "prod!=*prod*; staging=*stg*",
+  "aws": { "defaultRegion": "eu-west-1", "jumphostTag": "Usage=jumphost", "randomLocalPort": true },
+  "mcp": { "serverPrefix": "airlock", "clients": "auto", "gateway": { "enabled": true, "port": 7821 } },
+  "agent": { "autoConnect": "none", "writes": false, "idleTimeout": "30m" },
+  "daemon": { "idleTimeout": "10m" },
+  "modules": {
+    "sql": { "enabled": true, "defaultDbUser": "app_ro", "readOnlySecretTag": "" },
+    "k8s": { "enabled": true },
+    "cache": { "enabled": true },
+    "dynamodb": { "enabled": false },
+    "s3": { "enabled": true }
+  }
+}
+```
 
 | Key | Flag | Default | Meaning |
 |---|---|---|---|
-| `jumphostTag` | `--jumphost-tag` | `Usage=jumphost` | Tag (`Key=Value`) of the running SSM jumphost EC2 instance |
-| `defaultDbUser` | `--db-user` | none (asked) | Database user prefilled on RDS: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or `engine=user` pairs (`postgres`, `mysql`, `sqlserver`), e.g. `app_ro,sqlserver=mcp_ro` (see below) |
-| `readOnlySecretTag` | `--read-only-secret-tag` | none (SQL Server read-only MCP off) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets |
-| `mcpServerPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
-| `defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
-| `environments` | none | `prod!=` | Environments badged in the TUI, separated by `;`, each `name=patterns` of AWS profiles (`*` wildcard, any case); `!` marks production, e.g. `prod!=*prod*,*-live; staging=*stg*; dev=*dev*` |
-| `mcpClients` | `--mcp-clients` | `auto` | AI clients the MCP servers are registered in: `auto`, `none`, or e.g. `claude:user,codex` (see [AI access with MCP](#-ai-access-with-mcp)) |
+| `language` | none | `auto` | Language of airlock: `auto` (the system's), `en` or `fr`; read at start, never shared |
 | `mode` | `--mode` | `cli` | `cli`: sessions live in each `airlock` and close with it; `daemon`: a background daemon keeps them (see [Daemon mode](#daemon-mode)) |
-| `daemonIdleTimeout` | none | `10m` | Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. `10m` or `8h` (at least `1m`); read at the daemon's start |
-| `mcpGateway` | none | `true` | `true`: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; `false`: no gateway (see [AI access with MCP](#-ai-access-with-mcp)) |
-| `mcpGatewayPort` | none | `7821` | Port of the MCP gateway on `127.0.0.1` (1024-65535) |
-| `agentAutoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside the production environment) or `all` |
-| `agentWrites` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
-| `agentIdleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
-| `randomLocalPort` | none | `true` | `true`: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; `false`: on the target's port (or the next free one) |
-| `disabledModules` | none | none | Modules airlock neither lists nor opens, comma-separated: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, `s3`, e.g. `cache,dynamodb` |
+| `environments` | none | `prod!=` | Environments badged in the TUI, separated by `;`, each `name=patterns` of AWS profiles (`*` wildcard, any case); `!` marks production, e.g. `prod!=*prod*,*-live; staging=*stg*; dev=*dev*` |
+| `aws.defaultRegion` | `--region` | none (asked) | Region used after `AWS_REGION` and the profile's region |
+| `aws.jumphostTag` | `--jumphost-tag` | `Usage=jumphost` | Tag (`Key=Value`) of the running SSM jumphost EC2 instance |
+| `aws.randomLocalPort` | none | `true` | `true`: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; `false`: on the target's port (or the next free one) |
+| `mcp.serverPrefix` | `--mcp-server-prefix` | `airlock` | Start of the MCP server names |
+| `mcp.clients` | `--mcp-clients` | `auto` | AI clients the MCP servers are registered in: `auto`, `none`, or e.g. `claude:user,codex` (see [AI access with MCP](#-ai-access-with-mcp)) |
+| `mcp.gateway.enabled` | none | `true` | `true`: the daemon serves the MCP gateway, through which AI agents list targets and open sessions; `false`: no gateway (see [AI access with MCP](#-ai-access-with-mcp)) |
+| `mcp.gateway.port` | none | `7821` | Port of the MCP gateway on `127.0.0.1` (1024-65535) |
+| `agent.autoConnect` | none | `none` | Agent openings that skip the dashboard prompt: `none`, `non-prod` (targets outside the production environment) or `all` |
+| `agent.writes` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
+| `agent.idleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
+| `daemon.idleTimeout` | none | `10m` | Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. `10m` or `8h` (at least `1m`); read at the daemon's start |
+| `modules.<name>.enabled` | none | `true` | `false`: airlock neither lists nor opens the targets of that module: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, `s3` |
+| `modules.sql.defaultDbUser` | `--db-user` | none (asked) | Database user prefilled on RDS: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or `engine=user` pairs (`postgres`, `mysql`, `sqlserver`), e.g. `app_ro,sqlserver=mcp_ro` (see below) |
+| `modules.sql.readOnlySecretTag` | `--read-only-secret-tag` | none (SQL Server read-only MCP off) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets |
 
-`defaultDbUser` takes comma-separated entries. A bare user (`app_ro`) is the AWS IAM user of
+Booleans and the port are JSON booleans and numbers; a string (`"true"`, `"7821"`) is accepted too.
+
+Files written by earlier versions of airlock used flat keys (`jumphostTag`, `mcpGatewayPort`,
+`disabledModules`…). They are still read, and `airlock config show` lists them as `deprecated`;
+the next `airlock config set` or `unset` writes the file in the layout above. A setting in the new
+layout wins over its flat key. `airlock config set jumphostTag ...` still works and tells the new
+name; `disabledModules` is replaced by `airlock config set modules.<name>.enabled false`.
+
+`modules.sql.defaultDbUser` takes comma-separated entries. A bare user (`app_ro`) is the AWS IAM user of
 PostgreSQL and MySQL; an `engine=user` pair sets the user of one engine and wins over the bare user.
 SQL Server has no AWS IAM sign-in, so a bare user never applies to it: `sqlserver=mcp_ro` prefills
 the user of its password and Secrets Manager sign-in instead.
@@ -876,19 +906,19 @@ or drop them with `airlock config unset productionProfiles`.
 airlock config show              # every setting, its value and where it comes from (--json for effective values)
 airlock config path              # print the file location
 airlock config init              # write every key with its default and explain each one (--force keeps a .bak)
-airlock config set <key> <value> # validate and write one key, e.g. jumphostTag Env=bastion
+airlock config set <key> <value> # validate and write one key, e.g. aws.jumphostTag Env=bastion
 airlock config unset <key>       # remove a key so its default applies again
 ```
 
 The file is rewritten indented, with keys in a fixed order. Errors caused by a setting name it. For
-example, a jumphost not found with the configured tag points to `jumphostTag`, `airlock config show`
+example, a jumphost not found with the configured tag points to `aws.jumphostTag`, `airlock config show`
 and `--jumphost-tag`.
 
 ### From the TUI
 
 Press `,` on the start screen (or on the Type step when there is no saved connection) or in the
 dashboard to open the Settings screen: every key, its value, where it comes from and what it does.
-`enter` changes the selected key (`mode` switches between `cli` and `daemon`, `defaultRegion`
+`enter` changes the selected key (`mode` switches between `cli` and `daemon`, `aws.defaultRegion`
 opens the region list), `d` resets it to its default and `esc` goes back. Values are checked as
 `airlock config set` checks them. The next connections use the new values, in CLI mode as in
 daemon mode; `mode` applies at the next launch of airlock. A flag of the run, such as
@@ -931,10 +961,10 @@ The gateway line of `airlock daemon status` (`gateway   on http://127.0.0.1:7821
 says where the gateway listens and which client files hold it, or why it is off or not registered.
 When the gateway could not start (its port in use, for example), the dashboard says so too as it
 connects to the daemon.
-`mcpGateway`, `mcpGatewayPort`, `mcpServerPrefix` and `mcpClients` apply to the gateway at the next
+`mcp.gateway.enabled`, `mcp.gateway.port`, `mcp.serverPrefix` and `mcp.clients` apply to the gateway at the next
 daemon start: run `airlock daemon restart`.
 
-It stops on its own after `daemonIdleTimeout` (`10m`) without running session, dashboard nor call
+It stops on its own after `daemon.idleTimeout` (`10m`) without running session, dashboard nor call
 through the gateway; ended sessions go with it. Run `airlock daemon restart` after changing it. It listens on a socket only you can open (`~/Library/Caches/airlock/daemon/daemon.sock` on
 macOS, `~/.cache/airlock/daemon/daemon.sock` on Linux, or under `$XDG_CACHE_HOME` when set,
 `%LocalAppData%\airlock\daemon\daemon.sock` on Windows); on macOS and Linux, airlock refuses a
@@ -959,16 +989,15 @@ A team usually sets the same few keys, for example:
 
 ```json
 {
-  "defaultRegion": "eu-west-1",
-  "defaultDbUser": "app_ro,sqlserver=mcp_ro",
-  "readOnlySecretTag": "Role=read-only",
-  "mcpServerPrefix": "team",
-  "environments": "prod!=*prod*; staging=*stg*"
+  "environments": "prod!=*prod*; staging=*stg*",
+  "aws": { "defaultRegion": "eu-west-1" },
+  "mcp": { "serverPrefix": "team" },
+  "modules": { "sql": { "defaultDbUser": "app_ro,sqlserver=mcp_ro", "readOnlySecretTag": "Role=read-only" } }
 }
 ```
 
 ```sh
-airlock config export            # prints the keys set in your file as one string: airlock1:…
+airlock config export            # prints the keys set in your file as one string: airlock2:…
 airlock config import <string>   # shows what changes, then asks before writing
 ```
 

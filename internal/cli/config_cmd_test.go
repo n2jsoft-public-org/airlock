@@ -54,7 +54,7 @@ func TestConfigShowWithoutFileListsTheDefaults(t *testing.T) {
 
 func TestConfigShowTellsFileValuesApart(t *testing.T) {
 	path := testConfigFile(t)
-	writeTestFile(t, path, `{"defaultRegion": "eu-west-3"}`)
+	writeTestFile(t, path, `{"aws": {"defaultRegion": "eu-west-3"}}`)
 	out, err := runAirlock(t, "config", "show")
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestConfigShowTellsFileValuesApart(t *testing.T) {
 	}
 	var regionLine string
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "defaultRegion") {
+		if strings.HasPrefix(line, "aws.defaultRegion") {
 			regionLine = line
 		}
 	}
@@ -84,7 +84,7 @@ func TestConfigShowJSONPrintsEffectiveValues(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &values); err != nil {
 		t.Fatalf("output is not JSON: %v\n%s", err, out)
 	}
-	if values["defaultRegion"] != "eu-west-3" || values["jumphostTag"] != "Usage=jumphost" || len(values) != len(config.Keys) {
+	if values["aws.defaultRegion"] != "eu-west-3" || values["aws.jumphostTag"] != "Usage=jumphost" || len(values) != len(config.Keys) {
 		t.Fatalf("values = %v", values)
 	}
 }
@@ -149,6 +149,27 @@ func TestConfigSetAndUnset(t *testing.T) {
 	out, err = runAirlock(t, "config", "unset", "jumphostTag")
 	if err != nil || !strings.Contains(out, "jumphostTag was not set") {
 		t.Fatalf("second unset = %q, %v", out, err)
+	}
+}
+
+func TestConfigSetTellsTheNewNameOfAFlatKey(t *testing.T) {
+	path := testConfigFile(t)
+	cmd := NewRootCmd()
+	var out, stderr strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"config", "set", "mcpGatewayPort", "8123"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "mcpGatewayPort is now mcp.gateway.port") || !strings.Contains(out.String(), "mcp.gateway.port = 8123") {
+		t.Fatalf("out = %q, stderr = %q, want the new name", out.String(), stderr.String())
+	}
+	if cfg, err := config.Load(path); err != nil || cfg.MCPGatewayPort != 8123 {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	if _, err := runAirlock(t, "config", "set", "disabledModules", "k8s"); err == nil || !strings.Contains(err.Error(), "modules.<name>.enabled") {
+		t.Fatalf("err = %v, want disabledModules refused with the replacing key", err)
 	}
 }
 

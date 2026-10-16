@@ -9,7 +9,7 @@ import (
 
 // ErrReadOnlySecretTagUnset reports a read-only SQL Server session without a read-only secret tag
 // configured: its credentials cannot be found.
-var ErrReadOnlySecretTagUnset = errors.New(`no read-only secret tag configured for SQL Server (set "readOnlySecretTag")`)
+var ErrReadOnlySecretTagUnset = errors.New(`no read-only secret tag configured for SQL Server (set "modules.sql.readOnlySecretTag")`)
 
 // SessionConfig describes the tunneled RDS instance of one jumphost session.
 type SessionConfig struct {

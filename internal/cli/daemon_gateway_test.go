@@ -44,7 +44,7 @@ func TestStartGatewayFuncTurnedOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := startGatewayFunc(path, t.TempDir(), "", testSource(path), nil)(t.Context(), gatewayEnv(t))
-	if err == nil || !strings.Contains(err.Error(), "mcpGateway") {
+	if err == nil || !strings.Contains(err.Error(), "mcp.gateway.enabled") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -74,7 +74,7 @@ func TestStartGatewayFuncServesOnTheConfiguredPort(t *testing.T) {
 // F5: a dashboard tells why the gateway did not start, unless the user turned it off.
 func TestGatewayNotice(t *testing.T) {
 	cases := map[string]string{
-		"off: cannot listen on 127.0.0.1:7821 (set mcpGatewayPort to another port): address already in use": "MCP gateway off: cannot listen on 127.0.0.1:7821 (set mcpGatewayPort to another port): address already in use — see `airlock daemon status`",
+		"off: cannot listen on 127.0.0.1:7821 (set mcp.gateway.port to another port): address already in use": "MCP gateway off: cannot listen on 127.0.0.1:7821 (set mcp.gateway.port to another port): address already in use — see `airlock daemon status`",
 		"off: " + gatewayTurnedOff:        "",
 		"off":                             "",
 		"":                                "",

@@ -115,7 +115,7 @@ func (r *registration) describe(auth string) string {
 	case r.err != nil:
 		return fmt.Sprintf("%s, registration failed: %v%s", status, r.err, auth)
 	case len(r.written) == 0:
-		return status + ", not registered (no :user client in mcpClients)" + auth
+		return status + ", not registered (no :user client in mcp.clients)" + auth
 	default:
 		return status
 	}

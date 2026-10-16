@@ -26,10 +26,10 @@ func shouldUseDaemon(cfg *config.Config, interactive bool) bool {
 // daemonSettingFlags are the setting flags a daemon view refuses: the daemon's runner reads
 // config.json, never the flags of a view.
 var daemonSettingFlags = []struct{ flag, key string }{
-	{flag: "jumphost-tag", key: "jumphostTag"},
-	{flag: "read-only-secret-tag", key: "readOnlySecretTag"},
-	{flag: "mcp-server-prefix", key: "mcpServerPrefix"},
-	{flag: "mcp-clients", key: "mcpClients"},
+	{flag: "jumphost-tag", key: "aws.jumphostTag"},
+	{flag: "read-only-secret-tag", key: "modules.sql.readOnlySecretTag"},
+	{flag: "mcp-server-prefix", key: "mcp.serverPrefix"},
+	{flag: "mcp-clients", key: "mcp.clients"},
 }
 
 // checkDaemonFlags refuses the setting flags that would only change the view, not the daemon.
