@@ -142,6 +142,11 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.uninstall.long":       "Retire le binaire airlock et l'entrée PATH ajoutée par son installeur, après les avoir listés. --purge retire aussi les réglages, les connexions récentes, les journaux de requêtes MCP et les kubeconfigs, et les mots de passe de base enregistrés dans le trousseau de l'OS.",
 	"cli.uninstall.flag.purge": "Retirer aussi les réglages, les connexions récentes, les journaux et les mots de passe enregistrés",
 	"cli.uninstall.flag.yes":   "Retirer sans demander",
+	// internal/cli/skills_cmd.go
+	"cli.skills.short":             "Gérer le skill d'agent airlock des clients IA",
+	"cli.skills_install.short":     "Écrire le skill d'agent airlock dans ce projet, ou dans le home avec --user",
+	"cli.skills_install.long":      "Écrit SKILL.md dans .claude/skills/airlock pour Claude Code et dans .agents/skills/airlock pour VS Code, Codex, Cursor et Gemini CLI, pour les clients de mcp.clients (une liste à cocher dans un terminal), ceux indiqués, ou tous avec --user. Commitez les fichiers du projet pour partager le skill ; relancez-la après airlock update pour le rafraîchir.",
+	"cli.skills_install.flag.user": "Écrire dans les répertoires de skills de l'utilisateur (~/.claude/skills, ~/.agents/skills) plutôt que dans le projet",
 	// internal/cli/update_cmd.go
 	"cli.update.short":      "Mettre airlock à jour vers la dernière version",
 	"cli.update.long":       "Vérifie la dernière version GitHub d'airlock et, si elle est plus récente que ce build, l'installe à la place du binaire en cours. L'accès à GitHub vient de GH_TOKEN, GITHUB_TOKEN ou de la CLI GitHub (gh auth login).",
@@ -254,6 +259,12 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.uninstall.airlock_uninstall_removes":     "airlock uninstall retire :\n",
 	"cli.uninstall.also_stops_airlock_daemon":     "\nArrête aussi le daemon airlock et ses %s.\n",
 	"cli.uninstall.it_keeps":                      "\nIl garde :\n",
+	// internal/cli/skills_cmd.go
+	"cli.skills.written":            "Skill airlock écrit dans %s\n",
+	"cli.skills.up_to_date":         "Skill airlock déjà à jour dans %s\n",
+	"cli.skills.pick_title":         "Écrire le skill airlock dans",
+	"cli.skills.nothing_written":    "rien n'a été écrit\n",
+	"cli.skills.no_client_selected": "mcp.clients (%s) ne sélectionne aucun client IA ici : nommez les clients (airlock skills install codex), ou passez --user",
 	// internal/cli/update_cmd.go
 	"cli.update.updated_airlock":           "airlock mis à jour %s → %s\n",
 	"cli.update.restart_daemon_to_use":     "redémarrez le daemon pour utiliser la nouvelle version : airlock daemon restart\n",
@@ -525,6 +536,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"ui.export_picker.select_at_least_one": "Sélectionnez au moins un élément à %s.",
 	"ui.hint.all_none":                     "tout/rien",
 	"ui.hint.export":                       "exporter",
+	"ui.hint.write":                        "écrire",
 	// internal/ui/wizard_frame.go
 	"ui.wizard_frame.to_filter": "⌕ / pour filtrer",
 	// internal/ui (wizard, by hand)

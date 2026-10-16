@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/n2jsoft/airlock/internal/agentskill"
 	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
@@ -35,8 +36,10 @@ type uninstallEnv struct {
 	stopDaemon func(ctx context.Context) (bool, error)
 	// gatewayEntries returns the files holding the MCP gateway entry and how to remove it.
 	gatewayEntries func() (files []string, remove func(path string) error)
-	interactive    func(io.Reader) bool
-	goos           string
+	// agentSkills returns the user-level airlock skill directories.
+	agentSkills func() []string
+	interactive func(io.Reader) bool
+	goos        string
 }
 
 // runningDaemon is the daemon airlock uninstall stops once the removal is confirmed.
@@ -57,6 +60,7 @@ func defaultUninstallEnv() *uninstallEnv {
 		findDaemon:     findDaemon,
 		stopDaemon:     stopDaemon,
 		gatewayEntries: defaultGatewayEntries,
+		agentSkills:    defaultAgentSkills,
 		interactive:    isInteractiveInput,
 		goos:           runtime.GOOS,
 	}
@@ -182,6 +186,9 @@ func (e *uninstallEnv) machine() (*uninstall.Env, error) {
 	if e.gatewayEntries != nil {
 		env.GatewayEntries, env.RemoveGatewayEntry = e.gatewayEntries()
 	}
+	if e.agentSkills != nil {
+		env.AgentSkills = e.agentSkills()
+	}
 	return env, nil
 }
 
@@ -201,6 +208,11 @@ func defaultGatewayEntries() (files []string, remove func(string) error) {
 		_, err := mcpserve.UnregisterClients("", aiclient.AllUser(), entry)
 		return err
 	}
+}
+
+func defaultAgentSkills() []string {
+	dirs, _ := agentskill.UserInstalled() //nolint:errcheck // without a home there is no skill to remove.
+	return dirs
 }
 
 func printUninstallPlan(cmd *cobra.Command, plan *uninstall.Plan, running *runningDaemon) {

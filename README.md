@@ -784,6 +784,20 @@ airlock config set agent.autoConnect non-prod   # let agents open non-production
 airlock daemon status                            # the gateway line: URL, files, or why it is off
 ```
 
+**Agent skill.** `airlock skills install` writes an `airlock` skill telling agents how to use these
+tools (reuse sessions, read-only first, close what they opened): `.claude/skills/airlock/SKILL.md`
+for Claude Code and `.agents/skills/airlock/SKILL.md` for VS Code, Codex, Cursor and Gemini CLI.
+Without arguments it writes the files of the `mcp.clients` clients (`auto`: those the project uses,
+from `.claude`, `.mcp.json`, `.vscode`, `.codex`, `.cursor` or `.gemini`), which a terminal offers
+as a checklist of every skill file. Commit them to share the skill with the team, and run the
+command again after `airlock update`. `airlock uninstall` removes the `--user` ones.
+
+```sh
+airlock skills install               # the mcp.clients files, checklist in a terminal
+airlock skills install codex cursor  # only .agents/skills
+airlock skills install --user        # ~/.claude/skills and ~/.agents/skills, for every project
+```
+
 **Credentials.** Nothing is written to disk.
 
 - **PostgreSQL** uses an IAM token for the chosen database user. Read-only mode relies on that user

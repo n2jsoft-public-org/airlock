@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -291,5 +292,28 @@ func TestUninstallRemovesTheGatewayEntry(t *testing.T) {
 	}
 	if len(removed) != 1 || removed[0] != claude {
 		t.Fatalf("removed = %v", removed)
+	}
+}
+
+func TestUninstallRemovesTheAgentSkills(t *testing.T) {
+	m := newMachine(t)
+	env := m.env()
+	skill := filepath.Join(m.home, ".agents", "skills", "airlock")
+	if err := os.MkdirAll(skill, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	env.AgentSkills = []string{skill}
+	plan, err := NewPlan(env, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(plan.Remove, func(item Item) bool { return item.Kind == AgentSkill && item.Path == skill }) {
+		t.Fatalf("plan = %+v", plan.Remove)
+	}
+	if err := Apply(&plan, env, func(Item) {}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(skill); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the skill must be removed (%v)", err)
 	}
 }

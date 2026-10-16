@@ -142,6 +142,11 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.uninstall.long":       "Removes the airlock binary and the PATH entry its installer added, after listing them. --purge also removes the settings, recent connections, MCP query logs and kubeconfigs, and the database passwords saved in the OS keychain.",
 	"cli.uninstall.flag.purge": "Also remove settings, recent connections, logs and saved passwords",
 	"cli.uninstall.flag.yes":   "Remove without asking",
+	// internal/cli/skills_cmd.go
+	"cli.skills.short":             "Manage the airlock agent skill of the AI clients",
+	"cli.skills_install.short":     "Write the airlock agent skill in this project, or in the home with --user",
+	"cli.skills_install.long":      "Writes SKILL.md in .claude/skills/airlock for Claude Code and in .agents/skills/airlock for VS Code, Codex, Cursor and Gemini CLI, for the clients of mcp.clients (a checklist in a terminal), the ones given, or every client with --user. Commit the project files to share the skill; run it again after airlock update to refresh it.",
+	"cli.skills_install.flag.user": "Write in the user-level skill directories (~/.claude/skills, ~/.agents/skills) instead of the project",
 	// internal/cli/update_cmd.go
 	"cli.update.short":      "Update airlock to the latest release",
 	"cli.update.long":       "Checks the latest GitHub release of airlock and, when it is newer than this build, installs it in place of the running binary. GitHub access comes from GH_TOKEN, GITHUB_TOKEN or the GitHub CLI (gh auth login).",
@@ -254,6 +259,12 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.uninstall.airlock_uninstall_removes":     "airlock uninstall removes:\n",
 	"cli.uninstall.also_stops_airlock_daemon":     "\nAlso stops the airlock daemon and its %s.\n",
 	"cli.uninstall.it_keeps":                      "\nIt keeps:\n",
+	// internal/cli/skills_cmd.go
+	"cli.skills.written":            "airlock skill written to %s\n",
+	"cli.skills.up_to_date":         "airlock skill already up to date in %s\n",
+	"cli.skills.pick_title":         "Write the airlock skill to",
+	"cli.skills.nothing_written":    "nothing written\n",
+	"cli.skills.no_client_selected": "mcp.clients (%s) selects no AI client here: name the clients (airlock skills install codex), or pass --user",
 	// internal/cli/update_cmd.go
 	"cli.update.updated_airlock":           "Updated airlock %s → %s\n",
 	"cli.update.restart_daemon_to_use":     "restart the daemon to use the new version: airlock daemon restart\n",
@@ -525,6 +536,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"ui.export_picker.select_at_least_one": "Select at least one item to %s.",
 	"ui.hint.all_none":                     "all/none",
 	"ui.hint.export":                       "export",
+	"ui.hint.write":                        "write",
 	// internal/ui/wizard_frame.go
 	"ui.wizard_frame.to_filter": "⌕ / to filter",
 	// internal/ui (wizard, by hand)

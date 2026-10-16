@@ -31,6 +31,8 @@ const (
 	KeychainSecrets
 	// GatewayEntry is the MCP gateway entry in a user-level AI client file.
 	GatewayEntry
+	// AgentSkill is a user-level airlock agent skill directory (airlock skills install --user).
+	AgentSkill
 )
 
 // Item is one thing an uninstall removes.
@@ -57,6 +59,8 @@ func (i Item) Describe() string {
 		return "the database passwords saved in the OS keychain"
 	case GatewayEntry:
 		return "the airlock MCP gateway entry in " + i.Path
+	case AgentSkill:
+		return i.Path + " (the airlock agent skill)"
 	default:
 		return i.Path
 	}
@@ -79,6 +83,8 @@ type Env struct {
 	// GatewayEntries are the user-level AI client files holding the MCP gateway entry;
 	// RemoveGatewayEntry removes it from one.
 	GatewayEntries []string
+	// AgentSkills are the user-level airlock agent skill directories.
+	AgentSkills []string
 }
 
 // Plan lists what an uninstall removes, in the order shown, and what it leaves behind.
@@ -113,6 +119,9 @@ func NewPlan(env *Env, purge bool) (Plan, error) {
 
 	for _, path := range env.GatewayEntries {
 		plan.Remove = append(plan.Remove, Item{Kind: GatewayEntry, Path: path})
+	}
+	for _, dir := range env.AgentSkills {
+		plan.Remove = append(plan.Remove, Item{Kind: AgentSkill, Path: dir})
 	}
 
 	hasData := exists(env.DataDir)
@@ -211,7 +220,7 @@ func Apply(plan *Plan, env *Env, done func(Item)) error {
 			if env.RemoveGatewayEntry != nil {
 				err = env.RemoveGatewayEntry(item.Path)
 			}
-		case UserData:
+		case UserData, AgentSkill:
 			err = os.RemoveAll(item.Path)
 		case KeychainSecrets:
 			err = env.Keychain.DeleteAll()

@@ -19,11 +19,14 @@ type ExportChoice struct {
 	Name        string
 	Detail      string
 	Environment environment.Env
+	// Unchecked leaves the choice unchecked at start.
+	Unchecked bool
 }
 
 const exportPickerMaxWidth = 100
 
-// exportPicker is the checklist of the items to export (or import, its verb), all checked at start.
+// exportPicker is the checklist of the items to export (or import, its verb), checked at start
+// unless Unchecked.
 type exportPicker struct {
 	styles   Styles
 	title    string
@@ -40,7 +43,7 @@ type exportPicker struct {
 func newExportPicker(styles Styles, title, verb string, choices []ExportChoice) exportPicker {
 	checked := make([]bool, len(choices))
 	for idx := range checked {
-		checked[idx] = true
+		checked[idx] = !choices[idx].Unchecked
 	}
 	return exportPicker{title: title, verb: verb, choices: choices, checked: checked, styles: styles, width: exportPickerMaxWidth}
 }

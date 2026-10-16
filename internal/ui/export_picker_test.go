@@ -45,6 +45,13 @@ func TestExportPickerChecksEverythingAtStart(t *testing.T) {
 	}
 }
 
+func TestExportPickerLeavesUncheckedChoicesOut(t *testing.T) {
+	p := newExportPicker(NewStyles(true), "Write", "write", []ExportChoice{{Name: "a"}, {Name: "b", Unchecked: true}})
+	if p, _ = exportKeys(t, p, "enter"); !p.done || !slices.Equal(p.selected(), []int{0}) {
+		t.Fatalf("done = %v selected = %v, want only the checked choice", p.done, p.selected())
+	}
+}
+
 func TestExportPickerTogglesTheCurrentChoice(t *testing.T) {
 	p, _ := exportKeys(t, newTestExportPicker(), "down", "space", "down", "x", "x", "enter")
 	if !p.done || !slices.Equal(p.selected(), []int{0, 2}) {
