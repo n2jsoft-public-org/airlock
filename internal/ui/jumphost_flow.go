@@ -620,6 +620,8 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsLoaded(msg)
 	case settingRefusedMsg:
 		return m.handleSettingRefused(msg)
+	case settingsProfilesMsg:
+		return m.handleSettingsProfiles(msg)
 	case directChoicesLoadedMsg:
 		return m.handleDirectChoicesLoaded(msg)
 	case jumphostSecretsLoadedMsg:

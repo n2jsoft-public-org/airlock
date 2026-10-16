@@ -1,0 +1,23 @@
+
+  ◆ airlock               organisation github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Réglages  config.json · les options de ce lancement l'emportent
+
+    Général            │ Clients IA
+    AWS                │ ▌ [ ] Détecter les clients du projet
+  ▌ MCP                │       trouvés ici : Claude Code, Cursor
+    Agent              │                projet      utilisateur
+    Démon              │   Claude Code  [ ]         [x]
+    Modules            │   VS Code      [x]         [ ]
+      SQL              │   Codex        [ ]         [ ]
+      Kubernetes       │   Cursor       [ ]         [ ]
+      Cache            │   Gemini CLI   [ ]         [ ]
+      DynamoDB         │
+      S3 (inactif)     │ Valeur  claude:user,vscode
+                       │   Imposé par l'organisation (github.com/acme/airlock-
+                       │   config/org.json) : il ne peut pas être modifié ici.
+  /home/me/.config/airlock/config.json
+
+   ↑↓←→  naviguer   esc  retour

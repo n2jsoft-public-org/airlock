@@ -1,0 +1,23 @@
+
+  ◆ airlock               organisation github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Réglages  config.json · les options de ce lancement l'emportent
+
+    Général            │ MCP
+    AWS                │
+  ▌ MCP                │   Préfixe des serveurs   airlock         défaut
+    Agent              │   Début des noms des serveurs MCP
+    Démon              │ ▌ Clients IA             claude (ut…  ⚑ --mcp-clients
+    Modules            │   Clients IA dans lesquels les serveurs MCP sont enr…
+      SQL              │   mcp.clients
+      Kubernetes       │   ⚑ --mcp-clients pour ce lancement
+      Cache            │   Passerelle             activé          défaut
+      DynamoDB         │   true : le daemon sert la passerelle MCP, par laque…
+      S3 (inactif)     │   Port de la passerelle  7821            défaut
+                       │   Port de la passerelle MCP sur 127.0.0.1 (1024-6553…
+                       │
+  /home/me/.config/airlock/config.json
+
+   ←/esc  retour   enter  changer   d  défaut   ?  aide   q  quitter

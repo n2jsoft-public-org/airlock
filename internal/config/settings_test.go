@@ -585,3 +585,20 @@ func TestExportNeverCarriesOrganizationConfig(t *testing.T) {
 		t.Fatalf("the shared string carries organizationConfig: %q", *f.OrganizationConfig)
 	}
 }
+
+func TestValidateUsesTheSetRule(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range [][2]string{{"mcp.gateway.port", "7822"}, {"agentWrites", "true"}, {"mcp.clients", "auto,claude:user"}} {
+		if err := Validate(c[0], c[1]); err != nil {
+			t.Errorf("Validate(%q, %q) = %v", c[0], c[1], err)
+		}
+	}
+	for _, c := range [][2]string{{"mcp.gateway.port", "70000"}, {"aws.jumphostTag", "nokey"}, {"productionProfiles", "x"}, {"nope", "x"}} {
+		if err := Validate(c[0], c[1]); err == nil {
+			t.Errorf("Validate(%q, %q) = nil, want an error", c[0], c[1])
+		}
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("entries = %v, %v; want no file", entries, err)
+	}
+}

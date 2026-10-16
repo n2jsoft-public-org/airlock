@@ -1,0 +1,23 @@
+
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+    General            │ AI clients
+    AWS                │ ▌ [ ] Auto-detect project clients
+  ▌ MCP                │       found here: Claude Code, Cursor
+    Agent              │                project     user
+    Daemon             │   Claude Code  [ ]         [x]
+    Modules            │   VS Code      [x]         [ ]
+      SQL              │   Codex        [ ]         [ ]
+      Kubernetes       │   Cursor       [ ]         [ ]
+      Cache            │   Gemini CLI   [ ]         [ ]
+      DynamoDB         │
+      S3 (off)         │ Value  claude:user,vscode
+                       │ project = the client's file in the current repo
+                       │ user    = your user-level config of the client
+  /home/me/.config/airlock/config.json
+
+   space  toggle   enter  save   n  none   esc  cancel

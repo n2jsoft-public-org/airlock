@@ -1,0 +1,23 @@
+
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+    General            │ MCP
+    AWS                │
+  ▌ MCP                │   Server prefix  airlock                 default
+    Agent              │   Start of the MCP server names
+    Daemon             │ ▌ AI clients     claude (user…  file  ⚑ --mcp-clients
+    Modules            │   AI clients the MCP servers are registered in: auto…
+      SQL              │   mcp.clients
+      Kubernetes       │   ⚑ --mcp-clients for this run
+      Cache            │   Gateway        on                      default
+      DynamoDB         │   true: the daemon serves the MCP gateway, through w…
+      S3 (off)         │   Gateway port   7821                    default
+                       │   Port of the MCP gateway on 127.0.0.1 (1024-65535)
+                       │
+  /home/me/.config/airlock/config.json
+
+   ←/esc  back   enter  change   d  default   ?  help   q  quit

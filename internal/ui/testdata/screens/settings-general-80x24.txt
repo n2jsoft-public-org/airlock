@@ -1,0 +1,23 @@
+
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+  ▌ General            │ General
+    AWS                │
+    MCP                │   Language             Automatic         default
+    Agent              │   Language of airlock: auto (the system's), en or fr…
+    Daemon             │   Organization config  https://github.…  file
+    Modules            │   Source of the organization config: an absolute pat…
+      SQL              │   Mode                 Per process       default
+      Kubernetes       │   cli: sessions live in each airlock and close with …
+      Cache            │   Environments         prod              default
+      DynamoDB         │   Environments badged in the TUI, separated by ;, ea…
+      S3 (off)         │
+                       │
+                       │
+  /home/me/.config/airlock/config.json
+
+   ←→  panes   ↑↓  move   esc  back   ?  help   q  quit

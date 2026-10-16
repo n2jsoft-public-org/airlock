@@ -934,12 +934,29 @@ and `--jumphost-tag`.
 ### From the TUI
 
 Press `,` on the start screen (or on the Type step when there is no saved connection) or in the
-dashboard to open the Settings screen: every key, its value, where it comes from and what it does.
-`enter` changes the selected key (`mode` switches between `cli` and `daemon`, `aws.defaultRegion`
-opens the region list), `d` resets it to its default and `esc` goes back. Values are checked as
-`airlock config set` checks them. The next connections use the new values, in CLI mode as in
-daemon mode; `mode` applies at the next launch of airlock. A flag of the run, such as
-`--jumphost-tag`, keeps winning over the file and is shown next to its key.
+dashboard to open the Settings screen. Two panes: the sections on the left (`general`, `aws`, `mcp`,
+`agent`, `daemon` and one per module), the keys of the selected section on the right, each with its
+value, where it comes from and what it does. `←` `→` or `tab` switch panes, `↑` `↓` move, `enter`
+changes the selected key, `space` toggles a yes/no key, `d` resets it to its default and `esc` goes
+back.
+
+Each key opens the editor that fits it. `mode` and `agent.autoConnect` are a list of their choices,
+each with what it does, and `language` a list of the languages; `aws.defaultRegion` opens the
+region picker; a duration offers `15m`, `30m`, `1h` and `4h`, then "other…" to type another one; a
+tag has two fields, Key and Value; a port and the other keys are a text field. They check what you
+type as `airlock config set` does and write once, when you confirm; confirming the current value
+writes nothing. `mcp.clients` is a grid: an Auto-detect row for the clients found in the project,
+then one row per AI client with the scope of its configuration (project or user); `space` ticks a
+box, `n` selects none and `enter` saves. `environments` has its own editor: the list of
+environments, one marked as production, and for each the profile patterns it matches, with the
+local AWS profiles each one receives; `enter` opens an environment, `a` adds one, `x` deletes it and
+`s` saves the list. A key the organization locks opens read-only, with a line under it saying the
+organization imposes it. Saving an optional key empty writes it empty, which overrides the value of
+the organization: its editor says so when the organization sets that key.
+
+The next connections use the new values, in CLI mode as in daemon mode; `mode` applies at the next
+launch of airlock. A flag of the run, such as `--jumphost-tag`, keeps winning over the file and is
+shown next to its key.
 
 ### Daemon mode
 

@@ -1,0 +1,23 @@
+
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+  ▌ General            │ Environments  names given to AWS profiles by patterns
+    AWS                │
+    MCP                │ ▌ prod     ● production  *-prod*
+    Agent              │   staging                *-staging*, *-stg
+    Daemon             │   + add an environment
+    Modules            │
+      SQL              │ Value  prod!=*-prod*; staging=*-staging*,*-stg
+      Kubernetes       │
+      Cache            │
+      DynamoDB         │
+      S3 (off)         │
+                       │
+                       │
+  /home/me/.config/airlock/config.json
+
+   s  save   enter  edit   a  add   x  delete   esc  cancel

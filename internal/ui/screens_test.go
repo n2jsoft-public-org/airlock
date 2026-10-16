@@ -149,9 +149,39 @@ func pinScreens(t *testing.T, suffix string) {
 	t.Run("settings", func(t *testing.T) {
 		m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
 		m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
-		checkScreen(t, "settings-80x24"+suffix, m.render())
-		// Up from the first key wraps to the last one, which the organization locks.
-		checkScreen(t, "settings-locked-80x24"+suffix, pressWizard(t, m, key("k")).render())
+		checkScreen(t, "settings-general-80x24"+suffix, m.render())
+		checkScreen(t, "settings-mcp-80x24"+suffix, wizardKeys(t, m, "down", "down", "right", "down").render())
+		// Up from General wraps to the last section, S3, which is off.
+		checkScreen(t, "settings-module-off-80x24"+suffix, wizardKeys(t, m, "up").render())
+		// The organization locks aws.jumphostTag.
+		checkScreen(t, "settings-locked-80x24"+suffix, wizardKeys(t, m, "down", "right", "down").render())
+		checkScreen(t, "settings-clients-80x24"+suffix, wizardKeys(t, m, "down", "down", "right", "down", "enter").render())
+	})
+	t.Run("settings-clients-locked", func(t *testing.T) {
+		store := newFakeSettingsStore()
+		for idx := range store.snapshot.Settings {
+			if store.snapshot.Settings[idx].Name == "mcp.clients" {
+				store.snapshot.Settings[idx].Locked, store.snapshot.Settings[idx].FromOrganization = true, true
+			}
+		}
+		m := pressWizard(t, settingsWizard(t, store), key(","))
+		m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		checkScreen(t, "settings-clients-locked-80x24"+suffix, wizardKeys(t, m, "down", "down", "right", "down", "enter").render())
+	})
+	t.Run("settings-environments", func(t *testing.T) {
+		store := newFakeSettingsStore()
+		for idx := range store.snapshot.Settings {
+			if store.snapshot.Settings[idx].Name == "environments" {
+				store.snapshot.Settings[idx].Value, store.snapshot.Settings[idx].FromFile = environmentsFixture, true
+			}
+		}
+		w := settingsWizard(t, store)
+		w.runner = profilesRunner{historyRunner: newHistoryRunner(savedArchive), names: []string{"acme-prod", "acme-staging", "billing-stg", "sandbox"}}
+		m := pressWizard(t, w, key(","))
+		m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+		m = pressWizard(t, wizardKeys(t, m, "right", "down", "down", "down"), key("enter"))
+		checkScreen(t, "settings-environments-80x24"+suffix, m.render())
+		checkScreen(t, "settings-environment-form-80x24"+suffix, wizardKeys(t, m, "down", "enter", "down", "down").render())
 	})
 	t.Run("direct-80x24", func(t *testing.T) {
 		m := directFormWizard(t, fakeSessionRunner{}, &fakeDirectStore{}, "")

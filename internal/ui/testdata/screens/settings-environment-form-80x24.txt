@@ -1,0 +1,23 @@
+
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+  ▌ General            │ Environments › staging
+    AWS                │
+    MCP                │   Name         staging
+    Agent              │   Production   [ ]   (prod is production)
+    Daemon             │
+    Modules            │   Patterns     AWS profile names, * and ? allowed
+      SQL              │ ▌              *-staging*
+      Kubernetes       │                *-stg
+      Cache            │                + add a pattern
+      DynamoDB         │
+      S3 (off)         │   Matches      acme-staging, billing-stg
+                       │
+                       │ Value  prod!=*-prod*; staging=*-staging*,*-stg
+  /home/me/.config/airlock/config.json
+
+   enter  edit   space  toggle   a  add   x  delete   esc  back

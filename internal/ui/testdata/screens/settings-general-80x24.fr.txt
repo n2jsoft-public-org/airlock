@@ -1,0 +1,23 @@
+
+  ◆ airlock               organisation github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Réglages  config.json · les options de ce lancement l'emportent
+
+  ▌ Général            │ Général
+    AWS                │
+    MCP                │   Langue                 Automatique     défaut
+    Agent              │   Langue d'airlock : auto (celle du système), en ou …
+    Démon              │   Config d'organisation  https://githu…  fichier
+    Modules            │   Source de la config d'organisation : un chemin abs…
+      SQL              │   Mode                   Par processus   défaut
+      Kubernetes       │   cli : les sessions vivent dans chaque airlock et s…
+      Cache            │   Environnements         prod            défaut
+      DynamoDB         │   Environnements signalés dans la TUI, séparés par ;…
+      S3 (inactif)     │
+                       │
+                       │
+  /home/me/.config/airlock/config.json
+
+   ←→  volets   ↑↓  naviguer   esc  retour   ?  aide   q  quitter

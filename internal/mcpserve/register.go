@@ -172,15 +172,25 @@ type clientFile struct {
 	path   string
 }
 
-// clientFiles resolves clients into files. detected tells whether auto-detection keeps the project
-// file of a client. A user-level file that cannot be located is an error; the others still apply.
-func clientFiles(projectDir string, clients aiclient.Selection, detected func(*clientSpec) bool) ([]clientFile, error) {
+// DetectClients returns the clients whose project files auto-detection writes in projectDir, in
+// aiclient.Clients order; never nil.
+func DetectClients(projectDir string) []aiclient.Client {
+	found := make([]aiclient.Client, 0, len(aiclient.Clients))
+	for _, client := range aiclient.Clients {
+		if spec, ok := clientSpecs[client]; ok && spec.detect(projectDir) {
+			found = append(found, client)
+		}
+	}
+	return found
+}
+
+// clientFiles resolves clients into files. detected lists the clients whose project file
+// auto-detection keeps. A user-level file that cannot be located is an error; the others still apply.
+func clientFiles(projectDir string, clients aiclient.Selection, detected func() []aiclient.Client) ([]clientFile, error) {
 	var targets []aiclient.Target
 	if clients.Detect {
-		for _, client := range aiclient.Clients {
-			if detected(new(clientSpecs[client])) {
-				targets = append(targets, aiclient.Target{Client: client, Scope: aiclient.ScopeProject})
-			}
+		for _, client := range detected() {
+			targets = append(targets, aiclient.Target{Client: client, Scope: aiclient.ScopeProject})
 		}
 	}
 	targets = append(targets, clients.Targets...)
@@ -241,7 +251,7 @@ func (c *companionFile) file() (file clientFile, installed bool, err error) {
 // RegisterClients adds entry to the MCP configuration of the selected AI clients, and returns the
 // files it wrote.
 func RegisterClients(projectDir string, clients aiclient.Selection, entry ClientEntry) ([]string, error) {
-	files, err := clientFiles(projectDir, clients, func(spec *clientSpec) bool { return spec.detect(projectDir) })
+	files, err := clientFiles(projectDir, clients, func() []aiclient.Client { return DetectClients(projectDir) })
 	errs := []error{err}
 	var written []string
 	for _, file := range files {
@@ -258,7 +268,7 @@ func RegisterClients(projectDir string, clients aiclient.Selection, entry Client
 // replaced it (its URL differs), and returns the files it changed. Auto-detection covers every
 // client: the project may have stopped looking like one since the entry was written.
 func UnregisterClients(projectDir string, clients aiclient.Selection, entry ClientEntry) ([]string, error) {
-	files, err := clientFiles(projectDir, clients, func(*clientSpec) bool { return true })
+	files, err := clientFiles(projectDir, clients, func() []aiclient.Client { return aiclient.Clients })
 	errs := []error{err}
 	var changed []string
 	for _, file := range files {
@@ -280,7 +290,7 @@ func UnregisterClients(projectDir string, clients aiclient.Selection, entry Clie
 // EntryFiles returns the files of the selected clients holding entry (its name with its URL).
 // Project files are looked up in no project: pass user-level targets.
 func EntryFiles(clients aiclient.Selection, entry ClientEntry) ([]string, error) {
-	files, err := clientFiles("", clients, func(*clientSpec) bool { return false })
+	files, err := clientFiles("", clients, func() []aiclient.Client { return nil })
 	errs := []error{err}
 	var found []string
 	for _, file := range files {

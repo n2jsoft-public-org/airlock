@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -26,10 +27,11 @@ func newFakeSettingsStore() *fakeSettingsStore {
 
 func (s *fakeSettingsStore) Snapshot() (SettingsSnapshot, error) {
 	return SettingsSnapshot{
-		Path:         s.snapshot.Path,
-		Settings:     slices.Clone(s.snapshot.Settings),
-		Environments: s.snapshot.Environments,
-		Organization: s.snapshot.Organization,
+		Path:            s.snapshot.Path,
+		Settings:        slices.Clone(s.snapshot.Settings),
+		Environments:    s.snapshot.Environments,
+		Organization:    s.snapshot.Organization,
+		DetectedClients: s.snapshot.DetectedClients,
 	}, nil
 }
 
@@ -56,6 +58,14 @@ func (s *fakeSettingsStore) Unset(key string) error {
 	return nil
 }
 
+// Validate refuses a gateway port past 65535, like config.Validate.
+func (s *fakeSettingsStore) Validate(key, value string) error {
+	if n, err := strconv.Atoi(value); key == "mcp.gateway.port" && err == nil && n > 65535 {
+		return errors.New("invalid port " + value + " (valid: 1024-65535)")
+	}
+	return nil
+}
+
 // settingsWizard opens a wizard with a history and store on its start screen.
 func settingsWizard(t *testing.T, store SettingsStore) jumphostWizardModel {
 	t.Helper()
@@ -63,6 +73,15 @@ func settingsWizard(t *testing.T, store SettingsStore) jumphostWizardModel {
 	m.settings = store
 	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	return runChain(t, m, m.loadSavedCmd(), 1)
+}
+
+// wizardKeys presses the named keys, without following the commands they lead to.
+func wizardKeys(t *testing.T, m jumphostWizardModel, names ...string) jumphostWizardModel {
+	t.Helper()
+	for _, name := range names {
+		m, _ = wizardUpdate(t, m, key(name))
+	}
+	return m
 }
 
 // pressWizard sends msg, then runs the commands it leads to, one level deep.
@@ -84,7 +103,7 @@ func TestWizardStartScreenOpensSettings(t *testing.T) {
 		t.Fatalf("step = %v loading = %v, want the Settings screen", m.step, m.loading)
 	}
 	view := wizardView(m)
-	for _, want := range []string{"Settings", "aws.jumphostTag", "Usage=jumphost", "/home/me/.config/airlock/config.json"} {
+	for _, want := range []string{"Settings", "General", "Language", "Automatic", "/home/me/.config/airlock/config.json"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view lacks %q:\n%s", want, view)
 		}
@@ -123,17 +142,15 @@ func TestWizardCommaFiltersWhileFilteringRecent(t *testing.T) {
 
 func TestWizardSettingsSaveWritesAndReloads(t *testing.T) {
 	store := newFakeSettingsStore()
-	m := pressWizard(t, settingsWizard(t, store), key(","))
-	m, _ = wizardUpdate(t, m, key("enter"))
-	m, _ = wizardUpdate(t, m, key("Env=bastion"))
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "down", "down", "right", "enter", "ctrl+u", "acme")
 	m = pressWizard(t, m, key("enter"))
-	if !slices.Equal(store.calls, []string{"set aws.jumphostTag=Env=bastion"}) {
+	if !slices.Equal(store.calls, []string{"set mcp.serverPrefix=acme"}) {
 		t.Fatalf("calls = %v", store.calls)
 	}
-	if m.loading || m.settingsEditor.editing {
-		t.Fatalf("loading = %v editing = %v, want the edit closed", m.loading, m.settingsEditor.editing)
+	if m.loading || m.settingsEditor.open != nil {
+		t.Fatalf("loading = %v open = %v, want the editor closed", m.loading, m.settingsEditor.open != nil)
 	}
-	if view := wizardView(m); !strings.Contains(view, "Env=bastion") {
+	if view := wizardView(m); !strings.Contains(view, "acme") {
 		t.Fatalf("view lacks the saved value:\n%s", view)
 	}
 }
@@ -141,12 +158,10 @@ func TestWizardSettingsSaveWritesAndReloads(t *testing.T) {
 func TestWizardSettingsRefusedValueKeepsTheField(t *testing.T) {
 	store := newFakeSettingsStore()
 	store.setErr = errors.New("invalid tag \"bastion\": want Key=Value")
-	m := pressWizard(t, settingsWizard(t, store), key(","))
-	m, _ = wizardUpdate(t, m, key("enter"))
-	m, _ = wizardUpdate(t, m, key("bastion"))
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "down", "down", "right", "enter", "ctrl+u", "bastion")
 	m = pressWizard(t, m, key("enter"))
-	if !m.settingsEditor.editing || m.settingsEditor.input.Value() != "bastion" || m.loading {
-		t.Fatalf("editing = %v value = %q loading = %v", m.settingsEditor.editing, m.settingsEditor.input.Value(), m.loading)
+	if open := m.settingsEditor.open; open == nil || open.Value() != "bastion" || m.loading {
+		t.Fatalf("open = %v loading = %v, want the editor kept with bastion", open != nil, m.loading)
 	}
 	if view := wizardView(m); !strings.Contains(view, "want Key=Value") {
 		t.Fatalf("view lacks the refusal:\n%s", view)
@@ -154,11 +169,10 @@ func TestWizardSettingsRefusedValueKeepsTheField(t *testing.T) {
 }
 
 func TestWizardSettingsQIsTextWhileEditing(t *testing.T) {
-	m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
-	m, _ = wizardUpdate(t, m, key("enter"))
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(",")), "down", "down", "right", "enter", "ctrl+u")
 	m, cmd := wizardUpdate(t, m, key("q"))
-	if m.canceled || m.step != jumphostStepSettings || m.settingsEditor.input.Value() != "q" {
-		t.Fatalf("canceled = %v step = %v value = %q, want q typed", m.canceled, m.step, m.settingsEditor.input.Value())
+	if open := m.settingsEditor.open; m.canceled || m.step != jumphostStepSettings || open == nil || open.Value() != "q" {
+		t.Fatalf("canceled = %v step = %v, want q typed", m.canceled, m.step)
 	}
 	if cmd != nil {
 		if _, done := runWithTimeout(cmd).(jumphostWizardDoneMsg); done {
@@ -169,21 +183,16 @@ func TestWizardSettingsQIsTextWhileEditing(t *testing.T) {
 
 func TestWizardSettingsResetUnsets(t *testing.T) {
 	store := newFakeSettingsStore()
-	m := pressWizard(t, settingsWizard(t, store), key(","))
-	m, _ = wizardUpdate(t, m, key("j"))
-	m, _ = wizardUpdate(t, m, key("d"))
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "right", "down", "d")
 	_ = pressWizard(t, m, key("y"))
-	if !slices.Equal(store.calls, []string{"unset modules.sql.defaultDbUser"}) {
+	if !slices.Equal(store.calls, []string{"unset organizationConfig"}) {
 		t.Fatalf("calls = %v", store.calls)
 	}
 }
 
 func TestWizardSettingsRegionPickerSavesTheRegion(t *testing.T) {
 	store := newFakeSettingsStore()
-	m := pressWizard(t, settingsWizard(t, store), key(","))
-	m, _ = wizardUpdate(t, m, key("j"))
-	m, _ = wizardUpdate(t, m, key("j"))
-	m, _ = wizardUpdate(t, m, key("enter"))
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "down", "right", "enter")
 	if !m.pickingRegion || !m.regionForSettings {
 		t.Fatalf("picking = %v for settings = %v, want the region picker", m.pickingRegion, m.regionForSettings)
 	}
@@ -194,6 +203,39 @@ func TestWizardSettingsRegionPickerSavesTheRegion(t *testing.T) {
 	}
 	if m.options.AwsRegion != "" {
 		t.Fatalf("region of the connection = %q, want it untouched", m.options.AwsRegion)
+	}
+}
+
+func TestWizardSettingsRegionPickerKeepsAnUnchangedRegion(t *testing.T) {
+	store := newFakeSettingsStore()
+	for idx := range store.snapshot.Settings {
+		if store.snapshot.Settings[idx].Name == "aws.defaultRegion" {
+			store.snapshot.Settings[idx].Value = "eu-west-3"
+		}
+	}
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "down", "right", "enter")
+	m = pressWizard(t, m, key("enter"))
+	if m.pickingRegion || m.regionForSettings || m.loading || m.step != jumphostStepSettings || len(store.calls) != 0 {
+		t.Fatalf("picking = %v loading = %v step = %v calls = %v, want the picker closed without a write",
+			m.pickingRegion, m.loading, m.step, store.calls)
+	}
+}
+
+func TestWizardSettingsUnchangedChoiceWritesNothing(t *testing.T) {
+	store := newFakeSettingsStore()
+	for idx := range store.snapshot.Settings {
+		if store.snapshot.Settings[idx].Name == "mode" {
+			store.snapshot.Settings[idx].Value, store.snapshot.Settings[idx].FromOrganization = "daemon", true
+		}
+	}
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "right", "down", "down", "enter")
+	if _, ok := m.settingsEditor.open.(choiceEditor); !ok {
+		t.Fatalf("open = %T, want the choice editor of mode", m.settingsEditor.open)
+	}
+	m = pressWizard(t, m, key("enter"))
+	if m.settingsEditor.open != nil || m.loading || len(store.calls) != 0 {
+		t.Fatalf("open = %v loading = %v calls = %v, want the editor closed without a write",
+			m.settingsEditor.open != nil, m.loading, store.calls)
 	}
 }
 
@@ -375,10 +417,27 @@ func TestWizardSettingsLateSnapshotIsIgnoredAfterLeaving(t *testing.T) {
 func TestFrenchConfirmHintsHaveNoEnglishPhrase(t *testing.T) {
 	i18n.SetLanguage("fr")
 	t.Cleanup(func() { i18n.SetLanguage("en") })
-	m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
-	m, _ = wizardUpdate(t, m, key("j"))
-	m, _ = wizardUpdate(t, m, key("d"))
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(",")), "right", "down", "d")
 	if view := ansi.Strip(m.render()); strings.Contains(view, "any key") || !strings.Contains(view, "autre touche") {
 		t.Fatalf("the reset confirmation hints are not French:\n%s", view)
+	}
+}
+
+func TestWizardSettingsToggleWritesAtOnce(t *testing.T) {
+	store := newFakeSettingsStore()
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "down", "down", "down", "right", "down")
+	if m = pressWizard(t, m, key("space")); !slices.Equal(store.calls, []string{"set agent.writes=true"}) || m.loading {
+		t.Fatalf("calls = %v loading = %v, want agent.writes flipped", store.calls, m.loading)
+	}
+}
+
+func TestWizardSettingsValidatesWithTheStore(t *testing.T) {
+	store := newFakeSettingsStore()
+	m := wizardKeys(t, pressWizard(t, settingsWizard(t, store), key(",")), "down", "down", "right", "down", "down", "down", "enter", "ctrl+u", "70000")
+	if view := wizardView(m); !strings.Contains(view, "invalid port 70000") {
+		t.Fatalf("view lacks the store's validation error:\n%s", view)
+	}
+	if m = pressWizard(t, m, key("enter")); len(store.calls) != 0 || m.settingsEditor.open == nil {
+		t.Fatalf("calls = %v, want nothing written for an invalid value", store.calls)
 	}
 }

@@ -2,11 +2,13 @@ package cli
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/aiclient"
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/spf13/pflag"
@@ -61,10 +63,10 @@ func TestConfigSettingsStoreSnapshot(t *testing.T) {
 	if v := views["aws.jumphostTag"]; v.FromFile || v.Value != "Usage=jumphost" || v.OverriddenBy != "--jumphost-tag" {
 		t.Fatalf("aws.jumphostTag = %+v, want the default overridden by the flag", v)
 	}
-	if v := views["aws.defaultRegion"]; !v.Region || v.OverriddenBy != "" {
+	if v := views["aws.defaultRegion"]; v.Kind != ui.KindRegion || v.OverriddenBy != "" {
 		t.Fatalf("aws.defaultRegion = %+v", v)
 	}
-	if v := views["mode"]; !slices.Equal(v.Choices, []string{"cli", "daemon"}) || !v.NextLaunch {
+	if v := views["mode"]; !slices.Equal(optionValues(&v), []string{"cli", "daemon"}) || !v.NextLaunch {
 		t.Fatalf("mode = %+v", v)
 	}
 	if snapshot.Path != path || snapshot.Environments.String() != "prod!=*prod*,*-live" {
@@ -139,7 +141,7 @@ func TestSettingsStoreOffersTheGatewayChoices(t *testing.T) {
 	for _, view := range snapshot.Settings {
 		views[view.Name] = view
 	}
-	if got := views["agent.autoConnect"].Choices; len(got) != 3 || got[0] != "none" {
+	if got := optionValues(new(views["agent.autoConnect"])); len(got) != 3 || got[0] != "none" {
 		t.Fatalf("agent.autoConnect choices = %v", got)
 	}
 	if !views["mcp.gateway.enabled"].NextLaunch || !views["mcp.gateway.port"].NextLaunch || views["agent.writes"].NextLaunch {
@@ -154,7 +156,7 @@ func TestSnapshotOffersTheLanguages(t *testing.T) {
 	if !ok {
 		t.Fatal("no language setting in the snapshot")
 	}
-	if !slices.Equal(view.Choices, []string{"auto", "en", "fr"}) || !view.NextLaunch {
+	if !slices.Equal(optionValues(&view), []string{"auto", "en", "fr"}) || !view.NextLaunch {
 		t.Fatalf("language view = %+v, want choices auto/en/fr applied at next launch", view)
 	}
 }
@@ -201,7 +203,82 @@ func TestSettingsStoreRefusesOrganizationConfigWhenManaged(t *testing.T) {
 	if err := store.Unset("organizationConfig"); err == nil || !strings.Contains(err.Error(), managed) {
 		t.Fatalf("Unset: err = %v, want the managed file named", err)
 	}
+	if err := store.Validate("organizationConfig", orgFile); err == nil || !strings.Contains(err.Error(), managed) {
+		t.Fatalf("Validate: err = %v, want the managed file named", err)
+	}
 	if err := store.Set("mode", "daemon"); err != nil {
 		t.Fatalf("Set another key: %v", err)
+	}
+}
+
+func optionValues(view *ui.SettingView) []string {
+	values := make([]string, 0, len(view.Options))
+	for _, option := range view.Options {
+		values = append(values, option.Value)
+	}
+	return values
+}
+
+func TestSnapshotDescribesEveryKey(t *testing.T) {
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), nil, settingsFlags(t))
+	snapshot, views := snapshotByName(t, store)
+	if len(snapshot.Settings) != len(config.Keys) {
+		t.Fatalf("%d views, want one per key (%d)", len(snapshot.Settings), len(config.Keys))
+	}
+	for _, view := range snapshot.Settings {
+		if view.Label == "" || view.Label == "config.label."+view.Name || view.Section == "" {
+			t.Errorf("%s: label %q section %q, want both set", view.Name, view.Label, view.Section)
+		}
+	}
+	for _, view := range snapshot.Settings {
+		if !slices.Contains(ui.SettingSections, view.Section) {
+			t.Errorf("%s: section %q is none of the Settings screen's", view.Name, view.Section)
+		}
+	}
+	if v := views["mcp.gateway.port"]; v.Section != "mcp" {
+		t.Fatalf("mcp.gateway.port: section %q, want mcp", v.Section)
+	}
+	if v := views["mcp.clients"]; v.Kind != ui.KindClients || v.Section != "mcp" {
+		t.Fatalf("mcp.clients = kind %v section %q", v.Kind, v.Section)
+	}
+	if v := views["modules.sql.readOnlySecretTag"]; v.Kind != ui.KindTag || !v.Optional || v.Section != "modules.sql" {
+		t.Fatalf("modules.sql.readOnlySecretTag = %+v", v)
+	}
+	if v := views["agent.idleTimeout"]; v.Kind != ui.KindDuration || !slices.Equal(optionValues(&v), []string{"15m", "30m", "1h", "4h"}) {
+		t.Fatalf("agent.idleTimeout = %+v", v)
+	}
+	if v := views["language"]; v.Kind != ui.KindChoice || v.Section != "general" || v.Options[1].Label == "" {
+		t.Fatalf("language = %+v", v)
+	}
+	if v := views["agent.writes"]; v.Kind != ui.KindToggle || len(v.Options) != 0 {
+		t.Fatalf("agent.writes = %+v, want a toggle without options", v)
+	}
+}
+
+func TestSettingsStoreValidate(t *testing.T) {
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), nil, settingsFlags(t))
+	if err := store.Validate("mcp.gateway.port", "7822"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Validate("mcp.gateway.port", "70000"); err == nil {
+		t.Fatal("port 70000 accepted")
+	}
+}
+
+func TestSnapshotDetectedClients(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".cursor"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), nil, settingsFlags(t))
+	store.projectDir = dir
+	snapshot, _ := snapshotByName(t, store)
+	if want := []aiclient.Client{aiclient.Cursor}; !slices.Equal(snapshot.DetectedClients, want) {
+		t.Fatalf("DetectedClients = %v, want %v", snapshot.DetectedClients, want)
+	}
+
+	store.projectDir = ""
+	if snapshot, _ = snapshotByName(t, store); snapshot.DetectedClients != nil {
+		t.Fatalf("unknown directory: DetectedClients = %v, want nil", snapshot.DetectedClients)
 	}
 }

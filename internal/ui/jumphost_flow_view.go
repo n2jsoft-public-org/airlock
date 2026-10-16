@@ -239,7 +239,7 @@ func (m jumphostWizardModel) stepBody(width, height int) string {
 	case jumphostStepDirectForm:
 		return m.directForm.View(m.styles, width)
 	case jumphostStepSettings:
-		return m.settingsEditor.View(m.styles, width)
+		return m.settingsEditor.View(m.styles, width, height)
 	default:
 		return ""
 	}

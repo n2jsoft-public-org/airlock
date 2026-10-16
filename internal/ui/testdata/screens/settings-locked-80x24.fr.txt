@@ -5,19 +5,19 @@
 
   Réglages  config.json · les options de ce lancement l'emportent
 
-    aws.jumphostTag                Usage=jumphost            défaut
-    modules.sql.defaultDbUser      app_ro                    fichier
-    aws.defaultRegion              aucune                    défaut
-    mcp.serverPrefix               airlock                   défaut  ⚑ --mcp-…
-    modules.sql.readOnlySecretTag  aucune                    défaut
-    mode                           cli                       défaut
-  ▌ agent.writes                   false                     verrouillé
-  ────────────────────────────────────────────────────────────────────────
-  Let agents write
-  Imposé par l'organisation (github.com/acme/airlock-config/org.json) : il
-  ne peut pas être modifié ici.
+    Général            │ AWS
+  ▌ AWS                │
+    MCP                │   Région par défaut     aucune           défaut
+    Agent              │   Région utilisée après --region, AWS_REGION et la r…
+    Démon              │ ▌ Tag du jumphost       Usage=jumphost   verrouillé
+    Modules            │   Tag (Clé=Valeur) de l'instance EC2 jumphost SSM en…
+      SQL              │   aws.jumphostTag
+      Kubernetes       │   Imposé par l'organisation (github.com/acme/airlock-
+      Cache            │   config/org.json) : il ne peut pas être modifié ici.
+      DynamoDB         │   Port local aléatoire  activé           défaut
+      S3 (inactif)     │   true : les tunnels SSM écoutent sur un port local …
+                       │
+                       │
   /home/me/.config/airlock/config.json
 
-
-
-   ↑↓  naviguer   esc  retour   ?  aide   q  quitter
+   ←/esc  retour   enter  voir   ?  aide   q  quitter

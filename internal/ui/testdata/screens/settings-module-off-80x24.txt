@@ -1,0 +1,23 @@
+
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Settings  config.json · flags of this run win
+
+    General            │ S3
+    AWS                │
+    MCP                │   S3 module  off                       file
+    Agent              │   true: airlock lists and opens S3 buckets; false: i…
+    Daemon             │
+    Modules            │
+      SQL              │
+      Kubernetes       │
+      Cache            │
+      DynamoDB         │
+  ▌   S3 (off)         │
+                       │
+                       │
+  /home/me/.config/airlock/config.json
+
+   ←→  panes   ↑↓  move   esc  back   ?  help   q  quit

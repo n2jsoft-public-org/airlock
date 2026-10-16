@@ -231,6 +231,23 @@ func Set(path string, org *Organization, key, value string) error {
 	return writeFile(path, &f)
 }
 
+// Validate reports why value is not valid for key, by the rule Set applies, without reading or
+// writing any file: the other keys are the defaults and locks are not checked.
+func Validate(key, value string) error {
+	if key == legacyProductionProfiles {
+		return i18n.NewError("config.settings.productionprofiles_is_replaced_by", strings.TrimSpace(value))
+	}
+	var f file
+	field, err := f.knownField(currentName(key))
+	if err != nil {
+		return err
+	}
+	value = strings.TrimSpace(value)
+	*field = &value
+	_, err = f.apply(new(Defaults()))
+	return err
+}
+
 // keepsLegacyProduction refuses an environments value that would drop the production patterns of
 // the productionProfiles the file still sets: they would silently stop flagging production.
 func keepsLegacyProduction(legacy *string, value string) error {

@@ -1,0 +1,23 @@
+
+  ◆ airlock               organisation github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Réglages  config.json · les options de ce lancement l'emportent
+
+    Général            │ S3
+    AWS                │
+    MCP                │   Module S3  désactivé                 fichier
+    Agent              │   true : airlock liste et ouvre les buckets S3 ; fal…
+    Démon              │
+    Modules            │
+      SQL              │
+      Kubernetes       │
+      Cache            │
+      DynamoDB         │
+  ▌   S3 (inactif)     │
+                       │
+                       │
+  /home/me/.config/airlock/config.json
+
+   ←→  volets   ↑↓  naviguer   esc  retour   ?  aide   q  quitter

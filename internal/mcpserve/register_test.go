@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -289,5 +290,22 @@ func TestRegisterClientsReplacesStaleEntryOfSameTarget(t *testing.T) {
 	content := readFile(t, filepath.Join(dir, ".mcp.json"))
 	if strings.Contains(content, "crashed") || strings.Count(content, `"acme-dev-app"`) != 1 {
 		t.Fatalf("stale entry not replaced:\n%s", content)
+	}
+}
+
+func TestDetectClients(t *testing.T) {
+	dir := t.TempDir()
+	if got := DetectClients(dir); got == nil || len(got) != 0 {
+		t.Fatalf("empty dir: got %#v, want a non-nil empty slice", got)
+	}
+	writeEmptyMCPJSON(t, dir)
+	for _, name := range []string{".cursor", ".vscode"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []aiclient.Client{aiclient.Claude, aiclient.VSCode, aiclient.Cursor}
+	if got := DetectClients(dir); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

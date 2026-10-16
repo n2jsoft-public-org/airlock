@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
@@ -8,22 +10,56 @@ import (
 )
 
 // settingsLoadedMsg carries the snapshot of the Settings screen; written reports that it follows
-// a successful write, which closes the edit.
+// a successful write, which closes the open editor.
 type settingsLoadedMsg struct {
 	err      error
 	snapshot SettingsSnapshot
 	written  bool
 }
 
-// settingRefusedMsg reports a write the store refused.
+// settingRefusedMsg reports a write the store refused; an open editor stays open with its value.
 type settingRefusedMsg struct {
 	err error
+}
+
+// settingsProfilesMsg carries the names of the local AWS profiles, for the environments editor.
+type settingsProfilesMsg struct {
+	err   error
+	names []string
+}
+
+// errNoProfileDiscovery is the profiles of a wizard that cannot list them.
+var errNoProfileDiscovery = errors.New("no AWS profile discovery")
+
+// loadSettingsProfilesCmd lists the AWS profiles for the environments editor.
+func (m jumphostWizardModel) loadSettingsProfilesCmd() tea.Cmd {
+	runner, ctx := m.runner, m.ctx
+	return func() tea.Msg {
+		if runner == nil {
+			return settingsProfilesMsg{err: errNoProfileDiscovery}
+		}
+		profiles, err := runner.ListAWSProfileSummaries(ctx)
+		names := make([]string, 0, len(profiles))
+		for _, profile := range profiles {
+			names = append(names, profile.Name)
+		}
+		return settingsProfilesMsg{names: names, err: err}
+	}
+}
+
+// handleSettingsProfiles gives the profiles to the environments editor; they are ignored once it
+// closed or the wizard left the screen.
+func (m jumphostWizardModel) handleSettingsProfiles(msg settingsProfilesMsg) (tea.Model, tea.Cmd) {
+	if editor, ok := m.settingsEditor.open.(environmentsEditor); ok && m.step == jumphostStepSettings {
+		m.settingsEditor.open = editor.withProfiles(msg.names, msg.err)
+	}
+	return m, nil
 }
 
 // openSettings shows the Settings screen; leavesToHost makes esc return to the dashboard.
 func (m jumphostWizardModel) openSettings(leavesToHost bool) (tea.Model, tea.Cmd) {
 	m.settingsReturn, m.settingsLeavesToHost = m.step, leavesToHost
-	m.settingsEditor = newSettingsEditor()
+	m.settingsEditor = newSettingsEditor(m.settings.Validate)
 	m.step = jumphostStepSettings
 	m.errorMsg = ""
 	m.loading = true
@@ -79,6 +115,7 @@ func (m jumphostWizardModel) handleSettingRefused(msg settingRefusedMsg) (tea.Mo
 
 // updateSettingsStep handles the Settings screen.
 func (m jumphostWizardModel) updateSettingsStep(msg tea.Msg) (tea.Model, tea.Cmd) {
+	_, wasEnvironments := m.settingsEditor.open.(environmentsEditor)
 	editor, outcome, cmd := m.settingsEditor.Update(msg)
 	m.settingsEditor = editor
 	store, key, value := m.settings, editor.requestKey, editor.requestValue
@@ -95,6 +132,10 @@ func (m jumphostWizardModel) updateSettingsStep(msg tea.Msg) (tea.Model, tea.Cmd
 		m.pickingRegion, m.regionForSettings = true, true
 		return m, textinput.Blink
 	default:
+		// The environments editor shows the profiles each environment receives.
+		if _, isEnvironments := editor.open.(environmentsEditor); isEnvironments && !wasEnvironments {
+			cmd = tea.Batch(cmd, m.loadSettingsProfilesCmd())
+		}
 		return m, cmd
 	}
 }
@@ -110,6 +151,10 @@ func (m jumphostWizardModel) updateSettingsRegionPicker(msg tea.Msg) (tea.Model,
 	case regionPickerChosen:
 		m.pickingRegion, m.regionForSettings = false, false
 		region, _ := picker.choice()
+		// Like the editors, picking the current region writes nothing.
+		if setting, _ := m.settingsEditor.selected(); region == setting.Value {
+			return m, nil
+		}
 		store, key := m.settings, m.settingsEditor.requestKey
 		return m.writeSetting(i18n.Format("ui.saving", key), func() error { return store.Set(key, region) })
 	default:
@@ -144,21 +189,36 @@ func (m jumphostWizardModel) leaveSettings() (tea.Model, tea.Cmd) {
 // settingsKeys are the keys of the Settings screen.
 func (m jumphostWizardModel) settingsKeys(help, quit [2]string) [][2]string {
 	editor := m.settingsEditor
+	setting, ok := editor.selected()
 	switch {
-	case editor.editing:
-		return [][2]string{{"enter", i18n.T("ui.hint.save")}, {"esc", i18n.T("ui.hint.cancel")}, {"ctrl+c", m.quitLabel()}}
+	case editor.open != nil:
+		// ctrl+c still quits, but its hint would push the editor's own keys out of 80 columns.
+		return editor.open.Keys()
 	case editor.confirming:
 		return [][2]string{{"y", i18n.T("ui.hint.reset")}, {i18n.T("ui.hint.any_key"), i18n.T("ui.hint.keep")}}
-	case editor.err != nil:
+	case !ok:
 		return [][2]string{{"esc", i18n.T("ui.hint.back")}, quit}
 	}
-	keys := [][2]string{{"↑↓", i18n.T("ui.hint.move")}}
-	// A locked key offers nothing: the line under the rows tells the organization imposes it.
-	if setting, ok := editor.selected(); !ok || !setting.Locked {
+	keys := [][2]string{{"←→", i18n.T("ui.hint.panes")}, {"↑↓", i18n.T("ui.hint.move")}}
+	// The right pane shows the way back to the sections first, and leaves ↑↓ out to fit 80 columns.
+	if editor.focus == focusSettings {
+		keys = [][2]string{{"←/esc", i18n.T("ui.hint.back")}}
+	}
+	switch {
+	case editor.focus == focusSections:
+	case setting.Kind == KindToggle && !setting.Locked:
+		keys = append(keys, [2]string{"space", i18n.T("ui.hint.toggle")})
+	case !setting.Locked:
 		keys = append(keys, [2]string{"enter", i18n.T("ui.hint.change")})
-		if setting.FromFile {
-			keys = append(keys, [2]string{"d", i18n.T("ui.hint.reset")})
+	case setting.Kind != KindToggle && setting.Kind != KindRegion:
+		// A locked key opens read-only; the line under the row tells the organization imposes it.
+		keys = append(keys, [2]string{"enter", i18n.T("ui.hint.view")})
+	}
+	if editor.focus == focusSettings {
+		if setting.FromFile && !setting.Locked {
+			keys = append(keys, [2]string{"d", i18n.T("ui.hint.default")})
 		}
+		return append(keys, help, quit)
 	}
 	return append(keys, [2]string{"esc", i18n.T("ui.hint.back")}, help, quit)
 }
