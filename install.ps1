@@ -23,6 +23,10 @@
 .PARAMETER SkipPath
     Installs without adding the install folder to the user PATH.
 
+.PARAMETER OrganizationConfig
+    Sets the organizationConfig setting once installed: an absolute path, an https:// URL or a
+    github.com .../blob/<ref>/<path> link. A failure only warns; the install stands.
+
 .PARAMETER Uninstall
     Removes airlock.exe and the PATH entry added for it, through `airlock uninstall`. When that
     empties the folder, the folder goes too.
@@ -47,6 +51,7 @@ param(
     [string]$InstallDir,
     [string]$Version,
     [switch]$SkipPath,
+    [string]$OrganizationConfig,
     [switch]$Uninstall,
     [switch]$Purge
 )
@@ -388,4 +393,12 @@ if ($SkipPath) {
 Write-OtherCopies $InstallDir
 Test-Prerequisite 'aws' 'Install AWS CLI v2: winget install Amazon.AWSCLI'
 Test-Prerequisite 'session-manager-plugin' 'Install the Session Manager plugin: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-windows.html'
+if ($OrganizationConfig) {
+    # Windows PowerShell turns any stderr line of a native command into an error under 'Stop'.
+    $ErrorActionPreference = 'Continue'
+    & $target config set organizationConfig $OrganizationConfig
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Could not set organizationConfig: run airlock config set organizationConfig `"$OrganizationConfig`""
+    }
+}
 & $target version

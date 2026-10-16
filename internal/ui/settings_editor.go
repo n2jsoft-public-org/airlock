@@ -29,6 +29,8 @@ type SettingsSnapshot struct {
 	Settings []SettingView
 	// Environments is the effective environments setting, for the badges.
 	Environments environment.Set
+	// Organization is the source of the organization config, shown in the header; "" when none.
+	Organization string
 }
 
 // SettingView is one key of the Settings screen.
@@ -47,6 +49,10 @@ type SettingView struct {
 	Region bool
 	// NextLaunch reports that a change applies at the next launch of airlock only.
 	NextLaunch bool
+	// FromOrganization reports that the organization config gives the value.
+	FromOrganization bool
+	// Locked keys take the organization's value: they cannot be changed here.
+	Locked bool
 }
 
 // settingsOutcome is what the user asked of the Settings screen.
@@ -169,12 +175,14 @@ func (e settingsEditor) Update(msg tea.Msg) (settingsEditor, settingsOutcome, te
 	case "down", "j":
 		e.cursor = (e.cursor + 1) % count
 	case "d":
-		// A key the file does not set has nothing to reset.
-		if setting.FromFile {
+		// A key the file does not set has nothing to reset; a locked one is the organization's.
+		if setting.FromFile && !setting.Locked {
 			e.confirming, e.requestKey = true, setting.Name
 		}
 	case "enter":
-		return e.change(setting)
+		if !setting.Locked {
+			return e.change(setting)
+		}
 	}
 	return e, settingsStay, nil
 }
@@ -248,6 +256,9 @@ func (e settingsEditor) View(styles Styles, width int) string {
 	lines = append(lines, styles.Rule.Render(strings.Repeat("─", textWidth)))
 	if setting, ok := e.selected(); ok {
 		lines = append(lines, styles.Muted.Width(textWidth).Render(setting.Description))
+		if setting.Locked {
+			lines = append(lines, styles.Warning.Width(textWidth).Render(i18n.Format("ui.settings.locked_help", e.snapshot.Organization)))
+		}
 		if setting.NextLaunch {
 			lines = append(lines, truncate(styles.Warning.Render(i18n.T(settingsNextLaunch)), width))
 		}
@@ -276,11 +287,16 @@ func (e settingsEditor) row(styles Styles, idx, width int) string {
 	default:
 		value = styles.Text.Render(truncate(setting.Value, settingsValueWidth))
 	}
-	source := i18n.T("ui.settings.source_default")
-	if setting.FromFile {
-		source = i18n.T("ui.hint.file")
+	source := styles.Faint.Render(i18n.T("ui.settings.source_default"))
+	switch {
+	case setting.Locked:
+		source = styles.Warning.Render(i18n.T("ui.settings.source_locked"))
+	case setting.FromOrganization:
+		source = styles.Faint.Render(i18n.T("ui.settings.source_organization"))
+	case setting.FromFile:
+		source = styles.Faint.Render(i18n.T("ui.hint.file"))
 	}
-	line := marker + name + padRight(value, settingsValueWidth) + "  " + styles.Faint.Render(source)
+	line := marker + name + padRight(value, settingsValueWidth) + "  " + source
 	if setting.OverriddenBy != "" {
 		line += "  " + styles.Warning.Render(i18n.Format("ui.settings.overridden", setting.OverriddenBy))
 	}

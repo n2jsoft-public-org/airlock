@@ -1047,3 +1047,49 @@ func TestWizardOffersS3OnlyWithMCP(t *testing.T) {
 		t.Fatal("--no-mcp refuses S3 sessions: the card must be hidden")
 	}
 }
+
+func TestJumphostFlowIgnoresSavedWritesWhenLocked(t *testing.T) {
+	runner := newPrefsRunner()
+	runner.saved["eu-west-3/archive"] = jumphost.ConnectionPrefs{LocalPort: 6100, MCPAllowWrites: true}
+	m := newJumphostWizardModel(context.Background(), runner, jumphost.Options{AwsProfile: "dev", MCPAllowWrites: true})
+	m.writesLocked = true
+	m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = pastStart(t, m)
+	m, _ = wizardUpdate(t, m, jumphostRegionResolvedMsg{profile: "dev", region: "eu-west-3"})
+	m, _ = wizardUpdate(t, m, key("enter")) // rds
+	m, _ = wizardUpdate(t, m, jumphostTargetsLoadedMsg{targets: []jumphost.ResourceSummary{{Name: "archive", IAMAuth: true, Engine: "postgres"}}})
+	m, cmd := wizardUpdate(t, m, key("enter"))
+	m, _ = wizardUpdate(t, m, findMsg[jumphostDefaultPortLoadedMsg](t, cmd))
+
+	m = focusMCPWritesField(t, m)
+	m, _ = wizardUpdate(t, m, key(" "))
+	if m.mcpWrites || !strings.Contains(m.render(), "imposed by the organization") {
+		t.Fatalf("writes = %v; want a read-only toggle imposed by the organization:\n%s", m.mcpWrites, m.render())
+	}
+	if _, cmd = wizardUpdate(t, m, key("enter")); !isQuit(cmd) || runner.lastSave.MCPAllowWrites {
+		t.Fatalf("saved options = %+v; want no writes", *runner.lastSave)
+	}
+}
+
+func TestDirectAndDockerReviewsIgnoreWritesWhenLocked(t *testing.T) {
+	runner := &directKeychainRunner{prefsRunner: newPrefsRunner()}
+	runner.saved["/legacy-billing"] = jumphost.ConnectionPrefs{DBUser: "mcp_ro", SignIn: jumphost.SignInPassword, MCPAllowWrites: true}
+	direct := newDirectWizard(t, runner, &fakeDirectStore{dbs: testDirectDatabases()})
+	direct.writesLocked = true
+	direct, _ = wizardUpdate(t, direct, key("6"))
+	direct.directList.selectName("legacy-billing")
+	direct, cmd := wizardUpdate(t, direct, key("enter"))
+	direct, _ = wizardUpdate(t, direct, findMsg[directChoicesLoadedMsg](t, cmd))
+
+	docker := newDockerWizard(t, &fakeDockerContainers{list: testContainers()})
+	docker.writesLocked = true
+	docker = dockerListStep(t, docker)
+	docker.dockerList.selectName("pg")
+	docker, _ = wizardUpdate(t, docker, key("enter"))
+
+	for name, m := range map[string]jumphostWizardModel{"direct": direct, "docker": docker} {
+		if m.step != jumphostStepReview || m.mcpWrites || !strings.Contains(wizardView(m), "imposed by the organization") {
+			t.Errorf("%s: step = %v writes = %v; want a read-only toggle imposed by the organization:\n%s", name, m.step, m.mcpWrites, wizardView(m))
+		}
+	}
+}

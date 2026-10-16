@@ -150,6 +150,8 @@ func pinScreens(t *testing.T, suffix string) {
 		m := pressWizard(t, settingsWizard(t, newFakeSettingsStore()), key(","))
 		m, _ = wizardUpdate(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 		checkScreen(t, "settings-80x24"+suffix, m.render())
+		// Up from the first key wraps to the last one, which the organization locks.
+		checkScreen(t, "settings-locked-80x24"+suffix, pressWizard(t, m, key("k")).render())
 	})
 	t.Run("direct-80x24", func(t *testing.T) {
 		m := directFormWizard(t, fakeSessionRunner{}, &fakeDirectStore{}, "")

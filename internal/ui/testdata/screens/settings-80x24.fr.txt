@@ -1,5 +1,5 @@
 
-  ◆ airlock  Redirection de port SSM
+  ◆ airlock               organisation github.com/acme/airlock-config/org.json
   ────────────────────────────────────────────────────────────────────────────
 
 
@@ -11,10 +11,10 @@
     mcp.serverPrefix               airlock                   défaut  ⚑ --mcp-…
     modules.sql.readOnlySecretTag  aucune                    défaut
     mode                           cli                       défaut
+    agent.writes                   false                     verrouillé
   ────────────────────────────────────────────────────────────────────────
   Tag (Key=Value) of the running SSM jumphost EC2 instance
   /home/me/.config/airlock/config.json
-
 
 
 

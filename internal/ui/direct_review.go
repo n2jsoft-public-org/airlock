@@ -35,7 +35,7 @@ func (m jumphostWizardModel) enterDirectReview(db directdb.Database) (jumphostWi
 	m.passwordInput.Reset()
 	m.remember, m.prefilledFor = false, ""
 	m.keychainAvailable, m.directChoicesLoaded = false, false
-	m.mcpWrites = m.base.MCPAllowWrites
+	m.mcpWrites = m.base.MCPAllowWrites && !m.writesLocked
 	m = m.focusReviewField(reviewFieldPassword)
 	return m, tea.Batch(textinput.Blink, m.loadDirectChoicesCmd(db))
 }
@@ -77,7 +77,7 @@ func (m jumphostWizardModel) handleDirectChoicesLoaded(msg directChoicesLoadedMs
 	}
 	m.directChoicesLoaded = true
 	m.keychainAvailable = msg.keychainAvailable
-	m.mcpWrites = m.base.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites)
+	m.mcpWrites = !m.writesLocked && (m.base.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites))
 	m.remember = msg.saved && msg.prefs.PasswordInKeychain && msg.keychainAvailable
 	if msg.keychainPassword != "" && m.passwordInput.Value() == "" {
 		m.passwordInput.SetValue(msg.keychainPassword)

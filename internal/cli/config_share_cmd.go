@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/n2jsoft/airlock/internal/appdir"
@@ -45,7 +46,7 @@ func newConfigExportCmd() *cobra.Command {
 // pickSettings lets the user uncheck the keys of path to leave out; nil, every key, without a
 // terminal or when path sets none, which config.Export then reports.
 func pickSettings(cmd *cobra.Command, path string) ([]string, error) {
-	settings, err := config.Settings(path)
+	settings, err := config.Settings(path, organizationFor(cmd.Context(), path).Org)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +83,8 @@ func newConfigImportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plan, err := config.PlanImport(path, args[0], replace)
+			org := organizationFor(cmd.Context(), path).Org
+			plan, err := config.PlanImport(path, org, args[0], replace)
 			if err != nil {
 				return err
 			}
@@ -99,7 +101,7 @@ func newConfigImportCmd() *cobra.Command {
 				case err != nil:
 					return err
 				case asked:
-					if plan, err = config.PlanImport(path, args[0], replace, keys...); err != nil {
+					if plan, err = config.PlanImport(path, org, args[0], replace, keys...); err != nil {
 						return err
 					}
 				case !confirm(cmd, i18n.Format("cli.apply_changes_confirm", path)):
@@ -123,7 +125,7 @@ func newConfigImportCmd() *cobra.Command {
 func pickImports(cmd *cobra.Command, plan *config.Plan) (keys []string, asked bool, err error) {
 	var changed []config.Change
 	for _, c := range plan.Changes {
-		if c.Kind != config.ChangeUnchanged {
+		if c.Kind != config.ChangeUnchanged && c.Kind != config.ChangeLocked {
 			changed = append(changed, c)
 		}
 	}
@@ -148,27 +150,59 @@ var changeSigns = map[config.ChangeKind]string{
 	config.ChangeUpdated:   "~",
 	config.ChangeRemoved:   "-",
 	config.ChangeUnchanged: "=",
+	config.ChangeLocked:    "!",
 }
 
 // printPlan lists what the import does to every key, explaining the keys it changes: the string
 // itself is opaque, so this is where the importer reviews it.
 func printPlan(cmd *cobra.Command, plan *config.Plan) {
-	width := 0
-	for _, c := range plan.Changes {
-		width = max(width, len(c.Name))
-	}
 	outf(cmd, i18n.T("cli.config_share.import_into"), plan.Path)
-	for _, c := range plan.Changes {
-		value := shownValue(c.Old, c.OldDefault) + " → " + shownValue(c.New, c.NewDefault)
-		if c.Kind == config.ChangeUnchanged {
-			value = shownValue(c.New, c.NewDefault) + " (unchanged)"
-		}
-		outf(cmd, "  %s %-*s   %s\n", changeSigns[c.Kind], width, c.Name, value)
-		if c.Kind != config.ChangeUnchanged {
-			outf(cmd, "      %s\n", c.Description())
-		}
+	for _, line := range planLines(plan.Changes) {
+		outf(cmd, "%s\n", line)
 	}
 	outf(cmd, "\n")
+}
+
+// planLines renders changes as the import summary: a line per key, then the description of the
+// keys it changes.
+func planLines(changes []config.Change) []string {
+	width := 0
+	for _, c := range changes {
+		width = max(width, len(c.Name))
+	}
+	var lines []string
+	for _, c := range changes {
+		value := shownValue(c.Old, c.OldDefault) + " → " + shownValue(c.New, c.NewDefault)
+		switch c.Kind {
+		case config.ChangeUnchanged:
+			value = shownValue(c.New, c.NewDefault) + " (unchanged)"
+		case config.ChangeLocked:
+			value = shownValue(c.New, c.NewDefault) + " (" + i18n.T("cli.config_share.locked_not_imported") + ")"
+		}
+		if c.Kind != config.ChangeLocked {
+			value = withLockState(&c, value)
+		}
+		lines = append(lines, fmt.Sprintf("  %s %-*s   %s", changeSigns[c.Kind], width, c.Name, value))
+		if c.Kind != config.ChangeUnchanged && c.Kind != config.ChangeLocked {
+			lines = append(lines, "      "+c.Description())
+		}
+	}
+	return lines
+}
+
+// withLockState adds to value of an organization change the lock state of its key: lock-only
+// changes say so instead of repeating the value.
+func withLockState(c *config.Change, value string) string {
+	switch {
+	case c.Kind == config.ChangeUpdated && c.Old == c.New && c.Locked:
+		return shownValue(c.New, c.NewDefault) + " (" + i18n.T("cli.organization.now_locked") + ")"
+	case c.Kind == config.ChangeUpdated && c.Old == c.New && c.WasLocked:
+		return shownValue(c.New, c.NewDefault) + " (" + i18n.T("cli.organization.no_longer_locked") + ")"
+	case c.Locked:
+		return value + " (" + i18n.T("cli.organization.locked") + ")"
+	default:
+		return value
+	}
 }
 
 // shownValue renders a value of the import summary, telling airlock's defaults apart.
@@ -204,7 +238,7 @@ func confirm(cmd *cobra.Command, question string) bool {
 func pluralChanges(plan *config.Plan) string {
 	count := 0
 	for _, c := range plan.Changes {
-		if c.Kind != config.ChangeUnchanged {
+		if c.Kind != config.ChangeUnchanged && c.Kind != config.ChangeLocked {
 			count++
 		}
 	}

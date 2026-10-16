@@ -109,3 +109,31 @@ func UpdateCheckFile() (string, error) {
 	}
 	return filepath.Join(dir, "update-check.json"), nil
 }
+
+// OrganizationCacheFile is the file under ConfigDir keeping the last organization config fetched
+// from a remote source.
+func OrganizationCacheFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "organization-cache.json"), nil
+}
+
+// ManagedFile is where an administrator drops the managed config for goos, or "" when goos has
+// none. It is read-only for airlock.
+func ManagedFile(goos string) string {
+	switch goos {
+	case "darwin":
+		return "/Library/Application Support/airlock/managed.json"
+	case "linux":
+		return "/etc/airlock/managed.json"
+	case "windows":
+		root := os.Getenv("ProgramData")
+		if root == "" {
+			root = `C:\ProgramData`
+		}
+		return root + `\airlock\managed.json`
+	}
+	return ""
+}

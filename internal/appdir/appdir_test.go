@@ -126,3 +126,34 @@ func TestUpdateCheckFileIsInConfigDir(t *testing.T) {
 		t.Fatalf("UpdateCheckFile() = %q, want %q", path, want)
 	}
 }
+
+func TestOrganizationCacheFileIsUnderConfigDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+
+	path, err := OrganizationCacheFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "airlock", "organization-cache.json"); path != want {
+		t.Fatalf("OrganizationCacheFile() = %q, want %q", path, want)
+	}
+}
+
+func TestManagedFilePaths(t *testing.T) {
+	t.Setenv("ProgramData", `D:\PD`)
+	for goos, want := range map[string]string{
+		"darwin":  "/Library/Application Support/airlock/managed.json",
+		"linux":   "/etc/airlock/managed.json",
+		"windows": `D:\PD\airlock\managed.json`,
+		"plan9":   "",
+	} {
+		if got := ManagedFile(goos); got != want {
+			t.Errorf("ManagedFile(%q) = %q, want %q", goos, got, want)
+		}
+	}
+	t.Setenv("ProgramData", "")
+	if got, want := ManagedFile("windows"), `C:\ProgramData\airlock\managed.json`; got != want {
+		t.Errorf("ManagedFile(windows) without ProgramData = %q, want %q", got, want)
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/kubeconfig"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/orgconfig"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
 	"github.com/n2jsoft/airlock/internal/sessions"
 	"github.com/n2jsoft/airlock/internal/ui"
@@ -96,19 +97,46 @@ func overridesFromFlags(flags *pflag.FlagSet) config.Overrides {
 	}
 }
 
-// loadConfig merges the flags over the config file; it also returns the file path.
-func loadConfig(cmd *cobra.Command) (config.Config, string, error) {
+// configSources are where the config of a command comes from: the config.json path and the
+// organization resolved for it.
+type configSources struct {
+	path string
+	org  orgState
+}
+
+// loadConfig is resolveConfig, with the organization notices printed on stderr.
+func loadConfig(cmd *cobra.Command) (config.Config, configSources, error) {
+	cfg, sources, err := resolveConfig(cmd)
+	printOrganizationNotices(cmd, &sources)
+	return cfg, sources, err
+}
+
+// resolveConfig merges the flags over the config file over the organization config, resolved
+// once. A flag setting a key the organization locks is refused.
+func resolveConfig(cmd *cobra.Command) (config.Config, configSources, error) {
+	return resolveConfigWith(cmd, orgEnvironment())
+}
+
+// resolveConfigWith is resolveConfig, with the organization resolved in env.
+func resolveConfigWith(cmd *cobra.Command, env orgEnv) (config.Config, configSources, error) {
 	path, err := appdir.ConfigFile()
 	if err != nil {
 		cmd.PrintErr(i18n.Format("cli.root.warning_config_file_not", err))
 		path = ""
 	}
-	cfg, err := config.Load(path)
+	sources := configSources{path: path, org: resolveOrganization(cmd.Context(), env, path)}
+	if lockErr := lockedFlags(cmd.Flags(), sources.org.Org); lockErr != nil {
+		return config.Config{}, sources, lockErr
+	}
+	cfg, err := config.Load(path, sources.org.Org)
 	if err != nil {
-		return config.Config{}, path, err
+		return config.Config{}, sources, err
+	}
+	if lockErr := lockedWritesFlag(cmd.Flags(), sources.org.Org, &cfg); lockErr != nil {
+		return config.Config{}, sources, lockErr
 	}
 	cfg, err = cfg.Apply(overridesFromFlags(cmd.Flags()))
-	return cfg, path, err
+	return cfg, sources, err
 }
 
 func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Options) error {
@@ -129,10 +157,32 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 			}
 		}()
 	}
-	cfg, configPath, err := loadConfig(cmd)
+	interactive := isInteractiveInput(cmd.InOrStdin())
+	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
+	wizard := len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive
+	cfg, sources, err := resolveConfig(cmd)
+	// The wizard owns the terminal: it shows the notices itself. They are taken, and the diff
+	// cleared, before the refresh starts: a clear saved after the refresh would undo it.
+	var wizardOrg *wizardOrganization
+	if err != nil || !wizard {
+		printOrganizationNotices(cmd, &sources)
+	} else {
+		wizardOrg = takeWizardOrganization(&sources)
+		// Every return from here on, an error before the dashboard included, ends the TUI.
+		defer wizardOrg.printUnshown(cmd)
+	}
 	if err != nil {
 		return err
 	}
+	if sources.org.Stale && sources.org.src.Kind != orgconfig.KindFile {
+		go func() {
+			// Best effort, like the release check: the next launch tells how the read went.
+			if refreshErr := refreshOrganization(cmd.Context(), orgEnvironment(), sources.org.src); refreshErr != nil {
+				return
+			}
+		}()
+	}
+	configPath, org := sources.path, sources.org.Org
 	// Every opening registers its IDE data source and MCP servers in the directory airlock was
 	// started in; empty leaves it to the runner (the working directory).
 	projectDir, err := os.Getwd()
@@ -145,7 +195,6 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	// and registered in the same AI clients until mcpClients changes.
 	registry := jumphost.NewSessionRegistry()
 	hosts := newMCPHosts()
-	interactive := isInteractiveInput(cmd.InOrStdin())
 	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
 	mcpLogDir, err := appdir.LogsDir()
 	if err != nil {
@@ -168,7 +217,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	} else {
 		prefsPath, databaseStore = saved.Path(), saved.Databases()
 	}
-	shared := sharedRunnerOptions(&cfg, registry, hosts.For(&cfg), mcpLogDir, kubeconfigDir, databaseStore)
+	shared := sharedRunnerOptions(&cfg, org, registry, hosts.For(&cfg), mcpLogDir, kubeconfigDir, databaseStore)
 	shared.In = cmd.InOrStdin()
 	databases := shared.Databases
 
@@ -179,9 +228,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	// The dashboard's runner follows config.json, the flags of this run applied over it: the next
 	// openings and the wizard use its new values. It stays silent: its progress would corrupt the
 	// full-screen display.
-	tuiRunners := newRunnerSource(configPath, withOverrides(overridesFromFlags(cmd.Flags()), func(next config.Config) (*jumphost.Runner, error) {
+	tuiRunners := newRunnerSource(configPath, org, withOverrides(overridesFromFlags(cmd.Flags()), func(next config.Config, nextOrg *config.Organization) (*jumphost.Runner, error) {
 		// Not "options": that is the parameter of executeJumphost.
-		tuiOptions := sharedRunnerOptions(&next, registry, hosts.For(&next), mcpLogDir, kubeconfigDir, databaseStore)
+		tuiOptions := sharedRunnerOptions(&next, nextOrg, registry, hosts.For(&next), mcpLogDir, kubeconfigDir, databaseStore)
 		tuiOptions.In = cmd.InOrStdin()
 		tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
 		tuiOptions.Keychain, tuiOptions.Interactive = keychainStore, handoff.Run
@@ -192,9 +241,14 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 		return err
 	}
 	discovery := reloadingDiscovery{source: tuiRunners}
-	dashboard := ui.DashboardOptions{Handoff: handoff, Environments: cfg.EnvironmentSet()}
+	dashboard := ui.DashboardOptions{Handoff: handoff, Environments: cfg.EnvironmentSet(), WritesLocked: shared.WritesLocked}
+	if wizardOrg != nil {
+		dashboard.OrganizationNotice, dashboard.OrganizationNoticeShown = wizardOrg.banner(), wizardOrg.markShown
+	}
 	if configPath != "" {
-		dashboard.Settings = newConfigSettingsStore(configPath, cmd.Flags())
+		store := newConfigSettingsStore(configPath, org, cmd.Flags())
+		store.managed = sources.org.Managed
+		dashboard.Settings = store
 	}
 	if databaseStore != nil {
 		dashboard.Databases = databaseStore
@@ -207,8 +261,7 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	manager := sessions.NewManager(cmd.Context(), sessions.Config{Runner: tuiRunners.Source()})
 	dashboard.ProjectDir = projectDir
 
-	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
-	if len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive {
+	if wizard {
 		if shouldUseDaemon(&cfg, interactive) {
 			return runDaemonView(cmd, options, false, discovery, &dashboard)
 		}
@@ -285,9 +338,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	return ui.RunJumphostSessions(cmd.Context(), manager, discovery, first, *options, cmd.OutOrStdout(), dashboard)
 }
 
-// sharedRunnerOptions are the runner options of both modes, from the config and the directories
-// airlock found; a nil databaseStore disables the direct databases.
-func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry, mcpHost *mcpserve.Host, mcpLogDir, kubeconfigDir string, databaseStore *connections.Databases) jumphost.RunnerOptions {
+// sharedRunnerOptions are the runner options of both modes, from the config, its organization and
+// the directories airlock found; a nil databaseStore disables the direct databases.
+func sharedRunnerOptions(cfg *config.Config, org *config.Organization, registry *jumphost.SessionRegistry, mcpHost *mcpserve.Host, mcpLogDir, kubeconfigDir string, databaseStore *connections.Databases) jumphost.RunnerOptions {
 	// A nil store must stay a nil interface: the runner and the dashboard test for nil.
 	var databases jumphost.DirectDatabases
 	if databaseStore != nil {
@@ -308,6 +361,7 @@ func sharedRunnerOptions(cfg *config.Config, registry *jumphost.SessionRegistry,
 		Environments:      cfg.EnvironmentSet(),
 		RandomLocalPort:   cfg.RandomLocalPort,
 		DisabledModules:   cfg.DisabledModules,
+		WritesLocked:      writesLocked(org, cfg),
 	}
 }
 

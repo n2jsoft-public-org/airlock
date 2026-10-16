@@ -21,29 +21,32 @@ var settingFlagNames = map[string]string{
 type configSettingsStore struct {
 	// overriddenBy maps a key to the flag of this run winning over the file, e.g. "--region".
 	overriddenBy map[string]string
+	org          *config.Organization
 	path         string
+	// managed: a managed file sets the organization source, organizationConfig is not the user's.
+	managed bool
 }
 
 var _ ui.SettingsStore = (*configSettingsStore)(nil)
 
-// newConfigSettingsStore returns the store of path; flags are those of this run.
-func newConfigSettingsStore(path string, flags *pflag.FlagSet) *configSettingsStore {
+// newConfigSettingsStore returns the store of path over org; flags are those of this run.
+func newConfigSettingsStore(path string, org *config.Organization, flags *pflag.FlagSet) *configSettingsStore {
 	overriddenBy := map[string]string{}
 	for key, name := range settingFlagNames {
 		if flag := flags.Lookup(name); flag != nil && flag.Changed {
 			overriddenBy[key] = "--" + name
 		}
 	}
-	return &configSettingsStore{path: path, overriddenBy: overriddenBy}
+	return &configSettingsStore{path: path, org: org, overriddenBy: overriddenBy}
 }
 
 // Snapshot lists every key of the file with its effective value, its source and how it is edited.
 func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
-	settings, err := config.Settings(s.path)
+	settings, err := config.Settings(s.path, s.org)
 	if err != nil {
 		return ui.SettingsSnapshot{}, err
 	}
-	cfg, err := config.Load(s.path)
+	cfg, err := config.Load(s.path, s.org)
 	if err != nil {
 		return ui.SettingsSnapshot{}, err
 	}
@@ -55,6 +58,7 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 		view := ui.SettingView{
 			Name: setting.Name, Description: setting.Description(), Value: setting.Value,
 			FromFile: setting.Source == config.SourceFile, OverriddenBy: s.overriddenBy[setting.Name],
+			FromOrganization: setting.Source == config.SourceOrganization, Locked: setting.Locked,
 		}
 		switch setting.Name {
 		case "mode":
@@ -78,16 +82,26 @@ func (s *configSettingsStore) Snapshot() (ui.SettingsSnapshot, error) {
 		}
 		views = append(views, view)
 	}
-	return ui.SettingsSnapshot{Path: s.path, Settings: views, Environments: cfg.EnvironmentSet()}, nil
+	snapshot := ui.SettingsSnapshot{Path: s.path, Settings: views, Environments: cfg.EnvironmentSet()}
+	if s.org != nil {
+		snapshot.Organization = s.org.Source
+	}
+	return snapshot, nil
 }
 
 // Set validates value and writes it for key, keeping the other keys of the file.
 func (s *configSettingsStore) Set(key, value string) error {
-	return config.Set(s.path, key, value)
+	if err := refuseManagedSource(key, s.managed); err != nil {
+		return err
+	}
+	return config.Set(s.path, s.org, key, value)
 }
 
 // Unset removes key from the file, so that its default applies again.
 func (s *configSettingsStore) Unset(key string) error {
-	_, err := config.Unset(s.path, key)
+	if err := refuseManagedSource(key, s.managed); err != nil {
+		return err
+	}
+	_, err := config.Unset(s.path, s.org, key)
 	return err
 }

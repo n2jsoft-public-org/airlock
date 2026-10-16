@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/config"
@@ -27,7 +28,7 @@ func newConfigCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newConfigPathCmd(), newConfigShowCmd(), newConfigInitCmd(), newConfigSetCmd(), newConfigUnsetCmd(),
-		newConfigExportCmd(), newConfigImportCmd())
+		newConfigExportCmd(), newConfigImportCmd(), newConfigSyncCmd(), newConfigOrganizationTokenCmd())
 	return cmd
 }
 
@@ -58,26 +59,36 @@ func newConfigShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			settings, err := config.Settings(path)
+			org := organizationFor(cmd.Context(), path)
+			settings, err := config.Settings(path, org.Org)
 			if err != nil {
 				return err
 			}
 			if asJSON {
 				return printSettingsJSON(cmd, settings)
 			}
-			return printSettings(cmd, path, settings)
+			return printSettings(cmd, path, &org, settings)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, i18n.T("cli.config_show.flag.json"))
 	return cmd
 }
 
-func printSettings(cmd *cobra.Command, path string, settings []config.Setting) error {
+func printSettings(cmd *cobra.Command, path string, org *orgState, settings []config.Setting) error {
 	header := i18n.Format("cli.config.file_header", path)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		header = i18n.Format("cli.config.file_header_missing", path)
 	}
 	outf(cmd, "%s\n", header)
+	switch {
+	case org.Source != "" && !org.FetchedAt.IsZero():
+		outf(cmd, "%s\n", i18n.Format("cli.config.organization_header_read", org.Source, org.FetchedAt.Local().Format(time.DateTime)))
+	case org.Source != "":
+		outf(cmd, "%s\n", i18n.Format("cli.config.organization_header", org.Source))
+	}
+	for _, warning := range org.Warnings {
+		outf(cmd, "%s", i18n.Format("cli.warning", warning))
+	}
 	outf(cmd, "\n")
 
 	table := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
@@ -86,7 +97,14 @@ func printSettings(cmd *cobra.Command, path string, settings []config.Setting) e
 		if value == "" {
 			value = i18n.T("cli.config_share.none")
 		}
-		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\n", s.Name, value, i18n.T("cli.config.source."+string(s.Source))); err != nil {
+		source := i18n.T("cli.config.source." + string(s.Source))
+		switch {
+		case s.Locked:
+			source += " (" + i18n.T("cli.organization.locked") + ")"
+		case s.Shadows:
+			source += " (" + i18n.T("cli.config.overrides_organization") + ")"
+		}
+		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\n", s.Name, value, source); err != nil {
 			return err
 		}
 	}
@@ -120,7 +138,7 @@ func newConfigInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := config.WriteTemplate(path, force); err != nil {
+			if err := config.WriteTemplate(path, organizationFor(cmd.Context(), path).Org, force); err != nil {
 				if errors.Is(err, config.ErrFileExists) {
 					return i18n.NewError("cli.config.already_exists_use_force", path)
 				}
@@ -166,7 +184,11 @@ func newConfigSetCmd() *cobra.Command {
 				return err
 			}
 			key := currentKey(cmd, args[0])
-			if err := config.Set(path, key, args[1]); err != nil {
+			org, err := organizationToChange(cmd, path, key)
+			if err != nil {
+				return err
+			}
+			if err := config.Set(path, org, key, args[1]); err != nil {
 				return err
 			}
 			outf(cmd, i18n.T("cli.config.set_value"), key, strings.TrimSpace(args[1]), path)
@@ -186,7 +208,11 @@ func newConfigUnsetCmd() *cobra.Command {
 				return err
 			}
 			key := currentKey(cmd, args[0])
-			removed, err := config.Unset(path, key)
+			org, err := organizationToChange(cmd, path, key)
+			if err != nil {
+				return err
+			}
+			removed, err := config.Unset(path, org, key)
 			if err != nil {
 				return err
 			}
@@ -198,6 +224,24 @@ func newConfigUnsetCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// organizationToChange resolves the organization key of path is changed against. A managed file
+// sets the organization source: organizationConfig is then not the user's to change.
+func organizationToChange(cmd *cobra.Command, path, key string) (*config.Organization, error) {
+	state := organizationFor(cmd.Context(), path)
+	if err := refuseManagedSource(key, state.Managed); err != nil {
+		return nil, err
+	}
+	return state.Org, nil
+}
+
+// refuseManagedSource refuses to change organizationConfig when a managed file sets the source.
+func refuseManagedSource(key string, managed bool) error {
+	if key == "organizationConfig" && managed {
+		return i18n.NewError("cli.config.organization_config_managed", orgEnvironment().managedPath)
+	}
+	return nil
 }
 
 // currentKey returns the key replacing key when it is a flat key of the earlier config.json

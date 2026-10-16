@@ -154,3 +154,16 @@ func TestCompletesDirectDatabaseNames(t *testing.T) {
 		t.Fatalf("db export candidates = %q, want the names not given yet", got)
 	}
 }
+
+func TestCompletionNeverReadsARemoteOrganization(t *testing.T) {
+	path := testConfigFile(t)
+	server, hits := countingServer(t, testOrgBody)
+	useOrgEnv(t, testOrgEnv(t, server.Client()))
+	writeTestFile(t, path, `{"organizationConfig": "`+server.URL+`/org.json"}`)
+	if got := complete(t, ""); len(got) == 0 {
+		t.Fatal("no candidates")
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("completion read the organization source %d times, want only the cache", hits.Load())
+	}
+}

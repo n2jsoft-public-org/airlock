@@ -1,0 +1,23 @@
+
+  ◆ airlock               organisation github.com/acme/airlock-config/org.json
+  ────────────────────────────────────────────────────────────────────────────
+
+
+  Réglages  config.json · les options de ce lancement l'emportent
+
+    aws.jumphostTag                Usage=jumphost            défaut
+    modules.sql.defaultDbUser      app_ro                    fichier
+    aws.defaultRegion              aucune                    défaut
+    mcp.serverPrefix               airlock                   défaut  ⚑ --mcp-…
+    modules.sql.readOnlySecretTag  aucune                    défaut
+    mode                           cli                       défaut
+  ▌ agent.writes                   false                     verrouillé
+  ────────────────────────────────────────────────────────────────────────
+  Let agents write
+  Imposé par l'organisation (github.com/acme/airlock-config/org.json) : il
+  ne peut pas être modifié ici.
+  /home/me/.config/airlock/config.json
+
+
+
+   ↑↓  naviguer   esc  retour   ?  aide   q  quitter

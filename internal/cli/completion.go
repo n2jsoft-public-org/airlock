@@ -30,7 +30,10 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 	switch len(args) {
 	case 0:
 		var disabled []string
-		if cfg, _, err := loadConfig(cmd); err == nil { // An unreadable config completes every type.
+		// The shell waits on completion: the organization comes from the cache, never the network.
+		env := orgEnvironment()
+		env.cacheOnly = true
+		if cfg, _, err := resolveConfigWith(cmd, env); err == nil { // An unreadable config completes every type.
 			disabled = cfg.DisabledModules
 		}
 		var types []string

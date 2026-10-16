@@ -197,7 +197,7 @@ func (e *uninstallEnv) machine() (*uninstall.Env, error) {
 func defaultGatewayEntries() (files []string, remove func(string) error) {
 	cfg := config.Defaults()
 	if path, err := appdir.ConfigFile(); err == nil {
-		if loaded, loadErr := config.Load(path); loadErr == nil {
+		if loaded, loadErr := config.Load(path, organizationFor(context.Background(), path).Org); loadErr == nil {
 			cfg = loaded
 		}
 	}

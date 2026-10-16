@@ -850,3 +850,10 @@ func TestDynamoDBSessionShowsItsEndpointNotAPort(t *testing.T) {
 		t.Fatalf("origin = %q", got)
 	}
 }
+
+func TestDashboardWizardKeepsWritesLocked(t *testing.T) {
+	m := newDashboardModel(t.Context(), newFakeService(), fakeSessionRunner{}, 0, jumphost.Options{MCPAllowWrites: true}, &DashboardOptions{WritesLocked: true})
+	if m.mode != ssmModeWizard || !m.wizard.writesLocked || !strings.Contains(m.wizard.mcpWritesToggle(), "imposed by the organization") {
+		t.Fatalf("mode = %v locked = %v toggle = %q; want the wizard's writes locked", m.mode, m.wizard.writesLocked, m.wizard.mcpWritesToggle())
+	}
+}

@@ -160,6 +160,9 @@ type jumphostWizardModel struct {
 
 	// updateNotice, when not empty, is shown under the breadcrumb: a newer airlock release exists.
 	updateNotice string
+	// organizationNotice, shown under the update notice, is what the user must know about the
+	// organization config: its warnings and last changes.
+	organizationNotice []string
 
 	// openDirect is the direct database whose review the wizard opens on once the history is
 	// loaded (`airlock direct <name>`); "" otherwise.
@@ -277,6 +280,8 @@ type jumphostWizardModel struct {
 
 	// mcpWrites lets the MCP server modify data; off, it is read-only.
 	mcpWrites bool
+	// writesLocked keeps mcpWrites off: the organization locks MCP writes.
+	writesLocked bool
 
 	// regionResolved reports that defaultRegion holds the runner's answer, even an empty one.
 	regionResolved bool
@@ -482,7 +487,7 @@ func (m jumphostWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // fitLists sizes the lists to the frame body.
 func (m jumphostWizardModel) fitLists() jumphostWizardModel {
-	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg)
+	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg, m.notices())
 	m.profileList.SetSize(bodyWidth, bodyHeight)
 	m.targetList.SetSize(bodyWidth, bodyHeight)
 	m.recent.SetSize(bodyWidth, bodyHeight)
@@ -644,7 +649,7 @@ func (m jumphostWizardModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.passwordInput.Reset()
 		m.keychainAvailable = msg.keychainAvailable
 		m = m.applySavedSignIn(msg)
-		m.mcpWrites = m.options.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites)
+		m.mcpWrites = !m.writesLocked && (m.options.MCPAllowWrites || (msg.saved && msg.prefs.MCPAllowWrites))
 		m.step = jumphostStepReview
 		m = m.focusReviewField(reviewFieldPort)
 		m.userInput.SetSuggestions(nil)
@@ -989,7 +994,7 @@ func (m jumphostWizardModel) toggleReviewField(delta int) jumphostWizardModel {
 	case reviewFieldRemember:
 		m.remember = !m.remember
 	case reviewFieldMCPWrites:
-		m.mcpWrites = !m.mcpWrites
+		m.mcpWrites = !m.mcpWrites && !m.writesLocked
 	default:
 		// The text fields take keys instead (updateReviewInput); the secret opens its picker.
 	}

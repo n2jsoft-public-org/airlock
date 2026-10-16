@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -40,7 +41,7 @@ func snapshotByName(t *testing.T, store ui.SettingsStore) (snapshot ui.SettingsS
 func TestConfigSettingsStoreSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"defaultDbUser": "app_ro", "environments": "prod!=*prod*,*-live"}`)
-	store := newConfigSettingsStore(path, settingsFlags(t, "--jumphost-tag", "Env=bastion"))
+	store := newConfigSettingsStore(path, nil, settingsFlags(t, "--jumphost-tag", "Env=bastion"))
 	snapshot, views := snapshotByName(t, store)
 
 	names := make([]string, 0, len(snapshot.Settings))
@@ -74,7 +75,7 @@ func TestConfigSettingsStoreSnapshot(t *testing.T) {
 func TestConfigSettingsStoreSkipsTheDeprecatedKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"productionProfiles": "*prod*"}`)
-	snapshot, err := newConfigSettingsStore(path, settingsFlags(t)).Snapshot()
+	snapshot, err := newConfigSettingsStore(path, nil, settingsFlags(t)).Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestConfigSettingsStoreSkipsTheDeprecatedKey(t *testing.T) {
 
 func TestConfigSettingsStoreSetAndUnset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	store := newConfigSettingsStore(path, settingsFlags(t))
+	store := newConfigSettingsStore(path, nil, settingsFlags(t))
 	if err := store.Set("aws.jumphostTag", "Env=bastion"); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestConfigSettingsStoreSetAndUnset(t *testing.T) {
 func TestConfigSettingsStoreRefusesAnInvalidValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"jumphostTag": "Env=bastion"}`)
-	store := newConfigSettingsStore(path, settingsFlags(t))
+	store := newConfigSettingsStore(path, nil, settingsFlags(t))
 	if err := store.Set("aws.jumphostTag", "bastion"); err == nil {
 		t.Fatal("a tag without = must be refused")
 	}
@@ -123,13 +124,13 @@ func TestConfigSettingsStoreRefusesAnInvalidValue(t *testing.T) {
 func TestConfigSettingsStoreNamesAnInvalidFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"mode": "sometimes"}`)
-	if _, err := newConfigSettingsStore(path, settingsFlags(t)).Snapshot(); err == nil || !strings.Contains(err.Error(), path) {
+	if _, err := newConfigSettingsStore(path, nil, settingsFlags(t)).Snapshot(); err == nil || !strings.Contains(err.Error(), path) {
 		t.Fatalf("err = %v, want the file named", err)
 	}
 }
 
 func TestSettingsStoreOffersTheGatewayChoices(t *testing.T) {
-	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), pflag.NewFlagSet("t", pflag.ContinueOnError))
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), nil, pflag.NewFlagSet("t", pflag.ContinueOnError))
 	snapshot, err := store.Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +148,7 @@ func TestSettingsStoreOffersTheGatewayChoices(t *testing.T) {
 }
 
 func TestSnapshotOffersTheLanguages(t *testing.T) {
-	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), settingsFlags(t))
+	store := newConfigSettingsStore(filepath.Join(t.TempDir(), "config.json"), nil, settingsFlags(t))
 	_, views := snapshotByName(t, store)
 	view, ok := views["language"]
 	if !ok {
@@ -155,5 +156,52 @@ func TestSnapshotOffersTheLanguages(t *testing.T) {
 	}
 	if !slices.Equal(view.Choices, []string{"auto", "en", "fr"}) || !view.NextLaunch {
 		t.Fatalf("language view = %+v, want choices auto/en/fr applied at next launch", view)
+	}
+}
+
+func TestSettingsStoreSnapshotMarksLockedAndOrganization(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeTestFile(t, path, `{"aws": {"jumphostTag": "Env=local"}}`)
+	org := testOrganization(t, `{"settings":{"aws":{"jumphostTag":"Role=bastion"},"mode":"daemon"},"locked":["aws.jumphostTag"]}`)
+	store := newConfigSettingsStore(path, org, settingsFlags(t))
+	snapshot, views := snapshotByName(t, store)
+	if snapshot.Organization != "org.json" {
+		t.Fatalf("organization = %q, want the source", snapshot.Organization)
+	}
+	if v := views["aws.jumphostTag"]; !v.Locked || !v.FromOrganization || v.FromFile || v.Value != "Role=bastion" {
+		t.Fatalf("aws.jumphostTag = %+v, want the locked organization value", v)
+	}
+	if v := views["mode"]; v.Locked || !v.FromOrganization || v.Value != "daemon" {
+		t.Fatalf("mode = %+v, want the unlocked organization value", v)
+	}
+	if v := views["aws.defaultRegion"]; v.Locked || v.FromOrganization {
+		t.Fatalf("aws.defaultRegion = %+v, want a default", v)
+	}
+	if err := store.Set("aws.jumphostTag", "Env=mine"); !errors.Is(err, config.ErrLocked) {
+		t.Fatalf("Set a locked key: err = %v, want ErrLocked", err)
+	}
+	if err := store.Unset("aws.jumphostTag"); !errors.Is(err, config.ErrLocked) {
+		t.Fatalf("Unset a locked key: err = %v, want ErrLocked", err)
+	}
+	if snapshot, _ = snapshotByName(t, newConfigSettingsStore(path, nil, settingsFlags(t))); snapshot.Organization != "" {
+		t.Fatalf("organization without one = %q", snapshot.Organization)
+	}
+}
+
+func TestSettingsStoreRefusesOrganizationConfigWhenManaged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	orgFile := writeTempFile(t, "org.json", testOrgBody)
+	useManagedFile(t, `{"organizationConfig": "`+orgFile+`"}`)
+	store := newConfigSettingsStore(path, nil, settingsFlags(t))
+	store.managed = true
+	managed := orgEnvironment().managedPath
+	if err := store.Set("organizationConfig", orgFile); err == nil || !strings.Contains(err.Error(), managed) {
+		t.Fatalf("Set: err = %v, want the managed file named", err)
+	}
+	if err := store.Unset("organizationConfig"); err == nil || !strings.Contains(err.Error(), managed) {
+		t.Fatalf("Unset: err = %v, want the managed file named", err)
+	}
+	if err := store.Set("mode", "daemon"); err != nil {
+		t.Fatalf("Set another key: %v", err)
 	}
 }

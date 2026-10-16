@@ -168,6 +168,9 @@ type RunnerOptions struct {
 	MCPServerPrefix string
 	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
 	KubeconfigDir string
+	// WritesLocked keeps every MCP server read-only, whatever the options or the saved choices ask
+	// (the organization locks agent.writes off).
+	WritesLocked bool
 }
 
 type SessionDetails struct {
@@ -270,7 +273,9 @@ type Runner struct {
 	disabledModules   []string
 	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
 	kubeconfigDir string
-	accountsMu    sync.Mutex
+	// writesLocked forces MCPAllowWrites off and keeps the saved one as it is.
+	writesLocked bool
+	accountsMu   sync.Mutex
 	// loginMu serializes the SSO sign-ins of expired identities.
 	loginMu      sync.Mutex
 	keychainOnce sync.Once
@@ -381,6 +386,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		containers:      opts.Containers,
 		environments:    opts.Environments,
 		interactive:     opts.Interactive,
+		writesLocked:    opts.WritesLocked,
 	}
 	if opts.PrefsPath != "" {
 		runner.prefs = NewPrefsStore(opts.PrefsPath)
@@ -422,6 +428,8 @@ func (r *Runner) Run(ctx context.Context, options *Options) error {
 // Prepare resolves the target, reserves a free local port and registers the IDE data source.
 // The caller starts the returned session (aws CommandArgs + AwsArgs; none for a direct database) and must Release it once finished.
 func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error) { //nolint:gocritic // signature fixed by sessions.Runner.
+	// Here rather than in the callers: no path to an MCP server can miss it.
+	options.MCPAllowWrites = options.MCPAllowWrites && !r.writesLocked
 	if err := r.checkModule(options.ResourceType); err != nil {
 		return nil, err
 	}
@@ -924,6 +932,10 @@ func (r *Runner) SaveConnectionPrefs(ctx context.Context, options Options) error
 		var previous *ConnectionPrefs
 		if saved, found := r.prefs.Load(target); found {
 			previous = &saved
+			if r.writesLocked {
+				// The lock ignores the saved choice, it does not delete it.
+				prefs.MCPAllowWrites = saved.MCPAllowWrites
+			}
 		}
 		if previous != nil && keepPreviousSignIn(previous, &options) {
 			prefs.SignIn, prefs.DBSecretARN, prefs.PasswordInKeychain = previous.SignIn, previous.DBSecretARN, previous.PasswordInKeychain

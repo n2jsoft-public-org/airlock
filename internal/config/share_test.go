@@ -32,7 +32,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 
 	target := filepath.Join(t.TempDir(), "airlock", "config.json")
-	plan, err := PlanImport(target, shared, false)
+	plan, err := PlanImport(target, nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(target)
+	cfg, err := Load(target, nil)
 	if err != nil || cfg.MCPServerPrefix != "acme" || cfg.DefaultRegion != "eu-west-3" {
 		t.Fatalf("imported cfg = %+v, %v", cfg, err)
 	}
@@ -57,7 +57,7 @@ func TestExportKeepsTheNamedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanImport(filepath.Join(t.TempDir(), "config.json"), shared, false)
+	plan, err := PlanImport(filepath.Join(t.TempDir(), "config.json"), nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,22 +113,22 @@ func TestImportRejectsDamagedStrings(t *testing.T) {
 		"empty":        "airlock2:",
 		"not a string": "hello",
 	} {
-		if _, err := PlanImport(target, s, false); !errors.Is(err, ErrInvalidShare) {
+		if _, err := PlanImport(target, nil, s, false); !errors.Is(err, ErrInvalidShare) {
 			t.Fatalf("%s: err = %v, want ErrInvalidShare", name, err)
 		}
 	}
-	if _, err := PlanImport(target, "  "+shared+"\n", false); err != nil {
+	if _, err := PlanImport(target, nil, "  "+shared+"\n", false); err != nil {
 		t.Fatalf("surrounding spaces from a paste must be accepted: %v", err)
 	}
 }
 
 func TestImportRejectsUnknownKeysAndInvalidValues(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "config.json")
-	_, err := PlanImport(target, encodeShare([]byte(`{"futureKey": "x"}`)), false)
+	_, err := PlanImport(target, nil, encodeShare([]byte(`{"futureKey": "x"}`)), false)
 	if err == nil || !strings.Contains(err.Error(), "futureKey") || !strings.Contains(err.Error(), "update airlock") {
 		t.Fatalf("unknown key err = %v", err)
 	}
-	_, err = PlanImport(target, encodeShare([]byte(`{"aws": {"jumphostTag": "Usage"}}`)), false)
+	_, err = PlanImport(target, nil, encodeShare([]byte(`{"aws": {"jumphostTag": "Usage"}}`)), false)
 	if err == nil || !strings.Contains(err.Error(), "aws.jumphostTag") {
 		t.Fatalf("invalid value err = %v", err)
 	}
@@ -138,7 +138,7 @@ func TestPlanImportMergesByDefault(t *testing.T) {
 	shared := encodeShare([]byte(`{"jumphostTag": "Env=bastion", "mcpServerPrefix": "acme", "defaultRegion": "eu-west-3"}`))
 	target := writeConfig(t, `{"jumphostTag": "Usage=jumphost", "defaultDbUser": "acme_ro", "mcpServerPrefix": "acme"}`)
 
-	plan, err := PlanImport(target, shared, false)
+	plan, err := PlanImport(target, nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestPlanImportMergesByDefault(t *testing.T) {
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(target)
+	cfg, err := Load(target, nil)
 	if err != nil || cfg.DefaultDBUser.String() != "acme_ro" || cfg.JumphostTag.String() != "Env=bastion" || cfg.DefaultRegion != "eu-west-3" {
 		t.Fatalf("merged cfg = %+v, %v", cfg, err)
 	}
@@ -170,7 +170,7 @@ func TestPlanImportReplaceRemovesLocalKeys(t *testing.T) {
 	shared := encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`))
 	target := writeConfig(t, `{"defaultDbUser": "acme_ro", "defaultRegion": "eu-west-3"}`)
 
-	plan, err := PlanImport(target, shared, true)
+	plan, err := PlanImport(target, nil, shared, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestPlanImportReplaceRemovesLocalKeys(t *testing.T) {
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	settings, err := Settings(target)
+	settings, err := Settings(target, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestPlanImportOfChosenKeysLeavesTheOthers(t *testing.T) {
 	shared := encodeShare([]byte(`{"jumphostTag": "Env=bastion", "defaultRegion": "eu-west-3"}`))
 	target := writeConfig(t, `{"jumphostTag": "Usage=jumphost", "defaultDbUser": "acme_ro"}`)
 
-	plan, err := PlanImport(target, shared, false, "aws.defaultRegion")
+	plan, err := PlanImport(target, nil, shared, false, "aws.defaultRegion")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestPlanImportOfChosenKeysLeavesTheOthers(t *testing.T) {
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(target)
+	cfg, err := Load(target, nil)
 	if err != nil || cfg.JumphostTag.String() != "Usage=jumphost" || cfg.DefaultRegion != "eu-west-3" {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
@@ -213,14 +213,14 @@ func TestPlanImportReplaceKeepsTheKeysLeftOut(t *testing.T) {
 	shared := encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`))
 	target := writeConfig(t, `{"defaultDbUser": "acme_ro", "mcpServerPrefix": "acme"}`)
 
-	plan, err := PlanImport(target, shared, true, "aws.defaultRegion", "mcp.serverPrefix")
+	plan, err := PlanImport(target, nil, shared, true, "aws.defaultRegion", "mcp.serverPrefix")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	settings, err := Settings(target)
+	settings, err := Settings(target, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestPlanImportReplaceKeepsTheKeysLeftOut(t *testing.T) {
 
 func TestPlanImportWithNothingToChange(t *testing.T) {
 	target := writeConfig(t, `{"defaultRegion": "eu-west-3"}`)
-	plan, err := PlanImport(target, encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`)), false)
+	plan, err := PlanImport(target, nil, encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestPlanImportWithNothingToChange(t *testing.T) {
 
 func TestPlanImportRefusesAnInvalidLocalFile(t *testing.T) {
 	target := writeConfig(t, `{"jumphostTag": "Usage"}`)
-	_, err := PlanImport(target, encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`)), false)
+	_, err := PlanImport(target, nil, encodeShare([]byte(`{"defaultRegion": "eu-west-3"}`)), false)
 	if err == nil || !strings.Contains(err.Error(), target) {
 		t.Fatalf("err = %v, want the invalid local file named", err)
 	}
@@ -257,7 +257,7 @@ func TestPlanImportRefusesAnInvalidLocalFile(t *testing.T) {
 
 func TestImportOfALegacyShareMigratesProductionProfiles(t *testing.T) {
 	path := writeConfig(t, `{"defaultRegion": "eu-west-3"}`)
-	plan, err := PlanImport(path, encodeShare([]byte(`{"productionProfiles": "*prod*"}`)), false)
+	plan, err := PlanImport(path, nil, encodeShare([]byte(`{"productionProfiles": "*prod*"}`)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestExportEnvironmentsOfALegacyFileConvertsProductionProfiles(t *testing.T)
 		t.Fatal(err)
 	}
 	target := writeConfig(t, `{}`)
-	plan, err := PlanImport(target, shared, false)
+	plan, err := PlanImport(target, nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestExportLeavesLanguageOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := writeConfig(t, `{}`)
-	plan, err := PlanImport(target, shared, false)
+	plan, err := PlanImport(target, nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,14 +328,14 @@ func TestImportReplaceKeepsTheLocalLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := writeConfig(t, `{"language": "fr", "mode": "daemon"}`)
-	plan, err := PlanImport(target, shared, true)
+	plan, err := PlanImport(target, nil, shared, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(target)
+	cfg, err := Load(target, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,14 +352,14 @@ func TestImportReplaceKeepsTheLocalLanguage(t *testing.T) {
 func TestImportIgnoresAShareCarryingLanguage(t *testing.T) {
 	shared := encodeShare([]byte(`{"mcpServerPrefix": "acme", "language": "fr"}`))
 	target := writeConfig(t, `{}`)
-	plan, err := PlanImport(target, shared, false)
+	plan, err := PlanImport(target, nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = ApplyImport(&plan); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(target)
+	cfg, err := Load(target, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestImportIgnoresAShareCarryingLanguage(t *testing.T) {
 func TestImportOfAnAirlock1StringRenamesItsKeys(t *testing.T) {
 	shared := sharecode.Encode("airlock1:", []byte(`{"mcpGatewayPort": "8123", "disabledModules": "k8s", "language": "fr"}`))
 	target := writeConfig(t, `{}`)
-	plan, err := PlanImport(target, shared, false)
+	plan, err := PlanImport(target, nil, shared, false)
 	if err != nil {
 		t.Fatal(err)
 	}

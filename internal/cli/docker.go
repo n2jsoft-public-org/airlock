@@ -48,8 +48,11 @@ func checkDockerTarget(cmd *cobra.Command, args []string, containers jumphost.Do
 }
 
 // dockerAllowWrites is the MCP write access of a Docker database: on unless --mcp-allow-writes
-// says otherwise, a local container being a scratch database.
-func dockerAllowWrites(cmd *cobra.Command, flagValue bool) bool {
+// says otherwise, a local container being a scratch database, or the organization locks writes.
+func dockerAllowWrites(cmd *cobra.Command, flagValue, locked bool) bool {
+	if locked {
+		return false
+	}
 	if cmd.Flags().Changed("mcp-allow-writes") {
 		return flagValue
 	}
@@ -58,12 +61,12 @@ func dockerAllowWrites(cmd *cobra.Command, flagValue bool) bool {
 
 // dockerOptions gives a Docker run its MCP write default. The dashboard keeps options as they are:
 // they are the base of every later wizard, and the Docker review turns writes on by itself.
-func dockerOptions(cmd *cobra.Command, options *jumphost.Options, interactive bool) *jumphost.Options {
+func dockerOptions(cmd *cobra.Command, options *jumphost.Options, interactive, locked bool) *jumphost.Options {
 	if interactive {
 		return options
 	}
 	withWrites := *options
-	withWrites.MCPAllowWrites = dockerAllowWrites(cmd, options.MCPAllowWrites)
+	withWrites.MCPAllowWrites = dockerAllowWrites(cmd, options.MCPAllowWrites, locked)
 	return &withWrites
 }
 
@@ -71,7 +74,7 @@ func dockerOptions(cmd *cobra.Command, options *jumphost.Options, interactive bo
 // list, or on the review of the named container; otherwise a session serving its MCP server until
 // the command is interrupted, signed in with the container's password.
 func openDocker(cmd *cobra.Command, options *jumphost.Options, interactive bool, env *directEnv) error {
-	options = dockerOptions(cmd, options, interactive)
+	options = dockerOptions(cmd, options, interactive, env.shared.WritesLocked)
 	if interactive {
 		dashboard := *env.dashboard
 		dashboard.DockerAtStart, dashboard.OpenDocker = true, options.Name

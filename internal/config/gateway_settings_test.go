@@ -17,7 +17,7 @@ func TestGatewaySettingsDefaults(t *testing.T) {
 func TestGatewaySettingsLoad(t *testing.T) {
 	path := writeConfig(t, `{"mcp": {"gateway": {"enabled": false, "port": 8123}},
 		"agent": {"autoConnect": "NON-PROD", "writes": "true", "idleTimeout": "1h30m"}}`)
-	cfg, err := Load(path)
+	cfg, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +31,12 @@ func TestDaemonIdleTimeout(t *testing.T) {
 	if got := Defaults().DaemonIdleTimeout; got != 10*time.Minute {
 		t.Fatalf("default = %v, want 10m", got)
 	}
-	cfg, err := Load(writeConfig(t, `{"daemon": {"idleTimeout": "8h"}}`))
+	cfg, err := Load(writeConfig(t, `{"daemon": {"idleTimeout": "8h"}}`), nil)
 	if err != nil || cfg.DaemonIdleTimeout != 8*time.Hour {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 	for _, body := range []string{`{"daemon": {"idleTimeout": "30s"}}`, `{"daemon": {"idleTimeout": "never"}}`} {
-		if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), "daemon.idleTimeout") {
+		if _, err := Load(writeConfig(t, body), nil); err == nil || !strings.Contains(err.Error(), "daemon.idleTimeout") {
 			t.Errorf("%s: err = %v, want one naming daemon.idleTimeout", body, err)
 		}
 	}
@@ -53,14 +53,14 @@ func TestGatewaySettingsRejectInvalidValues(t *testing.T) {
 		`{"agentIdleTimeout": "never"}`:            "agent.idleTimeout",
 	}
 	for body, key := range cases {
-		if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), key) {
+		if _, err := Load(writeConfig(t, body), nil); err == nil || !strings.Contains(err.Error(), key) {
 			t.Errorf("%s: err = %v, want one naming %s", body, err, key)
 		}
 	}
 }
 
 func TestGatewaySettingsRender(t *testing.T) {
-	settings, err := Settings(writeConfig(t, `{"agent": {"idleTimeout": "2h"}}`))
+	settings, err := Settings(writeConfig(t, `{"agent": {"idleTimeout": "2h"}}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,13 +79,13 @@ func TestGatewaySettingsRender(t *testing.T) {
 
 func TestSetValidatesGatewaySettings(t *testing.T) {
 	path := writeConfig(t, `{}`)
-	if err := Set(path, "agent.autoConnect", "all"); err != nil {
+	if err := Set(path, nil, "agent.autoConnect", "all"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Set(path, "agent.idleTimeout", "10s"); err == nil {
+	if err := Set(path, nil, "agent.idleTimeout", "10s"); err == nil {
 		t.Fatal("a timeout under 1m must be refused")
 	}
-	cfg, err := Load(path)
+	cfg, err := Load(path, nil)
 	if err != nil || cfg.AgentAutoConnect != AutoConnectAll || cfg.AgentIdleTimeout != 30*time.Minute {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}

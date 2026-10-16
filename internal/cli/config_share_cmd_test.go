@@ -107,7 +107,7 @@ func TestConfigImportAppliesOnYes(t *testing.T) {
 	if err != nil || !strings.Contains(out, "Applied 1 change to "+path) {
 		t.Fatalf("out = %q, %v", out, err)
 	}
-	if cfg, loadErr := config.Load(path); loadErr != nil || cfg.DefaultRegion != "eu-west-3" {
+	if cfg, loadErr := config.Load(path, nil); loadErr != nil || cfg.DefaultRegion != "eu-west-3" {
 		t.Fatalf("cfg = %+v, %v", cfg, loadErr)
 	}
 }
@@ -120,7 +120,7 @@ func TestConfigImportYesFlagSkipsTheQuestion(t *testing.T) {
 	if err != nil || strings.Contains(out, "[y/N]") || !strings.Contains(out, "Applied 2 changes") {
 		t.Fatalf("out = %q, %v, want applied without a question", out, err)
 	}
-	if cfg, loadErr := config.Load(path); loadErr != nil || cfg.MCPServerPrefix != "acme" {
+	if cfg, loadErr := config.Load(path, nil); loadErr != nil || cfg.MCPServerPrefix != "acme" {
 		t.Fatalf("cfg = %+v, %v", cfg, loadErr)
 	}
 }

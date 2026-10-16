@@ -118,12 +118,36 @@ func (f *file) decodeObject(decoder *json.Decoder, prefix string) error {
 		if err := decoder.Decode(&raw); err != nil {
 			return err
 		}
+		if f.lenient && !f.known(path) {
+			f.unknown = append(f.unknown, unknownPaths(path, raw)...)
+			continue
+		}
 		if err := f.setDecoded(path, raw); err != nil {
 			return err
 		}
 	}
 	_, err := decoder.Token()
 	return err
+}
+
+// known reports whether path names a key of the layout, current or flat legacy.
+func (f *file) known(path string) bool {
+	_, renamed := renamedKeys[path]
+	return renamed || path == legacyDisabledModules || f.field(path) != nil
+}
+
+// unknownPaths lists the leaves under raw, the value of the unknown key path.
+func unknownPaths(path string, raw any) []string {
+	object, ok := raw.(map[string]any)
+	if !ok || len(object) == 0 {
+		return []string{path}
+	}
+	var paths []string
+	for name, value := range object {
+		paths = append(paths, unknownPaths(path+"."+name, value)...)
+	}
+	slices.Sort(paths)
+	return paths
 }
 
 // isSection reports whether path names a section of the nested layout.

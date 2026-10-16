@@ -10,7 +10,7 @@ import (
 // resolveLanguage returns the language of config path when set, else the system's. A config that
 // cannot be read is left to the command, which reports it as before.
 func resolveLanguage(path string, getenv func(string) string, osLocale func() string) string {
-	if cfg, err := config.Load(path); err == nil && cfg.Language != config.LanguageAuto {
+	if cfg, err := config.Load(path, nil); err == nil && cfg.Language != config.LanguageAuto {
 		return cfg.Language
 	}
 	return i18n.Detect(getenv, osLocale)

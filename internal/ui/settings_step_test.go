@@ -29,6 +29,7 @@ func (s *fakeSettingsStore) Snapshot() (SettingsSnapshot, error) {
 		Path:         s.snapshot.Path,
 		Settings:     slices.Clone(s.snapshot.Settings),
 		Environments: s.snapshot.Environments,
+		Organization: s.snapshot.Organization,
 	}, nil
 }
 

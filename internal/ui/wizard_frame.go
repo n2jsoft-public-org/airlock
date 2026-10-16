@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
@@ -33,8 +34,9 @@ type wizardFrame struct {
 	hint     string
 	body     string
 	errorMsg string
-	// notice, when not empty, takes the blank line under the breadcrumb, so the chrome keeps its height.
-	notice string
+	// notices, when not empty, take the blank line under the breadcrumb and, past the first, lines
+	// of the body: at most maxNoticeLines.
+	notices []string
 	// chips are pre-rendered context values shown at the right of the header (profile, region).
 	chips []string
 	steps []string
@@ -44,11 +46,14 @@ type wizardFrame struct {
 }
 
 // frameBodySize returns the size left to the body of a frame showing errorMsg, which takes up
-// to maxErrorLines lines.
-func (s Styles) frameBodySize(width, height int, errorMsg string) (bodyWidth, bodyHeight int) {
+// to maxErrorLines lines, and notices.
+func (s Styles) frameBodySize(width, height int, errorMsg string, notices []string) (bodyWidth, bodyHeight int) {
 	bodyWidth, bodyHeight = wizardBodySize(width, height)
 	if errorMsg != "" {
 		bodyHeight = maxInt(bodyHeight-len(s.errorLines(errorMsg, bodyWidth))+1, 1)
+	}
+	if len(notices) > 1 {
+		bodyHeight = maxInt(bodyHeight-min(len(notices), maxNoticeLines)+1, 1)
 	}
 	return bodyWidth, bodyHeight
 }
@@ -73,7 +78,7 @@ func frameSize(width, height int) (frameWidth, frameHeight int) {
 // renderWizardFrame lays out f to fill exactly width x height cells.
 func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 	width, height = frameSize(width, height)
-	inner, bodyHeight := s.frameBodySize(width, height, f.errorMsg)
+	inner, bodyHeight := s.frameBodySize(width, height, f.errorMsg, f.notices)
 
 	right := strings.Join(f.chips, s.Faint.Render("   "))
 	left := s.Title.Render("◆ " + f.title)
@@ -99,7 +104,7 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 		spread(left, right, inner),
 		s.Rule.Render(strings.Repeat("─", inner)),
 		truncate(s.breadcrumb(f.steps, f.current), inner),
-		s.noticeLine(f.notice, inner),
+		s.noticeLines(f.notices, inner),
 		truncate(heading, inner),
 		"",
 		body,
@@ -109,12 +114,25 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 	return lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(lines, "\n"))
 }
 
-// noticeLine renders notice on one line of width cells, or an empty line without one.
-func (s Styles) noticeLine(notice string, width int) string {
-	if notice == "" {
-		return ""
+// maxNoticeLines caps the lines of the notices; the last one then counts the others, which
+// airlock prints when it exits.
+const maxNoticeLines = 6
+
+// noticesFit reports whether notices show in full, uncut.
+func noticesFit(notices []string) bool { return len(notices) <= maxNoticeLines }
+
+// noticeLines renders notices one per line of width cells, or an empty line without any.
+func (s Styles) noticeLines(notices []string, width int) string {
+	if !noticesFit(notices) {
+		hidden := len(notices) - maxNoticeLines + 1
+		notices = append(slices.Clone(notices[:maxNoticeLines-1]), i18n.Plural(hidden, "ui.notice.more"))
 	}
-	return truncate(s.Warning.Render("↑ "+notice), width)
+	lines := make([]string, 0, len(notices))
+	for _, notice := range notices {
+		// A notice keeps to its line: frameBodySize counts one per notice.
+		lines = append(lines, truncate(s.Warning.Render(strings.ReplaceAll(notice, "\n", " ")), width))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // maxErrorLines caps the lines of a frame error; a longer one is cut with "…".

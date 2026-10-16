@@ -31,13 +31,13 @@ const (
 func (m jumphostWizardModel) View() tea.View { return tea.NewView(m.render()) }
 
 func (m jumphostWizardModel) render() string {
-	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg)
+	bodyWidth, bodyHeight := m.styles.frameBodySize(m.width, m.height, m.errorMsg, m.notices())
 	frame := wizardFrame{
 		title:    "airlock",
 		tagline:  i18n.T("ui.jumphost_flow_view.ssm_port_forwarding"),
 		chips:    m.contextChips(),
 		errorMsg: m.errorMsg,
-		notice:   m.updateNotice,
+		notices:  m.notices(),
 	}
 	frame.steps, frame.current = m.breadcrumb()
 
@@ -71,9 +71,21 @@ func (m jumphostWizardModel) render() string {
 	return m.styles.renderWizardFrame(frame, m.width, m.height)
 }
 
+// notices are the lines of the banner under the breadcrumb: the update notice, then the
+// organization's.
+func (m jumphostWizardModel) notices() []string {
+	if m.updateNotice == "" {
+		return m.organizationNotice
+	}
+	return append([]string{"↑ " + m.updateNotice}, m.organizationNotice...)
+}
+
 func (m jumphostWizardModel) contextChips() []string {
-	// The settings have no AWS context.
+	// The settings have no AWS context; they show the organization config they come from.
 	if m.step == jumphostStepSettings {
+		if source := m.settingsEditor.snapshot.Organization; source != "" {
+			return []string{m.styles.contextChip(i18n.T("ui.settings.source_organization"), source)}
+		}
 		return nil
 	}
 	// A direct database has no AWS context; its review shows the server it connects to.
@@ -539,6 +551,9 @@ func (m jumphostWizardModel) secretValue() string {
 
 // mcpWritesToggle renders whether the MCP server may modify data.
 func (m jumphostWizardModel) mcpWritesToggle() string {
+	if m.writesLocked {
+		return m.styles.Muted.Render(i18n.T("ui.jumphost_flow_view.read_only")) + m.styles.Faint.Render(i18n.T("ui.jumphost_flow_view.writes_locked"))
+	}
 	if m.mcpWrites {
 		return m.styles.Warning.Render(i18n.T("ui.jumphost_flow_view.writes_allowed")) + m.styles.Faint.Render(i18n.T("ui.jumphost_flow_view.ai_assistants_can_modify"))
 	}

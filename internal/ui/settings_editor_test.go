@@ -13,7 +13,8 @@ import (
 )
 
 // testSettings is a snapshot with one key of each kind, in this order: a default text key, a
-// file key, a region, a key overridden by a flag, a list of patterns and a choice.
+// file key, a region, a key overridden by a flag, a list of patterns, a choice and a key the
+// organization locks.
 func testSettings() SettingsSnapshot {
 	return SettingsSnapshot{
 		Path: "/home/me/.config/airlock/config.json",
@@ -24,7 +25,9 @@ func testSettings() SettingsSnapshot {
 			{Name: "mcp.serverPrefix", Description: "Start of the MCP server names", Value: "airlock", OverriddenBy: "--mcp-server-prefix"},
 			{Name: "modules.sql.readOnlySecretTag", Description: "Tag of the read-only secrets of SQL Server"},
 			{Name: "mode", Description: "cli or daemon", Value: "cli", Choices: []string{"cli", "daemon"}, NextLaunch: true},
+			{Name: "agent.writes", Description: "Let agents write", Value: "false", Choices: []string{"false", "true"}, Locked: true, FromOrganization: true},
 		},
+		Organization: "github.com/acme/airlock-config/org.json",
 		Environments: environment.FromProductionProfiles([]string{"*prod*"}),
 	}
 }
@@ -232,5 +235,25 @@ func TestSettingsEditorUnreadableFileIsReadOnly(t *testing.T) {
 	}
 	if _, outcome := editorPress(t, e, key("esc")); outcome != settingsBack {
 		t.Fatalf("esc: outcome = %v, want back", outcome)
+	}
+}
+
+func TestSettingsEditorLockedRowNotEditable(t *testing.T) {
+	e := editorDown(t, loadedEditor(), 6)
+	if setting, _ := e.selected(); setting.Name != "agent.writes" {
+		t.Fatalf("selected %q, want the locked key", setting.Name)
+	}
+	e, outcome := editorPress(t, e, key("enter"))
+	if outcome != settingsStay || e.editing || e.requestKey != "" {
+		t.Fatalf("enter on a locked key: outcome %v, editing %v, request %q", outcome, e.editing, e.requestKey)
+	}
+	if e, _ = editorPress(t, e, key("d")); e.confirming {
+		t.Fatal("d on a locked key asks to reset it")
+	}
+	view := editorView(e)
+	for _, want := range []string{"organization", "locked", "Imposed by the organization (github.com/acme/airlock-config/org.json):", "it cannot be changed here."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view lacks %q:\n%s", want, view)
+		}
 	}
 }

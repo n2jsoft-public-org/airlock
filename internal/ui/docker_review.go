@@ -24,7 +24,7 @@ func (m jumphostWizardModel) enterDockerReview(c dockerdb.Container) (jumphostWi
 	m.passwordInput.Reset()
 	m.passwordInput.SetValue(c.Password)
 	m.passwordInput.CursorEnd()
-	m.mcpWrites = true
+	m.mcpWrites = !m.writesLocked
 	m = m.focusReviewField(reviewFieldPassword)
 	return m, textinput.Blink
 }

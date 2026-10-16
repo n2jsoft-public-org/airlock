@@ -49,7 +49,7 @@ func gatewaySettings(cfg *config.Config) gateway.Settings {
 // follow source, rebuilt when the file changes.
 func startGatewayFunc(configPath, tokenDir, logDir string, source *runnerSource[*daemonRunner], databases jumphost.DirectDatabases) daemon.StartGatewayFunc {
 	return func(ctx context.Context, env daemon.GatewayEnv) (daemon.Gateway, error) {
-		cfg, err := config.Load(configPath)
+		cfg, err := config.Load(configPath, source.organization())
 		if err != nil {
 			return nil, err
 		}

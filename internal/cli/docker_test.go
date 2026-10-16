@@ -52,13 +52,13 @@ func TestCheckDockerTarget(t *testing.T) {
 
 func TestDockerWritesDefaultOn(t *testing.T) {
 	cmd := NewRootCmd()
-	if !dockerAllowWrites(cmd, false) {
+	if !dockerAllowWrites(cmd, false, false) {
 		t.Fatal("writes must default on for docker")
 	}
 	if err := cmd.Flags().Set("mcp-allow-writes", "false"); err != nil {
 		t.Fatal(err)
 	}
-	if dockerAllowWrites(cmd, false) {
+	if dockerAllowWrites(cmd, false, false) {
 		t.Fatal("--mcp-allow-writes=false must turn them off")
 	}
 }
@@ -89,10 +89,10 @@ func TestDirectRunErrorExplainsARejectedPassword(t *testing.T) {
 
 func TestDockerOptionsWritesOnlyWithoutTerminal(t *testing.T) {
 	cmd := NewRootCmd()
-	if dockerOptions(cmd, &jumphost.Options{}, true).MCPAllowWrites {
+	if dockerOptions(cmd, &jumphost.Options{}, true, false).MCPAllowWrites {
 		t.Fatal("the dashboard's base options must not get MCP writes")
 	}
-	if !dockerOptions(cmd, &jumphost.Options{}, false).MCPAllowWrites {
+	if !dockerOptions(cmd, &jumphost.Options{}, false, false).MCPAllowWrites {
 		t.Fatal("a non-interactive docker run defaults to writes")
 	}
 }

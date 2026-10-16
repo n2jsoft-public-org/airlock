@@ -1,5 +1,5 @@
 
-  ◆ airlock  SSM port forwarding
+  ◆ airlock               organization github.com/acme/airlock-config/org.json
   ────────────────────────────────────────────────────────────────────────────
 
 
@@ -11,10 +11,10 @@
     mcp.serverPrefix               airlock                   default  ⚑ --mcp…
     modules.sql.readOnlySecretTag  none                      default
     mode                           cli                       default
+    agent.writes                   false                     locked
   ────────────────────────────────────────────────────────────────────────
   Tag (Key=Value) of the running SSM jumphost EC2 instance
   /home/me/.config/airlock/config.json
-
 
 
 

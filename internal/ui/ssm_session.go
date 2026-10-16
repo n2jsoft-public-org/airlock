@@ -106,6 +106,10 @@ type ssmModel struct {
 	notice string
 	// updateNotice, when not empty, tells the wizard a newer airlock release exists.
 	updateNotice string
+	// organizationNotice is passed to the wizard, like updateNotice.
+	organizationNotice []string
+	// organizationNoticeShown reports that a wizard showed organizationNotice in full.
+	organizationNoticeShown bool
 	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
 	openDirect string
 	// docker finds the database containers (DashboardOptions.Docker); dockerAtStart and
@@ -129,6 +133,8 @@ type ssmModel struct {
 	approvals []sessions.Approval
 	// environments names the AWS profiles' environments (environments setting).
 	environments environment.Set
+	// writesLocked is passed to every wizard (DashboardOptions.WritesLocked).
+	writesLocked bool
 	viewport     viewport.Model
 	loadingUI    loadingState
 	// password is the password dialog (ssmModePassword).
@@ -175,6 +181,12 @@ type DashboardOptions struct {
 	Reconnect func(ctx context.Context) (sessions.Service, error)
 	// UpdateNotice, when not empty, is shown in the wizard: a newer airlock release exists.
 	UpdateNotice string
+	// OrganizationNotice are lines shown in the wizard under UpdateNotice: the warnings and the last
+	// changes of the organization config.
+	OrganizationNotice []string
+	// OrganizationNoticeShown, when not nil, is called once the dashboard ends if a wizard showed
+	// OrganizationNotice in full; the caller prints it otherwise.
+	OrganizationNoticeShown func()
 	// OpenDirect, when not empty, opens the startup wizard on the review step of that direct
 	// database (`airlock direct <name>`).
 	OpenDirect string
@@ -192,6 +204,8 @@ type DashboardOptions struct {
 	Environments environment.Set
 	// Detach marks a daemon view: q detaches (Task 13).
 	Detach bool
+	// WritesLocked shows the MCP write toggles off and read-only: the organization locks writes.
+	WritesLocked bool
 	// lightBackground selects the palette for a terminal with a light background; RunJumphostSessions
 	// asks the terminal before starting (false, a dark background, when it cannot tell).
 	lightBackground bool
@@ -223,6 +237,9 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 		defer opts.Handoff.attach(nil)
 	}
 	finalModel, err := program.Run()
+	if result, ok := finalModel.(ssmModel); ok && result.organizationNoticeShown && opts.OrganizationNoticeShown != nil {
+		opts.OrganizationNoticeShown()
+	}
 	if result, ok := finalModel.(ssmModel); ok && result.exitNotice != "" {
 		if _, writeErr := fmt.Fprintln(out, result.exitNotice); writeErr != nil && err == nil {
 			err = writeErr
@@ -254,8 +271,9 @@ func RunJumphostSessions(ctx context.Context, service sessions.Service, discover
 func newDashboardModel(ctx context.Context, service sessions.Service, discovery JumphostDiscovery, first sessions.ID, base jumphost.Options, opts *DashboardOptions) ssmModel { //nolint:gocritic // base is kept by the model.
 	model := newSSMModel(ctx, service, discovery, base)
 	model.styles = NewStyles(!opts.lightBackground)
-	model.environments = opts.Environments
+	model.environments, model.writesLocked = opts.Environments, opts.WritesLocked
 	model.updateNotice, model.databases, model.openDirect = opts.UpdateNotice, opts.Databases, opts.OpenDirect
+	model.organizationNotice = opts.OrganizationNotice
 	model.docker, model.dockerAtStart, model.openDocker = opts.Docker, opts.DockerAtStart, opts.OpenDocker
 	model.settings, model.notice = opts.Settings, opts.Notice
 	model.projectDir, model.detach, model.reconnect = opts.ProjectDir, opts.Detach, opts.Reconnect
@@ -790,8 +808,9 @@ func (m ssmModel) showWizard(base jumphost.Options) ssmModel { //nolint:gocritic
 	m.wizard = newStyledWizardModel(m.ctx, m.discovery, base, m.styles)
 	m.wizard.embedded = true
 	m.wizard.hostHasSessions = len(m.sessions) > 0
-	m.wizard.environments = m.environments
-	m.wizard.updateNotice = m.updateNotice
+	m.wizard.environments, m.wizard.writesLocked = m.environments, m.writesLocked
+	m.wizard.updateNotice, m.wizard.organizationNotice = m.updateNotice, m.organizationNotice
+	m.organizationNoticeShown = m.organizationNoticeShown || noticesFit(m.wizard.notices())
 	m.wizard.databases = m.databases
 	m.wizard.docker = m.docker
 	m.wizard.settings = m.settings

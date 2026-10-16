@@ -28,7 +28,9 @@ func TestGatewaySettingsFromConfig(t *testing.T) {
 }
 
 func testSource(path string) *runnerSource[*daemonRunner] {
-	return newRunnerSource(path, func(cfg config.Config) (*daemonRunner, error) { return &daemonRunner{cfg: cfg}, nil })
+	return newRunnerSource(path, nil, func(cfg config.Config, _ *config.Organization) (*daemonRunner, error) {
+		return &daemonRunner{cfg: cfg}, nil
+	})
 }
 
 func gatewayEnv(t *testing.T) daemon.GatewayEnv {

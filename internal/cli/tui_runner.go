@@ -11,15 +11,15 @@ import (
 )
 
 // withOverrides applies the flags of this run over every configuration build gets: a flag keeps
-// winning over config.json when the file changes.
-func withOverrides[R any](overrides config.Overrides, build func(config.Config) (R, error)) func(config.Config) (R, error) {
-	return func(file config.Config) (R, error) {
-		applied, err := file.Apply(overrides)
+// winning over config.json when the file changes, but not over a key the organization now locks.
+func withOverrides[R any](overrides config.Overrides, build func(config.Config, *config.Organization) (R, error)) func(config.Config, *config.Organization) (R, error) {
+	return func(file config.Config, org *config.Organization) (R, error) {
+		applied, err := file.Apply(unlockedOverrides(overrides, org))
 		if err != nil {
 			var none R
 			return none, err
 		}
-		return build(applied)
+		return build(applied, org)
 	}
 }
 

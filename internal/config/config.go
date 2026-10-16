@@ -19,6 +19,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/dbuser"
 	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft/airlock/internal/orgconfig"
 )
 
 // Config holds the settings merged from the built-in defaults, the config file and the flags.
@@ -48,6 +49,9 @@ type Config struct {
 	AgentAutoConnect string
 	// Language is LanguageAuto or one of i18n.Supported.
 	Language string
+	// OrganizationConfig is the source of the organization config: an absolute path or an
+	// https:// URL; empty means none.
+	OrganizationConfig string
 	// MCPGatewayPort is the 127.0.0.1 port of the gateway.
 	MCPGatewayPort int
 	// AgentIdleTimeout closes an agent-opened session after this long without a relayed call.
@@ -134,47 +138,63 @@ func Defaults() Config {
 // file holds the keys config.json sets, one field per key of Keys; a nil field is a key absent
 // from the file. Its JSON layout (file_json.go) nests the dotted names of Keys.
 type file struct {
-	Language          *string
-	Mode              *string
-	Environments      *string
-	DefaultRegion     *string
-	JumphostTag       *string
-	RandomLocalPort   *string
-	MCPServerPrefix   *string
-	MCPClients        *string
-	MCPGateway        *string
-	MCPGatewayPort    *string
-	AgentAutoConnect  *string
-	AgentWrites       *string
-	AgentIdleTimeout  *string
-	DaemonIdleTimeout *string
-	SQLEnabled        *string
-	DefaultDBUser     *string
-	ReadOnlySecretTag *string
-	K8sEnabled        *string
-	CacheEnabled      *string
-	DynamoDBEnabled   *string
-	S3Enabled         *string
+	Language           *string
+	OrganizationConfig *string
+	Mode               *string
+	Environments       *string
+	DefaultRegion      *string
+	JumphostTag        *string
+	RandomLocalPort    *string
+	MCPServerPrefix    *string
+	MCPClients         *string
+	MCPGateway         *string
+	MCPGatewayPort     *string
+	AgentAutoConnect   *string
+	AgentWrites        *string
+	AgentIdleTimeout   *string
+	DaemonIdleTimeout  *string
+	SQLEnabled         *string
+	DefaultDBUser      *string
+	ReadOnlySecretTag  *string
+	K8sEnabled         *string
+	CacheEnabled       *string
+	DynamoDBEnabled    *string
+	S3Enabled          *string
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
 	ProductionProfiles *string
 	// legacy lists the flat keys of an earlier layout the file still sets, in file order; their
 	// values are already in the fields above.
 	legacy []legacyKey
+	// lenient makes decoding record unknown keys in unknown instead of failing; the organization
+	// file may come from a newer airlock.
+	lenient bool
+	unknown []string
 }
 
-// Load reads configPath over the defaults. A missing file (or an empty path) gives the defaults; invalid
-// JSON, an unknown key or a malformed value is an error naming the file.
-func Load(configPath string) (Config, error) {
-	f, err := readFile(configPath)
-	if err != nil {
-		return Config{}, err
+// Load reads configPath over the settings of org, a nil one setting nothing, over the defaults;
+// the keys org locks ignore the file. A missing file (or an empty path) gives the layers below;
+// invalid JSON, an unknown key or a malformed value is an error naming the file.
+func Load(configPath string, org *Organization) (Config, error) {
+	_, cfg, _, err := load(configPath, org)
+	return cfg, err
+}
+
+// load returns the file at configPath, the Config of Load, and the base it applied the file over:
+// the defaults with the settings of org.
+func load(configPath string, org *Organization) (f file, cfg, base Config, err error) {
+	if f, err = readFile(configPath); err != nil {
+		return file{}, Config{}, Config{}, err
 	}
-	cfg, err := f.apply(new(Defaults()))
-	if err != nil {
-		return Config{}, i18n.NewError("config.config.invalid_config", configPath, err)
+	if base, err = org.apply(new(Defaults())); err != nil {
+		return file{}, Config{}, Config{}, err
 	}
-	return cfg, nil
+	local := f
+	local.dropLocked(org)
+	if cfg, err = local.apply(&base); err != nil {
+		return file{}, Config{}, Config{}, i18n.NewError("config.config.invalid_config", configPath, err)
+	}
+	return f, cfg, base, nil
 }
 
 // readFile decodes configPath; a missing file (or an empty path) has no key. Invalid JSON or an unknown
@@ -291,6 +311,11 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.Language != nil {
 		if cfg.Language, err = parseLanguage(*f.Language); err != nil {
 			return Config{}, fmt.Errorf("language: %w", err)
+		}
+	}
+	if f.OrganizationConfig != nil {
+		if cfg.OrganizationConfig, err = parseOrganizationSource(*f.OrganizationConfig); err != nil {
+			return Config{}, fmt.Errorf("organizationConfig: %w", err)
 		}
 	}
 	return cfg, nil
@@ -417,6 +442,19 @@ func parseLanguage(s string) (string, error) {
 		return lang, nil
 	}
 	return "", i18n.NewError("config.config.unknown_language_valid", s, LanguageAuto, strings.Join(i18n.Supported, ", "))
+}
+
+// parseOrganizationSource accepts the sources the organization resolver reads; empty means no
+// organization. The error never echoes URL credentials.
+func parseOrganizationSource(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s, nil
+	}
+	if _, err := orgconfig.ParseSource(s); err != nil {
+		return "", err
+	}
+	return s, nil
 }
 
 // parseModules reads comma-separated Modules, in any case; the result is in Modules order.

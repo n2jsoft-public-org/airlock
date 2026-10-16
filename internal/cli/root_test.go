@@ -44,12 +44,12 @@ func TestLoadConfigReadsXDGConfigFile(t *testing.T) {
 	if err := cmd.ParseFlags([]string{"--mcp-server-prefix", "team"}); err != nil {
 		t.Fatal(err)
 	}
-	cfg, path, err := loadConfig(cmd)
+	cfg, sources, err := loadConfig(cmd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != want || cfg.MCPServerPrefix != "team" || cfg.DefaultRegion != "eu-west-3" {
-		t.Fatalf("loadConfig = %+v, %q", cfg, path)
+	if sources.path != want || cfg.MCPServerPrefix != "team" || cfg.DefaultRegion != "eu-west-3" {
+		t.Fatalf("loadConfig = %+v, %q", cfg, sources.path)
 	}
 }
 

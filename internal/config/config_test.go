@@ -32,14 +32,14 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestLoadMissingFileGivesDefaults(t *testing.T) {
-	cfg, err := Load(filepath.Join(t.TempDir(), "absent.json"))
+	cfg, err := Load(filepath.Join(t.TempDir(), "absent.json"), nil)
 	if err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("Load(missing) = %+v, %v", cfg, err)
 	}
 }
 
 func TestLoadEmptyPathGivesDefaults(t *testing.T) {
-	cfg, err := Load("")
+	cfg, err := Load("", nil)
 	if err != nil || !reflect.DeepEqual(cfg, Defaults()) {
 		t.Fatalf("Load(\"\") = %+v, %v", cfg, err)
 	}
@@ -52,7 +52,7 @@ func TestLoadACMEPreset(t *testing.T) {
   "readOnlySecretTag": "AccessRole=ro-access",
   "mcpServerPrefix": "acme"
 }`)
-	cfg, err := Load(path)
+	cfg, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestLoadACMEPreset(t *testing.T) {
 }
 
 func TestLoadDefaultDBUserPerEngine(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{"defaultDbUser": "app_ro,SQLServer=mcp_ro"}`))
+	cfg, err := Load(writeConfig(t, `{"defaultDbUser": "app_ro,SQLServer=mcp_ro"}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,14 +94,14 @@ func TestLoadDefaultDBUserPerEngine(t *testing.T) {
 
 func TestLoadRejectsMalformedDefaultDBUser(t *testing.T) {
 	path := writeConfig(t, `{"defaultDbUser": "oracle=ora_ro"}`)
-	_, err := Load(path)
+	_, err := Load(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "defaultDbUser") || !strings.Contains(err.Error(), path) {
 		t.Fatalf("Load(malformed defaultDbUser) error = %v", err)
 	}
 }
 
 func TestLoadOverridesJumphostTag(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{"jumphostTag": "Role=bastion"}`))
+	cfg, err := Load(writeConfig(t, `{"jumphostTag": "Role=bastion"}`), nil)
 	if err != nil || cfg.JumphostTag != (awstag.Tag{Key: "Role", Value: "bastion"}) {
 		t.Fatalf("Load = %+v, %v", cfg, err)
 	}
@@ -109,7 +109,7 @@ func TestLoadOverridesJumphostTag(t *testing.T) {
 
 func TestLoadRejectsInvalidJSON(t *testing.T) {
 	path := writeConfig(t, `{"defaultRegion": "eu-west-3",}`)
-	_, err := Load(path)
+	_, err := Load(path, nil)
 	if err == nil || !strings.Contains(err.Error(), path) {
 		t.Fatalf("Load(invalid) error = %v, want one naming %s", err, path)
 	}
@@ -118,7 +118,7 @@ func TestLoadRejectsInvalidJSON(t *testing.T) {
 func TestLoadRejectsUnknownKey(t *testing.T) {
 	// encoding/json matches keys case-insensitively, so a typo means a key that does not exist.
 	path := writeConfig(t, `{"dbUser": "acme_ro"}`)
-	_, err := Load(path)
+	_, err := Load(path, nil)
 	if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "dbUser") {
 		t.Fatalf("Load(unknown key) error = %v, want one naming the file and the key", err)
 	}
@@ -126,7 +126,7 @@ func TestLoadRejectsUnknownKey(t *testing.T) {
 
 func TestLoadRejectsMalformedTag(t *testing.T) {
 	path := writeConfig(t, `{"readOnlySecretTag": "ro-access"}`)
-	_, err := Load(path)
+	_, err := Load(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "readOnlySecretTag") || !strings.Contains(err.Error(), path) {
 		t.Fatalf("Load(malformed tag) error = %v", err)
 	}
@@ -176,7 +176,7 @@ func TestApplyRejectsEmptyJumphostTagAndPrefix(t *testing.T) {
 }
 
 func TestLoadEnvironments(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{"environments": " Staging=*stg* ; prod!=*prod* "}`))
+	cfg, err := Load(writeConfig(t, `{"environments": " Staging=*stg* ; prod!=*prod* "}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestLoadEnvironments(t *testing.T) {
 }
 
 func TestLoadEnvironmentsMigratesProductionProfiles(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{"productionProfiles": " *PROD*, ,*-live "}`))
+	cfg, err := Load(writeConfig(t, `{"productionProfiles": " *PROD*, ,*-live "}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestLoadEnvironmentsMigratesProductionProfiles(t *testing.T) {
 }
 
 func TestLoadEnvironmentsWinOverProductionProfiles(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{"environments": "live!=*-live", "productionProfiles": "*prod*,team-["}`))
+	cfg, err := Load(writeConfig(t, `{"environments": "live!=*-live", "productionProfiles": "*prod*,team-["}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,16 +213,16 @@ func TestLoadEnvironmentsWinOverProductionProfiles(t *testing.T) {
 
 func TestLoadRejectsInvalidEnvironments(t *testing.T) {
 	path := writeConfig(t, `{"environments": "prod=*prod*"}`)
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "environments") || !strings.Contains(err.Error(), path) {
+	if _, err := Load(path, nil); err == nil || !strings.Contains(err.Error(), "environments") || !strings.Contains(err.Error(), path) {
 		t.Fatalf("err = %v, want the key and the file named", err)
 	}
-	if _, err := Load(writeConfig(t, `{"productionProfiles": "*prod*,team-["}`)); err == nil || !strings.Contains(err.Error(), "productionProfiles") {
+	if _, err := Load(writeConfig(t, `{"productionProfiles": "*prod*,team-["}`), nil); err == nil || !strings.Contains(err.Error(), "productionProfiles") {
 		t.Fatalf("err = %v, want an invalid productionProfiles named while it is read", err)
 	}
 }
 
 func TestLoadMCPClients(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{"mcpClients": " Codex , claude:USER,codex "}`))
+	cfg, err := Load(writeConfig(t, `{"mcpClients": " Codex , claude:USER,codex "}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestLoadMCPClients(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownMCPClient(t *testing.T) {
-	_, err := Load(writeConfig(t, `{"mcpClients": "claude,emacs"}`))
+	_, err := Load(writeConfig(t, `{"mcpClients": "claude,emacs"}`), nil)
 	if err == nil || !strings.Contains(err.Error(), "mcp.clients") || !strings.Contains(err.Error(), "emacs") {
 		t.Fatalf("err = %v, want the key and the client named", err)
 	}
@@ -262,14 +262,14 @@ func TestModeSetting(t *testing.T) {
 	if defaults.Mode != ModeCLI {
 		t.Fatalf("default mode = %q", defaults.Mode)
 	}
-	cfg, err := Load(writeConfig(t, `{"mode": " Daemon "}`))
+	cfg, err := Load(writeConfig(t, `{"mode": " Daemon "}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Mode != ModeDaemon {
 		t.Fatalf("mode = %q", cfg.Mode)
 	}
-	if _, err = Load(writeConfig(t, `{"mode": "service"}`)); err == nil || !strings.Contains(err.Error(), "mode") {
+	if _, err = Load(writeConfig(t, `{"mode": "service"}`), nil); err == nil || !strings.Contains(err.Error(), "mode") {
 		t.Fatalf("err = %v", err)
 	}
 	out, err := defaults.Apply(Overrides{Mode: new("daemon")})

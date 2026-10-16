@@ -8,7 +8,7 @@ import (
 )
 
 func TestLanguageDefaultsToAuto(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `{}`))
+	cfg, err := Load(writeConfig(t, `{}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,17 +19,17 @@ func TestLanguageDefaultsToAuto(t *testing.T) {
 
 func TestSetLanguageValidates(t *testing.T) {
 	path := writeConfig(t, `{}`)
-	if err := Set(path, "language", " FR "); err != nil {
+	if err := Set(path, nil, "language", " FR "); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(path)
+	cfg, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Language != "fr" {
 		t.Fatalf("Language = %q, want fr", cfg.Language)
 	}
-	if err := Set(path, "language", "de"); err == nil || !strings.Contains(err.Error(), "auto, en, fr") {
+	if err := Set(path, nil, "language", "de"); err == nil || !strings.Contains(err.Error(), "auto, en, fr") {
 		t.Fatalf("Set(language, de) = %v, want an error listing auto, en, fr", err)
 	}
 }
@@ -46,9 +46,9 @@ func TestEveryKeyHasADescriptionInEveryLanguage(t *testing.T) {
 	}
 }
 
-func TestOnlyLanguageIsPersonal(t *testing.T) {
+func TestOnlyLanguageAndOrganizationConfigArePersonal(t *testing.T) {
 	for _, key := range Keys {
-		if key.Personal != (key.Name == "language") {
+		if key.Personal != (key.Name == "language" || key.Name == "organizationConfig") {
 			t.Errorf("%s: Personal = %v", key.Name, key.Personal)
 		}
 	}
@@ -56,7 +56,7 @@ func TestOnlyLanguageIsPersonal(t *testing.T) {
 
 func TestConfigErrorsLocalize(t *testing.T) {
 	t.Cleanup(func() { i18n.SetLanguage("en") })
-	err := Set(writeConfig(t, `{}`), "language", "de")
+	err := Set(writeConfig(t, `{}`), nil, "language", "de")
 	i18n.SetLanguage("en")
 	if !strings.Contains(err.Error(), "unknown language") {
 		t.Fatalf("Error() = %q, want English", err.Error())

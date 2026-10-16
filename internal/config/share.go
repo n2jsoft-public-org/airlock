@@ -34,6 +34,8 @@ const (
 	ChangeRemoved ChangeKind = "removed"
 	// ChangeUnchanged keeps the value the file already sets.
 	ChangeUnchanged ChangeKind = "unchanged"
+	// ChangeLocked skips a key the organization locks: it is listed and never written.
+	ChangeLocked ChangeKind = "locked"
 )
 
 // Change is what an import does to one key: its effective value before and after, each flagged
@@ -45,6 +47,9 @@ type Change struct {
 	New        string
 	OldDefault bool
 	NewDefault bool
+	// Locked: the key is locked after the change; WasLocked, set by DiffOrganizations, before it.
+	Locked    bool
+	WasLocked bool
 }
 
 // Plan is an import ready to be applied to Path. Changes lists, in Keys order, every key of the
@@ -58,7 +63,7 @@ type Plan struct {
 // HasChanges reports whether applying the plan modifies the file.
 func (p *Plan) HasChanges() bool {
 	for _, c := range p.Changes {
-		if c.Kind != ChangeUnchanged {
+		if c.Kind != ChangeUnchanged && c.Kind != ChangeLocked {
 			return true
 		}
 	}
@@ -93,8 +98,9 @@ func Export(path string, keys ...string) (string, error) {
 
 // PlanImport decodes shared and computes what importing it into path changes: its keys overwrite
 // those of the file, and with replace the file's other keys are removed. When any keys are given,
-// only those are imported or removed, the others left as the file has them. Nothing is written.
-func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error) {
+// only those are imported or removed, the others left as the file has them. Keys org locks are
+// listed as ChangeLocked and left alone. Nothing is written.
+func PlanImport(path string, org *Organization, shared string, replace bool, keys ...string) (Plan, error) {
 	incoming, err := decodeShare(shared)
 	if err != nil {
 		return Plan{}, err
@@ -109,7 +115,8 @@ func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error)
 		return Plan{}, i18n.NewError("config.config.invalid_config", path, err)
 	}
 
-	picked := func(name string) bool { return len(keys) == 0 || slices.Contains(keys, name) }
+	asked := func(name string) bool { return len(keys) == 0 || slices.Contains(keys, name) }
+	picked := func(name string) bool { return asked(name) && !org.Locked(name) }
 	result := local
 	if replace {
 		result = file{}
@@ -139,7 +146,13 @@ func PlanImport(path, shared string, replace bool, keys ...string) (Plan, error)
 	oldValues, newValues := before.values(), after.values()
 	plan := Plan{Path: path, result: result}
 	for _, key := range Keys {
-		if key.Personal || !picked(key.Name) {
+		if key.Personal || !asked(key.Name) {
+			continue
+		}
+		if org.Locked(key.Name) {
+			if incoming.sets(key.Name) {
+				plan.Changes = append(plan.Changes, Change{Key: key, Kind: ChangeLocked, Old: oldValues[key.Name], New: oldValues[key.Name], Locked: true})
+			}
 			continue
 		}
 		inLocal := local.sets(key.Name)

@@ -32,6 +32,9 @@ Options:
   --dir <path>      install folder (default: $AIRLOCK_INSTALL_DIR, else ~/.local/bin)
   --version <tag>   install this release, e.g. v1.2.0 (default: $AIRLOCK_VERSION, else latest)
   --skip-path       do not add the install folder to the shell profile
+  --organization-config <source>
+                    set the organizationConfig setting once installed: an absolute path, an
+                    https:// URL or a github.com .../blob/<ref>/<path> link
   --uninstall       remove airlock and the PATH entry added for it (runs airlock uninstall)
   --purge           with --uninstall, also remove settings, history, logs and saved passwords
 
@@ -226,6 +229,13 @@ add_to_path() {
 	fi
 }
 
+# set_organization_config points the installed airlock at the organization config. A failure only
+# warns: airlock is installed, and airlock config set organizationConfig can be run later.
+set_organization_config() {
+	"$target" config set organizationConfig "$organization_config" ||
+		warn "could not set organizationConfig: run airlock config set organizationConfig \"$organization_config\""
+}
+
 # warn_other_copies points at airlock binaries left elsewhere on the PATH, such as an older
 # make install or go install into GOPATH/bin, which may run instead of this one.
 warn_other_copies() {
@@ -317,6 +327,7 @@ main() {
 	skip_path=0
 	uninstall=0
 	purge=0
+	organization_config=
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--dir)
@@ -330,6 +341,11 @@ main() {
 			shift
 			;;
 		--skip-path) skip_path=1 ;;
+		--organization-config)
+			[ $# -ge 2 ] || die "--organization-config needs a path or URL"
+			organization_config="$2"
+			shift
+			;;
 		--uninstall) uninstall=1 ;;
 		--purge) purge=1 ;;
 		-h | --help)
@@ -361,6 +377,9 @@ main() {
 	add_to_path
 	warn_other_copies
 	check_prerequisites
+	if [ -n "$organization_config" ]; then
+		set_organization_config
+	fi
 	"$target" version
 }
 

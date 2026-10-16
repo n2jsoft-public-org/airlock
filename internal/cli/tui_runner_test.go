@@ -11,22 +11,22 @@ import (
 )
 
 func TestWithOverridesKeepsTheFlagsOverTheFile(t *testing.T) {
-	build := withOverrides(config.Overrides{MCPServerPrefix: new("flag")}, func(cfg config.Config) (string, error) {
+	build := withOverrides(config.Overrides{MCPServerPrefix: new("flag")}, func(cfg config.Config, _ *config.Organization) (string, error) {
 		return cfg.MCPServerPrefix, nil
 	})
 	file := config.Defaults()
 	file.MCPServerPrefix = "file"
-	got, err := build(file)
+	got, err := build(file, nil)
 	if err != nil || got != "flag" {
 		t.Fatalf("prefix = %q, err = %v; want the flag", got, err)
 	}
 }
 
 func TestWithOverridesReportsAnInvalidFlag(t *testing.T) {
-	build := withOverrides(config.Overrides{JumphostTag: new("nope")}, func(config.Config) (string, error) {
+	build := withOverrides(config.Overrides{JumphostTag: new("nope")}, func(config.Config, *config.Organization) (string, error) {
 		return "built", nil
 	})
-	if _, err := build(config.Defaults()); err == nil || !strings.Contains(err.Error(), "--jumphost-tag") {
+	if _, err := build(config.Defaults(), nil); err == nil || !strings.Contains(err.Error(), "--jumphost-tag") {
 		t.Fatalf("err = %v, want the flag named", err)
 	}
 }
@@ -48,7 +48,7 @@ func TestMCPHostsSharesOneHostPerClients(t *testing.T) {
 func TestReloadingDiscoveryFollowsTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeTestFile(t, path, `{"defaultDbUser": "one"}`)
-	source := newRunnerSource(path, func(cfg config.Config) (*jumphost.Runner, error) {
+	source := newRunnerSource(path, nil, func(cfg config.Config, _ *config.Organization) (*jumphost.Runner, error) {
 		return jumphost.NewRunner(&jumphost.RunnerOptions{DefaultDBUser: cfg.DefaultDBUser}), nil
 	})
 	discovery := reloadingDiscovery{source: source}

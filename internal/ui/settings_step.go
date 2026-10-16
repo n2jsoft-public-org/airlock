@@ -152,9 +152,13 @@ func (m jumphostWizardModel) settingsKeys(help, quit [2]string) [][2]string {
 	case editor.err != nil:
 		return [][2]string{{"esc", i18n.T("ui.hint.back")}, quit}
 	}
-	keys := [][2]string{{"↑↓", i18n.T("ui.hint.move")}, {"enter", i18n.T("ui.hint.change")}}
-	if setting, ok := editor.selected(); ok && setting.FromFile {
-		keys = append(keys, [2]string{"d", i18n.T("ui.hint.reset")})
+	keys := [][2]string{{"↑↓", i18n.T("ui.hint.move")}}
+	// A locked key offers nothing: the line under the rows tells the organization imposes it.
+	if setting, ok := editor.selected(); !ok || !setting.Locked {
+		keys = append(keys, [2]string{"enter", i18n.T("ui.hint.change")})
+		if setting.FromFile {
+			keys = append(keys, [2]string{"d", i18n.T("ui.hint.reset")})
+		}
 	}
 	return append(keys, [2]string{"esc", i18n.T("ui.hint.back")}, help, quit)
 }

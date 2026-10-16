@@ -15,6 +15,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft/airlock/internal/orgconfig"
 	"github.com/n2jsoft/airlock/internal/platform"
 	"github.com/n2jsoft/airlock/internal/version"
 	"github.com/spf13/cobra"
@@ -270,11 +271,14 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	}
 	// The runner's progress lines get the time the daemon's own lines have.
 	runnerLog := newStampedWriter(log)
-	source := newRunnerSource(configPath, func(cfg config.Config) (*daemonRunner, error) {
-		options := sharedRunnerOptions(&cfg, registry, mcpserve.NewHostFor(cfg.MCPClientSelection()), mcpLogDir, kubeconfigDir, databaseStore)
+	// Resolved at start, then again from the cache whenever the refresh loop updates it.
+	orgs := orgEnvironment()
+	org := organizationFor(ctx, configPath).Org
+	source := newRunnerSource(configPath, org, func(cfg config.Config, org *config.Organization) (*daemonRunner, error) {
+		options := sharedRunnerOptions(&cfg, org, registry, mcpserve.NewHostFor(cfg.MCPClientSelection()), mcpLogDir, kubeconfigDir, databaseStore)
 		options.Out, options.Err, options.PrefsPath, options.Keychain = runnerLog, runnerLog, prefsPath, newKeychain()
 		return &daemonRunner{Runner: jumphost.NewRunner(&options), cfg: cfg}, nil
-	})
+	}).followOrganization(orgs)
 	tokenDir, err := appdir.ConfigDir()
 	if err != nil {
 		return err
@@ -285,11 +289,48 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 		databases = databaseStore
 	}
 	// Read once, at start; an invalid file leaves the daemon's default.
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load(configPath, org)
 	log.warnLookup("daemon.idleTimeout is ignored", err)
+	startGateway := startGatewayFunc(configPath, tokenDir, mcpLogDir, source, databases)
 	return daemon.Run(ctx, &daemon.RunConfig{
 		Paths: paths, Version: version.String(), Runner: source.Source(), Log: log,
-		Gateway:     startGatewayFunc(configPath, tokenDir, mcpLogDir, source, databases),
+		// The daemon holds its lock once it starts the gateway: a daemon that is not the running one
+		// never refreshes, nor writes to its log.
+		Gateway: func(ctx context.Context, env daemon.GatewayEnv) (daemon.Gateway, error) {
+			go func() {
+				ticker := time.NewTicker(orgconfig.RefreshInterval)
+				defer ticker.Stop()
+				refreshOrganizationEvery(ctx, orgs, configPath, ticker.C, env.Log)
+			}()
+			return startGateway(ctx, env)
+		},
 		IdleTimeout: cfg.DaemonIdleTimeout,
 	})
+}
+
+// refreshOrganizationEvery refreshes the organization cache of localPath at every tick until ctx
+// ends, and right away when the cache is stale or missing. The runner source rebuilds from the new
+// cache: the sessions opened after a refresh get its values, the open ones keep theirs.
+func refreshOrganizationEvery(ctx context.Context, env orgEnv, localPath string, tick <-chan time.Time, logf func(string, ...any)) { //nolint:gocritic // orgEnv is a value the commands build.
+	cached := env
+	cached.cacheOnly = true
+	refresh := func(onlyDue bool) {
+		state := resolveOrganization(ctx, cached, localPath)
+		// A file source has no cache: the runner source rebuilds when the file itself changes.
+		if state.src.Raw == "" || state.src.Kind == orgconfig.KindFile || (onlyDue && !state.Stale && !state.FetchedAt.IsZero()) {
+			return
+		}
+		if err := refreshOrganization(ctx, env, state.src); err != nil {
+			logf("organization config not refreshed: %s", organizationWarning(state.Source, err))
+		}
+	}
+	refresh(true)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick:
+			refresh(false)
+		}
+	}
 }
