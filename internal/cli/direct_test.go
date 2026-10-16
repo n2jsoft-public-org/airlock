@@ -3,6 +3,8 @@ package cli
 // Every test gives an empty standard input that is not a terminal: airlock direct never opens the dashboard.
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -61,5 +63,23 @@ func TestDirectWithoutRememberedPasswordFailsOutsideATerminal(t *testing.T) {
 func TestRootHelpNamesTheDirectType(t *testing.T) {
 	if use := NewRootCmd().Use; use != "airlock [eks|rds|elasticache|dynamodb|s3|direct|docker] [name] [local-port]" {
 		t.Fatalf("Use = %q", use)
+	}
+}
+
+// disableModules writes a config.json turning modules off in the XDG_CONFIG_HOME of the test.
+func disableModules(t *testing.T, modules string) {
+	t.Helper()
+	writeTestFile(t, filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airlock", "config.json"), `{"disabledModules": "`+modules+`"}`)
+}
+
+func TestDisabledModuleFailsBeforeOpening(t *testing.T) {
+	store, _ := testDatabases(t)
+	putDatabase(t, store, &billing)
+	disableModules(t, "sql")
+	for _, args := range [][]string{{"direct", "legacy-billing"}, {"rds", "orders"}, {"docker"}} {
+		_, err := runAirlockWithInput(t, "", args...)
+		if err == nil || !strings.Contains(err.Error(), "the sql module is disabled") {
+			t.Fatalf("%v: err = %v, want the disabled module", args, err)
+		}
 	}
 }

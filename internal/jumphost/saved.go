@@ -3,11 +3,13 @@ package jumphost
 import (
 	"context"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
 // ListSavedConnections returns the remembered connections, most recently used first, keeping
 // those of profile and region when they are set; direct databases, outside AWS, are always kept.
+// Connections of a disabled module are left out.
 // Entries whose profile no longer exists in the AWS CLI configuration are flagged ProfileMissing,
 // direct databases whose definition is gone TargetMissing.
 func (r *Runner) ListSavedConnections(ctx context.Context, profile, region string) ([]SavedConnection, error) {
@@ -18,6 +20,7 @@ func (r *Runner) ListSavedConnections(ctx context.Context, profile, region strin
 	if err != nil {
 		return nil, err
 	}
+	saved = slices.DeleteFunc(saved, func(conn SavedConnection) bool { return r.ModuleDisabled(conn.Ref.Type) })
 	kept := filterSavedConnections(saved, profile, region, r.knownProfiles(ctx))
 	r.flagMissingDirectDatabases(kept)
 	return kept, nil

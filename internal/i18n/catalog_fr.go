@@ -18,7 +18,7 @@ var fr = map[string]string{
 	"config.key.daemonIdleTimeout":  "Arrêter le daemon après cette durée sans session, tableau de bord ni appel via la passerelle, ex. 10m ou 8h (au moins 1m)",
 	"config.key.agentIdleTimeout":   "Fermer une session ouverte par un agent après cette durée sans appel via la passerelle, ex. 30m ou 2h (au moins 1m)",
 	"config.key.randomLocalPort":    "true : les tunnels SSM écoutent sur un port local libre choisi par l'OS, sans conflit ; false : sur le port de la cible (ou le suivant libre)",
-	"config.key.disabledModules":    "modules qu'airlock ne liste ni n'ouvre, séparés par des virgules : sql (bases RDS, directes et Docker), k8s (EKS), cache (ElastiCache et caches Docker), dynamodb",
+	"config.key.disabledModules":    "modules qu'airlock ne liste ni n'ouvre, séparés par des virgules : sql (bases RDS, directes et Docker), k8s (EKS), cache (ElastiCache et caches Docker), dynamodb, s3",
 	"config.key.language":           "Langue d'airlock : auto (celle du système), en ou fr ; lue au démarrage",
 	"config.key.productionProfiles": "Obsolète : remplacé par environments (lu comme prod!=<motifs> tant que environments n'est pas défini)",
 

@@ -18,7 +18,7 @@ var en = map[string]string{
 	"config.key.daemonIdleTimeout":  "Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. 10m or 8h (at least 1m)",
 	"config.key.agentIdleTimeout":   "Close a session opened by an agent after this long without a call through the gateway, e.g. 30m or 2h (at least 1m)",
 	"config.key.randomLocalPort":    "true: SSM tunnels listen on a free local port chosen by the OS, avoiding conflicts; false: on the target's port (or the next free one)",
-	"config.key.disabledModules":    "modules airlock neither lists nor opens, comma-separated: sql (RDS, direct and Docker databases), k8s (EKS), cache (ElastiCache and Docker caches), dynamodb",
+	"config.key.disabledModules":    "modules airlock neither lists nor opens, comma-separated: sql (RDS, direct and Docker databases), k8s (EKS), cache (ElastiCache and Docker caches), dynamodb, s3",
 	"config.key.language":           "Language of airlock: auto (the system's), en or fr; read at start",
 	"config.key.productionProfiles": "Deprecated: replaced by environments (read as prod!=<patterns> while environments is not set)",
 

@@ -62,6 +62,20 @@ func TestCompletesResourceTypes(t *testing.T) {
 	}
 }
 
+func TestCompletionLeavesOutDisabledModules(t *testing.T) {
+	saveRecent(t)
+	disableModules(t, "sql,s3")
+	got := strings.Join(complete(t, ""), "\n")
+	for _, gone := range []string{"rds\t", "direct\t", "docker\t", "s3\t"} {
+		if strings.Contains(got, gone) {
+			t.Fatalf("candidates = %q, want no %q", got, gone)
+		}
+	}
+	if !strings.Contains(got, "eks\t") {
+		t.Fatalf("candidates = %q, want eks", got)
+	}
+}
+
 func TestCompletesRecentTargetsOfTheType(t *testing.T) {
 	saveRecent(t,
 		recent("rds", "archive", "dev", "eu-west-3", 5432),

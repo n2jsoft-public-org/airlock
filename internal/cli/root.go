@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -220,6 +221,9 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 
 	if len(args) > 0 {
 		options.ResourceType = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	if module := jumphost.ModuleOf(options.ResourceType); module != "" && slices.Contains(cfg.DisabledModules, module) {
+		return i18n.NewError("jumphost.modules.disabled", module, options.ResourceType)
 	}
 	if options.ResourceType == directResourceType {
 		if options.Name, err = checkDirectTarget(cmd, args, databases); err != nil {

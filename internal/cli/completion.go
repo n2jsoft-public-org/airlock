@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,10 +29,17 @@ func registerCompletions(cmd *cobra.Command) {
 func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 	switch len(args) {
 	case 0:
-		return []string{
-			"rds\t" + i18n.T("cli.completion.rds"), "eks\t" + i18n.T("cli.completion.eks"), "elasticache\t" + i18n.T("cli.completion.elasticache"),
-			"dynamodb\t" + i18n.T("cli.completion.dynamodb"), "s3\t" + i18n.T("cli.completion.s3"), "direct\t" + i18n.T("cli.completion.direct"), "docker\t" + i18n.T("cli.completion.docker"),
-		}, cobra.ShellCompDirectiveNoFileComp
+		var disabled []string
+		if cfg, _, err := loadConfig(cmd); err == nil { // An unreadable config completes every type.
+			disabled = cfg.DisabledModules
+		}
+		var types []string
+		for _, resourceType := range []string{"rds", "eks", "elasticache", "dynamodb", "s3", "direct", "docker"} {
+			if !slices.Contains(disabled, jumphost.ModuleOf(resourceType)) {
+				types = append(types, resourceType+"\t"+i18n.T("cli.completion."+resourceType))
+			}
+		}
+		return types, cobra.ShellCompDirectiveNoFileComp
 	case 1:
 		if strings.EqualFold(args[0], dockerResourceType) {
 			return dockerCompletions(cmd), cobra.ShellCompDirectiveNoFileComp

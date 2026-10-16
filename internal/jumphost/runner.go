@@ -783,11 +783,13 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 
 // ListResourceSummaries returns available resources with display details for the given type.
 func (r *Runner) ListResourceSummaries(ctx context.Context, options *Options) ([]ResourceSummary, error) {
+	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
+	if err := r.checkModule(resourceType); err != nil {
+		return nil, err
+	}
 	if err := requireAWSCLI(); err != nil {
 		return nil, err
 	}
-
-	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if !supportedResourceType(resourceType) {
 		return nil, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
 	}
