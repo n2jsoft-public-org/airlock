@@ -186,6 +186,7 @@ airlock dynamodb eu-west-3         # DynamoDB tables of a region, for the AI ass
 airlock s3                         # S3 buckets of a profile, for the AI assistant (MCP)
 airlock direct legacy-billing        # a direct database declared with airlock connection add
 airlock docker pg                    # a database running in a local Docker container
+airlock forward search.internal 443  # any host:port the jumphost reaches
 airlock rds my-db 5432 --db-user app_ro
 ```
 
@@ -443,6 +444,27 @@ kubectl get namespaces    # k9s, Lens and other clients read it too
 The session log shows the exact path, and the dashboard's `Kube` row the `KUBECONFIG` value. To
 keep your own context of the cluster instead, point it at the tunnel:
 `kubectl --server https://localhost:<port> --tls-server-name <endpoint host> get namespaces`.
+
+### Any host and port
+
+`airlock forward <host> <remote-port> [local-port]` tunnels through the jumphost of the profile and
+region to any private host and port it reaches: an OpenSearch domain, an MSK broker, an internal
+load balancer, DocumentDB, a private API Gateway endpoint… The host is a name or an IP address,
+without scheme nor port; the local port defaults to the remote one, or the next free one
+(`aws.randomLocalPort` picks a free one instead).
+
+```sh
+airlock forward vpc-search.eu-west-3.es.amazonaws.com 443 9443 --profile dev
+curl -k https://localhost:9443/_cluster/health
+airlock forward b-1.orders.kafka.eu-west-3.amazonaws.com 9098 --region eu-west-3
+```
+
+A forward is a session like the others: its dashboard card, parallel sessions, automatic
+reconnection, `c` to copy the local address, the recent connections of the wizard (one per account,
+region, host and port) and the completion of the hosts you forwarded to. airlock does not look the
+host up, and registers neither an IDE data source nor an MCP server for it: it takes `--profile`,
+`--region` and `--jumphost-tag` only. Clients checking TLS certificates see `localhost`: pass them
+the real host name (`--resolve`, `tls-server-name`, or skip the check).
 
 ### Direct databases
 

@@ -121,6 +121,8 @@ func TestListTargetsSaved(t *testing.T) {
 		savedRDS("orders-db", "dev"), savedRDS("orders-db", "prod"),
 		{Ref: jumphost.DirectTargetRef("billing")},
 		{Ref: jumphost.TargetRef{Type: "rds", Name: "gone"}, ProfileMissing: true},
+		// A forward serves no tool: list_targets leaves it out.
+		{Ref: jumphost.TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "forward", Name: "search.internal:443"}, Prefs: jumphost.ConnectionPrefs{Profile: "dev"}},
 	}}
 	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "prod!=prod")}, d,
 		fakeDatabases{"billing": {Name: "billing", Environment: "prod"}})

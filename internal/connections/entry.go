@@ -21,6 +21,8 @@ const (
 	TypeRDS         = "rds"
 	TypeEKS         = "eks"
 	TypeElastiCache = "elasticache"
+	// TypeForward is a tunnel to any host:port (airlock forward), its target.
+	TypeForward = "forward"
 )
 
 // JumphostTarget is a target reached through a jumphost: where it is, and the AWS profile of its
@@ -42,9 +44,9 @@ func (t *JumphostTarget) Key() string {
 // validate returns why t cannot key an entry; nil when it can.
 func (t *JumphostTarget) validate() error {
 	switch t.Type {
-	case TypeRDS, TypeEKS, TypeElastiCache:
+	case TypeRDS, TypeEKS, TypeElastiCache, TypeForward:
 	default:
-		return errors.New("type: must be rds, eks or elasticache")
+		return errors.New("type: must be rds, eks, elasticache or forward")
 	}
 	for _, field := range []struct{ name, value string }{{"target", t.Target}, {"account", t.Account}, {"region", t.Region}} {
 		if field.value == "" || strings.Contains(field.value, "/") {

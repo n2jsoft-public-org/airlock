@@ -54,7 +54,7 @@ const (
 
 // supportedResourceType reports whether resourceType (lower case) is one airlock connects to.
 func supportedResourceType(resourceType string) bool {
-	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3
+	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3 || resourceType == resourceForward
 }
 
 type Options struct {
@@ -456,7 +456,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
-	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
+	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache && resourceType != resourceForward {
 		return nil, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
 	}
 	if err := requireTunnelTools(); err != nil {
@@ -479,6 +479,8 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		prepared, err = r.prepareRDS(ctx, cfg, &options)
 	case resourceEKS:
 		prepared, err = r.prepareEKS(ctx, cfg, &options)
+	case resourceForward:
+		prepared, err = r.prepareForward(cfg, &options)
 	default: // resourceElastiCache, the last of the types checked above.
 		prepared, err = r.prepareElastiCache(ctx, cfg, &options)
 	}
@@ -776,6 +778,13 @@ func (r *Runner) ListResourceSummaries(ctx context.Context, options *Options) ([
 	if err != nil {
 		return nil, err
 	}
+	if resourceType == resourceForward {
+		// Nothing to discover: the target is the host:port asked for.
+		if _, _, err = parseForwardTarget(options.Name); err != nil {
+			return nil, err
+		}
+		return []ResourceSummary{{Name: strings.TrimSpace(options.Name), Type: resourceForward}}, nil
+	}
 
 	resources, err := r.listResources(ctx, cfg, resourceType)
 	if err != nil {
@@ -1013,6 +1022,9 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options
 	switch resourceType {
 	case resourceEKS:
 		return defaultEKSLocalPort, nil
+	case resourceForward:
+		_, port, err := parseForwardTarget(options.Name)
+		return port, err
 	case resourceElastiCache:
 		name := strings.TrimSpace(options.Name)
 		if name == "" {
@@ -1966,6 +1978,9 @@ func buildRestartCommand(resourceType, targetName, localPort, dbUser, dbSecret s
 	parts := []string{"airlock", resourceType}
 
 	targetName = strings.TrimSpace(targetName)
+	if resourceType == resourceForward {
+		targetName = forwardRestartArgs(targetName)
+	}
 	if targetName != "" {
 		parts = append(parts, targetName)
 	}

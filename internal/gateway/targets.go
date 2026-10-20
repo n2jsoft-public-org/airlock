@@ -115,8 +115,9 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	if wantType != "" && !slices.Contains(openableTypes, wantType) {
 		return refusal("unknown type %q (valid: %s)", in.Type, strings.Join(openableTypes, ", ")), nil, nil
 	}
+	// Forwards serve no tool: agents neither see nor open them.
 	keep := func(targetType, name string) bool {
-		return (wantType == "" || wantType == targetType) && !settings.disabled(targetType) && (query == "" || strings.Contains(strings.ToLower(name), query))
+		return (wantType == "" || wantType == targetType) && slices.Contains(openableTypes, targetType) && !settings.disabled(targetType) && (query == "" || strings.Contains(strings.ToLower(name), query))
 	}
 	saved, err := discovery.ListSavedConnections(ctx, profile, "")
 	if err != nil {

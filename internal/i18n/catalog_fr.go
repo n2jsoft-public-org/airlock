@@ -161,6 +161,9 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.daemon_stop.short":    "Arrêter chaque session, puis le daemon",
 	"cli.daemon_restart.short": "Arrêter le daemon et ses sessions, puis le relancer",
 	"cli.daemon_run.short":     "Lancer le daemon au premier plan (démarré par airlock en mode daemon)",
+	// internal/cli/forward_cmd.go
+	"cli.forward.short": "Rediriger un port local vers n'importe quel hôte et port joignable par le jumphost",
+	"cli.forward.long":  "Ouvrir un tunnel SSM, via le jumphost du profil et de la région, vers un hôte:port privé (OpenSearch, broker MSK, load balancer interne, DocumentDB...), comme session du tableau de bord. Le port local est par défaut le port distant, ou le suivant libre. Ni découverte, ni source de données IDE, ni serveur MCP.",
 	// internal/cli/eks_token_cmd.go, internal/cli/rds_token_cmd.go
 	"cli.eks_token.short":             "Afficher le jeton avec lequel kubectl se connecte à un cluster EKS (lancé par le kubeconfig écrit par airlock)",
 	"cli.eks_token.flag.cluster-name": "Nom du cluster EKS",
@@ -974,6 +977,13 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"jumphost.keychain.failed_to_forget_password":   "%w : échec de l'oubli du mot de passe : %w",
 	"jumphost.keychain.failed_to_forget_previous":   "échec de l'oubli du mot de passe précédent : %w",
 	"jumphost.keychain.password_was_not_remembered": "le mot de passe n'a pas été retenu : %w",
+	// internal/jumphost/forward.go
+	"jumphost.forward.host_required":  "l'hôte vers lequel rediriger est requis",
+	"jumphost.forward.host_scheme":    "hôte %q : donnez le nom d'hôte seul, sans schéma (pas de https://)",
+	"jumphost.forward.host_invalid":   "hôte %q : donnez un nom d'hôte ou une adresse IP, sans chemin, utilisateur ni espaces",
+	"jumphost.forward.host_port":      "hôte %q : donnez le port comme argument séparé (airlock forward <hôte> <port-distant>)",
+	"jumphost.forward.port_invalid":   "port distant %q : doit être un nombre de 1 à %d",
+	"jumphost.forward.target_invalid": "cible de redirection %q : host:port attendu",
 	// internal/jumphost/prefs.go
 	"jumphost.prefs.connection_preferences_need_aws": "les préférences de connexion exigent un compte AWS, une région, un type et un nom",
 	// internal/jumphost/registry.go

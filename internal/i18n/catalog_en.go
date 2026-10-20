@@ -194,6 +194,9 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.update.long":       "Checks the latest GitHub release of airlock and, when it is newer than this build, installs it in place of the running binary. GitHub access comes from GH_TOKEN, GITHUB_TOKEN or the GitHub CLI (gh auth login).",
 	"cli.update.flag.check": "Only report whether a newer release exists",
 	"cli.update.flag.force": "Install the latest release even when this build is newer, diverged or unversioned",
+	// internal/cli/forward_cmd.go
+	"cli.forward.short": "Forward a local port to any host and port the jumphost reaches",
+	"cli.forward.long":  "Open an SSM tunnel through the jumphost of the profile and region to a private host:port (OpenSearch, MSK broker, internal load balancer, DocumentDB...), as a session of the dashboard. The local port defaults to the remote one, or the next free one. No discovery, IDE data source nor MCP server.",
 	// internal/cli/eks_token_cmd.go, internal/cli/rds_token_cmd.go
 	"cli.eks_token.short":             "Print the credential kubectl signs in to an EKS cluster with (run by the kubeconfig airlock writes)",
 	"cli.eks_token.flag.cluster-name": "Name of the EKS cluster",
@@ -974,6 +977,13 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"jumphost.keychain.failed_to_forget_password":   "%w: failed to forget the password: %w",
 	"jumphost.keychain.failed_to_forget_previous":   "failed to forget the previous password: %w",
 	"jumphost.keychain.password_was_not_remembered": "the password was not remembered: %w",
+	// internal/jumphost/forward.go
+	"jumphost.forward.host_required":  "the host to forward to is required",
+	"jumphost.forward.host_scheme":    "host %q: give the host name alone, without scheme (no https://)",
+	"jumphost.forward.host_invalid":   "host %q: give a host name or IP address, without path, user nor spaces",
+	"jumphost.forward.host_port":      "host %q: give the port as its own argument (airlock forward <host> <remote-port>)",
+	"jumphost.forward.port_invalid":   "remote port %q: must be a number from 1 to %d",
+	"jumphost.forward.target_invalid": "forward target %q: expected host:port",
 	// internal/jumphost/prefs.go
 	"jumphost.prefs.connection_preferences_need_aws": "connection preferences need an AWS account, a region, a type and a name",
 	// internal/jumphost/registry.go
