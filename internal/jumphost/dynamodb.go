@@ -65,7 +65,7 @@ func (r *Runner) prepareDynamoDB(ctx context.Context, options *Options) (*Sessio
 		},
 		Intro: []string{fmt.Sprintf("DynamoDB tables of %s in %s, through the AWS API (%s)", cfg.Profile, cfg.Region, endpoint)},
 	}
-	handle, display := r.startDynamoMCP(options, cfg)
+	handle, display := r.startDynamoMCP(ctx, options, cfg)
 	r.attachMCP(session, handle, display)
 	session.release = sessionRelease(func() { r.registry.release(label) }, session.mcp)
 	return session, nil
@@ -73,13 +73,17 @@ func (r *Runner) prepareDynamoDB(ctx context.Context, options *Options) (*Sessio
 
 // startDynamoMCP serves the MCP server of a DynamoDB session and returns its display line ("not
 // started: …" on failure, which leaves the session without use but open, as for the other types).
-func (r *Runner) startDynamoMCP(options *Options, cfg awsConfig) (handle *mcpserve.Handle, display string) {
+func (r *Runner) startDynamoMCP(ctx context.Context, options *Options, cfg awsConfig) (handle *mcpserve.Handle, display string) {
 	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
+	awsCfg, err := r.sdkConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
+	}
 	handle, err = dynamomcpStart(r.mcpHost, &dynamomcp.SessionConfig{
-		AWS: r.awsRunner(cfg), ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+		AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
 		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
 		SkipRegistration: options.SkipMCPRegistration, AllowWrites: options.MCPAllowWrites,
 	})

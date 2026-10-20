@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 // ErrSignInRejected reports credentials the database refused: wrong password or unknown user.
@@ -30,8 +32,8 @@ func defaultDatabaseFor(engine Engine, dbName string) string {
 }
 
 // IAMTokenCredentials signs user in with AWS IAM tokens generated for rdsHost:rdsPort.
-func IAMTokenCredentials(aws AWSRunner, rdsHost string, rdsPort int, user, defaultDatabase string) CredentialProvider {
-	return newIAMTokenProvider(aws, rdsHost, rdsPort, user, defaultDatabase)
+func IAMTokenCredentials(cfg *aws.Config, rdsHost string, rdsPort int, user, defaultDatabase string) CredentialProvider {
+	return newIAMTokenProvider(cfg, rdsHost, rdsPort, user, defaultDatabase)
 }
 
 // PasswordCredentials signs user in with password.
@@ -40,8 +42,8 @@ func PasswordCredentials(user, password, defaultDatabase string) CredentialProvi
 }
 
 // SecretCredentials signs in with the password of secretID, as its username, else as user.
-func SecretCredentials(aws AWSRunner, secretID, user, defaultDatabase string) CredentialProvider {
-	return newSecretPasswordProvider(aws, secretID, user, defaultDatabase)
+func SecretCredentials(cfg *aws.Config, secretID, user, defaultDatabase string) CredentialProvider {
+	return newSecretPasswordProvider(cfg, secretID, user, defaultDatabase)
 }
 
 // CheckSignIn signs in through the tunnel on localhost:port with creds and runs SELECT 1 on the

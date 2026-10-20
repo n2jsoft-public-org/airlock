@@ -3,11 +3,13 @@ package jumphost
 import (
 	"context"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbuser"
 )
@@ -92,19 +94,20 @@ func TestGetJumphostIDNotFoundNamesTag(t *testing.T) {
 
 func TestSecretsSessionInfoWithoutTagOmitsReadOnlyHint(t *testing.T) {
 	info := strings.Join(rdsSecretsSessionInfo(11433, "arn:db", "arn:master", "admin", awstag.Tag{}, "--profile dev"), "\n")
-	if strings.Contains(info, "list-secrets") {
+	if strings.Contains(info, "Read-only credentials") {
 		t.Fatalf("no read-only hint expected without a tag:\n%s", info)
 	}
 	info = strings.Join(rdsSecretsSessionInfo(11433, "arn:db", "arn:master", "admin", awstag.Tag{Key: "AccessRole", Value: "ro-access"}, "--profile dev"), "\n")
-	if !strings.Contains(info, "Key=='AccessRole' && Value=='ro-access'") {
+	if !strings.Contains(info, "AccessRole=ro-access") || !strings.Contains(info, "DBInstanceArn=arn:db") {
 		t.Fatalf("read-only hint must use the configured tag:\n%s", info)
 	}
 }
 
 func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	target := ideTarget{Engine: "sqlserver-se", InstanceARN: "arn:db"}
-	handle, display := runner.startMCP(&Options{}, "mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
+	handle, display := runner.startMCP(context.Background(), &Options{}, "mssql-1", 11433, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
 	if handle != nil {
 		t.Fatal("no MCP server expected without a read-only secret tag")
 	}

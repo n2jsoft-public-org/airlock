@@ -3,6 +3,7 @@ package dbmcp
 import (
 	"errors"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
@@ -13,7 +14,8 @@ var ErrReadOnlySecretTagUnset = errors.New(`no read-only secret tag configured f
 
 // SessionConfig describes the tunneled RDS instance of one jumphost session.
 type SessionConfig struct {
-	AWS AWSRunner
+	// AWS is the SDK configuration of the session's profile and region.
+	AWS aws.Config
 	// OnPasswordRejected is called once when the database rejects DBPassword, e.g. to forget a
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
@@ -58,7 +60,7 @@ type Handle struct {
 	// creds is the provider of the server, switched by UseSecret; querier holds its pools.
 	creds   *switchableProvider
 	querier *sqlQuerier
-	aws     AWSRunner
+	aws     *aws.Config
 	// defaultDatabase is the database UseSecret signs in to when none is named.
 	defaultDatabase string
 }
@@ -93,7 +95,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	if err != nil {
 		return nil, err
 	}
-	handle.aws = cfg.AWS
+	handle.aws = &cfg.AWS
 	handle.defaultDatabase = defaultDatabaseFor(engine, cfg.DBName)
 	return handle, nil
 }
@@ -136,18 +138,18 @@ func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {
 	defaultDatabase := defaultDatabaseFor(engine, cfg.DBName)
 	switch {
 	case cfg.DBSecretARN != "":
-		return newSecretPasswordProvider(cfg.AWS, cfg.DBSecretARN, cfg.DBUser, defaultDatabase)
+		return newSecretPasswordProvider(&cfg.AWS, cfg.DBSecretARN, cfg.DBUser, defaultDatabase)
 	case cfg.DBPassword != "":
 		provider := newPasswordProvider(cfg.DBUser, cfg.DBPassword, defaultDatabase)
 		provider.onRejected = cfg.OnPasswordRejected
 		return provider
 	case engine == EngineSQLServer && cfg.AllowWrites:
-		return newMasterSecretProvider(cfg.AWS, cfg.Target, cfg.MasterSecretARN, "master")
+		return newMasterSecretProvider(&cfg.AWS, cfg.Target, cfg.MasterSecretARN, "master")
 	case engine == EngineSQLServer:
-		return newReadOnlySecretsProvider(cfg.AWS, cfg.Target, cfg.InstanceARN, cfg.ReadOnlySecretTag)
+		return newReadOnlySecretsProvider(&cfg.AWS, cfg.Target, cfg.InstanceARN, cfg.ReadOnlySecretTag)
 	case !cfg.IAMAuth:
 		return newIAMDisabledProvider(cfg.Target)
 	default:
-		return newIAMTokenProvider(cfg.AWS, cfg.RDSHost, cfg.RDSPort, cfg.DBUser, defaultDatabase)
+		return newIAMTokenProvider(&cfg.AWS, cfg.RDSHost, cfg.RDSPort, cfg.DBUser, defaultDatabase)
 	}
 }

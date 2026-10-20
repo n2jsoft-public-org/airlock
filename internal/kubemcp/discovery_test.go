@@ -54,7 +54,7 @@ func (c cancelOn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func TestDiscoveryCancelledMidwayNeitherTruncatesNorPoisonsTheCache(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d := &discovery{client: testClient(t, cancelOn{newFakeAPI(), cancel, "/apis/apps/v1"}, staticTokenAWS())}
+	d := &discovery{client: testClient(t, cancelOn{newFakeAPI(), cancel, "/apis/apps/v1"}, staticTokens())}
 
 	if types, err := d.all(ctx); err == nil {
 		t.Fatalf("cancelled discovery must fail, got %d types", len(types))

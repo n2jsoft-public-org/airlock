@@ -3,79 +3,84 @@ package mcpserve
 import (
 	"context"
 	"errors"
-	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 )
 
-var credentialsTime = time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
-
-// exportAWS answers aws configure export-credentials with new keys on each call, expiring at expires.
-func exportAWS(expires time.Time) (runner AWSRunner, calls *int) {
-	count := 0
-	return func(_ context.Context, args ...string) (string, error) {
-		if strings.Join(args, " ") != "configure export-credentials --format process" {
-			return "", fmt.Errorf("unexpected aws %v", args)
-		}
-		count++
-		return fmt.Sprintf(`{"Version":1,"AccessKeyId":"AKID%d","SecretAccessKey":"SECRET","SessionToken":"TOKEN","Expiration":%q}`,
-			count, expires.UTC().Format(time.RFC3339)), nil
-	}, &count
-}
-
-var _ aws.CredentialsProvider = (*ExportedCredentials)(nil)
-
-func TestExportedCredentialsAreCachedUntilShortlyBeforeExpiry(t *testing.T) {
-	now := credentialsTime
-	runner, calls := exportAWS(now.Add(time.Hour))
-	creds := NewExportedCredentials(runner)
-	creds.now = func() time.Time { return now }
-
-	first, err := creds.Retrieve(context.Background())
-	if err != nil || first.AccessKeyID != "AKID1" || !first.CanExpire {
-		t.Fatalf("first = %+v, %v", first, err)
-	}
-	if again, err := creds.Retrieve(context.Background()); err != nil || again.AccessKeyID != "AKID1" || *calls != 1 {
-		t.Fatalf("credentials not cached: %+v after %d calls (%v)", again, *calls, err)
-	}
-	now = now.Add(56 * time.Minute)
-	if renewed, err := creds.Retrieve(context.Background()); err != nil || renewed.AccessKeyID != "AKID2" {
-		t.Fatalf("credentials not renewed 4 minutes before expiry: %+v (%v)", renewed, err)
-	}
-}
-
-func TestExportedCredentialsRejectsEmptyOutput(t *testing.T) {
-	creds := NewExportedCredentials(func(context.Context, ...string) (string, error) { return `{}`, nil })
-	if _, err := creds.Retrieve(context.Background()); err == nil {
-		t.Fatal("expected an error without access key")
-	}
-}
-
-func TestExportedCredentialsWithAnUnreadableExpiryAreNotCached(t *testing.T) {
-	calls := 0
-	creds := NewExportedCredentials(func(context.Context, ...string) (string, error) {
-		calls++
-		return `{"Version":1,"AccessKeyId":"AKID","SecretAccessKey":"SECRET","Expiration":"in an hour"}`, nil
+func TestSignInCredentialsWrapsExpiredSSO(t *testing.T) {
+	expired := aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, &ssocreds.InvalidTokenError{}
 	})
-	for range 2 {
-		if got, err := creds.Retrieve(context.Background()); err != nil || got.AccessKeyID != "AKID" {
-			t.Fatalf("credentials = %+v, %v", got, err)
-		}
+	_, err := SignInCredentials(expired).Retrieve(context.Background())
+	if _, ok := errors.AsType[*CredentialsError](err); !ok {
+		t.Fatalf("err = %v, want a *CredentialsError", err)
 	}
-	if calls != 2 {
-		t.Fatalf("aws called %d times, want credentials read again (expiry unknown)", calls)
+	if got := AWSError(err).Error(); !strings.HasPrefix(got, "failed to read the AWS credentials of the profile (sign in again from airlock)") {
+		t.Fatalf("AWSError = %q", got)
 	}
 }
 
-func TestExportedCredentialsFailureTellsToSignInAgain(t *testing.T) {
-	creds := NewExportedCredentials(func(context.Context, ...string) (string, error) {
-		return "", errors.New("the SSO session has expired")
+func TestSignInCredentialsPassesCredentials(t *testing.T) {
+	inner := credentials.NewStaticCredentialsProvider("AKID", "SECRET", "TOKEN")
+	got, err := SignInCredentials(inner).Retrieve(context.Background())
+	if err != nil || got.AccessKeyID != "AKID" || got.SecretAccessKey != "SECRET" || got.SessionToken != "TOKEN" {
+		t.Fatalf("credentials = %+v, %v", got, err)
+	}
+}
+
+func TestSignInCredentialsHidesSDKChainOfExpiredSSOSession(t *testing.T) {
+	awsapitest.Env(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		if _, err := w.Write([]byte(`{"error":"invalid_grant","error_description":"Invalid refresh token provided"}`)); err != nil {
+			t.Error(err)
+		}
 	})
-	_, err := creds.Retrieve(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "sign in again from airlock") || !strings.Contains(err.Error(), "SSO session has expired") {
-		t.Fatalf("err = %v", err)
+	conf := "[profile sso]\nregion = eu-west-3\nsso_session = acme\nsso_account_id = 111111111111\nsso_role_name = Dev\n\n" +
+		"[sso-session acme]\nsso_start_url = https://acme.awsapps.com/start\nsso_region = eu-west-3\n"
+	// #nosec G703 -- a temp file of the test.
+	if err := os.WriteFile(os.Getenv("AWS_CONFIG_FILE"), []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tokenPath, err := ssocreds.StandardCachedTokenFilepath("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := `{"accessToken":"old","expiresAt":"2000-01-01T00:00:00Z","refreshToken":"r","clientId":"c","clientSecret":"s","registrationExpiresAt":"2999-01-01T00:00:00Z"}`
+	if err = os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// #nosec G703 -- a temp file of the test.
+	if err = os.WriteFile(tokenPath, []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithSharedConfigProfile("sso"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Credentials = SignInCredentials(cfg.Credentials)
+	_, err = sts.NewFromConfig(cfg).GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{})
+	if _, ok := errors.AsType[*CredentialsError](err); !ok {
+		t.Fatalf("err = %v, want a *CredentialsError", err)
+	}
+	got := AWSError(err).Error()
+	for _, leak := range []string{"operation error", "https response error"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("message leaks the SDK chain: %q", got)
+		}
+	}
+	if !strings.Contains(got, "sign in again") {
+		t.Fatalf("message = %q, want the sign-in hint", got)
 	}
 }

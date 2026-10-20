@@ -988,6 +988,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"jumphost.modules.disabled":                           "le module %s est désactivé (modules.%[1]s.enabled dans config.json) : les cibles %[2]s ne peuvent pas être ouvertes",
 	"jumphost.runner.failed_to_serialize_ssm":             "échec de la sérialisation des paramètres SSM : %w",
 	"jumphost.runner.invalid_local_port":                  "port local invalide %q : %w",
+	"jumphost.runner.aws_config":                          "échec du chargement de la configuration AWS du profil : %w",
 	"jumphost.runner.failed_to_parse_rds":                 "échec de la lecture des instances RDS : %w",
 	"jumphost.runner.failed_to_parse_eks":                 "échec de la lecture des clusters EKS : %w",
 	"jumphost.runner.unsupported_resource_type":           "type de ressource non pris en charge %q",

@@ -52,7 +52,11 @@ func (r *Runner) resolveCacheSignIn(ctx context.Context, cfg awsConfig, options 
 	user := strings.TrimSpace(options.DBUser)
 	switch secretID := strings.TrimSpace(options.DBSecretARN); {
 	case secretID != "":
-		secret, err := dbmcp.ReadPasswordSecret(ctx, r.awsRunner(cfg), secretID)
+		awsCfg, err := r.sdkConfig(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		secret, err := dbmcp.ReadPasswordSecret(ctx, &awsCfg, secretID)
 		if err != nil {
 			return i18n.NewError("jumphost.cache.failed_to_read_secret", secretID, err)
 		}
@@ -218,15 +222,18 @@ var checkCacheSignIn = cachemcp.CheckSignIn
 var errCacheSignInRequired = errors.New("this cache requires a sign-in: pass --db-user (AWS IAM) or --db-secret, or pick one in the wizard")
 
 // cacheCredentials is how airlock signs in to the cache of target; nil for caches without auth.
-func (r *Runner) cacheCredentials(cacheName string, target *ideTarget, cfg awsConfig) (cachemcp.CredentialProvider, error) {
-	aws := r.awsRunner(cfg)
+func (r *Runner) cacheCredentials(ctx context.Context, cacheName string, target *ideTarget, cfg awsConfig) (cachemcp.CredentialProvider, error) {
 	switch {
 	case target.CacheAuth == CacheAuthNone || target.CacheAuth == "":
 		return nil, nil
 	case target.DBSecretARN != "":
 		secretID, fallbackUser := target.DBSecretARN, target.DBUser
+		awsCfg, err := r.sdkConfig(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
 		return cachemcp.SecretCredentials(func(ctx context.Context) (string, string, error) {
-			secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
+			secret, err := dbmcp.ReadPasswordSecret(ctx, &awsCfg, secretID)
 			if err != nil {
 				return "", "", err
 			}
@@ -242,7 +249,11 @@ func (r *Runner) cacheCredentials(cacheName string, target *ideTarget, cfg awsCo
 		if target.CacheReplicationGroup != "" {
 			cacheName = target.CacheReplicationGroup
 		}
-		return cachemcp.IAMCredentials(aws, cacheName, target.DBUser, cfg.Region, target.CacheServerless), nil
+		awsCfg, err := r.sdkConfig(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return cachemcp.IAMCredentials(&awsCfg, cacheName, target.DBUser, target.CacheServerless), nil
 	default:
 		return nil, errCacheSignInRequired
 	}
@@ -259,11 +270,11 @@ func cacheSignInApplies(target *ideTarget) bool {
 
 // startCacheMCP serves the MCP server of a cache session and returns its display line: empty for
 // engines without server, "not started: …" on failure or without sign-in.
-func (r *Runner) startCacheMCP(options *Options, cacheName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *cachemcp.Handle, display string) {
+func (r *Runner) startCacheMCP(ctx context.Context, options *Options, cacheName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *cachemcp.Handle, display string) {
 	if !CacheEngineSupported(target.Engine) {
 		return nil, ""
 	}
-	creds, err := r.cacheCredentials(cacheName, target, cfg)
+	creds, err := r.cacheCredentials(ctx, cacheName, target, cfg)
 	if err != nil {
 		return nil, "not started: " + err.Error()
 	}

@@ -988,6 +988,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"jumphost.modules.disabled":                           "the %s module is disabled (modules.%[1]s.enabled in config.json): %[2]s targets cannot be opened",
 	"jumphost.runner.failed_to_serialize_ssm":             "failed to serialize SSM parameters: %w",
 	"jumphost.runner.invalid_local_port":                  "invalid local port %q: %w",
+	"jumphost.runner.aws_config":                          "failed to load the AWS configuration of the profile: %w",
 	"jumphost.runner.failed_to_parse_rds":                 "failed to parse RDS instances: %w",
 	"jumphost.runner.failed_to_parse_eks":                 "failed to parse EKS clusters: %w",
 	"jumphost.runner.unsupported_resource_type":           "unsupported resource type %q",

@@ -3,11 +3,13 @@ package cachemcp
 import (
 	"context"
 	"errors"
-	"fmt"
+	"net/http"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/n2jsoft/airlock/internal/awsapi"
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
@@ -44,27 +46,26 @@ func TestSecretCredentialsReadOnceAndRetryFailures(t *testing.T) {
 	}
 }
 
-// exportAWS prints credentials expiring at expires and counts the calls.
-func exportAWS(expires time.Time) (runner mcpserve.AWSRunner, calls *int) {
-	count := 0
-	return func(_ context.Context, args ...string) (string, error) {
-		if strings.Join(args, " ") != "configure export-credentials --format process" {
-			return "", fmt.Errorf("unexpected aws %v", args)
-		}
-		count++
-		return fmt.Sprintf(`{"Version":1,"AccessKeyId":"AKID%d","SecretAccessKey":"SECRET","SessionToken":"TOKEN","Expiration":%q}`,
-			count, expires.UTC().Format(time.RFC3339)), nil
-	}, &count
-}
-
 func TestIAMCredentialsSignAFreshTokenPerConnection(t *testing.T) {
-	runner, calls := exportAWS(time.Now().Add(time.Hour))
-	provider := IAMCredentials(runner, "my-cache", "app-iam", "eu-west-3", false)
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
+	cfg, err := awsapi.NewConfigs().Get(t.Context(), "dev", "eu-west-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := IAMCredentials(&cfg, "my-cache", "app-iam", false)
 	user, token, err := provider(context.Background())
-	if err != nil || user != "app-iam" || !strings.HasPrefix(token, "my-cache/?Action=connect&User=app-iam&") {
+	if err != nil || user != "app-iam" || !strings.HasPrefix(token, "my-cache/?Action=connect&User=app-iam&") ||
+		!strings.Contains(token, "AKIDTEST") || !strings.Contains(token, "eu-west-3") {
 		t.Fatalf("= %q %q %v", user, token, err)
 	}
-	if _, _, err := provider(context.Background()); err != nil || *calls != 1 {
-		t.Fatalf("credentials exported %d times, want 1 (%v)", *calls, err)
+}
+
+func TestIAMCredentialsTellToSignInAgain(t *testing.T) {
+	cfg := aws.Config{Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, errors.New("the SSO session has expired")
+	})}
+	_, _, err := IAMCredentials(&cfg, "my-cache", "app-iam", false)(context.Background())
+	if _, ok := errors.AsType[*mcpserve.CredentialsError](err); !ok {
+		t.Fatalf("err = %v, want a *mcpserve.CredentialsError", err)
 	}
 }

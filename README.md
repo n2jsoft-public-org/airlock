@@ -633,7 +633,7 @@ Lists and logs are cut at 256 KiB, with a `truncated` flag. `list_events` sorts 
 events the API returns (it does not sort them); on busier clusters its reply carries a `note`
 saying so: narrow with a namespace, kind or name.
 
-The server signs in with `aws eks get-token`, as your IAM identity: what it can read is what the
+The server signs in with an EKS token presigned by the AWS SDK, as your IAM identity: what it can read is what the
 cluster's RBAC grants you (EKS access entry or `aws-auth`). **Secret values are never returned**:
 names, types and keys are, every value reads `<redacted>`. `--mcp-allow-writes` does not apply.
 

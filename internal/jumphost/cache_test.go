@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 )
 
@@ -48,7 +50,6 @@ func installCacheAWS(t *testing.T, group string) {
 		"*describe-replication-groups*) echo '" + group + "' ;;\n" +
 		"*describe-user-groups*) echo '" + cacheUserGroups + "' ;;\n" +
 		"*describe-users*) echo '" + cacheUsers + "' ;;\n" +
-		"*get-secret-value*) echo 'plain-auth-token' ;;\n" +
 		"esac\n"
 	// #nosec G306 -- the fake aws must be executable.
 	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
@@ -143,6 +144,7 @@ func TestPrepareCacheRefusesIAMWithoutUserGroup(t *testing.T) {
 
 func TestPrepareCacheWithSecretDefaultsToTheDefaultUser(t *testing.T) {
 	installCacheAWS(t, groupToken)
+	installSecretsManager(t, map[string]string{"arn:aws:secretsmanager:eu-west-3:1:secret:cache-token": "plain-auth-token"})
 	session, err := prepareCache(t, &Options{DBSecretARN: "arn:aws:secretsmanager:eu-west-3:1:secret:cache-token", SkipMCP: true})
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +211,7 @@ func TestPrepareMemcachedHasNoMCPServer(t *testing.T) {
 }
 
 func TestCacheSessionSignInCheckMapsRejection(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installCacheAWS(t, groupRBAC)
 	session, err := prepareCache(t, &Options{DBUser: "app-iam", SkipMCP: true})
 	if err != nil {
@@ -281,7 +284,6 @@ func installCacheNodeAWS(t *testing.T) {
 		"*describe-replication-groups*sessions-0001-001*) echo 'Replication group not found' >&2; exit 254 ;;\n" +
 		"*describe-replication-groups*--replication-group-id\\ sessions\\ *) echo '" + groupRBAC + "' ;;\n" +
 		"*describe-cache-clusters*) echo '" + cacheNode + "' ;;\n" +
-		"*export-credentials*) echo '{\"Version\":1,\"AccessKeyId\":\"AKID\",\"SecretAccessKey\":\"SECRET\"}' ;;\n" +
 		"esac\n"
 	// #nosec G306 -- the fake aws must be executable.
 	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
@@ -291,6 +293,7 @@ func installCacheNodeAWS(t *testing.T) {
 }
 
 func TestPrepareCacheNodeOfAReplicationGroupUsesItsUserGroups(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installCacheNodeAWS(t)
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir()})
 	session, err := runner.Prepare(context.Background(), Options{

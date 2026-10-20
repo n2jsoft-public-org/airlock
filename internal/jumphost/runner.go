@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/n2jsoft/airlock/internal/awsapi"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dbuser"
@@ -246,6 +248,8 @@ type Runner struct {
 	err      io.Writer
 	registry *SessionRegistry
 	mcpHost  *mcpserve.Host
+	// configs hands out the SDK configuration of each profile and region.
+	configs *awsapi.Configs
 	// prefs is nil when connection preferences are not remembered.
 	prefs *PrefsStore
 	// keychain is nil when passwords cannot be remembered; keychainOK caches its availability.
@@ -375,7 +379,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		jumphostTag = awstag.Tag{Key: defaultJumphostTagKey, Value: defaultJumphostTagValue}
 	}
 	runner := &Runner{
-		in: in, out: out, err: err, registry: registry, mcpHost: mcpHost,
+		in: in, out: out, err: err, registry: registry, mcpHost: mcpHost, configs: awsapi.NewConfigs(),
 		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: opts.DefaultDBUser,
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
@@ -533,8 +537,14 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	if session.LocalPort, err = strconv.Atoi(localPort); err != nil {
 		return nil, i18n.NewError("jumphost.runner.invalid_local_port", localPort, err)
 	}
+	var awsCfg *aws.Config // RDS only
 	if resourceType == resourceRDS {
-		session.ReadCredentials = r.secretCredentialsReader(r.awsRunner(cfg), resolvedTargetName, &target)
+		c, err := r.sdkConfig(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		awsCfg = &c
+		session.ReadCredentials = r.secretCredentialsReader(awsCfg, resolvedTargetName, &target)
 		if session.Details.Auth == "" && session.ReadCredentials != nil {
 			session.Details.Auth = "Secrets Manager · read-only secrets " + r.readOnlySecretTag.String()
 		}
@@ -557,15 +567,15 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		}
 	}
 	if resourceType == resourceEKS && !options.SkipMCP {
-		handle, display := r.startKubeMCP(&options, resolvedTargetName, host, target.ClusterCA, session.LocalPort, cfg)
+		handle, display := r.startKubeMCP(ctx, &options, resolvedTargetName, host, target.ClusterCA, session.LocalPort, cfg)
 		r.attachMCP(session, handle, display)
 	}
 	if resourceType == resourceRDS && !options.SkipMCP {
-		handle, display := r.startMCP(&options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		handle, display := r.startMCP(ctx, &options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	if resourceType == resourceElastiCache && !options.SkipMCP {
-		handle, display := r.startCacheMCP(&options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		handle, display := r.startCacheMCP(ctx, &options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	if (resourceType == resourceRDS && signInApplies(&target, options.MCPAllowWrites)) ||
@@ -573,7 +583,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		signIn := &sessionSignIn{
 			runner: r, session: session, cfg: cfg, target: target,
 			resourceType: resourceType, instance: resolvedTargetName, localPort: localPort,
-			aws: r.awsRunner(cfg),
+			awsCfg: awsCfg,
 		}
 		if session.Details.IDEDataSource != "" {
 			signIn.updateIDE = func(user string) {
@@ -1368,10 +1378,11 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 	}
 	var secretUser string
 	if secretID != "" {
-		aws := func(ctx context.Context, args ...string) (string, error) {
-			return r.runAWSCapture(ctx, cfg.Args, args...)
+		awsCfg, cfgErr := r.sdkConfig(ctx, cfg)
+		if cfgErr != nil {
+			return preparedTarget{}, cfgErr
 		}
-		if secretUser, err = resolveSecretSignIn(ctx, aws, secretID, options.DBUser); err != nil {
+		if secretUser, err = resolveSecretSignIn(ctx, &awsCfg, secretID, options.DBUser); err != nil {
 			return preparedTarget{}, err
 		}
 	}
@@ -1477,9 +1488,8 @@ func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUs
 	if !readOnlyTag.IsZero() {
 		info = append(info,
 			"",
-			"Read-only credentials, one secret per database:",
-			fmt.Sprintf("  aws secretsmanager list-secrets --filters Key=tag-key,Values=DBInstanceArn Key=tag-value,Values=%s --query %q --output text %s",
-				instanceARN, dbmcp.ReadOnlySecretsQuery(readOnlyTag, instanceARN), awsArgsHint),
+			"Read-only credentials, one secret per database: the secrets tagged both",
+			fmt.Sprintf("  %s=%s and DBInstanceArn=%s", readOnlyTag.Key, readOnlyTag.Value, instanceARN),
 			"  aws secretsmanager get-secret-value --secret-id <arn> --query SecretString --output text "+awsArgsHint,
 		)
 	}
@@ -1907,15 +1917,28 @@ func (r *Runner) projectDirFor(options *Options) (string, error) {
 // kubemcpStart starts an EKS session's MCP server; a package variable so tests can force a failure.
 var kubemcpStart = kubemcp.Start
 
+// sdkConfig is r.configs.Get with a translated error.
+func (r *Runner) sdkConfig(ctx context.Context, cfg awsConfig) (aws.Config, error) {
+	c, err := r.configs.Get(ctx, cfg.Profile, cfg.Region)
+	if err != nil {
+		return aws.Config{}, i18n.NewError("jumphost.runner.aws_config", err)
+	}
+	return c, nil
+}
+
 // startKubeMCP serves the read-only MCP server of an EKS session and returns its display line:
 // empty when no server applies (no certificate authority), "not started: …" on failure.
-func (r *Runner) startKubeMCP(options *Options, clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (handle *mcpserve.Handle, display string) {
+func (r *Runner) startKubeMCP(ctx context.Context, options *Options, clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (handle *mcpserve.Handle, display string) {
 	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
+	awsCfg, err := r.sdkConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
+	}
 	handle, err = kubemcpStart(r.mcpHost, &kubemcp.SessionConfig{
-		AWS: r.awsRunner(cfg), ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+		AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
 		Target: clusterName, EndpointHost: endpointHost, ClusterCA: caData, LocalPort: localPort,
 		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
 		SkipRegistration: options.SkipMCPRegistration,
@@ -1937,15 +1960,17 @@ var dbmcpStart = dbmcp.Start
 // it (empty when the engine is unsupported, so the session shows no MCP line at all). A failure
 // to start is reported through the returned display rather than r.err, which is discarded in TUI
 // mode.
-func (r *Runner) startMCP(options *Options, targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
+func (r *Runner) startMCP(ctx context.Context, options *Options, targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
 	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
+	awsCfg, err := r.sdkConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
+	}
 	handle, err = dbmcpStart(r.mcpHost, &dbmcp.SessionConfig{
-		AWS: func(ctx context.Context, args ...string) (string, error) {
-			return r.runAWSCapture(ctx, cfg.Args, args...)
-		},
+		AWS:                awsCfg,
 		ProjectDir:         projectDir,
 		Profile:            cfg.Profile,
 		Region:             cfg.Region,
@@ -2288,14 +2313,6 @@ func (r *Runner) selectName(title string, names []string, prompt string) (string
 		return "", i18n.NewError("jumphost.runner.failed_to_read_input", err)
 	}
 	return strings.TrimSpace(line), nil
-}
-
-// awsRunner runs AWS CLI commands with the profile and region of cfg.
-func (r *Runner) awsRunner(cfg awsConfig) dbmcp.AWSRunner {
-	args := append([]string{}, cfg.Args...)
-	return func(ctx context.Context, commandArgs ...string) (string, error) {
-		return r.runAWSCapture(ctx, args, commandArgs...)
-	}
 }
 
 func (r *Runner) runAWSCapture(ctx context.Context, awsArgs []string, commandArgs ...string) (string, error) {

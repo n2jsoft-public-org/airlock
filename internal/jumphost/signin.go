@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/i18n"
@@ -52,7 +53,7 @@ var checkSignIn = dbmcp.CheckSignIn
 type sessionSignIn struct {
 	runner  *Runner
 	session *Session
-	aws     dbmcp.AWSRunner
+	awsCfg  *aws.Config // nil for cache sessions: only the RDS paths read it
 	// updateIDE registers the IDE data source again for another user; nil without data source.
 	updateIDE    func(user string)
 	resourceType string
@@ -86,7 +87,7 @@ func (s *sessionSignIn) Candidates(ctx context.Context) ([]SignInCandidate, erro
 	if tag.IsZero() {
 		return nil, i18n.NewError("jumphost.signin.no_read_only_secret")
 	}
-	secrets, err := dbmcp.ReadReadOnlySecrets(ctx, s.aws, s.instance, target.InstanceARN, tag)
+	secrets, err := dbmcp.ReadReadOnlySecrets(ctx, s.awsCfg, s.instance, target.InstanceARN, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -115,9 +116,9 @@ func (s *sessionSignIn) Check(ctx context.Context, c SignInCandidate) error {
 	var creds dbmcp.CredentialProvider
 	switch {
 	case c.SecretARN != "":
-		creds = dbmcp.SecretCredentials(s.aws, c.SecretARN, c.User, database)
+		creds = dbmcp.SecretCredentials(s.awsCfg, c.SecretARN, c.User, database)
 	case target.IAMAuth:
-		creds = dbmcp.IAMTokenCredentials(s.aws, target.RDSHost, target.RDSPort, c.User, database)
+		creds = dbmcp.IAMTokenCredentials(s.awsCfg, target.RDSHost, target.RDSPort, c.User, database)
 	default:
 		creds = dbmcp.PasswordCredentials(c.User, target.DBPassword, database)
 	}
@@ -130,7 +131,7 @@ func (s *sessionSignIn) checkCache(ctx context.Context, c SignInCandidate, port 
 	if c.SecretARN != "" {
 		target.DBSecretARN, target.DBUser = c.SecretARN, c.User
 	}
-	creds, err := s.runner.cacheCredentials(s.instance, &target, s.cfg)
+	creds, err := s.runner.cacheCredentials(ctx, s.instance, &target, s.cfg)
 	if err != nil {
 		return err
 	}
@@ -161,7 +162,7 @@ func (s *sessionSignIn) Use(c SignInCandidate, options *Options) {
 	session := s.session
 	session.Details.Auth = describeAuth(&s.target)
 	session.Details.RestartCommand = buildRestartCommand(s.resourceType, s.instance, s.localPort, restartDBUser(&s.target), restartDBSecret(&s.target), s.cfg)
-	session.ReadCredentials = s.runner.secretCredentialsReader(s.aws, s.instance, &s.target)
+	session.ReadCredentials = s.runner.secretCredentialsReader(s.awsCfg, s.instance, &s.target)
 	// No *cachemcp.Handle case: a cache session's only candidate is its current sign-in, so Use returned above.
 	if handle, ok := session.mcp.(*dbmcp.Handle); ok {
 		_ = handle.UseSecret(c.SecretARN, c.User) //nolint:errcheck // closing the former connections may fail; the next queries open new ones

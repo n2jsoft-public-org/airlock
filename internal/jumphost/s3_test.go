@@ -1,11 +1,13 @@
 package jumphost
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/s3mcp"
 )
@@ -36,6 +38,7 @@ func TestS3ListsOneTargetForTheProfile(t *testing.T) {
 }
 
 func TestPrepareS3RunsNoTunnelAndStartsTheServer(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installS3AWS(t, true)
 	var started *s3mcp.SessionConfig
 	s3mcpStart = func(_ *mcpserve.Host, cfg *s3mcp.SessionConfig) (*mcpserve.Handle, error) {
@@ -53,7 +56,7 @@ func TestPrepareS3RunsNoTunnelAndStartsTheServer(t *testing.T) {
 		session.Details.ConnectedServer != "s3.eu-west-3.amazonaws.com" {
 		t.Fatalf("session = %+v", session)
 	}
-	if started == nil || started.Region != "eu-west-3" || started.Profile != "dev" || !started.AllowWrites || started.AWS == nil {
+	if started == nil || started.Region != "eu-west-3" || started.Profile != "dev" || !started.AllowWrites || started.AWS.Credentials == nil {
 		t.Fatalf("mcp = %+v", started)
 	}
 }

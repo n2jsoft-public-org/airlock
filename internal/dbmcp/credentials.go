@@ -5,12 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
@@ -18,8 +23,13 @@ import (
 // iamTokenMaxAge is how long an RDS IAM token is reused; AWS accepts it for 15 minutes.
 const iamTokenMaxAge = 10 * time.Minute
 
-// AWSRunner runs an AWS CLI command (profile and region already applied) and returns its stdout.
-type AWSRunner = mcpserve.AWSRunner
+// secretsClient reads Secrets Manager with the session's configuration; an expired sign-in comes
+// back as a "sign in again" error.
+func secretsClient(cfg *aws.Config) *secretsmanager.Client {
+	return secretsmanager.NewFromConfig(*cfg, func(o *secretsmanager.Options) {
+		o.Credentials = mcpserve.SignInCredentials(cfg.Credentials)
+	})
+}
 
 // Credentials authenticate one database connection.
 type Credentials struct {
@@ -40,7 +50,7 @@ type CredentialProvider interface {
 // iamTokenProvider signs in as an RDS IAM user with short-lived auth tokens.
 type iamTokenProvider struct {
 	issued          time.Time
-	aws             AWSRunner
+	cfg             *aws.Config
 	now             func() time.Time
 	rdsHost         string
 	user            string
@@ -50,8 +60,8 @@ type iamTokenProvider struct {
 	mu              sync.Mutex
 }
 
-func newIAMTokenProvider(aws AWSRunner, rdsHost string, rdsPort int, user, defaultDatabase string) *iamTokenProvider {
-	return &iamTokenProvider{aws: aws, now: time.Now, rdsHost: rdsHost, rdsPort: rdsPort, user: user, defaultDatabase: defaultDatabase}
+func newIAMTokenProvider(cfg *aws.Config, rdsHost string, rdsPort int, user, defaultDatabase string) *iamTokenProvider {
+	return &iamTokenProvider{cfg: cfg, now: time.Now, rdsHost: rdsHost, rdsPort: rdsPort, user: user, defaultDatabase: defaultDatabase}
 }
 
 func (p *iamTokenProvider) Credentials(ctx context.Context, database string) (Credentials, error) {
@@ -62,15 +72,11 @@ func (p *iamTokenProvider) Credentials(ctx context.Context, database string) (Cr
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.token == "" || p.now().Sub(p.issued) >= iamTokenMaxAge {
-		token, err := p.aws(ctx, "rds", "generate-db-auth-token",
-			"--hostname", p.rdsHost,
-			"--port", strconv.Itoa(p.rdsPort),
-			"--username", p.user,
-		)
+		token, err := auth.BuildAuthToken(ctx, p.rdsHost+":"+strconv.Itoa(p.rdsPort), p.cfg.Region, p.user, mcpserve.SignInCredentials(p.cfg.Credentials))
 		if err != nil {
-			return Credentials{}, fmt.Errorf("failed to generate an IAM auth token for %s: %w", p.user, err)
+			return Credentials{}, fmt.Errorf("failed to generate an IAM auth token for %s: %w", p.user, mcpserve.AWSError(err))
 		}
-		p.token, p.issued = strings.TrimSpace(token), p.now()
+		p.token, p.issued = token, p.now()
 	}
 	return Credentials{User: p.user, Password: p.token, Database: database}, nil
 }
@@ -121,7 +127,7 @@ func (p *passwordProvider) rejected() {
 // user: the secret's username, else the typed user. The secret is read once, and again after the
 // database rejects it (it may have been rotated).
 type secretPasswordProvider struct {
-	aws             AWSRunner
+	cfg             *aws.Config
 	creds           *Credentials
 	secretID        string
 	user            string
@@ -129,8 +135,8 @@ type secretPasswordProvider struct {
 	mu              sync.Mutex
 }
 
-func newSecretPasswordProvider(aws AWSRunner, secretID, user, defaultDatabase string) *secretPasswordProvider {
-	return &secretPasswordProvider{aws: aws, secretID: secretID, user: strings.TrimSpace(user), defaultDatabase: defaultDatabase}
+func newSecretPasswordProvider(cfg *aws.Config, secretID, user, defaultDatabase string) *secretPasswordProvider {
+	return &secretPasswordProvider{cfg: cfg, secretID: secretID, user: strings.TrimSpace(user), defaultDatabase: defaultDatabase}
 }
 
 func (p *secretPasswordProvider) Credentials(ctx context.Context, database string) (Credentials, error) {
@@ -141,7 +147,7 @@ func (p *secretPasswordProvider) Credentials(ctx context.Context, database strin
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.creds == nil {
-		secret, err := ReadPasswordSecret(ctx, p.aws, p.secretID)
+		secret, err := ReadPasswordSecret(ctx, p.cfg, p.secretID)
 		if err != nil {
 			return Credentials{}, fmt.Errorf("password secret %s is not readable (needs secretsmanager:GetSecretValue, and kms:Decrypt for a customer-managed key): %w", p.secretID, err)
 		}
@@ -200,17 +206,23 @@ type secretPayload struct {
 	Database string `json:"database"`
 }
 
-func readSecret(ctx context.Context, aws AWSRunner, secretID string) (secretPayload, error) {
-	raw, err := aws(ctx, "secretsmanager", "get-secret-value",
-		"--secret-id", secretID,
-		"--query", "SecretString",
-		"--output", "text",
-	)
+// secretString returns the SecretString of secretID, trimmed as the AWS CLI did (a secret made
+// from a file ends with a newline); "" for a binary secret.
+func secretString(ctx context.Context, cfg *aws.Config, secretID string) (string, error) {
+	out, err := secretsClient(cfg).GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretID)})
+	if err != nil {
+		return "", mcpserve.AWSError(err)
+	}
+	return strings.TrimSpace(aws.ToString(out.SecretString)), nil
+}
+
+func readSecret(ctx context.Context, cfg *aws.Config, secretID string) (secretPayload, error) {
+	raw, err := secretString(ctx, cfg, secretID)
 	if err != nil {
 		return secretPayload{}, err
 	}
 	var payload secretPayload
-	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload) != nil {
+	if json.Unmarshal([]byte(raw), &payload) != nil {
 		// The cause is dropped: a JSON syntax error quotes a character of the secret.
 		return secretPayload{}, fmt.Errorf("secret %s is not a JSON credential", secretID)
 	}
@@ -227,18 +239,12 @@ type PasswordSecret struct {
 	Password string
 }
 
-// ReadPasswordSecret reads secretID as a PasswordSecret. Plain text is the whole secret string
-// (the AWS CLI output is trimmed, so leading and trailing spaces are lost).
-func ReadPasswordSecret(ctx context.Context, aws AWSRunner, secretID string) (PasswordSecret, error) {
-	raw, err := aws(ctx, "secretsmanager", "get-secret-value",
-		"--secret-id", secretID,
-		"--query", "SecretString",
-		"--output", "text",
-	)
+// ReadPasswordSecret reads secretID as a PasswordSecret. Plain text is the whole secret string, trimmed.
+func ReadPasswordSecret(ctx context.Context, cfg *aws.Config, secretID string) (PasswordSecret, error) {
+	raw, err := secretString(ctx, cfg, secretID)
 	if err != nil {
 		return PasswordSecret{}, err
 	}
-	raw = strings.TrimSpace(raw)
 	if !strings.HasPrefix(raw, "{") {
 		if raw == "" {
 			return PasswordSecret{}, fmt.Errorf("secret %s is empty", secretID)
@@ -259,7 +265,7 @@ func ReadPasswordSecret(ctx context.Context, aws AWSRunner, secretID string) (Pa
 // readOnlySecretsProvider uses the read-only secrets published for an instance, one per database,
 // found by their tag.
 type readOnlySecretsProvider struct {
-	aws         AWSRunner
+	cfg         *aws.Config
 	byDatabase  map[string]Credentials
 	instanceARN string
 	instance    string
@@ -268,13 +274,23 @@ type readOnlySecretsProvider struct {
 	mu          sync.Mutex
 }
 
-func newReadOnlySecretsProvider(aws AWSRunner, instance, instanceARN string, tag awstag.Tag) *readOnlySecretsProvider {
-	return &readOnlySecretsProvider{aws: aws, instance: instance, instanceARN: instanceARN, tag: tag}
+func newReadOnlySecretsProvider(cfg *aws.Config, instance, instanceARN string, tag awstag.Tag) *readOnlySecretsProvider {
+	return &readOnlySecretsProvider{cfg: cfg, instance: instance, instanceARN: instanceARN, tag: tag}
 }
 
-// ReadOnlySecretsQuery keeps the secrets of this instance carrying tag.
-func ReadOnlySecretsQuery(tag awstag.Tag, instanceARN string) string {
-	return fmt.Sprintf("SecretList[?Tags[?Key=='%s' && Value=='%s'] && Tags[?Key=='DBInstanceArn' && Value=='%s']].ARN", tag.Key, tag.Value, instanceARN)
+// readOnlySecretARNs keeps the ARNs of the secrets of this instance carrying tag.
+func readOnlySecretARNs(secrets []types.SecretListEntry, tag awstag.Tag, instanceARN string) []string {
+	var arns []string
+	for i := range secrets {
+		secret := &secrets[i]
+		hasTag := func(key, value string) bool {
+			return slices.ContainsFunc(secret.Tags, func(t types.Tag) bool { return aws.ToString(t.Key) == key && aws.ToString(t.Value) == value })
+		}
+		if hasTag(tag.Key, tag.Value) && hasTag("DBInstanceArn", instanceARN) {
+			arns = append(arns, aws.ToString(secret.ARN))
+		}
+	}
+	return arns
 }
 
 // load discovers and reads the secrets once; failures are not cached so a later call can retry.
@@ -282,7 +298,7 @@ func (p *readOnlySecretsProvider) load(ctx context.Context) error {
 	if p.byDatabase != nil {
 		return nil
 	}
-	arns, err := listReadOnlySecrets(ctx, p.aws, p.instance, p.instanceARN, p.tag)
+	arns, err := listReadOnlySecrets(ctx, p.cfg, p.instance, p.instanceARN, p.tag)
 	if err != nil {
 		return err
 	}
@@ -290,7 +306,7 @@ func (p *readOnlySecretsProvider) load(ctx context.Context) error {
 	byDatabase := map[string]Credentials{}
 	var warnings []string
 	for _, arn := range arns {
-		payload, err := readSecret(ctx, p.aws, arn)
+		payload, err := readSecret(ctx, p.cfg, arn)
 		if err != nil {
 			warnings = append(warnings, err.Error())
 			continue
@@ -355,21 +371,23 @@ func (p *readOnlySecretsProvider) refresh() {
 }
 
 // listReadOnlySecrets returns the ARNs of the read-only secrets of instance carrying tag.
-func listReadOnlySecrets(ctx context.Context, aws AWSRunner, instance, instanceARN string, tag awstag.Tag) ([]string, error) {
+func listReadOnlySecrets(ctx context.Context, cfg *aws.Config, instance, instanceARN string, tag awstag.Tag) ([]string, error) {
 	if instanceARN == "" {
 		return nil, fmt.Errorf("instance ARN of %s is unknown: cannot look up its read-only secrets", instance)
 	}
-	raw, err := aws(ctx, "secretsmanager", "list-secrets",
-		"--filters", "Key=tag-key,Values=DBInstanceArn", "Key=tag-value,Values="+instanceARN,
-		"--query", ReadOnlySecretsQuery(tag, instanceARN),
-		"--output", "json",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list read-only secrets of %s (missing secretsmanager:ListSecrets?): %w", instance, err)
-	}
+	pages := secretsmanager.NewListSecretsPaginator(secretsClient(cfg), &secretsmanager.ListSecretsInput{
+		Filters: []types.Filter{
+			{Key: types.FilterNameStringTypeTagKey, Values: []string{"DBInstanceArn"}},
+			{Key: types.FilterNameStringTypeTagValue, Values: []string{instanceARN}},
+		},
+	})
 	var arns []string
-	if err := json.Unmarshal([]byte(raw), &arns); err != nil {
-		return nil, fmt.Errorf("failed to parse read-only secrets of %s: %w", instance, err)
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list read-only secrets of %s (missing secretsmanager:ListSecrets?): %w", instance, mcpserve.AWSError(err))
+		}
+		arns = append(arns, readOnlySecretARNs(page.SecretList, tag, instanceARN)...)
 	}
 	return arns, nil
 }
@@ -384,15 +402,15 @@ type ReadOnlySecret struct {
 // ReadReadOnlySecrets discovers and reads every read-only secret of instance carrying tag, those
 // naming no database included, in the order listed; nothing is cached. Unreadable secrets are
 // skipped, and only fail the call when none is readable.
-func ReadReadOnlySecrets(ctx context.Context, aws AWSRunner, instance, instanceARN string, tag awstag.Tag) ([]ReadOnlySecret, error) {
-	arns, err := listReadOnlySecrets(ctx, aws, instance, instanceARN, tag)
+func ReadReadOnlySecrets(ctx context.Context, cfg *aws.Config, instance, instanceARN string, tag awstag.Tag) ([]ReadOnlySecret, error) {
+	arns, err := listReadOnlySecrets(ctx, cfg, instance, instanceARN, tag)
 	if err != nil {
 		return nil, err
 	}
 	secrets := make([]ReadOnlySecret, 0, len(arns))
 	var failures []string
 	for _, arn := range arns {
-		payload, err := readSecret(ctx, aws, arn)
+		payload, err := readSecret(ctx, cfg, arn)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
@@ -424,7 +442,7 @@ func (p *readOnlySecretsProvider) names() []string {
 
 // masterSecretProvider uses the RDS-managed master user secret (SQL Server writes mode).
 type masterSecretProvider struct {
-	aws             AWSRunner
+	cfg             *aws.Config
 	creds           *Credentials
 	secretARN       string
 	instance        string
@@ -432,8 +450,8 @@ type masterSecretProvider struct {
 	mu              sync.Mutex
 }
 
-func newMasterSecretProvider(aws AWSRunner, instance, secretARN, defaultDatabase string) *masterSecretProvider {
-	return &masterSecretProvider{aws: aws, instance: instance, secretARN: secretARN, defaultDatabase: defaultDatabase}
+func newMasterSecretProvider(cfg *aws.Config, instance, secretARN, defaultDatabase string) *masterSecretProvider {
+	return &masterSecretProvider{cfg: cfg, instance: instance, secretARN: secretARN, defaultDatabase: defaultDatabase}
 }
 
 func (p *masterSecretProvider) Credentials(ctx context.Context, database string) (Credentials, error) {
@@ -447,7 +465,7 @@ func (p *masterSecretProvider) Credentials(ctx context.Context, database string)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.creds == nil {
-		payload, err := readSecret(ctx, p.aws, p.secretARN)
+		payload, err := readSecret(ctx, p.cfg, p.secretARN)
 		if err != nil {
 			return Credentials{}, fmt.Errorf("master user secret of %s is not readable: %w", p.instance, err)
 		}

@@ -2,59 +2,156 @@ package dbmcp
 
 import (
 	"context"
-	"errors"
-	"strconv"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/n2jsoft/airlock/internal/awsapi"
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
-// fakeAWS answers AWS CLI calls by their first two arguments, and records every call.
-type fakeAWS struct {
-	responses map[string]func(args []string) (string, error)
-	calls     [][]string
-}
-
-func (f *fakeAWS) run(_ context.Context, args ...string) (string, error) {
-	f.calls = append(f.calls, args)
-	key := strings.Join(args[:2], " ")
-	if respond, ok := f.responses[key]; ok {
-		return respond(args)
+// respond writes the JSON reply of a fake AWS API.
+func respond(t testing.TB, w http.ResponseWriter, status int, body any) {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Error(err)
+		return
 	}
-	return "", errors.New("unexpected aws call: " + strings.Join(args, " "))
+	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.WriteHeader(status)
+	if _, err := w.Write(raw); err != nil {
+		t.Error(err)
+	}
 }
 
-func argAfter(args []string, flag string) string {
-	for i, arg := range args {
-		if arg == flag && i+1 < len(args) {
-			return args[i+1]
+// secretIDOf is the SecretId of a GetSecretValue request.
+func secretIDOf(t testing.TB, r *http.Request) string {
+	t.Helper()
+	var body struct {
+		SecretID string `json:"SecretId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		t.Error(err)
+	}
+	return body.SecretID
+}
+
+const testInstanceARN = "arn:aws:rds:eu-west-3:123:db:mssql-1"
+
+var testSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
+
+// secretsAWS is a fake Secrets Manager holding secrets (ARN to SecretString) that records every
+// operation it serves. Every listed secret carries the tags of the read-only secrets of
+// testInstanceARN.
+type secretsAWS struct {
+	t       testing.TB
+	secrets map[string]string
+	// fail maps an operation to the error code it answers.
+	fail map[string]string
+	ops  []string
+	mu   sync.Mutex
+}
+
+func (f *secretsAWS) serve(w http.ResponseWriter, r *http.Request) {
+	op := awsapitest.Operation(r)
+	f.mu.Lock()
+	f.ops = append(f.ops, op)
+	secrets := maps.Clone(f.secrets)
+	code := f.fail[op]
+	f.mu.Unlock()
+
+	switch op {
+	case "GetSecretValue":
+		id := secretIDOf(f.t, r)
+		value, ok := secrets[id]
+		switch {
+		case code != "":
+			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": code, "message": "denied"})
+		case !ok:
+			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})
+		default:
+			respond(f.t, w, http.StatusOK, map[string]string{"SecretString": value})
 		}
+	case "ListSecrets":
+		if code != "" {
+			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": code, "message": "denied"})
+			return
+		}
+		list := make([]map[string]any, 0, len(secrets))
+		for _, arn := range slices.Sorted(maps.Keys(secrets)) {
+			list = append(list, map[string]any{"ARN": arn, "Tags": []map[string]string{
+				{"Key": testSecretTag.Key, "Value": testSecretTag.Value}, {"Key": "DBInstanceArn", "Value": testInstanceARN},
+			}})
+		}
+		respond(f.t, w, http.StatusOK, map[string]any{"SecretList": list})
+	default:
+		respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "UnknownOperationException", "message": op})
 	}
-	return ""
+}
+
+func (f *secretsAWS) count(op string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(slices.DeleteFunc(slices.Clone(f.ops), func(o string) bool { return o != op }))
+}
+
+// newSecretsAWS points the SDK at a fake Secrets Manager holding secrets.
+func newSecretsAWS(t *testing.T, secrets map[string]string) (*secretsAWS, *aws.Config) {
+	t.Helper()
+	fake := &secretsAWS{t: t, secrets: secrets, fail: map[string]string{}}
+	return fake, testAWSConfig(t, fake.serve)
+}
+
+// testAWSConfig is the SDK configuration of profile dev, served by handler.
+func testAWSConfig(t *testing.T, handler http.HandlerFunc) *aws.Config {
+	t.Helper()
+	awsapitest.Env(t, handler, "dev")
+	cfg, err := awsapi.NewConfigs().Get(context.Background(), "dev", "eu-west-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &cfg
+}
+
+func TestIAMTokenIsSignedForTheEndpoint(t *testing.T) {
+	cfg := testAWSConfig(t, func(http.ResponseWriter, *http.Request) {})
+	provider := newIAMTokenProvider(cfg, "db.rds.amazonaws.com", 5432, "user", "app")
+
+	creds, err := provider.Credentials(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(creds.Password, "db.rds.amazonaws.com:5432?Action=connect&DBUser=user") ||
+		!strings.Contains(creds.Password, "X-Amz-Credential=AKIDTEST") {
+		t.Fatalf("token = %q, want a token signed by AKIDTEST for the endpoint", creds.Password)
+	}
 }
 
 func TestIAMTokenProviderCachesAndRefreshesToken(t *testing.T) {
-	issued := 0
-	aws := &fakeAWS{responses: map[string]func([]string) (string, error){
-		"rds generate-db-auth-token": func(args []string) (string, error) {
-			issued++
-			if argAfter(args, "--hostname") != "db.rds.amazonaws.com" || argAfter(args, "--port") != "5432" || argAfter(args, "--username") != "acme_ro" {
-				t.Fatalf("unexpected args: %v", args)
-			}
-			return "token-" + strconv.Itoa(issued) + "\n", nil
-		},
-	}}
+	signed := 0
+	cfg := &aws.Config{Region: "eu-west-3", Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		signed++
+		return aws.Credentials{AccessKeyID: "AKIDTEST", SecretAccessKey: "secret"}, nil
+	})}
 	now := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
-	provider := newIAMTokenProvider(aws.run, "db.rds.amazonaws.com", 5432, "acme_ro", "app")
+	provider := newIAMTokenProvider(cfg, "db.rds.amazonaws.com", 5432, "acme_ro", "app")
 	provider.now = func() time.Time { return now }
 
 	first, err := provider.Credentials(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first != (Credentials{User: "acme_ro", Password: "token-1", Database: "app"}) {
+	if first.User != "acme_ro" || first.Database != "app" || first.Password == "" {
 		t.Fatalf("unexpected credentials: %+v", first)
 	}
 
@@ -63,44 +160,31 @@ func TestIAMTokenProviderCachesAndRefreshesToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Password != "token-1" || second.Database != "other" {
-		t.Fatalf("expected cached token for other database, got %+v", second)
+	if second.Password != first.Password || second.Database != "other" || signed != 1 {
+		t.Fatalf("expected cached token for other database, got %+v after %d signatures", second, signed)
 	}
 
 	now = now.Add(time.Minute)
-	third, err := provider.Credentials(context.Background(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if third.Password != "token-2" {
-		t.Fatalf("expected refreshed token after 10 minutes, got %q", third.Password)
+	if _, err = provider.Credentials(context.Background(), ""); err != nil || signed != 2 {
+		t.Fatalf("expected a new token after 10 minutes: %d signatures, %v", signed, err)
 	}
 }
 
-const testInstanceARN = "arn:aws:rds:eu-west-3:123:db:mssql-1"
-
-var testSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}
-
-func supportSecretsAWS(secrets map[string]string) *fakeAWS {
-	return &fakeAWS{responses: map[string]func([]string) (string, error){
-		"secretsmanager list-secrets": func(args []string) (string, error) {
-			arns := make([]string, 0, len(secrets))
-			for arn := range secrets {
-				arns = append(arns, `"`+arn+`"`)
-			}
-			return "[" + strings.Join(arns, ",") + "]", nil
-		},
-		"secretsmanager get-secret-value": func(args []string) (string, error) {
-			return secrets[argAfter(args, "--secret-id")], nil
-		},
-	}}
+func TestIAMTokenProviderTellsAnExpiredSignIn(t *testing.T) {
+	cfg := &aws.Config{Region: "eu-west-3", Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, fmt.Errorf("token expired")
+	})}
+	_, err := newIAMTokenProvider(cfg, "db.rds.amazonaws.com", 5432, "acme_ro", "app").Credentials(context.Background(), "")
+	if err == nil || !strings.Contains(err.Error(), "acme_ro") || !strings.Contains(err.Error(), "sign in again") {
+		t.Fatalf("err = %v, want the user and the sign-in hint", err)
+	}
 }
 
 func TestSupportSecretsProviderSingleDatabaseIsDefault(t *testing.T) {
-	aws := supportSecretsAWS(map[string]string{
+	fake, cfg := newSecretsAWS(t, map[string]string{
 		"arn:s1": `{"username":"app_ro","password":"p1","dbname":"Archive"}`,
 	})
-	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
+	provider := newReadOnlySecretsProvider(cfg, "mssql-1", testInstanceARN, testSecretTag)
 
 	creds, err := provider.Credentials(context.Background(), "")
 	if err != nil {
@@ -110,26 +194,21 @@ func TestSupportSecretsProviderSingleDatabaseIsDefault(t *testing.T) {
 		t.Fatalf("unexpected credentials: %+v", creds)
 	}
 
-	list := aws.calls[0]
-	if got := argAfter(list, "--query"); !strings.Contains(got, "AccessRole") || !strings.Contains(got, testInstanceARN) {
-		t.Fatalf("list-secrets query does not filter on ro-access secrets of the instance: %s", got)
-	}
-
 	if _, err := provider.Credentials(context.Background(), "Archive"); err != nil {
 		t.Fatal(err)
 	}
-	if len(aws.calls) != 2 {
-		t.Fatalf("secrets must be loaded once, got %d aws calls", len(aws.calls))
+	if fake.count("ListSecrets") != 1 || fake.count("GetSecretValue") != 1 {
+		t.Fatalf("secrets must be loaded once, got operations %v", fake.ops)
 	}
 }
 
 func TestSupportSecretsProviderSeveralDatabases(t *testing.T) {
-	aws := supportSecretsAWS(map[string]string{
+	_, cfg := newSecretsAWS(t, map[string]string{
 		"arn:s1": `{"username":"u1","password":"p1","dbname":"Archive"}`,
 		"arn:s2": `{"username":"u2","password":"p2","database":"Accounts"}`,
 		"arn:s3": `{"username":"u3","password":"p3"}`,
 	})
-	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
+	provider := newReadOnlySecretsProvider(cfg, "mssql-1", testInstanceARN, testSecretTag)
 
 	names, err := provider.Databases(context.Background())
 	if err != nil {
@@ -152,8 +231,8 @@ func TestSupportSecretsProviderSeveralDatabases(t *testing.T) {
 }
 
 func TestSupportSecretsProviderNoSecretIsActionableAndRetried(t *testing.T) {
-	aws := supportSecretsAWS(map[string]string{})
-	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
+	fake, cfg := newSecretsAWS(t, map[string]string{})
+	provider := newReadOnlySecretsProvider(cfg, "mssql-1", testInstanceARN, testSecretTag)
 
 	_, err := provider.Credentials(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "no usable read-only secret (AccessRole=ro-access) found for mssql-1") || !strings.Contains(err.Error(), `tag from "modules.sql.readOnlySecretTag", see `+"`airlock config show`") {
@@ -162,21 +241,66 @@ func TestSupportSecretsProviderNoSecretIsActionableAndRetried(t *testing.T) {
 	if _, err = provider.Credentials(context.Background(), ""); err == nil {
 		t.Fatal("expected the retried lookup to fail again")
 	}
-	if len(aws.calls) != 2 {
-		t.Fatalf("a failed lookup must be retried, got %d calls", len(aws.calls))
+	if fake.count("ListSecrets") != 2 {
+		t.Fatalf("a failed lookup must be retried, got operations %v", fake.ops)
+	}
+}
+
+func TestReadOnlySecretARNsNeedsBothTags(t *testing.T) {
+	tag := awstag.Tag{Key: "Role", Value: "reader"}
+	entry := func(arn string, tags ...types.Tag) types.SecretListEntry {
+		return types.SecretListEntry{ARN: aws.String(arn), Tags: tags}
+	}
+	role := types.Tag{Key: aws.String("Role"), Value: aws.String("reader")}
+	owner := func(arn string) types.Tag { return types.Tag{Key: aws.String("DBInstanceArn"), Value: aws.String(arn)} }
+
+	got := readOnlySecretARNs([]types.SecretListEntry{
+		entry("both", role, owner("arn:x")),
+		entry("tag-only", role),
+		entry("arn-only", owner("arn:x")),
+		entry("other-instance", role, owner("arn:y")),
+	}, tag, "arn:x")
+	if !slices.Equal(got, []string{"both"}) {
+		t.Fatalf("ARNs = %v, want only the secret carrying both tags", got)
+	}
+}
+
+func TestListReadOnlySecretsListsEveryPage(t *testing.T) {
+	var filters []string
+	tags := []map[string]string{{"Key": "AccessRole", "Value": "ro-access"}, {"Key": "DBInstanceArn", "Value": testInstanceARN}}
+	cfg := testAWSConfig(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			NextToken string
+			Filters   []struct {
+				Key    string
+				Values []string
+			}
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.NextToken == "" {
+			for _, f := range body.Filters {
+				filters = append(filters, f.Key+"="+strings.Join(f.Values, ","))
+			}
+			respond(t, w, http.StatusOK, map[string]any{"SecretList": []map[string]any{{"ARN": "arn:page1", "Tags": tags}}, "NextToken": "more"})
+			return
+		}
+		respond(t, w, http.StatusOK, map[string]any{"SecretList": []map[string]any{{"ARN": "arn:page2", "Tags": tags}}})
+	})
+
+	arns, err := listReadOnlySecrets(context.Background(), cfg, "mssql-1", testInstanceARN, testSecretTag)
+	if err != nil || !slices.Equal(arns, []string{"arn:page1", "arn:page2"}) {
+		t.Fatalf("ARNs = %v, %v, want both pages", arns, err)
+	}
+	if want := []string{"tag-key=DBInstanceArn", "tag-value=" + testInstanceARN}; !slices.Equal(filters, want) {
+		t.Fatalf("filters = %v, want %v", filters, want)
 	}
 }
 
 func TestMasterSecretProvider(t *testing.T) {
-	aws := &fakeAWS{responses: map[string]func([]string) (string, error){
-		"secretsmanager get-secret-value": func(args []string) (string, error) {
-			if argAfter(args, "--secret-id") != "arn:master" {
-				t.Fatalf("unexpected secret: %v", args)
-			}
-			return `{"username":"admin","password":"secret"}`, nil
-		},
-	}}
-	provider := newMasterSecretProvider(aws.run, "pg-1", "arn:master", "postgres")
+	fake, cfg := newSecretsAWS(t, map[string]string{"arn:master": `{"username":"admin","password":"secret"}`})
+	provider := newMasterSecretProvider(cfg, "pg-1", "arn:master", "postgres")
 
 	creds, err := provider.Credentials(context.Background(), "")
 	if err != nil {
@@ -188,8 +312,8 @@ func TestMasterSecretProvider(t *testing.T) {
 	if _, err = provider.Credentials(context.Background(), "app"); err != nil {
 		t.Fatal(err)
 	}
-	if len(aws.calls) != 1 {
-		t.Fatalf("master secret must be read once, got %d calls", len(aws.calls))
+	if fake.count("GetSecretValue") != 1 {
+		t.Fatalf("master secret must be read once, got operations %v", fake.ops)
 	}
 }
 
@@ -199,11 +323,10 @@ func TestMasterSecretProviderErrors(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	denied := &fakeAWS{responses: map[string]func([]string) (string, error){
-		"secretsmanager get-secret-value": func([]string) (string, error) { return "", errors.New("AccessDeniedException") },
-	}}
-	provider := newMasterSecretProvider(denied.run, "pg-1", "arn:master", "postgres")
-	if _, err := provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "not readable: AccessDeniedException") {
+	fake, cfg := newSecretsAWS(t, map[string]string{"arn:master": "{}"})
+	fake.fail["GetSecretValue"] = "AccessDeniedException"
+	provider := newMasterSecretProvider(cfg, "pg-1", "arn:master", "postgres")
+	if _, err := provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "not readable") || !strings.Contains(err.Error(), "AccessDeniedException") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -235,18 +358,15 @@ func TestCredentialProviderWithoutPasswordUsesIAMTokens(t *testing.T) {
 }
 
 func TestMasterSecretProviderRefreshReadsRotatedSecret(t *testing.T) {
-	password := "old"
-	aws := &fakeAWS{responses: map[string]func([]string) (string, error){
-		"secretsmanager get-secret-value": func([]string) (string, error) {
-			return `{"username":"admin","password":"` + password + `"}`, nil
-		},
-	}}
-	provider := newMasterSecretProvider(aws.run, "pg-1", "arn:master", "postgres")
+	fake, cfg := newSecretsAWS(t, map[string]string{"arn:master": `{"username":"admin","password":"old"}`})
+	provider := newMasterSecretProvider(cfg, "pg-1", "arn:master", "postgres")
 	if _, err := provider.Credentials(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
 
-	password = "rotated"
+	fake.mu.Lock()
+	fake.secrets["arn:master"] = `{"username":"admin","password":"rotated"}`
+	fake.mu.Unlock()
 	provider.refresh()
 	creds, err := provider.Credentials(context.Background(), "")
 	if err != nil || creds.Password != "rotated" {
@@ -255,14 +375,15 @@ func TestMasterSecretProviderRefreshReadsRotatedSecret(t *testing.T) {
 }
 
 func TestSupportSecretsProviderRefreshReadsRotatedSecrets(t *testing.T) {
-	secrets := map[string]string{"arn:s1": `{"username":"app_ro","password":"old","dbname":"Archive"}`}
-	aws := supportSecretsAWS(secrets)
-	provider := newReadOnlySecretsProvider(aws.run, "mssql-1", testInstanceARN, testSecretTag)
+	fake, cfg := newSecretsAWS(t, map[string]string{"arn:s1": `{"username":"app_ro","password":"old","dbname":"Archive"}`})
+	provider := newReadOnlySecretsProvider(cfg, "mssql-1", testInstanceARN, testSecretTag)
 	if _, err := provider.Credentials(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
 
-	secrets["arn:s1"] = `{"username":"app_ro","password":"rotated","dbname":"Archive"}`
+	fake.mu.Lock()
+	fake.secrets["arn:s1"] = `{"username":"app_ro","password":"rotated","dbname":"Archive"}`
+	fake.mu.Unlock()
 	provider.refresh()
 	creds, err := provider.Credentials(context.Background(), "Archive")
 	if err != nil || creds.Password != "rotated" {
@@ -270,48 +391,40 @@ func TestSupportSecretsProviderRefreshReadsRotatedSecrets(t *testing.T) {
 	}
 }
 
-func TestReadOnlySecretsQueryUsesTag(t *testing.T) {
-	got := ReadOnlySecretsQuery(awstag.Tag{Key: "Role", Value: "reader"}, "arn:x")
-	want := "SecretList[?Tags[?Key=='Role' && Value=='reader'] && Tags[?Key=='DBInstanceArn' && Value=='arn:x']].ARN"
-	if got != want {
-		t.Fatalf("ReadOnlySecretsQuery = %q, want %q", got, want)
-	}
-}
-
-func secretValueAWS(values ...string) *fakeAWS {
-	reads := 0
-	return &fakeAWS{responses: map[string]func([]string) (string, error){
-		"secretsmanager get-secret-value": func(args []string) (string, error) {
-			if argAfter(args, "--secret-id") != "arn:app-password" {
-				return "", errors.New("unexpected secret " + argAfter(args, "--secret-id"))
-			}
-			value := values[min(reads, len(values)-1)]
-			reads++
-			return value, nil
-		},
-	}}
+// passwordSecretAWS holds the secret arn:app-password with value.
+func passwordSecretAWS(t *testing.T, value string) (*secretsAWS, *aws.Config) {
+	t.Helper()
+	return newSecretsAWS(t, map[string]string{"arn:app-password": value})
 }
 
 func TestReadPasswordSecretJSONAndPlainText(t *testing.T) {
-	json, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app_user","password":"s3cret"}`).run, "arn:app-password")
-	if err != nil || json != (PasswordSecret{Username: "app_user", Password: "s3cret"}) {
-		t.Fatalf("JSON secret = %+v, %v", json, err)
+	read := func(value string) (PasswordSecret, error) {
+		_, cfg := passwordSecretAWS(t, value)
+		return ReadPasswordSecret(context.Background(), cfg, "arn:app-password")
 	}
-	plain, err := ReadPasswordSecret(context.Background(), secretValueAWS("s3cret").run, "arn:app-password")
+	jsonSecret, err := read(`{"username":"app_user","password":"s3cret"}`)
+	if err != nil || jsonSecret != (PasswordSecret{Username: "app_user", Password: "s3cret"}) {
+		t.Fatalf("JSON secret = %+v, %v", jsonSecret, err)
+	}
+	plain, err := read("s3cret")
 	if err != nil || plain != (PasswordSecret{Password: "s3cret"}) {
 		t.Fatalf("plain secret = %+v, %v", plain, err)
 	}
-	if _, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app_user"}`).run, "arn:app-password"); err == nil || !strings.Contains(err.Error(), "has no password") {
+	// A secret made from a file ends with a newline: the AWS CLI used to trim it.
+	if trimmed, err := read("s3cret\n"); err != nil || trimmed != (PasswordSecret{Password: "s3cret"}) {
+		t.Fatalf("plain secret with newline = %+v, %v", trimmed, err)
+	}
+	if _, err := read(`{"username":"app_user"}`); err == nil || !strings.Contains(err.Error(), "has no password") {
 		t.Fatalf("JSON without password = %v", err)
 	}
-	if _, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":`).run, "arn:app-password"); err == nil || !strings.Contains(err.Error(), "not valid JSON") {
+	if _, err := read(`{"username":`); err == nil || !strings.Contains(err.Error(), "not valid JSON") {
 		t.Fatalf("broken JSON = %v", err)
 	}
 }
 
 func TestSecretPasswordProviderUsesSecretUserElseTypedUser(t *testing.T) {
-	aws := secretValueAWS(`{"username":"app_user","password":"s3cret"}`)
-	provider := newSecretPasswordProvider(aws.run, "arn:app-password", "typed_user", "app")
+	fake, cfg := passwordSecretAWS(t, `{"username":"app_user","password":"s3cret"}`)
+	provider := newSecretPasswordProvider(cfg, "arn:app-password", "typed_user", "app")
 	creds, err := provider.Credentials(context.Background(), "")
 	if err != nil || creds != (Credentials{User: "app_user", Password: "s3cret", Database: "app"}) {
 		t.Fatalf("credentials = %+v, %v", creds, err)
@@ -319,29 +432,34 @@ func TestSecretPasswordProviderUsesSecretUserElseTypedUser(t *testing.T) {
 	if _, err = provider.Credentials(context.Background(), "other"); err != nil {
 		t.Fatalf("second read: %v", err)
 	}
-	if len(aws.calls) != 1 {
-		t.Fatalf("the secret must be read once, got %d reads", len(aws.calls))
+	if fake.count("GetSecretValue") != 1 {
+		t.Fatalf("the secret must be read once, got operations %v", fake.ops)
 	}
 
-	plain := newSecretPasswordProvider(secretValueAWS("s3cret").run, "arn:app-password", "typed_user", "app")
+	_, plainCfg := passwordSecretAWS(t, "s3cret")
+	plain := newSecretPasswordProvider(plainCfg, "arn:app-password", "typed_user", "app")
 	creds, err = plain.Credentials(context.Background(), "")
 	if err != nil || creds.User != "typed_user" || creds.Password != "s3cret" {
 		t.Fatalf("plain credentials = %+v, %v", creds, err)
 	}
 
-	noUser := newSecretPasswordProvider(secretValueAWS("s3cret").run, "arn:app-password", "", "app")
+	_, noUserCfg := passwordSecretAWS(t, "s3cret")
+	noUser := newSecretPasswordProvider(noUserCfg, "arn:app-password", "", "app")
 	if _, err := noUser.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "has no username") {
 		t.Fatalf("plain secret without user = %v", err)
 	}
 }
 
 func TestSecretPasswordProviderRefreshReadsRotatedSecret(t *testing.T) {
-	aws := secretValueAWS(`{"username":"app_user","password":"old"}`, `{"username":"app_user","password":"new"}`)
-	provider := newSecretPasswordProvider(aws.run, "arn:app-password", "", "app")
+	fake, cfg := passwordSecretAWS(t, `{"username":"app_user","password":"old"}`)
+	provider := newSecretPasswordProvider(cfg, "arn:app-password", "", "app")
 	first, err := provider.Credentials(context.Background(), "")
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
+	fake.mu.Lock()
+	fake.secrets["arn:app-password"] = `{"username":"app_user","password":"new"}`
+	fake.mu.Unlock()
 	provider.refresh()
 	second, err := provider.Credentials(context.Background(), "")
 	if err != nil || first.Password != "old" || second.Password != "new" {
@@ -350,10 +468,9 @@ func TestSecretPasswordProviderRefreshReadsRotatedSecret(t *testing.T) {
 }
 
 func TestSecretPasswordProviderExplainsFailures(t *testing.T) {
-	denied := &fakeAWS{responses: map[string]func([]string) (string, error){
-		"secretsmanager get-secret-value": func([]string) (string, error) { return "", errors.New("AccessDeniedException") },
-	}}
-	provider := newSecretPasswordProvider(denied.run, "arn:app-password", "", "app")
+	fake, cfg := passwordSecretAWS(t, "s3cret")
+	fake.fail["GetSecretValue"] = "AccessDeniedException"
+	provider := newSecretPasswordProvider(cfg, "arn:app-password", "", "app")
 	if _, err := provider.Credentials(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "secretsmanager:GetSecretValue") {
 		t.Fatalf("denied read = %v", err)
 	}
@@ -364,15 +481,27 @@ func TestSecretPasswordProviderExplainsFailures(t *testing.T) {
 
 func TestReadPasswordSecretBrokenJSONQuotesNoCharacterOfTheSecret(t *testing.T) {
 	// The JSON syntax error would quote the first unexpected character: here one of the password.
-	_, err := ReadPasswordSecret(context.Background(), secretValueAWS(`{"username":"app","password":Zs3cret}`).run, "arn:app-password")
+	_, cfg := passwordSecretAWS(t, `{"username":"app","password":Zs3cret}`)
+	_, err := ReadPasswordSecret(context.Background(), cfg, "arn:app-password")
 	if err == nil || err.Error() != "secret arn:app-password is not valid JSON" {
 		t.Fatalf("broken JSON = %v", err)
 	}
 }
 
 func TestReadSecretBrokenJSONQuotesNoCharacterOfTheSecret(t *testing.T) {
-	_, err := readSecret(context.Background(), secretValueAWS(`{"username":"app","password":Zs3cret}`).run, "arn:app-password")
+	_, cfg := passwordSecretAWS(t, `{"username":"app","password":Zs3cret}`)
+	_, err := readSecret(context.Background(), cfg, "arn:app-password")
 	if err == nil || err.Error() != "secret arn:app-password is not a JSON credential" {
 		t.Fatalf("broken JSON = %v", err)
+	}
+}
+
+func TestReadSecretOfAnExpiredSignInSaysSignInAgain(t *testing.T) {
+	cfg := &aws.Config{Region: "eu-west-3", Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, fmt.Errorf("token expired")
+	})}
+	_, err := ReadPasswordSecret(context.Background(), cfg, "arn:app-password")
+	if err == nil || !strings.Contains(err.Error(), "sign in again") {
+		t.Fatalf("err = %v, want the sign-in failure", err)
 	}
 }

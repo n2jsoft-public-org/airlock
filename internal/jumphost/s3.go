@@ -58,7 +58,7 @@ func (r *Runner) prepareS3(ctx context.Context, options *Options) (*Session, err
 		},
 		Intro: []string{fmt.Sprintf("S3 buckets of %s, in every region, through the AWS API (%s)", cfg.Profile, endpoint)},
 	}
-	handle, display := r.startS3MCP(options, cfg)
+	handle, display := r.startS3MCP(ctx, options, cfg)
 	r.attachMCP(session, handle, display)
 	session.release = sessionRelease(func() { r.registry.release(label) }, session.mcp)
 	return session, nil
@@ -66,13 +66,17 @@ func (r *Runner) prepareS3(ctx context.Context, options *Options) (*Session, err
 
 // startS3MCP serves the MCP server of an S3 session and returns its display line ("not started: …"
 // on failure, which leaves the session without use but open, as for the other types).
-func (r *Runner) startS3MCP(options *Options, cfg awsConfig) (handle *mcpserve.Handle, display string) {
+func (r *Runner) startS3MCP(ctx context.Context, options *Options, cfg awsConfig) (handle *mcpserve.Handle, display string) {
 	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
+	awsCfg, err := r.sdkConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Sprintf("not started: %v", err)
+	}
 	handle, err = s3mcpStart(r.mcpHost, &s3mcp.SessionConfig{
-		AWS: r.awsRunner(cfg), ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+		AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
 		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
 		SkipRegistration: options.SkipMCPRegistration, AllowWrites: options.MCPAllowWrites,
 	})

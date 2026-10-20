@@ -1,11 +1,13 @@
 package jumphost
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/dynamomcp"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
@@ -36,6 +38,7 @@ func TestDynamoDBListsOneTargetNamedAfterTheRegion(t *testing.T) {
 }
 
 func TestPrepareDynamoDBUsesTheNameAsRegionAndRunsNoTunnel(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installDynamoAWS(t, true)
 	var started *dynamomcp.SessionConfig
 	dynamomcpStart = func(host *mcpserve.Host, cfg *dynamomcp.SessionConfig) (*mcpserve.Handle, error) {
@@ -53,7 +56,7 @@ func TestPrepareDynamoDBUsesTheNameAsRegionAndRunsNoTunnel(t *testing.T) {
 		session.Details.ConnectedServer != "dynamodb.eu-west-1.amazonaws.com" {
 		t.Fatalf("session = %+v", session)
 	}
-	if started == nil || started.Region != "eu-west-1" || started.Profile != "dev" || !started.AllowWrites || started.AWS == nil {
+	if started == nil || started.Region != "eu-west-1" || started.Profile != "dev" || !started.AllowWrites || started.AWS.Credentials == nil {
 		t.Fatalf("mcp = %+v", started)
 	}
 }

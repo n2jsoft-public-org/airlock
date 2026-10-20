@@ -3,33 +3,30 @@ package kubemcp
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
-// tokenAWS prints the ExecCredential of tokens[i] on the i-th call, expiring at expires, and
-// counts the calls.
-func tokenAWS(expires time.Time, tokens ...string) (runner mcpserve.AWSRunner, callsPtr *int) {
+// fakeTokens returns tokens[i] on the i-th call, expiring at expires, and counts the calls.
+func fakeTokens(expires time.Time, tokens ...string) (fetch tokenFunc, callsPtr *int) {
 	callCount := 0
-	return func(_ context.Context, args ...string) (string, error) {
-		if strings.Join(args[:2], " ") != "eks get-token" {
-			return "", fmt.Errorf("unexpected aws %v", args)
-		}
+	return func(context.Context) (string, time.Time, error) {
 		token := tokens[min(callCount, len(tokens)-1)]
 		callCount++
-		return fmt.Sprintf(`{"kind":"ExecCredential","apiVersion":"client.authentication.k8s.io/v1beta1","spec":{},`+
-			`"status":{"expirationTimestamp":%q,"token":%q}}`, expires.UTC().Format(time.RFC3339), token), nil
+		return token, expires, nil
 	}, &callCount
 }
 
 func TestTokenSourceCachesUntilShortlyBeforeExpiry(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	aws, calls := tokenAWS(now.Add(15*time.Minute), "k8s-aws-v1.first", "k8s-aws-v1.second")
-	source := newTokenSource(aws, "platform", "dev")
+	fetch, calls := fakeTokens(now.Add(15*time.Minute), "k8s-aws-v1.first", "k8s-aws-v1.second")
+	source := newTokenSource(fetch)
 	source.now = func() time.Time { return now }
 
 	for range 2 {
@@ -38,7 +35,7 @@ func TestTokenSourceCachesUntilShortlyBeforeExpiry(t *testing.T) {
 		}
 	}
 	if *calls != 1 {
-		t.Fatalf("aws called %d times, want 1", *calls)
+		t.Fatalf("fetched %d times, want 1", *calls)
 	}
 	now = now.Add(14*time.Minute + 30*time.Second)
 	//nolint:errcheck // test intentionally ignores errors
@@ -48,8 +45,8 @@ func TestTokenSourceCachesUntilShortlyBeforeExpiry(t *testing.T) {
 }
 
 func TestTokenSourceResetFetchesANewToken(t *testing.T) {
-	aws, calls := tokenAWS(time.Now().Add(time.Hour), "a", "b")
-	source := newTokenSource(aws, "platform", "dev")
+	fetch, calls := fakeTokens(time.Now().Add(time.Hour), "a", "b")
+	source := newTokenSource(fetch)
 	//nolint:errcheck // test intentionally ignores errors
 	_, _ = source.Token(context.Background())
 	source.reset()
@@ -59,19 +56,23 @@ func TestTokenSourceResetFetchesANewToken(t *testing.T) {
 	}
 }
 
-func TestTokenSourceExplainsExpiredSSOSession(t *testing.T) {
-	aws := func(context.Context, ...string) (string, error) {
-		return "", errors.New("aws eks get-token failed: Error when retrieving token from sso: Token has expired and refresh failed")
+func TestTokenSourceSurfacesAnExpiredSignIn(t *testing.T) {
+	cfg := aws.Config{Region: "eu-west-3", Credentials: aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, errors.New("the SSO session associated with this profile has expired")
+	})}
+	_, err := newTokenSource(eksTokenFunc(&cfg, "platform")).Token(context.Background())
+	if _, ok := errors.AsType[*mcpserve.CredentialsError](err); !ok {
+		t.Fatalf("err = %v, want a *mcpserve.CredentialsError", err)
 	}
-	_, err := newTokenSource(aws, "platform", "dev").Token(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "aws sso login --profile dev") {
-		t.Fatalf("err = %v, want the sso login hint", err)
+	if !strings.Contains(err.Error(), "sign in again") || strings.Contains(err.Error(), "operation error") {
+		t.Fatalf("err = %q, want the sign-in message without the SDK chain", err)
 	}
 }
 
-func TestTokenSourceRejectsOutputWithoutToken(t *testing.T) {
-	aws := func(context.Context, ...string) (string, error) { return `{"status":{}}`, nil }
-	if _, err := newTokenSource(aws, "platform", "dev").Token(context.Background()); err == nil {
-		t.Fatal("expected an error without token")
+func TestEKSTokenFuncPresignsWithTheConfigCredentials(t *testing.T) {
+	cfg := aws.Config{Region: "eu-west-3", Credentials: credentials.NewStaticCredentialsProvider("AKIDTEST", "secret", "")}
+	token, err := newTokenSource(eksTokenFunc(&cfg, "platform")).Token(context.Background())
+	if err != nil || len(token) < len("k8s-aws-v1.") || token[:11] != "k8s-aws-v1." {
+		t.Fatalf("token = %q, %v", token, err)
 	}
 }

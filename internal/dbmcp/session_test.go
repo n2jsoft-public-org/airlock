@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
@@ -18,7 +19,7 @@ import (
 func testSessionConfig(t *testing.T, engine string) *SessionConfig {
 	t.Helper()
 	return &SessionConfig{
-		AWS:        (&fakeAWS{}).run,
+		AWS:        aws.Config{Region: "eu-west-3"},
 		ProjectDir: t.TempDir(),
 		Profile:    "dev", Region: "eu-west-3", Target: "Archive_DB",
 		AWSEngine: engine, RDSHost: "archive.rds.amazonaws.com", RDSPort: 5432,

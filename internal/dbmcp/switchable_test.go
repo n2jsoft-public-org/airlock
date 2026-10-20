@@ -48,7 +48,7 @@ func TestSwitchingCredentialsDropsThePoolsOpenedWithTheFormerOnes(t *testing.T) 
 }
 
 func TestSwitchableProviderKeepsTheRefreshOfItsCurrentProvider(t *testing.T) {
-	secret := newSecretPasswordProvider((&fakeAWS{}).run, "arn:secret", "u", "")
+	secret := newSecretPasswordProvider(nil, "arn:secret", "u", "")
 	secret.creds = &Credentials{User: "u", Password: "old"}
 	creds := &switchableProvider{current: secret}
 

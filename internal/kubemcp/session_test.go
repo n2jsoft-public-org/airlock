@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
@@ -27,7 +30,7 @@ func TestStartRegistersReadOnlyServer(t *testing.T) {
 	}
 
 	handle, err := Start(mcpserve.NewHost(), &SessionConfig{
-		AWS: staticTokenAWS(), ProjectDir: project, Profile: "dev", Region: "eu-west-3", Target: "platform",
+		AWS: aws.Config{Region: "eu-west-3", Credentials: credentials.NewStaticCredentialsProvider("AKIDTEST", "secret", "")}, ProjectDir: project, Profile: "dev", Region: "eu-west-3", Target: "platform",
 		EndpointHost: "example.com", ClusterCA: caOf(api), LocalPort: 15443, ServerPrefix: "acme",
 	})
 	if err != nil {

@@ -3,7 +3,6 @@ package jumphost
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
@@ -64,34 +64,36 @@ func TestSecretDisplayName(t *testing.T) {
 	}
 }
 
-func secretAWS(value string, err error) func(context.Context, ...string) (string, error) {
-	return func(_ context.Context, args ...string) (string, error) {
-		if strings.Join(args[:2], " ") != "secretsmanager get-secret-value" {
-			return "", errors.New("unexpected call " + strings.Join(args, " "))
-		}
-		return value, err
+// secretConfig is the SDK configuration of a Secrets Manager holding arn:secret as value; no
+// secret at all when failing.
+func secretConfig(t *testing.T, value string, present bool) *aws.Config {
+	t.Helper()
+	values := map[string]string{}
+	if present {
+		values["arn:secret"] = value
 	}
+	return installSecretsManager(t, values).cfg
 }
 
 func TestResolveSecretSignInPrefersSecretUser(t *testing.T) {
-	user, err := resolveSecretSignIn(context.Background(), secretAWS(`{"username":"app_user","password":"s3cret"}`, nil), "arn:secret", "typed")
+	user, err := resolveSecretSignIn(context.Background(), secretConfig(t, `{"username":"app_user","password":"s3cret"}`, true), "arn:secret", "typed")
 	if err != nil || user != "app_user" {
 		t.Fatalf("user = %q, err = %v", user, err)
 	}
 }
 
 func TestResolveSecretSignInPlainTextNeedsUser(t *testing.T) {
-	if user, err := resolveSecretSignIn(context.Background(), secretAWS("s3cret", nil), "arn:secret", " typed "); err != nil || user != "typed" {
+	if user, err := resolveSecretSignIn(context.Background(), secretConfig(t, "s3cret", true), "arn:secret", " typed "); err != nil || user != "typed" {
 		t.Fatalf("user = %q, err = %v", user, err)
 	}
-	_, err := resolveSecretSignIn(context.Background(), secretAWS("s3cret", nil), "arn:secret", "")
+	_, err := resolveSecretSignIn(context.Background(), secretConfig(t, "s3cret", true), "arn:secret", "")
 	if err == nil || !strings.Contains(err.Error(), "has no username: fill the User field") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestResolveSecretSignInExplainsUnreadableSecret(t *testing.T) {
-	_, err := resolveSecretSignIn(context.Background(), secretAWS("", errors.New("ResourceNotFoundException")), "arn:secret", "typed")
+	_, err := resolveSecretSignIn(context.Background(), secretConfig(t, "", false), "arn:secret", "typed")
 	for _, want := range []string{"arn:secret", "secretsmanager:GetSecretValue", "kms:Decrypt", "ResourceNotFoundException"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("err = %v, want %q", err, want)
@@ -140,9 +142,9 @@ func TestListDBSecretsNamesAccountAndRegionWhenEmpty(t *testing.T) {
 }
 
 func TestSecretCredentialsReaderReadsThePickedSecretOnEachCall(t *testing.T) {
-	logPath := installRecordingAWS(t, `{"username":"app_rw","password":"s3cr3t-Pa55"}`)
+	fake := installSecretsManager(t, map[string]string{"arn:secret": `{"username":"app_rw","password":"s3cr3t-Pa55"}`})
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
-	read := runner.secretCredentialsReader(runner.awsRunner(awsConfig{Args: []string{"--profile", "dev", "--region", "eu-west-3"}}), "archive",
+	read := runner.secretCredentialsReader(fake.cfg, "archive",
 		&ideTarget{DBUser: "app_rw", DBSecretARN: "arn:secret", InstanceARN: secretsInstanceARN})
 
 	for range 2 {
@@ -151,13 +153,8 @@ func TestSecretCredentialsReaderReadsThePickedSecretOnEachCall(t *testing.T) {
 			t.Fatalf("read = %+v, %v, want the secret's credentials", creds, err)
 		}
 	}
-	calls, err := os.ReadFile(logPath) // #nosec G304 -- test file.
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
-	if len(lines) != 2 || !strings.Contains(lines[0], "get-secret-value --secret-id arn:secret") || !strings.Contains(lines[0], "--profile dev --region eu-west-3") {
-		t.Fatalf("aws calls = %q, want get-secret-value of the secret with the session's profile, twice", lines)
+	if fake.count("GetSecretValue") != 2 || fake.count("ListSecrets") != 0 {
+		t.Fatalf("operations = %v, want the picked secret read twice and nothing listed", fake.ops)
 	}
 }
 
@@ -167,21 +164,14 @@ func TestSecretCredentialsReaderReadsTheReadOnlySecretsOfEachDatabase(t *testing
 		named  = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/rds/read-only/archive-app-xyKAqI"
 		broken = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/rds/read-only/archive-old-AbCdEf"
 	)
-	dir := t.TempDir()
 	// The secrets deployed name no database: only their name tells them apart.
-	script := "#!/bin/sh\ncase \"$1 $2 $4\" in\n" +
-		"'secretsmanager list-secrets '*) echo '[\"" + integ + "\",\"" + broken + "\",\"" + named + "\"]' ;;\n" +
-		"'secretsmanager get-secret-value " + integ + "') echo '{\"username\":\"app_ro\",\"password\":\"integ-Pa55\"}' ;;\n" +
-		"'secretsmanager get-secret-value " + named + "') echo '{\"username\":\"app_ro\",\"password\":\"app-Pa55\",\"dbname\":\"app_db\"}' ;;\n" +
-		"*) exit 1 ;;\nesac\n"
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	fake := installSecretsManager(t, map[string]string{
+		integ: `{"username":"app_ro","password":"integ-Pa55"}`,
+		named: `{"username":"app_ro","password":"app-Pa55","dbname":"app_db"}`,
+	}, integ, broken, named)
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
 
-	read := runner.secretCredentialsReader(runner.awsRunner(awsConfig{}), "archive", &ideTarget{InstanceARN: secretsInstanceARN, MasterSecretARN: "arn:master"})
+	read := runner.secretCredentialsReader(fake.cfg, "archive", &ideTarget{InstanceARN: secretsInstanceARN, MasterSecretARN: "arn:master"})
 	if read == nil {
 		t.Fatal("no reader for a session signing in with the read-only secrets")
 	}
@@ -201,12 +191,12 @@ func TestSecretCredentialsReaderNeedsSecrets(t *testing.T) {
 		"AWS IAM":        {IAMAuth: true, DBUser: "app_ro", InstanceARN: secretsInstanceARN},
 		"typed password": {DBUser: "app_rw", DBPassword: "typed", InstanceARN: secretsInstanceARN},
 	} {
-		if tagged.secretCredentialsReader(tagged.awsRunner(awsConfig{}), "archive", target) != nil {
+		if tagged.secretCredentialsReader(nil, "archive", target) != nil {
 			t.Errorf("%s session offers to show secrets", name)
 		}
 	}
 	untagged := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
-	if untagged.secretCredentialsReader(untagged.awsRunner(awsConfig{}), "archive", &ideTarget{InstanceARN: secretsInstanceARN}) != nil {
+	if untagged.secretCredentialsReader(nil, "archive", &ideTarget{InstanceARN: secretsInstanceARN}) != nil {
 		t.Error("session offers read-only secrets without readOnlySecretTag")
 	}
 }

@@ -1,6 +1,7 @@
 package s3mcp
 
 import (
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
@@ -8,8 +9,8 @@ import (
 // SessionConfig describes the buckets of one session: an AWS profile, and its region for the calls
 // that are not about a bucket.
 type SessionConfig struct {
-	// AWS runs the aws CLI with the session's profile and region; it exports the credentials.
-	AWS        mcpserve.AWSRunner
+	// AWS is the SDK configuration of the session's profile and region.
+	AWS        aws.Config
 	ProjectDir string
 	Profile    string
 	Region     string
@@ -24,12 +25,13 @@ type SessionConfig struct {
 }
 
 // Start mounts the MCP server of an S3 session on host and registers it in the project's AI
-// clients. The client signs its requests with the profile's exported credentials, never with the
-// SDK's own configuration loading.
+// clients.
 func Start(host *mcpserve.Host, cfg *SessionConfig) (*mcpserve.Handle, error) {
 	name := mcpserve.ServerName(cfg.ServerPrefix, cfg.Profile, "s3")
 	recorder := mcpserve.NewRecorder(cfg.LogDir)
-	client := s3.New(s3.Options{Region: cfg.Region, Credentials: mcpserve.NewExportedCredentials(cfg.AWS)})
+	client := s3.NewFromConfig(cfg.AWS, func(o *s3.Options) {
+		o.Credentials = mcpserve.SignInCredentials(cfg.AWS.Credentials)
+	})
 	server := NewServer(&ServerConfig{Name: name, Profile: cfg.Profile, Region: cfg.Region, AllowWrites: cfg.AllowWrites},
 		newBuckets(client), recorder.Record)
 	return mcpserve.Serve(host, &mcpserve.ServeConfig{

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 )
 
 const testEKSEndpoint = "ABCD.gr7.eu-west-3.eks.amazonaws.com"
@@ -110,6 +112,7 @@ func testCA(t *testing.T) string {
 }
 
 func TestPrepareEKSStartsReadOnlyMCPServer(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installEKSAWS(t, testCA(t))
 	project := t.TempDir()
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})

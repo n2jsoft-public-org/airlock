@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
@@ -50,15 +51,15 @@ func SecretCredentials(read func(ctx context.Context) (user, password string, er
 }
 
 // IAMCredentials signs user in with a new AWS IAM token per connection, signed with the AWS
-// credentials of the session's profile (aws is its runner).
-func IAMCredentials(aws mcpserve.AWSRunner, cacheName, user, region string, serverless bool) CredentialProvider {
-	exported := mcpserve.NewExportedCredentials(aws)
+// credentials of cfg, the session's profile; the token is for the region of cfg.
+func IAMCredentials(cfg *aws.Config, cacheName, user string, serverless bool) CredentialProvider {
+	signIn := mcpserve.SignInCredentials(cfg.Credentials)
 	return func(ctx context.Context) (string, string, error) {
-		creds, err := exported.Retrieve(ctx)
+		creds, err := signIn.Retrieve(ctx)
 		if err != nil {
 			return "", "", err
 		}
-		token, err := presignConnect(ctx, creds, cacheName, user, region, serverless, time.Now())
+		token, err := presignConnect(ctx, creds, cacheName, user, cfg.Region, serverless, time.Now())
 		return user, token, err
 	}
 }

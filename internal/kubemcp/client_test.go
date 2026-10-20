@@ -16,8 +16,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // caOf is the base64 PEM certificate of server, as describe-cluster prints a cluster CA.
@@ -46,11 +44,11 @@ func foreignCA(t *testing.T) string {
 
 // testClient serves handler over TLS and returns a client trusting it; httptest certificates are
 // valid for example.com, which stands for the real EKS endpoint host.
-func testClient(t *testing.T, handler http.Handler, aws mcpserve.AWSRunner) *apiClient {
+func testClient(t *testing.T, handler http.Handler, fetch tokenFunc) *apiClient {
 	t.Helper()
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
-	client, err := newAPIClient(server.URL, "example.com", caOf(server), newTokenSource(aws, "platform", "dev"))
+	client, err := newAPIClient(server.URL, "example.com", caOf(server), newTokenSource(fetch))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,9 +56,9 @@ func testClient(t *testing.T, handler http.Handler, aws mcpserve.AWSRunner) *api
 	return client
 }
 
-func staticTokenAWS() mcpserve.AWSRunner {
-	aws, _ := tokenAWS(time.Now().Add(time.Hour), "tok")
-	return aws
+func staticTokens() tokenFunc {
+	fetch, _ := fakeTokens(time.Now().Add(time.Hour), "tok")
+	return fetch
 }
 
 func TestAPIClientSendsBearerTokenAndVerifiesTheCA(t *testing.T) {
@@ -71,7 +69,7 @@ func TestAPIClientSendsBearerTokenAndVerifiesTheCA(t *testing.T) {
 		}
 		//nolint:errcheck // test intentionally ignores errors
 		_, _ = w.Write([]byte(`{"kind":"NamespaceList","items":[]}`))
-	}), staticTokenAWS())
+	}), staticTokens())
 
 	var list struct {
 		Kind string `json:"kind"`
@@ -84,7 +82,7 @@ func TestAPIClientSendsBearerTokenAndVerifiesTheCA(t *testing.T) {
 func TestAPIClientRejectsAnUntrustedCertificate(t *testing.T) {
 	server := httptest.NewTLSServer(http.NotFoundHandler())
 	defer server.Close()
-	client, err := newAPIClient(server.URL, "example.com", foreignCA(t), newTokenSource(staticTokenAWS(), "platform", "dev"))
+	client, err := newAPIClient(server.URL, "example.com", foreignCA(t), newTokenSource(staticTokens()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +93,7 @@ func TestAPIClientRejectsAnUntrustedCertificate(t *testing.T) {
 }
 
 func TestAPIClientRetriesOnceWithFreshTokenAfter401(t *testing.T) {
-	aws, calls := tokenAWS(time.Now().Add(time.Hour), "expired", "fresh")
+	fetch, calls := fakeTokens(time.Now().Add(time.Hour), "expired", "fresh")
 	client := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer fresh" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -105,13 +103,13 @@ func TestAPIClientRetriesOnceWithFreshTokenAfter401(t *testing.T) {
 		}
 		//nolint:errcheck // test intentionally ignores errors
 		_, _ = w.Write([]byte(`{"ok":true}`))
-	}), aws)
+	}), fetch)
 
 	if body, err := client.get(context.Background(), "/api", nil); err != nil || string(body) != `{"ok":true}` {
 		t.Fatalf("body = %s, err = %v", body, err)
 	}
 	if *calls != 2 {
-		t.Fatalf("aws get-token called %d times, want 2", *calls)
+		t.Fatalf("token fetched %d times, want 2", *calls)
 	}
 }
 
@@ -133,7 +131,7 @@ func TestAPIClientMapsStatuses(t *testing.T) {
 			//nolint:errcheck // test intentionally ignores errors
 			_, _ = w.Write([]byte("etcd timeout"))
 		}
-	}), staticTokenAWS())
+	}), staticTokens())
 	ctx := context.Background()
 
 	if _, err := client.get(ctx, "/forbidden", nil); err == nil || err.Error() != `forbidden by the cluster RBAC: secrets is forbidden: User "dev" cannot list resource "secrets"` {
@@ -151,10 +149,10 @@ func TestAPIClientMapsStatuses(t *testing.T) {
 }
 
 func TestNewAPIClientRejectsInvalidCA(t *testing.T) {
-	if _, err := newAPIClient("https://localhost:1", "example.com", "not base64!", newTokenSource(staticTokenAWS(), "c", "p")); err == nil {
+	if _, err := newAPIClient("https://localhost:1", "example.com", "not base64!", newTokenSource(staticTokens())); err == nil {
 		t.Fatal("expected an error for an invalid CA")
 	}
-	if _, err := newAPIClient("https://localhost:1", "example.com", base64.StdEncoding.EncodeToString([]byte("no pem")), newTokenSource(staticTokenAWS(), "c", "p")); err == nil {
+	if _, err := newAPIClient("https://localhost:1", "example.com", base64.StdEncoding.EncodeToString([]byte("no pem")), newTokenSource(staticTokens())); err == nil {
 		t.Fatal("expected an error for a CA without PEM certificate")
 	}
 }

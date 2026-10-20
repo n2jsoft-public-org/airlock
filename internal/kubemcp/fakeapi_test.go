@@ -112,5 +112,5 @@ func reply(w http.ResponseWriter, body string) {
 
 func (f *fakeAPI) client(t *testing.T) *apiClient {
 	t.Helper()
-	return testClient(t, f, staticTokenAWS())
+	return testClient(t, f, staticTokens())
 }

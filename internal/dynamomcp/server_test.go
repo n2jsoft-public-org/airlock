@@ -3,12 +3,15 @@ package dynamomcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/n2jsoft/airlock/internal/awsapi"
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
@@ -133,8 +136,13 @@ func TestToolErrorIsReturnedAndRecorded(t *testing.T) {
 }
 
 func TestStartServesAndNamesTheServerAfterProfileAndRegion(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
+	awsCfg, err := awsapi.NewConfigs().Get(t.Context(), "dev", "eu-west-3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	handle, err := Start(mcpserve.NewHost(), &SessionConfig{
-		AWS: func(context.Context, ...string) (string, error) { return "", nil }, ProjectDir: t.TempDir(),
+		AWS: awsCfg, ProjectDir: t.TempDir(),
 		Profile: "dev", Region: "eu-west-3", ServerPrefix: "acme", SkipRegistration: true,
 	})
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/i18n"
 )
@@ -138,8 +139,8 @@ func SecretDisplayName(secretID string) string {
 
 // resolveSecretSignIn reads the password secret once before connecting, so an unreadable secret
 // fails before the tunnel opens, and returns the user: the secret's, else typedUser.
-func resolveSecretSignIn(ctx context.Context, aws dbmcp.AWSRunner, secretID, typedUser string) (string, error) {
-	secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
+func resolveSecretSignIn(ctx context.Context, cfg *aws.Config, secretID, typedUser string) (string, error) {
+	secret, err := dbmcp.ReadPasswordSecret(ctx, cfg, secretID)
 	if err != nil {
 		return "", i18n.NewError("jumphost.cache.failed_to_read_secret", secretID, err)
 	}
@@ -175,11 +176,11 @@ func (c DBCredentials) Label() string {
 // Secrets Manager: its picked secret, else, when it signs in with neither AWS IAM nor a typed
 // password, the read-only secrets of each database. It reads them again on each call, so rotated
 // secrets show their current value, and never keeps them. It returns nil when neither applies.
-func (r *Runner) secretCredentialsReader(aws dbmcp.AWSRunner, instance string, target *ideTarget) func(ctx context.Context) ([]DBCredentials, error) {
+func (r *Runner) secretCredentialsReader(cfg *aws.Config, instance string, target *ideTarget) func(ctx context.Context) ([]DBCredentials, error) {
 	switch secretID, user := target.DBSecretARN, target.DBUser; {
 	case secretID != "":
 		return func(ctx context.Context) ([]DBCredentials, error) {
-			secret, err := dbmcp.ReadPasswordSecret(ctx, aws, secretID)
+			secret, err := dbmcp.ReadPasswordSecret(ctx, cfg, secretID)
 			if err != nil {
 				return nil, i18n.NewError("jumphost.secrets.failed_to_read_secret", SecretDisplayName(secretID), err)
 			}
@@ -188,7 +189,7 @@ func (r *Runner) secretCredentialsReader(aws dbmcp.AWSRunner, instance string, t
 	case !target.IAMAuth && target.DBPassword == "" && target.InstanceARN != "" && !r.readOnlySecretTag.IsZero():
 		instanceARN, tag := target.InstanceARN, r.readOnlySecretTag
 		return func(ctx context.Context) ([]DBCredentials, error) {
-			secrets, err := dbmcp.ReadReadOnlySecrets(ctx, aws, instance, instanceARN, tag)
+			secrets, err := dbmcp.ReadReadOnlySecrets(ctx, cfg, instance, instanceARN, tag)
 			if err != nil {
 				return nil, err
 			}

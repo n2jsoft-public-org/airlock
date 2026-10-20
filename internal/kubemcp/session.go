@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // SessionConfig describes the tunneled cluster of one EKS session.
 type SessionConfig struct {
-	AWS        mcpserve.AWSRunner
+	AWS        aws.Config
 	ProjectDir string
 	Profile    string
 	Region     string
@@ -36,7 +38,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*mcpserve.Handle, error) {
 		return nil, nil
 	}
 	client, err := newAPIClient(fmt.Sprintf("https://localhost:%d", cfg.LocalPort), cfg.EndpointHost, cfg.ClusterCA,
-		newTokenSource(cfg.AWS, cfg.Target, cfg.Profile))
+		newTokenSource(eksTokenFunc(&cfg.AWS, cfg.Target)))
 	if err != nil {
 		return nil, err
 	}

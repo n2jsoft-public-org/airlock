@@ -1,12 +1,15 @@
 package jumphost
 
 import (
+	"context"
 	"errors"
 	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/keychain"
@@ -23,10 +26,11 @@ func testRunner(t *testing.T) *Runner {
 }
 
 func TestStartMCPForPostgres(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 	target := ideTarget{Engine: "postgres", Database: "app", RDSHost: "db.rds.amazonaws.com", RDSPort: 5432, IAMAuth: true, DBUser: "acme_ro"}
 
-	handle, display := runner.startMCP(&Options{}, "archive", 15432, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
+	handle, display := runner.startMCP(context.Background(), &Options{}, "archive", 15432, &target, awsConfig{Profile: "dev", Region: "eu-west-3"}, false)
 	if handle == nil {
 		t.Fatal("expected an MCP server for postgres")
 	}
@@ -40,15 +44,17 @@ func TestStartMCPForPostgres(t *testing.T) {
 }
 
 func TestStartMCPSkipsUnsupportedEngine(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 
-	handle, display := runner.startMCP(&Options{}, "cache", 6379, &ideTarget{Engine: "redis"}, awsConfig{Profile: "dev"}, false)
+	handle, display := runner.startMCP(context.Background(), &Options{}, "cache", 6379, &ideTarget{Engine: "redis"}, awsConfig{Profile: "dev"}, false)
 	if handle != nil || display != "" {
 		t.Fatalf("expected no MCP server and no display for redis, got handle=%v display=%q", handle, display)
 	}
 }
 
 func TestStartMCPReportsFailureThroughTheDisplayNotStderr(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 	previous := dbmcpStart
 	dbmcpStart = func(*mcpserve.Host, *dbmcp.SessionConfig) (*dbmcp.Handle, error) {
@@ -56,7 +62,7 @@ func TestStartMCPReportsFailureThroughTheDisplayNotStderr(t *testing.T) {
 	}
 	t.Cleanup(func() { dbmcpStart = previous })
 
-	handle, display := runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "postgres"}, awsConfig{Profile: "dev"}, false)
+	handle, display := runner.startMCP(context.Background(), &Options{}, "archive", 15432, &ideTarget{Engine: "postgres"}, awsConfig{Profile: "dev"}, false)
 	if handle != nil {
 		t.Fatalf("expected no handle on failure, got %v", handle)
 	}
@@ -66,8 +72,9 @@ func TestStartMCPReportsFailureThroughTheDisplayNotStderr(t *testing.T) {
 }
 
 func TestSessionReleaseStopsEverythingOnce(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
-	handle, _ := runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
+	handle, _ := runner.startMCP(context.Background(), &Options{}, "archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
 	portReleased := 0
 	release := sessionRelease(func() { portReleased++ }, handle, func() string { return "IntelliJ data source removed" })
 
@@ -92,8 +99,7 @@ func TestRDSSecretsSessionInfo(t *testing.T) {
 	for _, want := range []string{
 		"IAM authentication is not enabled",
 		"host:port            = localhost:1433",
-		"Values=arn:aws:rds:eu-west-3:1:db:mssql",
-		"AccessRole",
+		"AccessRole=ro-access and DBInstanceArn=arn:aws:rds:eu-west-3:1:db:mssql",
 		"Master credentials (admin), administrators only",
 		`--secret-id "arn:master"`,
 	} {
@@ -152,11 +158,12 @@ func TestBuildRestartCommandKeepsCustomDBUser(t *testing.T) {
 }
 
 func TestStartMCPLogsQueriesToTheRunnerLogDir(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	logDir := filepath.Join(t.TempDir(), "logs")
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: t.TempDir(), MCPHost: mcpserve.NewHost(), MCPLogDir: logDir,
 		ReadOnlySecretTag: acmeSecretTag})
 
-	handle, _ := runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
+	handle, _ := runner.startMCP(context.Background(), &Options{}, "archive", 15432, &ideTarget{Engine: "sqlserver-se"}, awsConfig{Profile: "dev"}, false)
 	if handle == nil {
 		t.Fatal("expected an MCP server for sql server")
 	}
@@ -167,6 +174,7 @@ func TestStartMCPLogsQueriesToTheRunnerLogDir(t *testing.T) {
 }
 
 func TestStartMCPPassesTheEnteredPassword(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 	var got *dbmcp.SessionConfig
 	previous := dbmcpStart
@@ -177,7 +185,7 @@ func TestStartMCPPassesTheEnteredPassword(t *testing.T) {
 	t.Cleanup(func() { dbmcpStart = previous })
 
 	target := ideTarget{Engine: "postgres", DBUser: "app_user", DBPassword: "s3cret"}
-	runner.startMCP(&Options{}, "archive", 15432, &target, awsConfig{Profile: "dev"}, false)
+	runner.startMCP(context.Background(), &Options{}, "archive", 15432, &target, awsConfig{Profile: "dev"}, false)
 	if got == nil || got.DBUser != "app_user" || got.DBPassword != "s3cret" || got.IAMAuth {
 		t.Fatalf("session config = %+v, want the entered user and password without IAM", got)
 	}
@@ -214,6 +222,7 @@ func TestDescribeAuthNamesTheSignInMode(t *testing.T) {
 }
 
 func TestStartMCPPassesSecretAndRejectionCallback(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 	var got *dbmcp.SessionConfig
 	previous := dbmcpStart
@@ -223,13 +232,13 @@ func TestStartMCPPassesSecretAndRejectionCallback(t *testing.T) {
 	}
 	t.Cleanup(func() { dbmcpStart = previous })
 
-	runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "postgres", DBUser: "app_user", DBSecretARN: "arn:secret"}, awsConfig{Profile: "dev"}, false)
+	runner.startMCP(context.Background(), &Options{}, "archive", 15432, &ideTarget{Engine: "postgres", DBUser: "app_user", DBSecretARN: "arn:secret"}, awsConfig{Profile: "dev"}, false)
 	if got == nil || got.DBSecretARN != "arn:secret" || got.DBUser != "app_user" || got.OnPasswordRejected != nil {
 		t.Fatalf("session config = %+v, want the secret and no rejection callback", got)
 	}
 
 	runner.keychain = keychain.NewMemoryStore()
-	runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "postgres", DBUser: "app_user", DBPassword: "s3cret", KeychainAccount: "acct"}, awsConfig{Profile: "dev"}, false)
+	runner.startMCP(context.Background(), &Options{}, "archive", 15432, &ideTarget{Engine: "postgres", DBUser: "app_user", DBPassword: "s3cret", KeychainAccount: "acct"}, awsConfig{Profile: "dev"}, false)
 	if got.OnPasswordRejected == nil {
 		t.Fatal("a keychain password must get a rejection callback")
 	}
@@ -273,8 +282,9 @@ func TestSessionMCPServerIsNilInterfaceWithoutServer(t *testing.T) {
 }
 
 func TestAttachMCPShowsDisplayAndKeepsServer(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
-	handle, display := runner.startMCP(&Options{}, "archive", 15432, &ideTarget{Engine: "postgres", IAMAuth: true, DBUser: "ro"}, awsConfig{Profile: "dev"}, false)
+	handle, display := runner.startMCP(context.Background(), &Options{}, "archive", 15432, &ideTarget{Engine: "postgres", IAMAuth: true, DBUser: "ro"}, awsConfig{Profile: "dev"}, false)
 	defer handle.Close()
 	session := &Session{}
 	runner.attachMCP(session, handle, display)
@@ -284,6 +294,7 @@ func TestAttachMCPShowsDisplayAndKeepsServer(t *testing.T) {
 }
 
 func TestStartKubeMCPReportsFailureThroughTheDisplay(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 	previous := kubemcpStart
 	kubemcpStart = func(*mcpserve.Host, *kubemcp.SessionConfig) (*mcpserve.Handle, error) {
@@ -291,7 +302,7 @@ func TestStartKubeMCPReportsFailureThroughTheDisplay(t *testing.T) {
 	}
 	t.Cleanup(func() { kubemcpStart = previous })
 
-	handle, display := runner.startKubeMCP(&Options{}, "platform", "ABCD.eks.amazonaws.com", "ca", 15443, awsConfig{Profile: "dev"})
+	handle, display := runner.startKubeMCP(context.Background(), &Options{}, "platform", "ABCD.eks.amazonaws.com", "ca", 15443, awsConfig{Profile: "dev"})
 	if handle != nil || display != "not started: invalid cluster certificate authority" {
 		t.Fatalf("handle = %v, display = %q", handle, display)
 	}
