@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	mssql "github.com/microsoft/go-mssqldb"
 )
 
@@ -225,7 +226,7 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	isGUID := guidColumns(rows, len(columns))
+	types := columnTypes(rows, len(columns))
 	result := Result{Columns: columns, Rows: [][]any{}}
 	for rows.Next() {
 		if len(result.Rows) == maxRows {
@@ -241,13 +242,15 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 			return Result{}, err
 		}
 		for i, value := range values {
-			if isGUID[i] {
-				if raw, ok := value.([]byte); ok && len(raw) == 16 {
-					values[i] = truncateText(mssqlGUID(raw))
-					continue
-				}
+			raw, isRaw := value.([]byte)
+			switch {
+			case isRaw && types[i] == "UNIQUEIDENTIFIER" && len(raw) == 16:
+				values[i] = truncateText(mssqlGUID(raw))
+			case isRaw && types[i] == "BIT" && len(raw) <= 8:
+				values[i] = bitValue(raw)
+			default:
+				values[i] = jsonValue(value)
 			}
-			values[i] = jsonValue(value)
 		}
 		result.Rows = append(result.Rows, values)
 	}
@@ -258,21 +261,21 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 	return result, nil
 }
 
-// guidColumns reports, per column (indexed as in rows.Columns()), whether the database declares
-// it as SQL Server's UNIQUEIDENTIFIER type. Drivers that don't report column types (or an error)
-// yield an all-false result.
-func guidColumns(rows *sql.Rows, n int) []bool {
-	isGUID := make([]bool, n)
+// columnTypes returns the upper-cased database type of each column (indexed as in rows.Columns()),
+// e.g. SQL Server's UNIQUEIDENTIFIER or MySQL's BIT. Drivers that don't report column types (or an
+// error) yield empty names.
+func columnTypes(rows *sql.Rows, n int) []string {
+	names := make([]string, n)
 	types, err := rows.ColumnTypes()
 	if err != nil {
-		return isGUID
+		return names
 	}
 	for i, t := range types {
 		if i < n {
-			isGUID[i] = strings.EqualFold(t.DatabaseTypeName(), "UNIQUEIDENTIFIER")
+			names[i] = strings.ToUpper(t.DatabaseTypeName())
 		}
 	}
-	return isGUID
+	return names
 }
 
 // connectionError explains the usual causes of a failed connection: the tunnel is not up yet, the
@@ -297,8 +300,12 @@ type authFailureHinter interface {
 	authFailureHint() string
 }
 
-// isAuthFailure reports whether the database rejected the credentials (PostgreSQL 28P01, SQL Server 18456).
+// isAuthFailure reports whether the database rejected the credentials (PostgreSQL 28P01, SQL Server
+// 18456, MySQL 1045).
 func isAuthFailure(err error) bool {
+	if myErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
+		return myErr.Number == mysqlAccessDenied
+	}
 	text := err.Error()
 	return strings.Contains(text, "28P01") || strings.Contains(text, "password authentication failed") ||
 		strings.Contains(text, "Login failed for user")
@@ -308,6 +315,10 @@ func isAuthFailure(err error) bool {
 // isAuthFailure does not tell apart on SQL Server: a login to an unknown or inaccessible database
 // (error 4060) always comes with 18456 "Login failed", although the password was accepted.
 func isPasswordRejected(err error) bool {
+	if myErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
+		// 1044, access denied to a database, follows an accepted password.
+		return myErr.Number == mysqlAccessDenied
+	}
 	if sqlErr, ok := errors.AsType[mssql.Error](err); ok {
 		chain := sqlErr.All
 		if len(chain) == 0 {
@@ -336,6 +347,9 @@ const (
 	mssqlLoginFailed        = 18456
 	mssqlCannotOpenDatabase = 4060
 )
+
+// mysqlAccessDenied is the MySQL error of refused credentials (ER_ACCESS_DENIED_ERROR).
+const mysqlAccessDenied = 1045
 
 func (q *sqlQuerier) Query(ctx context.Context, database, query string, maxRows int) (Result, error) {
 	if err := CheckReadOnly(q.dialect.engine, query); err != nil {
@@ -402,7 +416,8 @@ func (q *sqlQuerier) Describe(ctx context.Context, database, schema, table strin
 		return TableDescription{}, err
 	}
 	if len(columns.Rows) == 0 {
-		return TableDescription{}, fmt.Errorf("table %s.%s not found", schema, table)
+		// MySQL has no default schema: the current database is.
+		return TableDescription{}, fmt.Errorf("table %s not found", strings.TrimPrefix(schema+"."+table, "."))
 	}
 	for _, row := range columns.Rows {
 		column := Column{Name: text(row[0]), Type: text(row[1]), Nullable: strings.EqualFold(text(row[2]), "YES")}

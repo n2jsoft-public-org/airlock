@@ -15,7 +15,8 @@ const maxTextBytes = 4096
 // jsonValue converts a database/sql driver value into a JSON-friendly value.
 func jsonValue(v any) any {
 	switch x := v.(type) {
-	case nil, bool, int64, float64:
+	case nil, bool, int64, uint64, float64:
+		// encoding/json writes 64-bit integers exactly: no float rounding past 2^53.
 		return x
 	case string:
 		return truncateText(x)
@@ -29,6 +30,15 @@ func jsonValue(v any) any {
 	default:
 		return truncateText(fmt.Sprint(x))
 	}
+}
+
+// bitValue reads a MySQL BIT value, sent as big-endian bytes, as a number.
+func bitValue(raw []byte) uint64 {
+	var n uint64
+	for _, b := range raw {
+		n = n<<8 | uint64(b)
+	}
+	return n
 }
 
 // mssqlGUID renders a SQL Server uniqueidentifier's 16 raw wire-order bytes (as returned by

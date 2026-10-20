@@ -27,6 +27,16 @@ func TestCheckReadOnlyAccepts(t *testing.T) {
 		{"escape string with escaped quote", EnginePostgres, "SELECT E'it\\'s; DROP' AS x"},
 		{"standard string ending in a backslash", EnginePostgres, "SELECT 1 FROM t WHERE name = 'a\\' OR code = 'b'"},
 		{"dollar sign inside an identifier is not a dollar quote", EnginePostgres, "SELECT price$usd FROM t"},
+		{"keyword in backtick identifier", EngineMySQL, "SELECT `delete`, `a``;b` FROM `order`"},
+		{"keyword in hash comment", EngineMySQL, "SELECT 1 # ; DROP TABLE users\n"},
+		{"keyword in double-dash comment", EngineMariaDB, "SELECT 1 -- ; DROP TABLE users"},
+		{"backslash-escaped quote", EngineMySQL, "SELECT 'it\\'s; DROP' AS x"},
+		{"double-quoted string", EngineMySQL, `SELECT "a\"; DELETE" AS x`},
+		{"optimizer hint", EngineMySQL, "SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1"},
+		{"show", EngineMySQL, "SHOW CREATE TABLE orders"},
+		{"describe", EngineMariaDB, "DESCRIBE orders"},
+		{"desc", EngineMySQL, "desc orders"},
+		{"explain mysql", EngineMySQL, "EXPLAIN FORMAT=JSON SELECT * FROM orders"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,6 +74,22 @@ func TestCheckReadOnlyRejects(t *testing.T) {
 		{"dollar signs after identifiers are not a dollar quote hiding a second statement", EnginePostgres, "SELECT a$b$ FROM t; DELETE FROM t; SELECT c$b$ FROM t", "single statement"},
 		{"sql server batch commits and disables a trigger without a semicolon", EngineSQLServer, "SELECT 1 COMMIT DISABLE TRIGGER ALL ON dbo.t", "COMMIT"},
 		{"sql server batch begins a transaction without a semicolon", EngineSQLServer, "SELECT 1 BEGIN TRAN", "BEGIN"},
+		{"mysql delete", EngineMySQL, "DELETE FROM users", "only SELECT, WITH, SHOW, DESCRIBE or EXPLAIN"},
+		{"show on postgres", EnginePostgres, "SHOW search_path", "only SELECT or WITH"},
+		{"select into outfile", EngineMySQL, "SELECT * FROM users INTO OUTFILE '/tmp/u'", "INTO"},
+		{"select into variable", EngineMariaDB, "SELECT id INTO @x FROM users", "INTO"},
+		{"lock in share mode", EngineMySQL, "SELECT * FROM users LOCK IN SHARE MODE", "LOCK"},
+		{"lock tables", EngineMySQL, "LOCK TABLES users WRITE", "only SELECT"},
+		{"set global", EngineMySQL, "SET GLOBAL read_only = 0", "only SELECT"},
+		{"load data", EngineMySQL, "LOAD DATA LOCAL INFILE '/etc/passwd' INTO TABLE t", "only SELECT"},
+		{"explain analyze executes the query on mysql", EngineMySQL, "EXPLAIN ANALYZE SELECT * FROM users", "ANALYZE"},
+		{"describe hides a delete", EngineMySQL, "DESCRIBE DELETE FROM users", "DELETE"},
+		{"executable comment", EngineMySQL, "SELECT 1 /*! ; DELETE FROM users */", "executable comments"},
+		{"mariadb executable comment", EngineMariaDB, "SELECT 1 /*M!100100 ; DELETE FROM users */", "executable comments"},
+		{"mysql comments do not nest", EngineMySQL, "SELECT 1 /* /* */ ; DELETE FROM users /* */", "single statement"},
+		{"double dash without space is a subtraction", EngineMySQL, "SELECT 1--1; DELETE FROM users", "single statement"},
+		{"backslash escape does not end a string", EngineMySQL, "SELECT '\\'' ; DELETE FROM users; SELECT ''", "single statement"},
+		{"hash is no comment on postgres", EnginePostgres, "SELECT 1 # 2; DELETE FROM users", "single statement"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

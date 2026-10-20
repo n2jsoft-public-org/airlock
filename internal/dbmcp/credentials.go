@@ -85,9 +85,10 @@ func (p *iamTokenProvider) Credentials(ctx context.Context, database string) (Cr
 func (*iamTokenProvider) Databases(context.Context) ([]string, error) { return nil, nil }
 
 func (p *iamTokenProvider) authFailureHint() string {
-	// PostgreSQL gives the same answer for an unknown user and for a password user without rds_iam.
-	return fmt.Sprintf("%s rejected the AWS IAM token: the user does not exist on this instance, or lacks the rds_iam role "+
-		"(GRANT rds_iam TO %s); otherwise connect again with IAM auth turned off and its password", p.user, p.user)
+	// The databases give the same answer for an unknown user and for a password user.
+	return fmt.Sprintf("%s rejected the AWS IAM token: the user does not exist on this instance, or does not sign in with IAM "+
+		"(PostgreSQL: GRANT rds_iam TO %s; MySQL: CREATE USER %s IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'); "+
+		"otherwise connect again with IAM auth turned off and its password", p.user, p.user, p.user)
 }
 
 // passwordProvider signs in with the user and password entered by the user.

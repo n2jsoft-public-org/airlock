@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
 	mssql "github.com/microsoft/go-mssqldb"
 )
@@ -116,5 +117,35 @@ func TestAddressStringBracketsIPv6(t *testing.T) {
 	}
 	if parsed.Host != "[::1]:1433" {
 		t.Fatalf("sql server host = %q", parsed.Host)
+	}
+}
+
+func TestMySQLConfigTLSModes(t *testing.T) {
+	for _, tc := range []struct {
+		mode      TLSMode
+		tls       bool
+		verify    bool
+		cleartext bool
+	}{
+		{mode: TLSRequire, tls: true, cleartext: true},
+		{mode: TLSVerify, tls: true, verify: true, cleartext: true},
+		{mode: TLSDisable},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			config := mysqlConfig(Address{Host: "shop.db.internal", Port: 3306, TLS: tc.mode}, "shop", mysqlDialect.connParams)
+			if config.Addr != "shop.db.internal:3306" || config.DBName != "shop" || !config.InterpolateParams || config.Params["max_execution_time"] != "30000" {
+				t.Fatalf("config = %+v", config)
+			}
+			// RDS IAM tokens go as cleartext passwords: never without TLS.
+			if (config.TLS != nil) != tc.tls || config.AllowCleartextPasswords != tc.cleartext {
+				t.Fatalf("TLS %v, cleartext %v", config.TLS, config.AllowCleartextPasswords)
+			}
+			if tc.tls && config.TLS.InsecureSkipVerify == tc.verify {
+				t.Fatalf("InsecureSkipVerify = %v", config.TLS.InsecureSkipVerify)
+			}
+			if _, err := mysql.NewConnector(config); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

@@ -210,7 +210,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.token.flag.region":           "AWS region (default: the profile's)",
 	// internal/cli/exec_cmd.go
 	"cli.exec.short":             "Run a command with a tunnel open and its connection settings in the environment",
-	"cli.exec.long":              "Opens the target like airlock <type> <name> (saved choices, --profile, --region, --db-user, --db-secret, local port), without dashboard, MCP server nor IDE data source; waits until the tunnel listens and the sign-in works; runs the command after -- with the connection settings in its environment (AIRLOCK_HOST, AIRLOCK_PORT, PG*, SQLCMD*, DATABASE_URL, REDIS_URL, KUBECONFIG); then closes the session and exits with the command's status. An AWS IAM token is valid 15 minutes: connect early.",
+	"cli.exec.long":              "Opens the target like airlock <type> <name> (saved choices, --profile, --region, --db-user, --db-secret, local port), without dashboard, MCP server nor IDE data source; waits until the tunnel listens and the sign-in works; runs the command after -- with the connection settings in its environment (AIRLOCK_HOST, AIRLOCK_PORT, PG*, SQLCMD*, MYSQL_*, DATABASE_URL, REDIS_URL, KUBECONFIG); then closes the session and exits with the command's status. An AWS IAM token is valid 15 minutes: connect early.",
 	"cli.exec.command_required":  "give the command to run after --, e.g. airlock exec rds my-db -- psql",
 	"cli.exec.target_required":   "give the type and name of the target before --, e.g. airlock exec rds my-db -- psql",
 	"cli.exec.unsupported_type":  "airlock exec opens rds, eks, elasticache, direct and docker targets, not %q",

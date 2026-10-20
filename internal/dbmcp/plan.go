@@ -34,7 +34,8 @@ type PlanRequest struct {
 	// Values holds one value per parameter, in order: string, number, bool or nil.
 	Values []any
 	Mode   string
-	// IncludeXML returns the raw showplans (SQL Server), IncludeJSON the raw EXPLAIN output (PostgreSQL).
+	// IncludeXML returns the raw showplans (SQL Server), IncludeJSON the raw EXPLAIN output (PostgreSQL,
+	// MySQL and MariaDB JSON plans).
 	IncludeXML  bool
 	IncludeJSON bool
 }
@@ -49,7 +50,7 @@ type PlanResult struct {
 	Statements []StatementPlan `json:"statements"`
 	// PlanXML holds the raw showplans, one per statement, to save as .sqlplan files.
 	PlanXML []string `json:"plan_xml,omitempty"`
-	// PlanJSON holds the raw EXPLAIN (FORMAT JSON) output of PostgreSQL.
+	// PlanJSON holds the raw EXPLAIN (FORMAT JSON) output of PostgreSQL, or FORMAT=JSON of MySQL.
 	PlanJSON json.RawMessage `json:"plan_json,omitempty"`
 }
 
@@ -78,8 +79,11 @@ func (q *sqlQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, err
 	if q.dialect.engine == EnginePostgres {
 		return q.postgresPlan(ctx, &req, mode)
 	}
+	if q.dialect.engine.mysqlFamily() {
+		return q.mysqlPlan(ctx, &req, mode)
+	}
 	if req.IncludeJSON {
-		return PlanResult{}, errors.New("include_json is for PostgreSQL: use include_xml for the raw SQL Server showplan")
+		return PlanResult{}, errors.New("include_json is for PostgreSQL and MySQL: use include_xml for the raw SQL Server showplan")
 	}
 	batch, args, err := planBatch(req.SQL, req.Parameters, req.Values, mode)
 	if err != nil {

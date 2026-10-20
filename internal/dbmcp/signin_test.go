@@ -50,7 +50,7 @@ func TestCheckSignInTellsARejectedPasswordFromOtherFailures(t *testing.T) {
 }
 
 func TestCheckSignInRefusesUnsupportedEngines(t *testing.T) {
-	err := CheckSignIn(context.Background(), "mysql", PasswordCredentials("u", "p", ""), 3306)
+	err := CheckSignIn(context.Background(), "oracle-ee", PasswordCredentials("u", "p", ""), 3306)
 	if !errors.Is(err, ErrEngineUnsupported) {
 		t.Fatalf("err = %v, want ErrEngineUnsupported", err)
 	}

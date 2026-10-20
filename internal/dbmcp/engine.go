@@ -9,6 +9,9 @@ type Engine string
 const (
 	EnginePostgres  Engine = "postgres"
 	EngineSQLServer Engine = "sqlserver"
+	// EngineMySQL is RDS MySQL and Aurora MySQL; EngineMariaDB differs in timeouts and plans.
+	EngineMySQL   Engine = "mysql"
+	EngineMariaDB Engine = "mariadb"
 )
 
 // EngineFor maps an AWS RDS engine name to a supported engine.
@@ -19,6 +22,10 @@ func EngineFor(awsEngine string) (Engine, bool) {
 		return EnginePostgres, true
 	case strings.HasPrefix(engine, "sqlserver"):
 		return EngineSQLServer, true
+	case engine == "mysql" || engine == "aurora-mysql" || engine == "aurora":
+		return EngineMySQL, true
+	case engine == "mariadb":
+		return EngineMariaDB, true
 	default:
 		return "", false
 	}
@@ -26,8 +33,19 @@ func EngineFor(awsEngine string) (Engine, bool) {
 
 // Dialect names the SQL dialect of the engine for the AI assistant.
 func (e Engine) Dialect() string {
-	if e == EngineSQLServer {
+	switch e {
+	case EngineSQLServer:
 		return "T-SQL (SQL Server)"
+	case EngineMySQL:
+		return "MySQL"
+	case EngineMariaDB:
+		return "MariaDB"
+	default:
+		return "PostgreSQL"
 	}
-	return "PostgreSQL"
+}
+
+// mysqlFamily reports whether e speaks the MySQL protocol and SQL dialect.
+func (e Engine) mysqlFamily() bool {
+	return e == EngineMySQL || e == EngineMariaDB
 }

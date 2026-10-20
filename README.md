@@ -359,11 +359,11 @@ The **Sign-in** selector offers up to four methods, depending on the target:
 |---|---|
 | **IAM token** | The instance has IAM authentication enabled. Default when offered. |
 | **Auto** | SQL Server only: the tagged read-only secrets, or the master user secret with MCP writes. |
-| **Password** | PostgreSQL, Aurora PostgreSQL and SQL Server targets, with the MCP server on (no `--no-mcp`). |
+| **Password** | PostgreSQL, MySQL, MariaDB (Aurora included) and SQL Server targets, with the MCP server on (no `--no-mcp`). |
 | **Secrets Manager** | Same as Password. |
 
 Password and Secrets Manager are offered only where airlock itself uses the credentials, that is for
-the MCP server. Elsewhere (MySQL, or `--no-mcp`) only IAM token is shown when enabled, and your IDE
+the MCP server. Elsewhere (Oracle, or `--no-mcp`) only IAM token is shown when enabled, and your IDE
 asks for the password as before.
 
 - **IAM token.** airlock signs in without a password, generating short-lived AWS IAM tokens. The user
@@ -398,7 +398,7 @@ as a Secrets Manager sign-in, its ARN and user only, so the next connection skip
 check fails, the tunnel stays open and the other credentials are offered; if the database rejects a
 remembered secret, it is forgotten and the sign-in falls back to **Auto**. Press `a` to choose or
 check again. The master user secret is never offered; Auto with MCP writes and engines airlock does
-not query (MySQL) are not checked.
+not query (Oracle) are not checked.
 
 #### The OS keychain
 
@@ -474,11 +474,12 @@ standard input and output, and the signals airlock receives (`SIGTERM` from a sc
 | databases, caches | `AIRLOCK_USER`, `AIRLOCK_PASSWORD`, `AIRLOCK_DATABASE`, when known |
 | PostgreSQL | `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGSSLMODE` (`require` through a tunnel), `DATABASE_URL=postgres://…` |
 | SQL Server | `SQLCMDSERVER` (`host,port`), `SQLCMDUSER`, `SQLCMDPASSWORD`, `SQLCMDDBNAME`, `DATABASE_URL=sqlserver://…` |
+| MySQL, MariaDB | `MYSQL_HOST`, `MYSQL_TCP_PORT`, `MYSQL_PWD`, `DATABASE_URL=mysql://…` (an IAM token needs TLS and the cleartext plugin: `mysql --ssl-mode=REQUIRED --enable-cleartext-plugin`) |
 | Redis, Valkey | `REDIS_URL` (`rediss://` with TLS), `AIRLOCK_TLS_SERVER_NAME` (the host the certificate names) |
 | EKS | `KUBECONFIG`, the session's own kubeconfig |
 
 The password is the AWS IAM token, the secret's password or the password remembered in the OS
-keychain: airlock never prints it, and URLs escape it. Other engines (MySQL, Memcached) only get
+keychain: airlock never prints it, and URLs escape it. Other engines (Oracle, Memcached) only get
 `AIRLOCK_HOST` and `AIRLOCK_PORT`.
 
 - **An AWS IAM token is valid 15 minutes.** A long command keeps working if it connects early, as
@@ -660,7 +661,7 @@ session instead.
 
 ## 🤖 AI access with MCP
 
-For **RDS PostgreSQL** and **SQL Server** sessions, **direct databases**, **EKS** clusters and
+For **RDS PostgreSQL**, **MySQL**, **MariaDB** (Aurora included) and **SQL Server** sessions, **direct databases**, **EKS** clusters and
 **Redis / Valkey ElastiCache** caches, **DynamoDB** tables, **S3** buckets and **CloudWatch Logs**, airlock serves an MCP server on
 `127.0.0.1` for as long as the session runs, so AI assistants can explore them: through the tunnel,
 straight at the server for direct databases, or through the AWS API for DynamoDB, S3 and CloudWatch Logs.
@@ -672,11 +673,11 @@ straight at the server for direct databases, or through the AWS API for DynamoDB
 | `list_databases` | List the databases of the instance |
 | `list_tables` | List the tables of a database |
 | `describe_table` | Show the columns of a table |
-| `query` | Run a single read-only `SELECT` / `WITH` (max 1000 rows, 30 s timeout) |
-| `query_plan` | Execution plan of a single read-only `SELECT` / `WITH`, summarized: operators with estimated and actual rows, costs, predicates and warnings; on SQL Server also seeks, missing indexes, parameter values and the `STATISTICS IO` and `TIME` output; on PostgreSQL timings, buffers and changed settings. See below. |
+| `query` | Run a single read-only `SELECT` / `WITH` (on MySQL also `SHOW`, `DESCRIBE`, `EXPLAIN`; max 1000 rows, 30 s timeout) |
+| `query_plan` | Execution plan of a single read-only `SELECT` / `WITH`, summarized: operators with estimated and actual rows, costs, predicates and warnings; on SQL Server also seeks, missing indexes, parameter values and the `STATISTICS IO` and `TIME` output; on PostgreSQL timings, buffers and changed settings; on MySQL and MariaDB access types, keys, filtered rows and timings. See below. |
 | `execute` | Run a statement that modifies data. **Only with `--mcp-allow-writes`.** |
 
-`query_plan` has two modes on both engines: `actual` (default) runs the statement in a transaction
+`query_plan` has two modes on every engine: `actual` (default) runs the statement in a transaction
 always rolled back, `estimated` only plans it.
 
 On **SQL Server**:
@@ -702,6 +703,22 @@ types: there is no `parameters` declaration, cast in the statement where the typ
 (`$1::int`). The warnings point out big estimate misses, sequential scans reading many rows, and
 sorts or hashes spilling to disk. `include_json` also returns the raw `EXPLAIN` output, for plan
 visualizers such as [explain.dalibo.com](https://explain.dalibo.com).
+
+On **MySQL** and **MariaDB**:
+
+- `actual` runs `EXPLAIN ANALYZE` (MySQL 8.0.18 or later, Aurora MySQL 3) or `ANALYZE FORMAT=JSON`
+  (MariaDB) in a read-only transaction always rolled back. On older MySQL versions, use `estimated`.
+- `estimated` runs `EXPLAIN FORMAT=JSON`.
+
+A parameterized statement uses `?` with `values`, one per parameter. The warnings point out large
+full scans and big estimate misses. `include_json` also returns the raw `EXPLAIN FORMAT=JSON`
+output (not with MySQL's `actual` mode, whose plan is a text tree).
+
+MySQL schemas are databases: `list_tables` and `describe_table` default to the session's database,
+and `list_tables` lists every readable database when the session has none. Reads run in a
+`READ ONLY` transaction, with a 30 s server-side timeout (`max_execution_time`, or
+`max_statement_time` on MariaDB). An IAM sign-in needs a user created with
+`IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`.
 
 **Kubernetes tools (EKS, always read-only)**
 
@@ -902,13 +919,14 @@ airlock skills install --user        # ~/.claude/skills and ~/.agents/skills, fo
 
 **Credentials.** Nothing is written to disk.
 
-- **PostgreSQL** uses an IAM token for the chosen database user. Read-only mode relies on that user
-  being read-only in the database, in addition to the query guard.
+- **PostgreSQL**, **MySQL** and **MariaDB** use an IAM token for the chosen database user. Read-only mode
+  relies on that user being read-only in the database, in addition to the query guard and the
+  read-only transaction.
 - **SQL Server** uses the read-only secrets of the instance tagged with `modules.sql.readOnlySecretTag`, one per
   database. Without that tag, SQL Server read-only access is off.
 
 **Write access.** `--mcp-allow-writes`, or the `MCP` toggle on the review step, adds the destructive
-`execute` tool (for DynamoDB, the `put_item`, `update_item` and `delete_item` tools; for S3, `put_object` and `delete_object`: see their tables). PostgreSQL still signs in as the chosen database user, so pick a user that is allowed
+`execute` tool (for DynamoDB, the `put_item`, `update_item` and `delete_item` tools; for S3, `put_object` and `delete_object`: see their tables). PostgreSQL and MySQL still sign in as the chosen database user, so pick a user that is allowed
 to write: its grants decide what can change. SQL Server has no IAM sign-in and switches to the RDS
 master user secret (administrators only). `--no-mcp` disables the server entirely.
 

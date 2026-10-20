@@ -25,8 +25,9 @@ var forbiddenKeywords = map[string]bool{
 	"REVERT": true, "WAITFOR": true,
 }
 
-// CheckReadOnly rejects anything but a single SELECT/WITH statement (plus EXPLAIN on PostgreSQL).
-// It is a guardrail against mistakes; the database grants remain the security boundary.
+// CheckReadOnly rejects anything but a single SELECT/WITH statement (plus EXPLAIN on PostgreSQL, and
+// SHOW, DESCRIBE and EXPLAIN on MySQL). It is a guardrail against mistakes; the database grants
+// remain the security boundary.
 func CheckReadOnly(engine Engine, query string) error {
 	code, err := stripLiterals(engine, query)
 	if err != nil {
@@ -48,9 +49,14 @@ func CheckReadOnly(engine Engine, query string) error {
 
 	words := keywords(code)
 	first := words[0]
-	allowed := first == "SELECT" || first == "WITH" || (engine == EnginePostgres && first == "EXPLAIN")
+	allowed := first == "SELECT" || first == "WITH" || (engine == EnginePostgres && first == "EXPLAIN") ||
+		(engine.mysqlFamily() && (first == "SHOW" || first == "DESCRIBE" || first == "DESC" || first == "EXPLAIN"))
 	if !allowed {
-		return fmt.Errorf("only SELECT or WITH queries are allowed (got %s); use the execute tool for other statements when writes are enabled", first)
+		return fmt.Errorf("only %s queries are allowed (got %s); use the execute tool for other statements when writes are enabled", readStatements(engine), first)
+	}
+	if first == "SHOW" {
+		// SHOW only reads, and names statements: SHOW CREATE TABLE, SHOW GRANTS.
+		return nil
 	}
 	for _, word := range words {
 		if forbiddenKeywords[word] {
@@ -60,9 +66,18 @@ func CheckReadOnly(engine Engine, query string) error {
 	return nil
 }
 
+// readStatements names the statements CheckReadOnly allows on engine.
+func readStatements(engine Engine) string {
+	if engine.mysqlFamily() {
+		return "SELECT, WITH, SHOW, DESCRIBE or EXPLAIN"
+	}
+	return "SELECT or WITH"
+}
+
 // stripLiterals replaces comments, string literals and quoted identifiers with spaces,
 // so that keywords and semicolons inside them are ignored.
 func stripLiterals(engine Engine, query string) (string, error) {
+	mysqlFamily := engine.mysqlFamily()
 	var out strings.Builder
 	runes := []rune(query)
 	for i := 0; i < len(runes); {
@@ -72,10 +87,21 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			next = runes[i+1]
 		}
 		switch {
-		case c == '-' && next == '-':
+		case (c == '-' && next == '-' && (!mysqlFamily || mysqlDashComment(runes, i))) || (c == '#' && mysqlFamily):
 			for i < len(runes) && runes[i] != '\n' {
 				i++
 			}
+			out.WriteRune(' ')
+		case c == '/' && next == '*' && mysqlFamily:
+			// MySQL runs the content of /*! */ (and MariaDB of /*M! */) comments, and does not nest them.
+			if i+2 < len(runes) && (runes[i+2] == '!' || (runes[i+2] == 'M' && i+3 < len(runes) && runes[i+3] == '!')) {
+				return "", errors.New("executable comments (/*! ... */) are not allowed")
+			}
+			end := indexRunes(runes, i+2, []rune("*/"))
+			if end < 0 {
+				return "", errors.New("unterminated comment")
+			}
+			i = end + 2
 			out.WriteRune(' ')
 		case c == '/' && next == '*':
 			depth := 0
@@ -99,15 +125,20 @@ func stripLiterals(engine Engine, query string) (string, error) {
 				return "", errors.New("unterminated comment")
 			}
 			out.WriteRune(' ')
-		case c == '\'' || c == '"' || (c == '[' && engine == EngineSQLServer):
+		case c == '\'' || c == '"' || (c == '[' && engine == EngineSQLServer) || (c == '`' && mysqlFamily):
 			closing := c
 			if c == '[' {
 				closing = ']'
 			}
 			var end int
-			if c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || !isIdentContinuation(runes[i-2])) {
-				end = escapeStringEnd(runes, i+1)
-			} else {
+			switch {
+			// ponytail: MySQL strings take backslash escapes unless sql_mode has NO_BACKSLASH_ESCAPES (not
+			// the RDS default); the read-only transaction and one-statement protocol back the guard there.
+			case (c == '\'' || c == '"') && mysqlFamily:
+				end = escapeStringEnd(runes, i+1, c)
+			case c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || !isIdentContinuation(runes[i-2])):
+				end = escapeStringEnd(runes, i+1, '\'')
+			default:
 				end = closingIndex(runes, i+1, closing)
 			}
 			if end < 0 {
@@ -158,24 +189,30 @@ func closingIndex(runes []rune, from int, closing rune) int {
 	return -1
 }
 
-// escapeStringEnd finds the closing quote in a PostgreSQL E'...' escape string starting at from.
-// In escape strings, \' is an escaped quote and ” is also an escaped quote.
-func escapeStringEnd(runes []rune, from int) int {
+// escapeStringEnd finds the closing quote of a string taking backslash escapes (a PostgreSQL E'...'
+// escape string, a MySQL string) starting at from: \' and a doubled quote are escaped quotes.
+func escapeStringEnd(runes []rune, from int, quote rune) int {
 	for i := from; i < len(runes); i++ {
 		if runes[i] == '\\' && i+1 < len(runes) {
 			i++
 			continue
 		}
-		if runes[i] != '\'' {
+		if runes[i] != quote {
 			continue
 		}
-		if i+1 < len(runes) && runes[i+1] == '\'' {
+		if i+1 < len(runes) && runes[i+1] == quote {
 			i++
 			continue
 		}
 		return i
 	}
 	return -1
+}
+
+// mysqlDashComment reports whether the "--" at i starts a MySQL comment: it must be followed by
+// whitespace, a control character or the end (1--1 is a subtraction).
+func mysqlDashComment(runes []rune, i int) bool {
+	return i+2 >= len(runes) || unicode.IsSpace(runes[i+2]) || unicode.IsControl(runes[i+2])
 }
 
 // isIdentContinuation reports whether r may appear after the first character of a PostgreSQL

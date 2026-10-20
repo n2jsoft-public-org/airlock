@@ -279,8 +279,7 @@ func (n *explainNode) misestimated() bool {
 	if n.ActualLoops == nil || *n.ActualLoops == 0 {
 		return false
 	}
-	low, high := min(n.PlanRows, n.ActualRows), max(n.PlanRows, n.ActualRows)
-	return high >= estimateMissRows && high >= estimateMissRatio*max(low, 1)
+	return rowsMisestimated(n.PlanRows, n.ActualRows)
 }
 
 // appendExplainWarnings returns the warnings of n and its children: big estimate misses,

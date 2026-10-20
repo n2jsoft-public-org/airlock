@@ -41,6 +41,16 @@ func TestExecVarsOfADirectSQLServer(t *testing.T) {
 	}
 }
 
+func TestExecVarsOfAMySQLTunnel(t *testing.T) {
+	client := jumphost.Client{Engine: "mariadb", Address: dbmcp.TunnelAddress(13306), User: "app_ro", Password: "tok/en", Database: "shop"}
+	got := execVars(&client, "")
+	for _, want := range []string{"MYSQL_HOST=127.0.0.1", "MYSQL_TCP_PORT=13306", "MYSQL_PWD=tok/en", "DATABASE_URL=mysql://app_ro:tok%2Fen@127.0.0.1:13306/shop"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("vars lack %q: %q", want, got)
+		}
+	}
+}
+
 func TestExecVarsOfCaches(t *testing.T) {
 	tls := jumphost.Client{Engine: jumphost.ClientEngineRedis, Address: dbmcp.TunnelAddress(16379), ServerName: "master.cache.amazonaws.com", User: "app", Password: "p:w"}
 	got := execVars(&tls, "")

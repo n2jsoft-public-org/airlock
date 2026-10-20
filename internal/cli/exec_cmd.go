@@ -308,6 +308,12 @@ func execVars(client *jumphost.Client, kubeconfig string) []string {
 		}
 		u := url.URL{Scheme: "sqlserver", User: user, Host: addr.String(), RawQuery: query.Encode()}
 		set("DATABASE_URL", u.String())
+	case string(dbmcp.EngineMySQL), string(dbmcp.EngineMariaDB):
+		set("MYSQL_HOST", host)
+		set("MYSQL_TCP_PORT", port)
+		set("MYSQL_PWD", client.Password)
+		u := url.URL{Scheme: "mysql", User: user, Host: addr.String(), Path: "/" + client.Database}
+		set("DATABASE_URL", u.String())
 	case jumphost.ClientEngineRedis:
 		u := url.URL{Scheme: "redis", User: user, Host: addr.String()}
 		if addr.TLS != dbmcp.TLSDisable {

@@ -171,7 +171,8 @@ func TestSignInAppliesToQueryableSessionsOnly(t *testing.T) {
 		"sql server auto":           {ideTarget{Engine: "sqlserver-web"}, false, true},
 		"sql server auto, writes":   {ideTarget{Engine: "sqlserver-web"}, true, false},
 		"sql server secret, writes": {ideTarget{Engine: "sqlserver-web", DBSecretARN: integSecret}, true, true},
-		"mysql":                     {ideTarget{Engine: "mysql", DBPassword: "typed"}, false, false},
+		"mysql password":            {ideTarget{Engine: "mysql", DBPassword: "typed"}, false, true},
+		"oracle":                    {ideTarget{Engine: "oracle-ee", DBPassword: "typed"}, false, false},
 	} {
 		if got := signInApplies(&tc.target, tc.writes); got != tc.want {
 			t.Errorf("%s: signInApplies = %v, want %v", name, got, tc.want)

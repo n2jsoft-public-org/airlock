@@ -48,9 +48,9 @@ func TestTunnelClientWithoutEngineOnlyHasTheAddress(t *testing.T) {
 	if err != nil || client != (Client{Address: dbmcp.TunnelAddress(16443)}) {
 		t.Fatalf("Client = %+v, %v", client, err)
 	}
-	client, err = rdsClient(nil, &ideTarget{Engine: "mysql"}, 13306)(context.Background(), nil)
-	if err != nil || client.Engine != "" || client.Address.Port != 13306 {
-		t.Fatalf("mysql client = %+v, %v", client, err)
+	client, err = rdsClient(nil, &ideTarget{Engine: "oracle-ee"}, 11521)(context.Background(), nil)
+	if err != nil || client.Engine != "" || client.Address.Port != 11521 {
+		t.Fatalf("oracle client = %+v, %v", client, err)
 	}
 }
 

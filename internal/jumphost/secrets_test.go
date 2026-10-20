@@ -108,7 +108,10 @@ func TestMCPEngineSupported(t *testing.T) {
 		"postgres":          true,
 		"aurora-postgresql": true,
 		"sqlserver-se":      true,
-		"mysql":             false,
+		"mysql":             true,
+		"aurora-mysql":      true,
+		"mariadb":           true,
+		"oracle-ee":         false,
 		"":                  false,
 	} {
 		if got := MCPEngineSupported(engine); got != want {

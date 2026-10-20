@@ -40,7 +40,7 @@ Tool names below are those of a session server; the gateway prefixes them with t
 
 - **SQL**: explore with `list_databases`, `list_tables` and `describe_table` before writing a
   query. `query` runs one SELECT/WITH statement and caps the rows. `query_plan`
-  explains a slow query (SQL Server and PostgreSQL).
+  explains a slow query (SQL Server, PostgreSQL, MySQL and MariaDB).
 - **Kubernetes**: `list_namespaces`, `list_resource_types`, then `list_resources` and
   `get_resource`; `list_events` and `pod_logs` for a failing workload.
 - **Cache**: `info` first; `scan_keys` with a pattern rather than reading every key.

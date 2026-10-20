@@ -45,6 +45,10 @@ func TestWizardSignInOptionsPerTarget(t *testing.T) {
 			[]string{jumphost.SignInIAM, jumphost.SignInPassword, jumphost.SignInSecret}},
 		{jumphost.ResourceSummary{Name: "pg", Engine: "postgres"}, jumphost.SignInPassword,
 			[]string{jumphost.SignInPassword, jumphost.SignInSecret}},
+		{jumphost.ResourceSummary{Name: "my", IAMAuth: true, Engine: "aurora-mysql"}, jumphost.SignInIAM,
+			[]string{jumphost.SignInIAM, jumphost.SignInPassword, jumphost.SignInSecret}},
+		{jumphost.ResourceSummary{Name: "maria", Engine: "mariadb"}, jumphost.SignInPassword,
+			[]string{jumphost.SignInPassword, jumphost.SignInSecret}},
 		{jumphost.ResourceSummary{Name: "mssql", Engine: "sqlserver-se"}, jumphost.SignInAuto,
 			[]string{jumphost.SignInAuto, jumphost.SignInPassword, jumphost.SignInSecret}},
 	}
@@ -157,10 +161,10 @@ func TestWizardHidesSignInWhereAirlockDoesNotUseCredentials(t *testing.T) {
 		target  jumphost.ResourceSummary
 		options []string
 	}{
-		{"mysql", jumphost.Options{}, jumphost.ResourceSummary{Name: "my", Engine: "mysql"}, nil},
+		{"oracle", jumphost.Options{}, jumphost.ResourceSummary{Name: "ora", Engine: "oracle-ee"}, nil},
 		{"no engine", jumphost.Options{}, jumphost.ResourceSummary{Name: "my"}, nil},
 		{"no mcp", jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "pg", Engine: "postgres"}, nil},
-		{"mysql with iam", jumphost.Options{}, jumphost.ResourceSummary{Name: "my", Engine: "mysql", IAMAuth: true}, []string{jumphost.SignInIAM}},
+		{"oracle with iam", jumphost.Options{}, jumphost.ResourceSummary{Name: "ora", Engine: "oracle-ee", IAMAuth: true}, []string{jumphost.SignInIAM}},
 		{"no mcp with iam", jumphost.Options{SkipMCP: true}, jumphost.ResourceSummary{Name: "pg", Engine: "postgres", IAMAuth: true}, []string{jumphost.SignInIAM}},
 	}
 	for _, c := range cases {
@@ -215,7 +219,7 @@ func TestWizardLeavesSignInUnchosenWhenPasswordAndSecretNotOffered(t *testing.T)
 		base   jumphost.Options
 	}{
 		{jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true}, "no mcp with iam", jumphost.Options{SkipMCP: true}},
-		{jumphost.ResourceSummary{Name: "archive", Engine: "mysql", IAMAuth: true}, "mysql with iam", jumphost.Options{}},
+		{jumphost.ResourceSummary{Name: "archive", Engine: "oracle-ee", IAMAuth: true}, "oracle with iam", jumphost.Options{}},
 		{jumphost.ResourceSummary{Name: "archive", Engine: "postgres"}, "no mcp", jumphost.Options{SkipMCP: true}},
 	}
 	for _, c := range cases {

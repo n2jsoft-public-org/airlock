@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-sql-driver/mysql"
 	mssql "github.com/microsoft/go-mssqldb"
 )
 
@@ -142,6 +143,30 @@ func TestQueryRendersSQLServerUniqueIdentifier(t *testing.T) {
 	want := "12345678-9ABC-DEF0-1122-334455667788"
 	if got := result.Rows[0][0]; got != want {
 		t.Fatalf("uniqueidentifier = %v, want %v", got, want)
+	}
+}
+
+func TestQueryRendersMySQLBitsAndLargeIntegers(t *testing.T) {
+	q, db, _ := newTestQuerier(&mysqlDialect, staticCreds{fallback: "shop"})
+	db.answerTyped("SELECT", []string{"flags", "big", "price"}, []string{"BIT", "BIGINT", "DECIMAL"},
+		[]driver.Value{[]byte{0x05}, uint64(18446744073709551615), []byte("12345678901234.5678")})
+
+	result, err := q.Query(context.Background(), "", "SELECT flags, big, price FROM customers", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []any{uint64(5), uint64(18446744073709551615), "12345678901234.5678"}; !reflect.DeepEqual(result.Rows[0], want) {
+		t.Fatalf("row = %#v, want %#v", result.Rows[0], want)
+	}
+}
+
+func TestMySQLAccessDeniedIsAPasswordRejection(t *testing.T) {
+	if denied := (&mysql.MySQLError{Number: 1045, Message: "Access denied for user 'app'@'%' (using password: YES)"}); !isAuthFailure(denied) || !isPasswordRejected(denied) {
+		t.Fatal("1045 should be a rejected password")
+	}
+	// The password was accepted: the user may not open the database.
+	if noDB := (&mysql.MySQLError{Number: 1044, Message: "Access denied for user 'app'@'%' to database 'x'"}); isAuthFailure(noDB) || isPasswordRejected(noDB) {
+		t.Fatal("1044 is no password rejection")
 	}
 }
 

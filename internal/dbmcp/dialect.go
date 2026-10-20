@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	mssql "github.com/microsoft/go-mssqldb"
@@ -24,7 +25,9 @@ type dialect struct {
 	foreignKeysSQL string
 	indexesSQL     string
 	// txSetup runs at the start of every read transaction.
-	txSetup    []string
+	txSetup []string
+	// connParams are the session variables set on every new connection (MySQL family).
+	connParams map[string]string
 	readOnlyTx bool
 }
 
@@ -93,12 +96,73 @@ GROUP BY i.name, i.is_unique, i.type_desc
 ORDER BY i.name`,
 }
 
+// mysqlSchema is the schema of a MySQL table: the one named, else the current database (MySQL
+// schemas are databases). The querier passes the schema once: it fits one "?".
+const mysqlSchema = "COALESCE(NULLIF(?, ''), DATABASE())"
+
+var mysqlDialect = dialect{
+	engine:     EngineMySQL,
+	readOnlyTx: true,
+	// max_execution_time only bounds SELECT statements; execute relies on its context deadline.
+	connParams:   map[string]string{"max_execution_time": "30000"},
+	databasesSQL: "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') ORDER BY schema_name",
+	tablesSQL: `SELECT table_schema, table_name, table_type FROM information_schema.tables
+WHERE table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+  AND table_schema = COALESCE(NULLIF(?, ''), DATABASE(), table_schema)
+ORDER BY table_schema, table_name`,
+	columnsSQL: `SELECT column_name, column_type, is_nullable, column_default FROM information_schema.columns
+WHERE table_schema = ` + mysqlSchema + ` AND table_name = ? ORDER BY ordinal_position`,
+	primaryKeySQL: `SELECT column_name FROM information_schema.key_column_usage
+WHERE constraint_name = 'PRIMARY' AND table_schema = ` + mysqlSchema + ` AND table_name = ?
+ORDER BY ordinal_position`,
+	foreignKeysSQL: `SELECT constraint_name, column_name, referenced_table_schema, referenced_table_name, referenced_column_name
+FROM information_schema.key_column_usage
+WHERE table_schema = ` + mysqlSchema + ` AND table_name = ? AND referenced_table_name IS NOT NULL
+ORDER BY constraint_name, ordinal_position`,
+	indexesSQL: `SELECT index_name, CONCAT(IF(MIN(non_unique) = 0, 'UNIQUE ', ''), index_type, ' (',
+  GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ', '), ')')
+FROM information_schema.statistics
+WHERE table_schema = ` + mysqlSchema + ` AND table_name = ?
+GROUP BY index_name, index_type
+ORDER BY index_name`,
+}
+
+// mariaDBDialect is mysqlDialect with MariaDB's statement timeout (seconds, every statement) and
+// column defaults ("NULL" is the text of no default; a string default comes quoted).
+var mariaDBDialect = func() dialect {
+	d := mysqlDialect
+	d.engine = EngineMariaDB
+	d.connParams = map[string]string{"max_statement_time": "30"}
+	d.columnsSQL = `SELECT column_name, column_type, is_nullable, NULLIF(column_default, 'NULL') FROM information_schema.columns
+WHERE table_schema = ` + mysqlSchema + ` AND table_name = ? ORDER BY ordinal_position`
+	return d
+}()
+
+// dialectFor returns the dialect of engine.
+func dialectFor(engine Engine) *dialect {
+	switch engine {
+	case EngineSQLServer:
+		return &sqlServerDialect
+	case EngineMySQL:
+		return &mysqlDialect
+	case EngineMariaDB:
+		return &mariaDBDialect
+	default:
+		return &postgresDialect
+	}
+}
+
 // newQuerier returns the Querier for engine, connecting to addr: the tunnel, or a database reached directly.
 func newQuerier(engine Engine, creds CredentialProvider, addr Address) *sqlQuerier {
-	if engine == EngineSQLServer {
-		return newSQLQuerier(&sqlServerDialect, creds, addr, sqlServerOpener(creds, addr))
+	d := dialectFor(engine)
+	switch {
+	case engine == EngineSQLServer:
+		return newSQLQuerier(d, creds, addr, sqlServerOpener(creds, addr))
+	case engine.mysqlFamily():
+		return newSQLQuerier(d, creds, addr, mysqlOpener(d, creds, addr))
+	default:
+		return newSQLQuerier(d, creds, addr, postgresOpener(creds, addr))
 	}
-	return newSQLQuerier(&postgresDialect, creds, addr, postgresOpener(creds, addr))
 }
 
 // postgresOpener fetches credentials for every new connection, so rotating IAM tokens keep working.
@@ -117,6 +181,28 @@ func postgresOpener(creds CredentialProvider, addr Address) opener {
 			cc.User, cc.Password = c.User, c.Password
 			return nil
 		})), nil
+	}
+}
+
+// mysqlOpener fetches credentials for every new connection, so rotating IAM tokens keep working.
+func mysqlOpener(d *dialect, creds CredentialProvider, addr Address) opener {
+	return func(_ context.Context, database string) (*sql.DB, error) {
+		config := mysqlConfig(addr, database, d.connParams)
+		if err := config.Apply(mysql.BeforeConnect(func(ctx context.Context, cc *mysql.Config) error {
+			c, err := creds.Credentials(ctx, database)
+			if err != nil {
+				return err
+			}
+			cc.User, cc.Passwd = c.User, c.Password
+			return nil
+		})); err != nil {
+			return nil, err
+		}
+		connector, err := mysql.NewConnector(config)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MySQL connection settings: %w", err)
+		}
+		return sql.OpenDB(connector), nil
 	}
 }
 

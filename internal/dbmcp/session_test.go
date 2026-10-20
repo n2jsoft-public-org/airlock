@@ -29,7 +29,7 @@ func testSessionConfig(t *testing.T, engine string) *SessionConfig {
 }
 
 func TestStartSkipsUnsupportedEngine(t *testing.T) {
-	handle, err := Start(mcpserve.NewHost(), testSessionConfig(t, "mysql"))
+	handle, err := Start(mcpserve.NewHost(), testSessionConfig(t, "oracle-ee"))
 	if err != nil || handle != nil {
 		t.Fatalf("handle = %v, err = %v; want nil, nil", handle, err)
 	}

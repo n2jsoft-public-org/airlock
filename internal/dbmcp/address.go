@@ -1,12 +1,15 @@
 package dbmcp
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 // TLSMode is how a connection encrypts its traffic and checks the server certificate.
@@ -60,6 +63,29 @@ func postgresSSLMode(mode TLSMode) string {
 		// RDS IAM authentication requires TLS; the tunnel's certificate names the RDS host, not localhost.
 		return "require"
 	}
+}
+
+// mysqlConfig is the go-sql-driver configuration of addr opening database; credentials are set
+// before each connection. Cleartext passwords, which RDS IAM tokens need, are only sent over TLS.
+func mysqlConfig(addr Address, database string, params map[string]string) *mysql.Config {
+	config := mysql.NewConfig()
+	config.Net, config.Addr, config.DBName = "tcp", addr.String(), database
+	config.Params = params
+	config.ConnectionAttributes = "program_name:" + applicationName
+	// Values are quoted by the driver: one round trip per statement through the tunnel, no prepare.
+	config.InterpolateParams = true
+	// The driver logs to stderr by default, which would garble the terminal UI.
+	config.Logger = &mysql.NopLogger{}
+	switch addr.TLS {
+	case TLSVerify:
+		config.TLS = &tls.Config{ServerName: addr.Host, MinVersion: tls.VersionTLS12}
+	case TLSDisable:
+	default:
+		// The tunnel's certificate names the RDS host, not localhost: encrypt without checking it.
+		config.TLS = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // as PostgreSQL's sslmode=require
+	}
+	config.AllowCleartextPasswords = config.TLS != nil
+	return config
 }
 
 // sqlServerDSN is the go-mssqldb URL of addr signing in with c; url.UserPassword escapes the

@@ -35,24 +35,24 @@ type listTablesInput struct {
 
 type describeTableInput struct {
 	Database string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
-	Schema   string `json:"schema,omitempty" jsonschema:"schema of the table; defaults to public (PostgreSQL) or dbo (SQL Server)"`
+	Schema   string `json:"schema,omitempty" jsonschema:"schema of the table; defaults to public (PostgreSQL), dbo (SQL Server) or the current database (MySQL, where schemas are databases)"`
 	Table    string `json:"table" jsonschema:"table or view name"`
 }
 
 type queryInput struct {
-	SQL      string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement"`
+	SQL      string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement (on MySQL also SHOW, DESCRIBE or EXPLAIN)"`
 	Database string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
 	MaxRows  int    `json:"max_rows,omitempty" jsonschema:"maximum number of rows to return (default 200, max 1000)"`
 }
 
 type queryPlanInput struct {
-	SQL         string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement, which may use parameters: $1, $2… on PostgreSQL, the declared ones on SQL Server"`
+	SQL         string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement, which may use parameters: $1, $2… on PostgreSQL, ? on MySQL, the declared ones on SQL Server"`
 	Database    string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
-	Parameters  string `json:"parameters,omitempty" jsonschema:"SQL Server only: parameter declaration, as sp_executesql takes it and applications send it, e.g. @p0 int, @p2 nvarchar(6); PostgreSQL infers the types of $1, $2… (cast in the statement where it cannot)"`
+	Parameters  string `json:"parameters,omitempty" jsonschema:"SQL Server only: parameter declaration, as sp_executesql takes it and applications send it, e.g. @p0 int, @p2 nvarchar(6); PostgreSQL infers the types of $1, $2… (cast in the statement where it cannot), MySQL converts the values of ?"`
 	Values      []any  `json:"values,omitempty" jsonschema:"one value per parameter, in order: string, number, boolean or null"`
-	Mode        string `json:"mode,omitempty" jsonschema:"actual (default) runs the statement in a transaction rolled back; estimated only plans it (on SQL Server, without parameters)"`
+	Mode        string `json:"mode,omitempty" jsonschema:"actual (default) runs the statement in a transaction rolled back (EXPLAIN ANALYZE on MySQL 8.0.18 or later); estimated only plans it (on SQL Server, without parameters)"`
 	IncludeXML  bool   `json:"include_xml,omitempty" jsonschema:"SQL Server only: also return the raw showplan XML, to save as a .sqlplan file for SSMS"`
-	IncludeJSON bool   `json:"include_json,omitempty" jsonschema:"PostgreSQL only: also return the raw EXPLAIN (FORMAT JSON) output, for plan visualizers"`
+	IncludeJSON bool   `json:"include_json,omitempty" jsonschema:"PostgreSQL and MySQL: also return the raw EXPLAIN JSON output, for plan visualizers (not with MySQL's actual plans, a text tree)"`
 }
 
 type executeInput struct {
@@ -127,7 +127,8 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 		Name: "query_plan",
 		Description: "Get the execution plan of a single read-only SELECT or WITH statement: operators with estimated " +
 			"and actual rows, costs, predicates and warnings; on SQL Server also seeks, missing indexes, parameters, " +
-			"and STATISTICS IO and TIME; on PostgreSQL EXPLAIN ANALYZE timings, buffers and settings.",
+			"and STATISTICS IO and TIME; on PostgreSQL EXPLAIN ANALYZE timings, buffers and settings; on MySQL and " +
+			"MariaDB access types, keys, filtered rows and timings.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryPlanInput) (*mcp.CallToolResult, any, error) {
 		result, err := q.Plan(ctx, PlanRequest{
@@ -180,9 +181,15 @@ func instructions(cfg *ServerConfig) string {
 }
 
 func planInstructions(engine Engine) string {
-	if engine == EnginePostgres {
+	switch {
+	case engine == EnginePostgres:
 		return " To analyze a slow query, get its plan with query_plan (EXPLAIN ANALYZE, rolled back), passing " +
 			"the values of $1, $2… the application sends; pg_stat_statements tells which queries cost the most, when installed."
+	case engine.mysqlFamily():
+		return " MySQL schemas are databases: list_tables lists the current database, or the schema given. " +
+			"To analyze a slow query, get its plan with query_plan (EXPLAIN ANALYZE, rolled back; ANALYZE on MariaDB), " +
+			"passing the values of ? the application sends; performance_schema.events_statements_summary_by_digest " +
+			"tells which queries cost the most, when readable."
 	}
 	return " To analyze a slow query, get its plan with query_plan, passing the parameters the application sends " +
 		"(e.g. (@p0 int,@p1 nvarchar(6))select ... becomes parameters \"@p0 int,@p1 nvarchar(6)\"); " +

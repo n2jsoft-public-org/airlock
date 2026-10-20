@@ -68,11 +68,7 @@ func CheckDirectSignIn(ctx context.Context, engine Engine, creds CredentialProvi
 // ReadOnlyRestsOnGrants reports whether read-only access to engine relies on the SQL guard and the
 // user's grants only: SQL Server has no read-only transaction.
 func ReadOnlyRestsOnGrants(engine Engine) bool {
-	d := &postgresDialect
-	if engine == EngineSQLServer {
-		d = &sqlServerDialect
-	}
-	return !d.readOnlyTx
+	return !dialectFor(engine).readOnlyTx
 }
 
 // checkSignIn runs the test query on the querier open returns and closes it; an error of the query
