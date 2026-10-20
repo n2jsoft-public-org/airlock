@@ -112,11 +112,11 @@ func TestCompletesRegions(t *testing.T) {
 func TestCompletesProfiles(t *testing.T) {
 	saveRecent(t)
 	dir := t.TempDir()
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte("#!/bin/sh\nprintf 'prod\\ndev\\n'\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("[profile prod]\n\n[profile dev]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
 	if got := complete(t, "--profile", ""); strings.Join(got, ",") != "dev,prod" {
 		t.Fatalf("candidates = %q, want the AWS profiles", got)
 	}

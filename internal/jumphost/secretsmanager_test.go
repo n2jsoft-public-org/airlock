@@ -39,6 +39,9 @@ func installSecretsManager(t *testing.T, values map[string]string, listed ...str
 }
 
 func (f *fakeSecretsManager) serve(w http.ResponseWriter, r *http.Request) {
+	if serveSignedIn(f.t, w, r) {
+		return
+	}
 	op := awsapitest.Operation(r)
 	f.mu.Lock()
 	f.ops = append(f.ops, op)
@@ -57,10 +60,10 @@ func (f *fakeSecretsManager) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if value, ok := f.values[body.SecretID]; ok {
-			respond(f.t, w, http.StatusOK, map[string]string{"ARN": body.SecretID, "SecretString": value})
+			awsapitest.Respond(f.t, w, http.StatusOK, map[string]string{"ARN": body.SecretID, "SecretString": value})
 			return
 		}
-		respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})
+		awsapitest.Respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})
 	case "ListSecrets":
 		list := make([]map[string]any, 0, len(f.listed))
 		for _, arn := range f.listed {
@@ -68,24 +71,9 @@ func (f *fakeSecretsManager) serve(w http.ResponseWriter, r *http.Request) {
 				{"Key": "Role", "Value": "read-only"}, {"Key": "DBInstanceArn", "Value": secretsInstanceARN},
 			}})
 		}
-		respond(f.t, w, http.StatusOK, map[string]any{"SecretList": list})
+		awsapitest.Respond(f.t, w, http.StatusOK, map[string]any{"SecretList": list})
 	default:
-		respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "UnknownOperationException", "message": op})
-	}
-}
-
-// respond writes the JSON reply of a fake AWS API.
-func respond(t testing.TB, w http.ResponseWriter, status int, body any) {
-	t.Helper()
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.WriteHeader(status)
-	if _, err := w.Write(raw); err != nil {
-		t.Error(err)
+		awsapitest.Respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "UnknownOperationException", "message": op})
 	}
 }
 

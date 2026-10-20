@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -14,32 +12,16 @@ import (
 	"time"
 )
 
-// installExpiredAWS puts an aws executable on PATH whose identity check fails until signedIn exists.
-func installExpiredAWS(t *testing.T) (signedIn string) {
-	t.Helper()
-	dir := t.TempDir()
-	signedIn = filepath.Join(dir, "signed-in")
-	script := "#!/bin/sh\ncase \"$*\" in\n" +
-		"*get-caller-identity*) if [ -f '" + signedIn + "' ]; then echo arn:aws:iam::111111111111:user/dev; else echo 'Token has expired' >&2; exit 255; fi ;;\n" +
-		"*) exit 1 ;;\n" +
-		"esac\n"
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	return signedIn
-}
-
 func TestExpiredIdentitySignsInThroughTheInteractiveRunner(t *testing.T) {
-	signedIn := installExpiredAWS(t)
+	signedIn := installExpiredSTS(t)
 	var got []string
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(_ context.Context, purpose, name string, args ...string) error {
 		if purpose == "" {
 			t.Error("the sign-in does not say why the terminal is needed")
 		}
 		got = append([]string{name}, args...)
-		return os.WriteFile(signedIn, nil, 0o600)
+		signedIn.Store(true)
+		return nil
 	}})
 
 	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, true); err != nil {
@@ -51,12 +33,13 @@ func TestExpiredIdentitySignsInThroughTheInteractiveRunner(t *testing.T) {
 }
 
 func TestConcurrentExpiredIdentityChecksSignInOnce(t *testing.T) {
-	signedIn := installExpiredAWS(t)
+	signedIn := installExpiredSTS(t)
 	var logins atomic.Int32
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
 		logins.Add(1)
 		time.Sleep(50 * time.Millisecond)
-		return os.WriteFile(signedIn, nil, 0o600)
+		signedIn.Store(true)
+		return nil
 	}})
 
 	var wg sync.WaitGroup
@@ -74,7 +57,7 @@ func TestConcurrentExpiredIdentityChecksSignInOnce(t *testing.T) {
 }
 
 func TestUnattendedExpiredIdentityNeverSignsIn(t *testing.T) {
-	installExpiredAWS(t)
+	installExpiredSTS(t)
 	var logins atomic.Int32
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
 		logins.Add(1)
@@ -87,5 +70,23 @@ func TestUnattendedExpiredIdentityNeverSignsIn(t *testing.T) {
 	}
 	if n := logins.Load(); n != 0 {
 		t.Fatalf("signed in %d times, want never: nobody may be there to answer", n)
+	}
+}
+
+func TestEnsureIdentitySignsInTheSourceProfile(t *testing.T) {
+	signedIn := installExpiredSTS(t, "corp")
+	appendAWSConfig(t, "[profile app]\nregion = eu-west-3\nrole_arn = arn:aws:iam::111111111111:role/app\nsource_profile = corp\n")
+	var got []string
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(_ context.Context, _, name string, args ...string) error {
+		got = append([]string{name}, args...)
+		signedIn.Store(true)
+		return nil
+	}})
+
+	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "app", Region: "eu-west-3"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"aws", "sso", "login", "--profile", "corp"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("interactive command = %v, want %v", got, want)
 	}
 }

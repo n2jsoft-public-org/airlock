@@ -26,9 +26,8 @@ func NewConfigs() *Configs {
 	return &Configs{cache: map[string]entry{}}
 }
 
-// sharedFilesStamp returns the modification times of the shared config and credentials files;
-// a missing file counts as the zero time.
-func sharedFilesStamp() [2]time.Time {
+// sharedFilePaths returns the shared config and credentials files, as the SDK resolves them.
+func sharedFilePaths() [2]string {
 	cfgFile, credFile := os.Getenv("AWS_CONFIG_FILE"), os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
 	if cfgFile == "" {
 		cfgFile = config.DefaultSharedConfigFilename()
@@ -36,8 +35,14 @@ func sharedFilesStamp() [2]time.Time {
 	if credFile == "" {
 		credFile = config.DefaultSharedCredentialsFilename()
 	}
+	return [2]string{cfgFile, credFile}
+}
+
+// sharedFilesStamp returns the modification times of the shared config and credentials files;
+// a missing file counts as the zero time.
+func sharedFilesStamp() [2]time.Time {
 	var stamp [2]time.Time
-	for i, path := range []string{cfgFile, credFile} {
+	for i, path := range sharedFilePaths() {
 		// #nosec G703 -- the SDK's own file locations.
 		if info, err := os.Stat(path); err == nil {
 			stamp[i] = info.ModTime()

@@ -138,6 +138,7 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
   When a profile's credentials are missing or expired, airlock runs `aws sso login` for you: the
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
+  Profiles that assume a role with MFA (`mfa_serial`) are not supported yet.
 - **A running jumphost** (not for DynamoDB and S3): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
 
 ## 🛰 How it works

@@ -18,21 +18,19 @@ import (
 
 const testEKSEndpoint = "ABCD.gr7.eu-west-3.eks.amazonaws.com"
 
-// installEKSAWS puts an aws executable on PATH answering what Prepare asks for an EKS cluster.
+// installEKSAWS answers what Prepare asks for the EKS cluster platform.
 func installEKSAWS(t *testing.T, caData string) {
 	t.Helper()
-	dir := t.TempDir()
-	cluster := `{"name":"platform","endpoint":"https://` + testEKSEndpoint + `","certificateAuthority":{"data":"` + caData + `"}}`
-	script := "#!/bin/sh\ncase \"$*\" in\n" +
-		"*get-caller-identity*) echo arn:aws:iam::111111111111:user/dev ;;\n" +
-		"*describe-instances*) echo i-0123 ;;\n" +
-		"*describe-cluster*) echo '" + cluster + "' ;;\n" +
-		"esac\n"
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	installAWSAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		if op := awsapitest.Operation(r); op != "GET /clusters/platform" {
+			t.Errorf("unexpected operation %s", op)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		awsapitest.Respond(t, w, http.StatusOK, map[string]any{"cluster": map[string]any{
+			"name": "platform", "endpoint": "https://" + testEKSEndpoint, "certificateAuthority": map[string]string{"data": caData},
+		}})
+	})
 }
 
 func prepareEKS(t *testing.T, kubeconfigDir string) *Session {
@@ -112,7 +110,6 @@ func testCA(t *testing.T) string {
 }
 
 func TestPrepareEKSStartsReadOnlyMCPServer(t *testing.T) {
-	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installEKSAWS(t, testCA(t))
 	project := t.TempDir()
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ProjectDir: project, MCPServerPrefix: "acme"})

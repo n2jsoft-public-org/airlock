@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -36,59 +36,89 @@ func TestRunnerResolveDBUser(t *testing.T) {
 	}
 }
 
-// installRecordingAWS puts an aws executable on PATH that appends its arguments to a log file and
-// prints output.
-func installRecordingAWS(t *testing.T, output string) (logPath string) {
+const (
+	noInstancePageXML = `<DescribeInstancesResponse><reservationSet/><nextToken>next</nextToken></DescribeInstancesResponse>`
+	instancePageXML   = `<DescribeInstancesResponse><reservationSet><item><instancesSet><item><instanceId>i-0123</instanceId></item>` +
+		`</instancesSet></item></reservationSet><nextToken>more</nextToken></DescribeInstancesResponse>`
+	lastEmptyPageXML = `<DescribeInstancesResponse><reservationSet/></DescribeInstancesResponse>`
+)
+
+// installEC2 answers DescribeInstances with pages in turn and returns the forms of the requests.
+func installEC2(t *testing.T, pages ...string) *[]url.Values {
 	t.Helper()
-	dir := t.TempDir()
-	logPath = filepath.Join(dir, "calls.log")
-	script := "#!/bin/sh\necho \"$@\" >> '" + logPath + "'\nprintf '%s\\n' '" + output + "'\n"
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	return logPath
+	var forms []url.Values
+	awsapitest.Env(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		if op := awsapitest.Operation(r); op != "DescribeInstances" || len(forms) == len(pages) {
+			t.Errorf("unexpected request %s #%d", op, len(forms)+1)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		forms = append(forms, r.Form)
+		awsapitest.RespondXML(t, w, http.StatusOK, pages[len(forms)-1])
+	}, "dev")
+	return &forms
 }
 
-func TestGetJumphostIDUsesConfiguredTag(t *testing.T) {
-	logPath := installRecordingAWS(t, "i-0123")
-	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, JumphostTag: awstag.Tag{Key: "Role", Value: "bastion"}})
-
-	id, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
-	if err != nil || id != "i-0123" {
-		t.Fatalf("getJumphostID = %q, %v", id, err)
-	}
-	calls, err := os.ReadFile(logPath) // #nosec G304 -- test file.
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(calls), "Name=tag:Role,Values=bastion") {
-		t.Fatalf("describe-instances filter = %q, want the configured tag", calls)
+func TestJumphostLookupFiltersOnTagAndRunning(t *testing.T) {
+	for _, tag := range []awstag.Tag{{Key: "Role", Value: "bastion"}, {}} {
+		forms := installEC2(t, instancePageXML)
+		runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, JumphostTag: tag})
+		id, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
+		if err != nil || id != "i-0123" {
+			t.Fatalf("getJumphostID = %q, %v", id, err)
+		}
+		want := url.Values{"Filter.1.Name": {"tag:" + runner.jumphostTag.Key}, "Filter.1.Value.1": {runner.jumphostTag.Value},
+			"Filter.2.Name": {"instance-state-name"}, "Filter.2.Value.1": {"running"}}
+		for key, value := range want {
+			if got := (*forms)[0][key]; !reflect.DeepEqual(got, value) {
+				t.Errorf("tag %v: %s = %q, want %q", tag, key, got, value)
+			}
+		}
 	}
 }
 
 func TestGetJumphostIDDefaultsToUsageJumphost(t *testing.T) {
-	logPath := installRecordingAWS(t, "i-0123")
+	forms := installEC2(t, instancePageXML)
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if _, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}); err != nil {
 		t.Fatal(err)
 	}
-	calls, err := os.ReadFile(logPath) // #nosec G304 -- test file.
-	if err != nil {
-		t.Fatal(err)
+	if got := (*forms)[0].Get("Filter.1.Name") + "=" + (*forms)[0].Get("Filter.1.Value.1"); got != "tag:Usage=jumphost" {
+		t.Fatalf("filter = %q, want tag:Usage=jumphost", got)
 	}
-	if !strings.Contains(string(calls), "Name=tag:Usage,Values=jumphost") {
-		t.Fatalf("describe-instances filter = %q, want Usage=jumphost", calls)
+}
+
+func TestGetJumphostIDReadsPagesUntilAnInstance(t *testing.T) {
+	// A filtered page can be empty and still carry a next token; the instance found stops the lookup.
+	installEC2(t, noInstancePageXML, instancePageXML)
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
+	if id, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}); err != nil || id != "i-0123" {
+		t.Fatalf("getJumphostID = %q, %v", id, err)
 	}
 }
 
 func TestGetJumphostIDNotFoundNamesTag(t *testing.T) {
-	installRecordingAWS(t, "None")
+	installEC2(t, noInstancePageXML, lastEmptyPageXML)
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	_, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
 	if err == nil || !strings.Contains(err.Error(), "Usage=jumphost") || !strings.Contains(err.Error(), "eu-west-3") {
 		t.Fatalf("error = %v, want the tag and region named", err)
+	}
+}
+
+func TestGetJumphostIDReportsTheAWSErrorWithoutTheSDKChain(t *testing.T) {
+	awsapitest.Env(t, func(w http.ResponseWriter, _ *http.Request) {
+		awsapitest.RespondXML(t, w, http.StatusForbidden, `<Response><Errors><Error><Code>UnauthorizedOperation</Code>`+
+			`<Message>You are not authorized to perform this operation.</Message></Error></Errors><RequestID>r</RequestID></Response>`)
+	}, "dev")
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
+	_, err := runner.getJumphostID(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"})
+	if err == nil || !strings.Contains(err.Error(), "failed to look up the jumphost instance: UnauthorizedOperation") ||
+		strings.Contains(err.Error(), "operation error") {
+		t.Fatalf("err = %v, want the lookup failure without the SDK operation chain", err)
 	}
 }
 
@@ -117,7 +147,8 @@ func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
 }
 
 func TestPrepareRDSWithoutIAMUserFailsBeforeReservingAPort(t *testing.T) {
-	installRecordingAWS(t, `{"Engine":"postgres","DBInstanceIdentifier":"archive","DBInstanceArn":"arn:db","Endpoint":{"Address":"archive.rds.amazonaws.com","Port":55432},"IAMDatabaseAuthenticationEnabled":true}`)
+	installRDS(t, rdsPageXML("", `<DBInstance><Engine>postgres</Engine><DBInstanceIdentifier>archive</DBInstanceIdentifier><DBInstanceArn>arn:db</DBInstanceArn>`+
+		`<Endpoint><Address>archive.rds.amazonaws.com</Address><Port>55432</Port></Endpoint><IAMDatabaseAuthenticationEnabled>true</IAMDatabaseAuthenticationEnabled></DBInstance>`))
 	registry := NewSessionRegistry()
 	// Only the registry's reservation is under test: the real port may be busy on the machine (it
 	// is in the ephemeral range, used by the connections of tests running in parallel).

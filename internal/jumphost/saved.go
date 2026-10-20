@@ -12,7 +12,7 @@ import (
 // Connections of a disabled module are left out.
 // Entries whose profile no longer exists in the AWS CLI configuration are flagged ProfileMissing,
 // direct databases whose definition is gone TargetMissing.
-func (r *Runner) ListSavedConnections(ctx context.Context, profile, region string) ([]SavedConnection, error) {
+func (r *Runner) ListSavedConnections(_ context.Context, profile, region string) ([]SavedConnection, error) {
 	if r.prefs == nil {
 		return nil, nil
 	}
@@ -21,7 +21,7 @@ func (r *Runner) ListSavedConnections(ctx context.Context, profile, region strin
 		return nil, err
 	}
 	saved = slices.DeleteFunc(saved, func(conn SavedConnection) bool { return r.ModuleDisabled(conn.Ref.Type) })
-	kept := filterSavedConnections(saved, profile, region, r.knownProfiles(ctx))
+	kept := filterSavedConnections(saved, profile, region, r.knownProfiles())
 	r.flagMissingDirectDatabases(kept)
 	return kept, nil
 }
@@ -60,11 +60,11 @@ func (r *Runner) ForgetConnection(_ context.Context, ref TargetRef) error {
 
 // knownProfiles returns the local AWS CLI profiles; nil when they cannot be listed, so that no
 // entry is wrongly flagged as missing its profile.
-func (r *Runner) knownProfiles(ctx context.Context) map[string]bool {
+func (r *Runner) knownProfiles() map[string]bool {
 	if _, err := exec.LookPath("aws"); err != nil {
 		return nil
 	}
-	names, err := r.listProfileNames(ctx)
+	names, err := r.listProfileNames()
 	if err != nil {
 		return nil
 	}

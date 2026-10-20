@@ -4,20 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
-	"path/filepath"
+	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
 const secretsInstanceARN = "arn:aws:rds:eu-west-3:111111111111:db:archive"
 
 func TestRankDBSecretsPutsLinkedSecretsFirst(t *testing.T) {
-	var entries []secretListEntry
+	var entries []smtypes.SecretListEntry
 	raw := `[
 		{"ARN":"arn:z","Name":"zeta/other","Description":""},
 		{"ARN":"arn:tag","Name":"team/app-ro","Tags":[{"Key":"DBInstanceArn","Value":"` + secretsInstanceARN + `"}]},
@@ -115,29 +117,57 @@ func TestMCPEngineSupported(t *testing.T) {
 	}
 }
 
-// installSecretsAWS puts an aws executable on PATH for ListDBSecrets: identity of account
-// 111111111111, an instance, and the secrets list secretsJSON.
-func installSecretsAWS(t *testing.T, secretsJSON string) {
+// installSecretsAWS answers ListDBSecrets: identity of account 111111111111, the instance archive
+// with its master secret arn:master, and ListSecrets with pages chained by tokens page2, page3…
+func installSecretsAWS(t *testing.T, pages ...[]map[string]any) {
 	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\ncase \"$1 $2\" in\n" +
-		"'sts get-caller-identity') echo 'arn:aws:sts::111111111111:assumed-role/dev/me' ;;\n" +
-		"'rds describe-db-instances') echo '{\"arn\":\"arn:aws:rds:eu-west-3:111111111111:db:archive\",\"masterSecret\":null}' ;;\n" +
-		"'secretsmanager list-secrets') echo '" + secretsJSON + "' ;;\n" +
-		"*) exit 1 ;;\nesac\n"
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	installAWSAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		switch op := awsapitest.Operation(r); op {
+		case "DescribeDBInstances":
+			if id := r.FormValue("DBInstanceIdentifier"); id != "archive" {
+				t.Errorf("DBInstanceIdentifier = %q, want archive", id)
+			}
+			awsapitest.RespondXML(t, w, http.StatusOK, rdsPageXML("", `<DBInstance><DBInstanceIdentifier>archive</DBInstanceIdentifier>`+
+				`<DBInstanceArn>`+secretsInstanceARN+`</DBInstanceArn><MasterUserSecret><SecretArn>arn:master</SecretArn></MasterUserSecret></DBInstance>`))
+		case "ListSecrets":
+			var body struct{ NextToken string }
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			page := pageIndex(t, body.NextToken)
+			reply := map[string]any{"SecretList": pages[page]}
+			if page+1 < len(pages) {
+				reply["NextToken"] = "page" + strconv.Itoa(page+2)
+			}
+			awsapitest.Respond(t, w, http.StatusOK, reply)
+		default:
+			t.Errorf("unexpected operation %s", op)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	})
 }
 
 func TestListDBSecretsNamesAccountAndRegionWhenEmpty(t *testing.T) {
-	installSecretsAWS(t, "[]")
+	installSecretsAWS(t, nil)
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	_, err := runner.ListDBSecrets(context.Background(), &Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3"})
 	if err == nil || err.Error() != "no secret in 111111111111/eu-west-3" {
 		t.Fatalf("err = %v, want the account and the region named", err)
+	}
+}
+
+func TestListDBSecretsListsEveryPage(t *testing.T) {
+	installSecretsAWS(t,
+		[]map[string]any{{"ARN": "arn:other", "Name": "alpha/other"}},
+		[]map[string]any{{"ARN": "arn:master", "Name": "rds!db-1234", "Description": "master"}})
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
+	got, err := runner.ListDBSecrets(context.Background(), &Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3"})
+	want := []SecretSummary{
+		{ARN: "arn:master", Name: "rds!db-1234", Description: "master", Linked: true},
+		{ARN: "arn:other", Name: "alpha/other"},
+	}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("secrets = %+v, %v; want %+v", got, err, want)
 	}
 }
 

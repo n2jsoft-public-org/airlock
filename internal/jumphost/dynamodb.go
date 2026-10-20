@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/n2jsoft/airlock/internal/dynamomcp"
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
@@ -19,8 +21,14 @@ var dynamomcpStart = dynamomcp.Start
 
 // checkDynamoDB lists one table: the profile may use DynamoDB in its region.
 func (r *Runner) checkDynamoDB(ctx context.Context, cfg awsConfig) error {
-	_, err := r.runAWSCapture(ctx, cfg.Args, "dynamodb", "list-tables", "--max-items", "1", "--output", "json")
-	return err
+	awsCfg, err := r.apiConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if _, err = dynamodb.NewFromConfig(awsCfg).ListTables(ctx, &dynamodb.ListTablesInput{Limit: aws.Int32(1)}); err != nil {
+		return i18n.NewError("jumphost.dynamodb.list_tables", awsCallError(err))
+	}
+	return nil
 }
 
 // dynamoDBTargets is the one target of a profile: its region, when DynamoDB answers there.

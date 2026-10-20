@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/s3mcp"
@@ -15,8 +17,14 @@ var s3mcpStart = s3mcp.Start
 
 // checkS3 lists one bucket: the profile may use S3.
 func (r *Runner) checkS3(ctx context.Context, cfg awsConfig) error {
-	_, err := r.runAWSCapture(ctx, cfg.Args, "s3api", "list-buckets", "--max-buckets", "1", "--output", "json")
-	return err
+	awsCfg, err := r.apiConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if _, err = s3.NewFromConfig(awsCfg).ListBuckets(ctx, &s3.ListBucketsInput{MaxBuckets: aws.Int32(1)}); err != nil {
+		return i18n.NewError("jumphost.s3.list_buckets", awsCallError(err))
+	}
+	return nil
 }
 
 // s3Targets is the one target of a profile, every bucket, when S3 answers.

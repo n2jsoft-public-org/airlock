@@ -2,7 +2,6 @@ package jumphost
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +20,10 @@ import (
 	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 	"github.com/n2jsoft/airlock/internal/awsapi"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
@@ -620,29 +623,18 @@ func (r *Runner) ListAWSProfiles(ctx context.Context) ([]string, error) {
 	return profiles, nil
 }
 
-// ListAWSProfileNames returns the AWS CLI profile names, sorted, with a single aws call: fast
+// ListAWSProfileNames returns the AWS profile names, sorted, from the shared files: fast
 // enough for shell completion, unlike ListAWSProfileSummaries.
-func (r *Runner) ListAWSProfileNames(ctx context.Context) ([]string, error) {
-	return r.listProfileNames(ctx)
+func (r *Runner) ListAWSProfileNames() ([]string, error) {
+	return r.listProfileNames()
 }
 
-// listProfileNames returns the sorted AWS CLI profile names, without the default fallback.
-func (r *Runner) listProfileNames(ctx context.Context) ([]string, error) {
-	rawProfiles, err := r.runAWSCapture(ctx, nil, "configure", "list-profiles")
+// listProfileNames returns the sorted AWS profile names, without the default fallback.
+func (r *Runner) listProfileNames() ([]string, error) {
+	profiles, err := awsapi.Profiles()
 	if err != nil {
-		return nil, err
+		return nil, i18n.NewError("jumphost.runner.failed_to_read_profiles", err)
 	}
-	profileSet := map[string]struct{}{}
-	for _, line := range strings.Split(rawProfiles, "\n") {
-		if profile := strings.TrimSpace(line); profile != "" {
-			profileSet[profile] = struct{}{}
-		}
-	}
-	profiles := make([]string, 0, len(profileSet))
-	for profile := range profileSet {
-		profiles = append(profiles, profile)
-	}
-	sort.Strings(profiles)
 	return profiles, nil
 }
 
@@ -652,7 +644,7 @@ func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSumma
 		return nil, i18n.NewError("jumphost.runner.aws_cli_is_not")
 	}
 
-	profiles, err := r.listProfileNames(ctx)
+	profiles, err := r.listProfileNames()
 	if err != nil {
 		return nil, err
 	}
@@ -664,12 +656,8 @@ func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSumma
 	summaries := make([]AWSProfileSummary, 0, len(profiles))
 	for _, profile := range profiles {
 		description := "region n/a"
-		region, err := r.runAWSCapture(ctx, nil, "configure", "get", "region", "--profile", profile)
-		if err == nil {
-			trimmedRegion := strings.TrimSpace(region)
-			if trimmedRegion != "" {
-				description = fmt.Sprintf("region %s", trimmedRegion)
-			}
+		if region := awsapi.ProfileRegion(ctx, profile); region != "" {
+			description = fmt.Sprintf("region %s", region)
 		}
 
 		summaries = append(summaries, AWSProfileSummary{
@@ -716,41 +704,27 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 	case resourceS3:
 		return r.s3Targets(ctx, cfg)
 	case resourceRDS:
-		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
-			"rds", "describe-db-instances",
-			"--query", "DBInstances[*].{name:DBInstanceIdentifier,engine:Engine,engineVersion:EngineVersion,host:Endpoint.Address,port:Endpoint.Port,size:AllocatedStorage,status:DBInstanceStatus,iamAuth:IAMDatabaseAuthenticationEnabled}",
-			"--output", "json",
-		)
+		instances, err := r.rdsInstances(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 
-		var instances []struct {
-			Name          string `json:"name"`
-			Engine        string `json:"engine"`
-			EngineVersion string `json:"engineVersion"`
-			Host          string `json:"host"`
-			Status        string `json:"status"`
-			Port          int    `json:"port"`
-			SizeGiB       int    `json:"size"`
-			IAMAuth       bool   `json:"iamAuth"`
-		}
-		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return nil, i18n.NewError("jumphost.runner.failed_to_parse_rds", err)
-		}
-
 		resources := make([]ResourceSummary, 0, len(instances))
-		for _, instance := range instances {
-			name := strings.TrimSpace(instance.Name)
+		for idx := range instances {
+			instance := &instances[idx]
+			name := strings.TrimSpace(aws.ToString(instance.DBInstanceIdentifier))
 			if name == "" {
 				continue
 			}
 
+			engine := aws.ToString(instance.Engine)
+			host, port := rdsEndpoint(instance)
 			resources = append(resources, ResourceSummary{
-				Name:        name,
-				Description: formatRDSResourceDescription(instance.Engine, instance.EngineVersion, instance.Host, instance.Port, instance.SizeGiB, instance.Status),
-				IAMAuth:     instance.IAMAuth,
-				Engine:      instance.Engine,
+				Name: name,
+				Description: formatRDSResourceDescription(engine, aws.ToString(instance.EngineVersion), host, port,
+					int(aws.ToInt32(instance.AllocatedStorage)), aws.ToString(instance.DBInstanceStatus)),
+				IAMAuth: aws.ToBool(instance.IAMDatabaseAuthenticationEnabled),
+				Engine:  engine,
 			})
 		}
 
@@ -760,25 +734,14 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 
 		return resources, nil
 	case resourceEKS:
-		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
-			"eks", "list-clusters",
-			"--query", "clusters[*].{name:@}",
-			"--output", "json",
-		)
+		clusters, err := r.eksClusterNames(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 
-		var clusters []struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return nil, i18n.NewError("jumphost.runner.failed_to_parse_eks", err)
-		}
-
 		resources := make([]ResourceSummary, 0, len(clusters))
 		for _, cluster := range clusters {
-			name := strings.TrimSpace(cluster.Name)
+			name := strings.TrimSpace(cluster)
 			if name == "" {
 				continue
 			}
@@ -1004,12 +967,17 @@ func (r *Runner) accountFor(ctx context.Context, profile string) string {
 	if ok {
 		return account
 	}
-	account, err := r.runAWSCapture(ctx, []string{"--profile", profile}, "sts", "get-caller-identity", "--query", "Account", "--output", "text")
+	awsCfg, err := r.sdkConfig(ctx, awsConfig{Profile: profile})
 	if err != nil {
 		return ""
 	}
+	identity, err := callerIdentity(ctx, &awsCfg)
+	if err != nil {
+		return ""
+	}
+	account = strings.TrimSpace(aws.ToString(identity.Account))
 	r.rememberAccount(profile, account)
-	return strings.TrimSpace(account)
+	return account
 }
 
 // rememberAccount caches the account of profile, from an account ID or a caller identity ARN
@@ -1059,55 +1027,20 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options
 			return 0, err
 		}
 
-		// Try replication group first.
-		rawPort, err := r.runAWSCapture(ctx, cfg.Args,
-			"elasticache", "describe-replication-groups",
-			"--replication-group-id", name,
-			"--query", "ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Port",
-			"--output", "text",
-		)
-		if err == nil {
-			rawPort = strings.TrimSpace(rawPort)
-			if rawPort != "" && !strings.EqualFold(rawPort, "none") {
-				port := 0
-				if _, scanErr := fmt.Sscanf(rawPort, "%d", &port); scanErr == nil && port > 0 {
-					return port, nil
-				}
+		// Try replication group first, then standalone cache cluster, then serverless cache.
+		if groups, err := r.replicationGroups(ctx, cfg, name); err == nil && len(groups) > 0 {
+			if _, port := endpointOf(primaryEndpoint(&groups[0])); port > 0 {
+				return port, nil
 			}
 		}
-
-		// Try standalone cache cluster.
-		rawPort, err = r.runAWSCapture(ctx, cfg.Args,
-			"elasticache", "describe-cache-clusters",
-			"--cache-cluster-id", name,
-			"--show-cache-node-info",
-			"--query", "CacheClusters[0].CacheNodes[0].Endpoint.Port",
-			"--output", "text",
-		)
-		if err == nil {
-			rawPort = strings.TrimSpace(rawPort)
-			if rawPort != "" && !strings.EqualFold(rawPort, "none") {
-				port := 0
-				if _, scanErr := fmt.Sscanf(rawPort, "%d", &port); scanErr == nil && port > 0 {
-					return port, nil
-				}
+		if clusters, err := r.cacheClusters(ctx, cfg, name); err == nil && len(clusters) > 0 {
+			if _, port := endpointOf(nodeEndpoint(&clusters[0])); port > 0 {
+				return port, nil
 			}
 		}
-
-		// Try serverless cache.
-		rawPort, err = r.runAWSCapture(ctx, cfg.Args,
-			"elasticache", "describe-serverless-caches",
-			"--serverless-cache-name", name,
-			"--query", "ServerlessCaches[0].Endpoint.Port",
-			"--output", "text",
-		)
-		if err == nil {
-			rawPort = strings.TrimSpace(rawPort)
-			if rawPort != "" && !strings.EqualFold(rawPort, "none") {
-				port := 0
-				if _, scanErr := fmt.Sscanf(rawPort, "%d", &port); scanErr == nil && port > 0 {
-					return port, nil
-				}
+		if caches, err := r.serverlessCaches(ctx, cfg, name); err == nil && len(caches) > 0 {
+			if _, port := endpointOf(caches[0].Endpoint); port > 0 {
+				return port, nil
 			}
 		}
 
@@ -1123,29 +1056,14 @@ func (r *Runner) resolvePreferredLocalPort(ctx context.Context, options *Options
 			return 0, err
 		}
 
-		rawInstance, err := r.runAWSCapture(ctx, cfg.Args,
-			"rds", "describe-db-instances",
-			"--query", "DBInstances[0]",
-			"--db-instance-identifier", name,
-			"--output", "json",
-		)
+		instance, err := r.describeDBInstance(ctx, cfg, name)
 		if err != nil {
 			return 0, err
 		}
-
-		var instance struct {
-			Endpoint struct {
-				Port int `json:"Port"`
-			} `json:"Endpoint"`
+		if _, port := rdsEndpoint(&instance); port != 0 {
+			return port, nil
 		}
-		if err := json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-			return 0, i18n.NewError("jumphost.runner.failed_to_parse_rds_2", err)
-		}
-		if instance.Endpoint.Port == 0 {
-			return 0, i18n.NewError("jumphost.runner.rds_instance_endpoint_port")
-		}
-
-		return instance.Endpoint.Port, nil
+		return 0, i18n.NewError("jumphost.runner.rds_instance_endpoint_port")
 	default:
 		return 0, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
 	}
@@ -1192,8 +1110,7 @@ func (r *Runner) ResolveRegion(ctx context.Context, profile string) string {
 		profile = defaultAwsProfile
 	}
 
-	configuredRegion, err := r.runAWSCapture(ctx, nil, "configure", "get", "region", "--profile", profile)
-	if region := strings.TrimSpace(configuredRegion); err == nil && region != "" {
+	if region := awsapi.ProfileRegion(ctx, profile); region != "" {
 		return region
 	}
 	return r.defaultRegion
@@ -1225,10 +1142,15 @@ func (r *Runner) ssoLogin(ctx context.Context, profile string) error {
 }
 
 // ensureIdentity checks the AWS identity of cfg, signing in again when it is missing or expired,
-// unless interactive is false: then it fails with ErrSignInRequired.
+// unless interactive is false: then it fails with ErrSignInRequired. A profile that cannot be
+// loaded or AWS out of reach fails as is: signing in would not fix it.
 func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive bool) error {
+	awsCfg, err := r.sdkConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
 	fprintf(r.out, "Using AWS identity... ")
-	identity, err := r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
+	identity, err := callerArn(ctx, &awsCfg)
 	if err == nil {
 		fprintf(r.out, "%s\n", identity)
 		r.rememberAccount(cfg.Profile, identity)
@@ -1239,10 +1161,13 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 	// waited finds the identity signed in by the one before it.
 	r.loginMu.Lock()
 	defer r.loginMu.Unlock()
-	if identity, err = r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text"); err == nil {
+	if identity, err = callerArn(ctx, &awsCfg); err == nil {
 		fprintf(r.out, "%s\n", identity)
 		r.rememberAccount(cfg.Profile, identity)
 		return nil
+	}
+	if checkErr := identityCheckError(ctx, cfg.Profile, err); checkErr != nil {
+		return checkErr
 	}
 
 	if !interactive {
@@ -1251,8 +1176,8 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 	fprintf(r.out, "Failed. Reauthorize...\n")
 	// A profile without source_profile signs in itself.
 	loginProfile := cfg.Profile
-	if parentProfile, lookupErr := r.runAWSCapture(ctx, nil, "configure", "get", "source_profile", "--profile", cfg.Profile); lookupErr == nil && strings.TrimSpace(parentProfile) != "" {
-		loginProfile = strings.TrimSpace(parentProfile)
+	if parentProfile := awsapi.SourceProfile(ctx, cfg.Profile); parentProfile != "" {
+		loginProfile = parentProfile
 	}
 	if loginProfile == "" {
 		loginProfile = defaultAwsProfile
@@ -1262,9 +1187,12 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 		return i18n.NewError("jumphost.runner.failed_to_authorize_please")
 	}
 
+	// Credentials cached before the sign-in are the ones STS rejected.
+	if cache, ok := awsCfg.Credentials.(*aws.CredentialsCache); ok {
+		cache.Invalidate()
+	}
 	fprintf(r.out, "Using AWS identity... ")
-	identity, err = r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
-	if err != nil {
+	if identity, err = callerArn(ctx, &awsCfg); err != nil {
 		return i18n.NewError("jumphost.runner.failed_to_retrieve_current")
 	}
 
@@ -1275,53 +1203,48 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 
 func (r *Runner) getJumphostID(ctx context.Context, cfg awsConfig) (string, error) {
 	fprintf(r.out, "Using jumphost... ")
-	jumphostID, err := r.runAWSCapture(ctx, cfg.Args,
-		"ec2", "describe-instances",
-		"--filters", fmt.Sprintf("Name=tag:%s,Values=%s", r.jumphostTag.Key, r.jumphostTag.Value), "Name=instance-state-name,Values=running",
-		"--output", "text",
-		"--query", "Reservations[0].Instances[0].InstanceId",
-		"--no-cli-pager",
-	)
+	awsCfg, err := r.sdkConfig(ctx, cfg)
 	if err != nil {
 		return "", err
 	}
-	if jumphostID == "" || strings.EqualFold(jumphostID, "none") {
-		return "", jumphostNotFoundError(r.jumphostTag, cfg.Profile, cfg.Region)
+	pages := ec2.NewDescribeInstancesPaginator(ec2.NewFromConfig(awsCfg), &ec2.DescribeInstancesInput{Filters: []ec2types.Filter{
+		{Name: aws.String("tag:" + r.jumphostTag.Key), Values: []string{r.jumphostTag.Value}},
+		{Name: aws.String("instance-state-name"), Values: []string{"running"}},
+	}})
+	// A filtered page can be empty and still have a next one: the first instance of any page wins.
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return "", i18n.NewError("jumphost.runner.jumphost_lookup", awsCallError(err))
+		}
+		for _, reservation := range page.Reservations {
+			for i := range reservation.Instances {
+				if jumphostID := aws.ToString(reservation.Instances[i].InstanceId); jumphostID != "" {
+					fprintf(r.out, "%s\n", jumphostID)
+					return jumphostID, nil
+				}
+			}
+		}
 	}
-
-	fprintf(r.out, "%s\n", jumphostID)
-	return jumphostID, nil
+	return "", jumphostNotFoundError(r.jumphostTag, cfg.Profile, cfg.Region)
 }
 
 func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options) (preparedTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
-		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
-			"rds", "describe-db-instances",
-			"--query", "DBInstances[*].{name:DBInstanceIdentifier,address:Endpoint.Address,port:Endpoint.Port}",
-			"--output", "json",
-		)
+		instances, err := r.rdsInstances(ctx, cfg)
 		if err != nil {
 			return preparedTarget{}, err
-		}
-
-		var instances []struct {
-			Name    string `json:"name"`
-			Address string `json:"address"`
-			Port    int    `json:"port"`
-		}
-		if err := json.Unmarshal([]byte(listOutput), &instances); err != nil {
-			return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_rds", err)
 		}
 		if len(instances) == 0 {
 			return preparedTarget{}, i18n.NewError("jumphost.runner.no_rds_instance_found")
 		}
 		if len(instances) == 1 {
-			name = instances[0].Name
+			name = aws.ToString(instances[0].DBInstanceIdentifier)
 		} else {
 			names := make([]string, 0, len(instances))
-			for _, instance := range instances {
-				names = append(names, instance.Name)
+			for idx := range instances {
+				names = append(names, aws.ToString(instances[idx].DBInstanceIdentifier))
 			}
 			sort.Strings(names)
 			selectedName, err := r.selectName("RDS instances", names, "Please specify the RDS instance name to connect to")
@@ -1335,46 +1258,23 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		}
 	}
 
-	rawInstance, err := r.runAWSCapture(ctx, cfg.Args,
-		"rds", "describe-db-instances",
-		"--query", "DBInstances[0]",
-		"--db-instance-identifier", name,
-		"--output", "json",
-	)
+	instance, err := r.describeDBInstance(ctx, cfg, name)
 	if err != nil {
 		return preparedTarget{}, err
 	}
-
-	var instance struct {
-		Engine               string `json:"Engine"`
-		DBInstanceIdentifier string `json:"DBInstanceIdentifier"`
-		DBInstanceArn        string `json:"DBInstanceArn"`
-		DBName               string `json:"DBName"`
-		MasterUsername       string `json:"MasterUsername"`
-		MasterUserSecret     struct {
-			SecretArn string `json:"SecretArn"`
-		} `json:"MasterUserSecret"`
-		Endpoint struct {
-			Address string `json:"Address"`
-			Port    int    `json:"Port"`
-		} `json:"Endpoint"`
-		IAMDatabaseAuthenticationEnabled bool `json:"IAMDatabaseAuthenticationEnabled"`
-	}
-	if err = json.Unmarshal([]byte(rawInstance), &instance); err != nil {
-		return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_rds_2", err)
-	}
-	if instance.Endpoint.Address == "" || instance.Endpoint.Port == 0 {
+	rdsHost, rdsPort := rdsEndpoint(&instance)
+	if rdsHost == "" || rdsPort == 0 {
 		return preparedTarget{}, i18n.NewError("jumphost.runner.rds_instance_endpoint_is")
 	}
+	engine, instanceID, instanceARN := aws.ToString(instance.Engine), aws.ToString(instance.DBInstanceIdentifier), aws.ToString(instance.DBInstanceArn)
 
 	secretID := strings.TrimSpace(options.DBSecretARN)
 	if secretID == "" && options.DBPassword != "" && strings.TrimSpace(options.DBUser) == "" {
 		return preparedTarget{}, i18n.NewError("jumphost.runner.database_user_is_required")
 	}
-	iamAuth := instance.IAMDatabaseAuthenticationEnabled && options.DBPassword == "" && secretID == "" && options.SignIn != SignInAuto
-	if iamAuth && r.ResolveDBUser(instance.Engine, options.DBUser) == "" {
-		return preparedTarget{}, i18n.NewError("jumphost.runner.database_user_is_required_2",
-			instance.DBInstanceIdentifier)
+	iamAuth := aws.ToBool(instance.IAMDatabaseAuthenticationEnabled) && options.DBPassword == "" && secretID == "" && options.SignIn != SignInAuto
+	if iamAuth && r.ResolveDBUser(engine, options.DBUser) == "" {
+		return preparedTarget{}, i18n.NewError("jumphost.runner.database_user_is_required_2", instanceID)
 	}
 	var secretUser string
 	if secretID != "" {
@@ -1388,16 +1288,16 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		r.rememberSecretARN(ctx, options, secretID)
 	}
 
-	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
+	localPort, err := r.reservePort(sessionLabel(resourceRDS, instanceID, cfg), options.LocalPortNumber, rdsPort)
 	if err != nil {
 		return preparedTarget{}, err
 	}
 
 	displayName := fmt.Sprintf(
 		"RDS %s %s:%d -> localhost:%d",
-		instance.Engine,
-		instance.DBInstanceIdentifier,
-		instance.Endpoint.Port,
+		engine,
+		instanceID,
+		rdsPort,
 		localPort,
 	)
 
@@ -1412,15 +1312,15 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		dbUser = strings.TrimSpace(options.DBUser)
 		sessionInfo = rdsPasswordSessionInfo(localPort, dbUser)
 	case iamAuth:
-		dbUser = r.ResolveDBUser(instance.Engine, options.DBUser)
-		sessionInfo = rdsIAMSessionInfo(localPort, instance.Endpoint.Address, instance.Endpoint.Port, dbUser, cfg, awsArgsHint)
+		dbUser = r.ResolveDBUser(engine, options.DBUser)
+		sessionInfo = rdsIAMSessionInfo(localPort, rdsHost, rdsPort, dbUser, cfg, awsArgsHint)
 	default:
-		sessionInfo = rdsSecretsSessionInfo(localPort, instance.DBInstanceArn, instance.MasterUserSecret.SecretArn, instance.MasterUsername, r.readOnlySecretTag, awsArgsHint)
+		sessionInfo = rdsSecretsSessionInfo(localPort, instanceARN, rdsMasterSecretARN(&instance), aws.ToString(instance.MasterUsername), r.readOnlySecretTag, awsArgsHint)
 	}
 
 	params := map[string][]string{
-		"host":            {instance.Endpoint.Address},
-		"portNumber":      {fmt.Sprintf("%d", instance.Endpoint.Port)},
+		"host":            {rdsHost},
+		"portNumber":      {fmt.Sprintf("%d", rdsPort)},
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
@@ -1429,13 +1329,13 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		password = ""
 	}
 
-	return preparedTarget{name: instance.DBInstanceIdentifier, display: displayName, info: sessionInfo, ssmParameters: params, target: ideTarget{
-		Engine:          instance.Engine,
-		Database:        instance.DBName,
-		RDSHost:         instance.Endpoint.Address,
-		RDSPort:         instance.Endpoint.Port,
-		InstanceARN:     instance.DBInstanceArn,
-		MasterSecretARN: instance.MasterUserSecret.SecretArn,
+	return preparedTarget{name: instanceID, display: displayName, info: sessionInfo, ssmParameters: params, target: ideTarget{
+		Engine:          engine,
+		Database:        aws.ToString(instance.DBName),
+		RDSHost:         rdsHost,
+		RDSPort:         rdsPort,
+		InstanceARN:     instanceARN,
+		MasterSecretARN: rdsMasterSecretARN(&instance),
 		IAMAuth:         iamAuth,
 		DBUser:          dbUser,
 		DBPassword:      password,
@@ -1507,31 +1407,16 @@ func rdsSecretsSessionInfo(localPort int, instanceARN, masterSecretARN, masterUs
 func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options) (preparedTarget, error) {
 	name := strings.TrimSpace(options.Name)
 	if name == "" {
-		listOutput, err := r.runAWSCapture(ctx, cfg.Args,
-			"eks", "list-clusters",
-			"--query", "clusters[*].{name:@}",
-			"--output", "json",
-		)
+		names, err := r.eksClusterNames(ctx, cfg)
 		if err != nil {
 			return preparedTarget{}, err
 		}
-
-		var clusters []struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal([]byte(listOutput), &clusters); err != nil {
-			return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_eks", err)
-		}
-		if len(clusters) == 0 {
+		if len(names) == 0 {
 			return preparedTarget{}, i18n.NewError("jumphost.runner.no_eks_cluster_found")
 		}
-		if len(clusters) == 1 {
-			name = clusters[0].Name
+		if len(names) == 1 {
+			name = names[0]
 		} else {
-			names := make([]string, 0, len(clusters))
-			for _, cluster := range clusters {
-				names = append(names, cluster.Name)
-			}
 			sort.Strings(names)
 			selectedName, err := r.selectName("EKS clusters", names, "Please specify the EKS cluster name to connect to")
 			if err != nil {
@@ -1544,43 +1429,32 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options
 		}
 	}
 
-	rawCluster, err := r.runAWSCapture(ctx, cfg.Args,
-		"eks", "describe-cluster",
-		"--name", name,
-		"--query", "cluster",
-		"--output", "json",
-	)
+	cluster, err := r.describeEKSCluster(ctx, cfg, name)
 	if err != nil {
 		return preparedTarget{}, err
 	}
-
-	var cluster struct {
-		Name                 string `json:"name"`
-		Endpoint             string `json:"endpoint"`
-		CertificateAuthority struct {
-			Data string `json:"data"`
-		} `json:"certificateAuthority"`
-	}
-	if err = json.Unmarshal([]byte(rawCluster), &cluster); err != nil {
-		return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_eks_2", err)
-	}
-	if cluster.Endpoint == "" {
+	clusterName, endpoint := aws.ToString(cluster.Name), aws.ToString(cluster.Endpoint)
+	if endpoint == "" {
 		return preparedTarget{}, i18n.NewError("jumphost.runner.eks_cluster_endpoint_is")
 	}
+	var caData string
+	if cluster.CertificateAuthority != nil {
+		caData = strings.TrimSpace(aws.ToString(cluster.CertificateAuthority.Data))
+	}
 
-	localPort, err := r.reservePort(sessionLabel(resourceEKS, cluster.Name, cfg), options.LocalPortNumber, defaultEKSLocalPort)
+	localPort, err := r.reservePort(sessionLabel(resourceEKS, clusterName, cfg), options.LocalPortNumber, defaultEKSLocalPort)
 	if err != nil {
 		return preparedTarget{}, err
 	}
 
-	displayName := fmt.Sprintf("EKS %s (%s) -> localhost:%d", cluster.Name, cluster.Endpoint, localPort)
+	displayName := fmt.Sprintf("EKS %s (%s) -> localhost:%d", clusterName, endpoint, localPort)
 	params := map[string][]string{
-		"host":            {strings.TrimPrefix(cluster.Endpoint, "https://")},
+		"host":            {strings.TrimPrefix(endpoint, "https://")},
 		"portNumber":      {"443"},
 		"localPortNumber": {fmt.Sprintf("%d", localPort)},
 	}
 
-	return preparedTarget{name: cluster.Name, display: displayName, ssmParameters: params, target: ideTarget{ClusterCA: strings.TrimSpace(cluster.CertificateAuthority.Data)}}, nil
+	return preparedTarget{name: clusterName, display: displayName, ssmParameters: params, target: ideTarget{ClusterCA: caData}}, nil
 }
 
 // writeKubeconfig writes the kubeconfig pointing Kubernetes clients at the tunnel of an EKS
@@ -1655,137 +1529,71 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 	}
 
 	// Try replication group first.
-	rawGroup, err := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-replication-groups",
-		"--replication-group-id", name,
-		"--query", "ReplicationGroups[0]",
-		"--output", "json",
-	)
-	if err == nil && strings.TrimSpace(rawGroup) != "" && !strings.EqualFold(strings.TrimSpace(rawGroup), "null") {
-		var group struct {
-			ReplicationGroupId string   `json:"ReplicationGroupId"`
-			Engine             string   `json:"Engine"`
-			Status             string   `json:"Status"`
-			UserGroupIDs       []string `json:"UserGroupIds"`
-			NodeGroups         []struct {
-				PrimaryEndpoint struct {
-					Address string `json:"Address"`
-					Port    int    `json:"Port"`
-				} `json:"PrimaryEndpoint"`
-			} `json:"NodeGroups"`
-			ConfigurationEndpoint struct {
-				Address string `json:"Address"`
-				Port    int    `json:"Port"`
-			} `json:"ConfigurationEndpoint"`
-			TransitEncryptionEnabled bool `json:"TransitEncryptionEnabled"`
-			AuthTokenEnabled         bool `json:"AuthTokenEnabled"`
-			ClusterEnabled           bool `json:"ClusterEnabled"`
-		}
-		if jsonErr := json.Unmarshal([]byte(rawGroup), &group); jsonErr == nil {
-			// Cluster-mode groups have no primary endpoint: their configuration endpoint reaches one shard.
-			endpoint := group.ConfigurationEndpoint
-			if len(group.NodeGroups) > 0 && group.NodeGroups[0].PrimaryEndpoint.Address != "" {
-				endpoint = group.NodeGroups[0].PrimaryEndpoint
-			}
-			if endpoint.Address != "" {
-				return r.prepareCacheTarget(ctx, cfg, options, group.ReplicationGroupId, endpoint.Address, endpoint.Port, &ideTarget{
-					Engine:           elastiCacheEngine(group.Engine),
-					CacheAuth:        cacheAuthMode(group.AuthTokenEnabled, group.UserGroupIDs),
-					CacheTLS:         group.TransitEncryptionEnabled,
-					CacheClusterMode: group.ClusterEnabled,
-				}, func(localPort int) string {
-					return fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d", group.ReplicationGroupId, endpoint.Address, endpoint.Port, localPort)
-				})
-			}
+	if groups, err := r.replicationGroups(ctx, cfg, name); err == nil && len(groups) > 0 {
+		group := &groups[0]
+		groupID := aws.ToString(group.ReplicationGroupId)
+		if address, port := groupEndpoint(group); address != "" {
+			return r.prepareCacheTarget(ctx, cfg, options, groupID, address, port, &ideTarget{
+				Engine:           elastiCacheEngine(aws.ToString(group.Engine)),
+				CacheAuth:        cacheAuthMode(aws.ToBool(group.AuthTokenEnabled), group.UserGroupIds),
+				CacheTLS:         aws.ToBool(group.TransitEncryptionEnabled),
+				CacheClusterMode: aws.ToBool(group.ClusterEnabled),
+			}, func(localPort int) string {
+				return fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d", groupID, address, port, localPort)
+			})
 		}
 	}
 
 	// Fall back to standalone cache cluster.
-	rawCluster, err := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-cache-clusters",
-		"--cache-cluster-id", name,
-		"--show-cache-node-info",
-		"--query", "CacheClusters[0]",
-		"--output", "json",
-	)
-	if err == nil {
-		var cluster struct {
-			CacheClusterId     string `json:"CacheClusterId"`
-			ReplicationGroupId string `json:"ReplicationGroupId"`
-			Engine             string `json:"Engine"`
-			EngineVersion      string `json:"EngineVersion"`
-			CacheClusterStatus string `json:"CacheClusterStatus"`
-			CacheNodes         []struct {
-				Endpoint struct {
-					Address string `json:"Address"`
-					Port    int    `json:"Port"`
-				} `json:"Endpoint"`
-			} `json:"CacheNodes"`
-			TransitEncryptionEnabled bool `json:"TransitEncryptionEnabled"`
-			AuthTokenEnabled         bool `json:"AuthTokenEnabled"`
-		}
-		if json.Unmarshal([]byte(rawCluster), &cluster) == nil &&
-			len(cluster.CacheNodes) > 0 && cluster.CacheNodes[0].Endpoint.Address != "" {
-			endpoint := cluster.CacheNodes[0].Endpoint
+	if clusters, err := r.cacheClusters(ctx, cfg, name); err == nil && len(clusters) > 0 {
+		cluster := &clusters[0]
+		if address, port := endpointOf(nodeEndpoint(cluster)); address != "" {
+			clusterID, engine := aws.ToString(cluster.CacheClusterId), aws.ToString(cluster.Engine)
 			target := &ideTarget{
-				Engine:    elastiCacheEngine(cluster.Engine),
-				CacheAuth: cacheAuthMode(cluster.AuthTokenEnabled, nil),
-				CacheTLS:  cluster.TransitEncryptionEnabled,
+				Engine:    elastiCacheEngine(engine),
+				CacheAuth: cacheAuthMode(aws.ToBool(cluster.AuthTokenEnabled), nil),
+				CacheTLS:  aws.ToBool(cluster.TransitEncryptionEnabled),
 			}
-			if cluster.ReplicationGroupId != "" {
+			if groupID := aws.ToString(cluster.ReplicationGroupId); groupID != "" {
 				// A node of a replication group signs in as its group does.
-				if groupErr := r.applyNodeReplicationGroup(ctx, cfg, cluster.ReplicationGroupId, target); groupErr != nil {
-					return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_describe_replication", cluster.ReplicationGroupId, cluster.CacheClusterId, groupErr)
+				if groupErr := r.applyNodeReplicationGroup(ctx, cfg, groupID, target); groupErr != nil {
+					return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_describe_replication", groupID, clusterID, groupErr)
 				}
 			}
-			return r.prepareCacheTarget(ctx, cfg, options, cluster.CacheClusterId, endpoint.Address, endpoint.Port, target, func(localPort int) string {
+			return r.prepareCacheTarget(ctx, cfg, options, clusterID, address, port, target, func(localPort int) string {
 				return fmt.Sprintf("ElastiCache %s (%s %s) %s:%d -> localhost:%d",
-					cluster.CacheClusterId, cluster.Engine, cluster.EngineVersion, endpoint.Address, endpoint.Port, localPort)
+					clusterID, engine, aws.ToString(cluster.EngineVersion), address, port, localPort)
 			})
 		}
 	}
 
 	// Fall back to serverless cache.
-	rawServerless, err := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-serverless-caches",
-		"--serverless-cache-name", name,
-		"--query", "ServerlessCaches[0]",
-		"--output", "json",
-	)
+	caches, err := r.serverlessCaches(ctx, cfg, name)
 	if err != nil {
 		return preparedTarget{}, i18n.NewError("jumphost.runner.elasticache_cluster_not_found", name, err)
 	}
-
-	var sc struct {
-		ServerlessCacheName string `json:"ServerlessCacheName"`
-		Engine              string `json:"Engine"`
-		EngineVersion       string `json:"MajorEngineVersion"`
-		Status              string `json:"Status"`
-		UserGroupID         string `json:"UserGroupId"`
-		Endpoint            struct {
-			Address string `json:"Address"`
-			Port    int    `json:"Port"`
-		} `json:"Endpoint"`
+	var sc ectypes.ServerlessCache
+	if len(caches) > 0 {
+		sc = caches[0]
 	}
-	if err = json.Unmarshal([]byte(rawServerless), &sc); err != nil {
-		return preparedTarget{}, i18n.NewError("jumphost.runner.failed_to_parse_serverless", err)
-	}
-	if sc.Endpoint.Address == "" {
+	address, port := endpointOf(sc.Endpoint)
+	if address == "" {
 		return preparedTarget{}, i18n.NewError("jumphost.runner.serverless_cache_endpoint_is", name)
 	}
 
 	var userGroups []string
-	if sc.UserGroupID != "" {
-		userGroups = []string{sc.UserGroupID}
+	if groupID := aws.ToString(sc.UserGroupId); groupID != "" {
+		userGroups = []string{groupID}
 	}
-	return r.prepareCacheTarget(ctx, cfg, options, sc.ServerlessCacheName, sc.Endpoint.Address, sc.Endpoint.Port, &ideTarget{
-		Engine:          elastiCacheEngine(sc.Engine),
+	scName, engine := aws.ToString(sc.ServerlessCacheName), aws.ToString(sc.Engine)
+	return r.prepareCacheTarget(ctx, cfg, options, scName, address, port, &ideTarget{
+		Engine:          elastiCacheEngine(engine),
 		CacheAuth:       cacheAuthMode(false, userGroups),
 		CacheTLS:        true,
 		CacheServerless: true,
 	}, func(localPort int) string {
 		return fmt.Sprintf("ElastiCache serverless %s (%s %s) %s:%d -> localhost:%d",
-			sc.ServerlessCacheName, sc.Engine, sc.EngineVersion, sc.Endpoint.Address, sc.Endpoint.Port, localPort)
+			scName, engine, aws.ToString(sc.MajorEngineVersion), address, port, localPort)
 	})
 }
 
@@ -1921,6 +1729,10 @@ var kubemcpStart = kubemcp.Start
 // sdkConfig is r.configs.Get with a translated error.
 func (r *Runner) sdkConfig(ctx context.Context, cfg awsConfig) (aws.Config, error) {
 	c, err := r.configs.Get(ctx, cfg.Profile, cfg.Region)
+	if _, ok := errors.AsType[config.AssumeRoleTokenProviderNotSetError](err); ok {
+		// ponytail: MFA assume-role profiles need a token prompt; revisit with phase D (sign-in without the CLI).
+		return aws.Config{}, i18n.NewError("jumphost.runner.aws_config_mfa", cfg.Profile)
+	}
 	if err != nil {
 		return aws.Config{}, i18n.NewError("jumphost.runner.aws_config", err)
 	}
@@ -2174,108 +1986,56 @@ func (r *Runner) listElastiCacheResources(ctx context.Context, cfg awsConfig) ([
 	var resources []ResourceSummary
 
 	// Replication groups (Redis/Valkey with replication).
-	rgOutput, rgErr := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-replication-groups",
-		"--query", "ReplicationGroups[*].{name:ReplicationGroupId,status:Status,engine:Engine,authToken:AuthTokenEnabled,userGroups:UserGroupIds,"+
-			"host:NodeGroups[0].PrimaryEndpoint.Address,port:NodeGroups[0].PrimaryEndpoint.Port,cfgHost:ConfigurationEndpoint.Address,cfgPort:ConfigurationEndpoint.Port}",
-		"--output", "json",
-	)
-	if rgErr == nil {
-		var groups []struct {
-			Name       string   `json:"name"`
-			Status     string   `json:"status"`
-			Engine     string   `json:"engine"`
-			Host       string   `json:"host"`
-			CfgHost    string   `json:"cfgHost"`
-			UserGroups []string `json:"userGroups"`
-			Port       int      `json:"port"`
-			CfgPort    int      `json:"cfgPort"`
-			AuthToken  bool     `json:"authToken"`
+	groups, rgErr := r.replicationGroups(ctx, cfg, "")
+	for i := range groups {
+		g := &groups[i]
+		name := strings.TrimSpace(aws.ToString(g.ReplicationGroupId))
+		if name == "" {
+			continue
 		}
-		if json.Unmarshal([]byte(rgOutput), &groups) == nil {
-			for i := range groups {
-				g := &groups[i]
-				name := strings.TrimSpace(g.Name)
-				if name == "" {
-					continue
-				}
-				host, port := g.Host, g.Port
-				if host == "" {
-					host, port = g.CfgHost, g.CfgPort
-				}
-				resources = append(resources, ResourceSummary{
-					Name:        name,
-					Description: formatElastiCacheResourceDescription(host, port, g.Status),
-					Engine:      elastiCacheEngine(g.Engine),
-					CacheAuth:   cacheAuthMode(g.AuthToken, g.UserGroups),
-				})
-			}
-		}
+		host, port := groupEndpoint(g)
+		resources = append(resources, ResourceSummary{
+			Name:        name,
+			Description: formatElastiCacheResourceDescription(host, port, aws.ToString(g.Status)),
+			Engine:      elastiCacheEngine(aws.ToString(g.Engine)),
+			CacheAuth:   cacheAuthMode(aws.ToBool(g.AuthTokenEnabled), g.UserGroupIds),
+		})
 	}
 
 	// Standalone cache clusters (no replication group — includes single-node Valkey/Redis).
-	clOutput, clErr := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-cache-clusters",
-		"--show-cache-node-info",
-		"--query", "CacheClusters[?!ReplicationGroupId].{name:CacheClusterId,status:CacheClusterStatus,engine:Engine,authToken:AuthTokenEnabled,host:CacheNodes[0].Endpoint.Address,port:CacheNodes[0].Endpoint.Port}",
-		"--output", "json",
-	)
-	if clErr == nil {
-		var clusters []struct {
-			Name      string `json:"name"`
-			Status    string `json:"status"`
-			Engine    string `json:"engine"`
-			Host      string `json:"host"`
-			Port      int    `json:"port"`
-			AuthToken bool   `json:"authToken"`
+	clusters, clErr := r.cacheClusters(ctx, cfg, "")
+	for i := range clusters {
+		c := &clusters[i]
+		name := strings.TrimSpace(aws.ToString(c.CacheClusterId))
+		if name == "" || aws.ToString(c.ReplicationGroupId) != "" {
+			continue
 		}
-		if json.Unmarshal([]byte(clOutput), &clusters) == nil {
-			for _, c := range clusters {
-				name := strings.TrimSpace(c.Name)
-				if name == "" {
-					continue
-				}
-				resources = append(resources, ResourceSummary{
-					Name:        name,
-					Description: formatElastiCacheResourceDescription(c.Host, c.Port, c.Status),
-					Engine:      elastiCacheEngine(c.Engine),
-					CacheAuth:   cacheAuthMode(c.AuthToken, nil),
-				})
-			}
-		}
+		host, port := endpointOf(nodeEndpoint(c))
+		resources = append(resources, ResourceSummary{
+			Name:        name,
+			Description: formatElastiCacheResourceDescription(host, port, aws.ToString(c.CacheClusterStatus)),
+			Engine:      elastiCacheEngine(aws.ToString(c.Engine)),
+			CacheAuth:   cacheAuthMode(aws.ToBool(c.AuthTokenEnabled), nil),
+		})
 	}
 
 	// Serverless caches (Valkey/Redis serverless — different API entirely).
-	scOutput, scErr := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-serverless-caches",
-		"--query", "ServerlessCaches[*].{name:ServerlessCacheName,status:Status,engine:Engine,userGroup:UserGroupId,host:Endpoint.Address,port:Endpoint.Port}",
-		"--output", "json",
-	)
-	if scErr == nil {
-		var serverless []struct {
-			Name      string `json:"name"`
-			Status    string `json:"status"`
-			Engine    string `json:"engine"`
-			Host      string `json:"host"`
-			UserGroup string `json:"userGroup"`
-			Port      int    `json:"port"`
+	serverless, scErr := r.serverlessCaches(ctx, cfg, "")
+	for i := range serverless {
+		s := &serverless[i]
+		name := strings.TrimSpace(aws.ToString(s.ServerlessCacheName))
+		if name == "" {
+			continue
 		}
-		if json.Unmarshal([]byte(scOutput), &serverless) == nil {
-			for _, s := range serverless {
-				name := strings.TrimSpace(s.Name)
-				if name == "" {
-					continue
-				}
-				var userGroups []string
-				if s.UserGroup != "" {
-					userGroups = []string{s.UserGroup}
-				}
-				resources = append(resources, ResourceSummary{
-					Name: name, Description: formatElastiCacheResourceDescription(s.Host, s.Port, s.Status),
-					Engine: elastiCacheEngine(s.Engine), CacheAuth: cacheAuthMode(false, userGroups),
-				})
-			}
+		var userGroups []string
+		if groupID := aws.ToString(s.UserGroupId); groupID != "" {
+			userGroups = []string{groupID}
 		}
+		host, port := endpointOf(s.Endpoint)
+		resources = append(resources, ResourceSummary{
+			Name: name, Description: formatElastiCacheResourceDescription(host, port, aws.ToString(s.Status)),
+			Engine: elastiCacheEngine(aws.ToString(s.Engine)), CacheAuth: cacheAuthMode(false, userGroups),
+		})
 	}
 	// One listing may fail on its own (a region without serverless caches); all failing means
 	// the caches could not be listed at all.
@@ -2314,29 +2074,6 @@ func (r *Runner) selectName(title string, names []string, prompt string) (string
 		return "", i18n.NewError("jumphost.runner.failed_to_read_input", err)
 	}
 	return strings.TrimSpace(line), nil
-}
-
-func (r *Runner) runAWSCapture(ctx context.Context, awsArgs []string, commandArgs ...string) (string, error) {
-	args := append([]string{}, commandArgs...)
-	args = append(args, awsArgs...)
-
-	cmd := exec.CommandContext(ctx, "aws", args...) // #nosec G204 G702 -- the aws CLI with airlock's own arguments, no shell.
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	output := strings.TrimSpace(stdout.String())
-	if err != nil {
-		errText := strings.TrimSpace(stderr.String())
-		if errText != "" {
-			return "", i18n.NewError("jumphost.runner.aws_failed_output", strings.Join(commandArgs, " "), errText)
-		}
-		return "", i18n.NewError("jumphost.runner.aws_failed", strings.Join(commandArgs, " "), err)
-	}
-
-	return output, nil
 }
 
 func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandArgs ...string) error {

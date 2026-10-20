@@ -1,9 +1,8 @@
 package jumphost
 
 import (
+	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,21 +11,24 @@ import (
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
-// installDynamoAWS puts an aws executable on PATH whose list-tables succeeds when ok.
+// installDynamoAWS answers ListTables (one table at most), denied unless ok.
 func installDynamoAWS(t *testing.T, ok bool) {
 	t.Helper()
-	listTables := "*list-tables*) echo '{\"TableNames\":[\"orders\"]}' ;;\n"
-	if !ok {
-		listTables = "*list-tables*) echo 'AccessDeniedException: not authorized' >&2; exit 254 ;;\n"
-	}
-	script := "#!/bin/sh\ncase \"$*\" in\n" +
-		"*get-caller-identity*) echo arn:aws:iam::111111111111:user/dev ;;\n" + listTables + "esac\n"
-	dir := t.TempDir()
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	installAWSAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Limit int }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		switch op := awsapitest.Operation(r); {
+		case op != "ListTables" || body.Limit != 1:
+			t.Errorf("unexpected operation %s, limit %d", op, body.Limit)
+			w.WriteHeader(http.StatusBadRequest)
+		case ok:
+			awsapitest.Respond(t, w, http.StatusOK, map[string]any{"TableNames": []string{"orders"}})
+		default:
+			awsapitest.Respond(t, w, http.StatusBadRequest, map[string]string{"__type": "com.amazonaws.dynamodb.v20120810#AccessDeniedException", "message": "not authorized"})
+		}
+	})
 }
 
 func TestDynamoDBListsOneTargetNamedAfterTheRegion(t *testing.T) {
@@ -38,7 +40,6 @@ func TestDynamoDBListsOneTargetNamedAfterTheRegion(t *testing.T) {
 }
 
 func TestPrepareDynamoDBUsesTheNameAsRegionAndRunsNoTunnel(t *testing.T) {
-	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installDynamoAWS(t, true)
 	var started *dynamomcp.SessionConfig
 	dynamomcpStart = func(host *mcpserve.Host, cfg *dynamomcp.SessionConfig) (*mcpserve.Handle, error) {

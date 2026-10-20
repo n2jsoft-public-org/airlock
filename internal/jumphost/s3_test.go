@@ -2,8 +2,6 @@ package jumphost
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,21 +10,20 @@ import (
 	"github.com/n2jsoft/airlock/internal/s3mcp"
 )
 
-// installS3AWS puts an aws executable on PATH whose list-buckets succeeds when ok.
+// installS3AWS answers ListBuckets (one bucket at most), denied unless ok.
 func installS3AWS(t *testing.T, ok bool) {
 	t.Helper()
-	listBuckets := "*list-buckets*) echo '{\"Buckets\":[{\"Name\":\"logs\"}]}' ;;\n"
-	if !ok {
-		listBuckets = "*list-buckets*) echo 'AccessDenied: not authorized' >&2; exit 254 ;;\n"
-	}
-	script := "#!/bin/sh\ncase \"$*\" in\n" +
-		"*get-caller-identity*) echo arn:aws:iam::111111111111:user/dev ;;\n" + listBuckets + "esac\n"
-	dir := t.TempDir()
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	installAWSAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		switch op := awsapitest.Operation(r); {
+		case op != "GET /" || r.URL.Query().Get("max-buckets") != "1":
+			t.Errorf("unexpected operation %s?%s", op, r.URL.RawQuery)
+			w.WriteHeader(http.StatusBadRequest)
+		case ok:
+			awsapitest.RespondXML(t, w, http.StatusOK, `<ListAllMyBucketsResult><Buckets><Bucket><Name>logs</Name></Bucket></Buckets></ListAllMyBucketsResult>`)
+		default:
+			awsapitest.RespondXML(t, w, http.StatusForbidden, `<Error><Code>AccessDenied</Code><Message>not authorized</Message></Error>`)
+		}
+	})
 }
 
 func TestS3ListsOneTargetForTheProfile(t *testing.T) {
@@ -38,7 +35,6 @@ func TestS3ListsOneTargetForTheProfile(t *testing.T) {
 }
 
 func TestPrepareS3RunsNoTunnelAndStartsTheServer(t *testing.T) {
-	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	installS3AWS(t, true)
 	var started *s3mcp.SessionConfig
 	s3mcpStart = func(_ *mcpserve.Host, cfg *s3mcp.SessionConfig) (*mcpserve.Handle, error) {

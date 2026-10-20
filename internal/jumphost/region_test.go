@@ -9,20 +9,25 @@ import (
 	"testing"
 )
 
-// installFakeAWS puts an aws executable on PATH that answers "configure get region" with region.
-func installFakeAWS(t *testing.T, region string) {
+// useProfiles points the AWS shared files at a config with profile dev (in region, when not empty)
+// and profile prod (without region).
+func useProfiles(t *testing.T, region string) {
 	t.Helper()
 	dir := t.TempDir()
-	script := "#!/bin/sh\n[ \"$1 $2 $3\" = \"configure get region\" ] && [ \"$5\" = \"dev\" ] && printf '%s\\n' '" + region + "'\nexit 0\n"
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o700); err != nil {
+	cfg := "[profile dev]\n"
+	if region != "" {
+		cfg += "region = " + region + "\n"
+	}
+	cfg += "\n[profile prod]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir)
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
 }
 
 func TestResolveRegionPrefersEnvironment(t *testing.T) {
-	installFakeAWS(t, "us-east-1")
+	useProfiles(t, "us-east-1")
 	t.Setenv("AWS_REGION", "ap-northeast-1")
 
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
@@ -32,7 +37,7 @@ func TestResolveRegionPrefersEnvironment(t *testing.T) {
 }
 
 func TestResolveRegionUsesProfileRegion(t *testing.T) {
-	installFakeAWS(t, "us-east-1")
+	useProfiles(t, "us-east-1")
 	t.Setenv("AWS_REGION", "")
 
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
@@ -45,7 +50,7 @@ func TestResolveRegionUsesProfileRegion(t *testing.T) {
 }
 
 func TestResolveRegionFallsBackToConfiguredDefault(t *testing.T) {
-	installFakeAWS(t, "us-east-1")
+	useProfiles(t, "us-east-1")
 	t.Setenv("AWS_REGION", "")
 
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, DefaultRegion: "eu-west-3"})
@@ -58,7 +63,7 @@ func TestResolveRegionFallsBackToConfiguredDefault(t *testing.T) {
 }
 
 func TestResolveAWSConfigWithoutRegionErrors(t *testing.T) {
-	installFakeAWS(t, "")
+	useProfiles(t, "")
 	t.Setenv("AWS_REGION", "")
 
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})

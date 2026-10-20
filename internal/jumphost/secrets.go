@@ -3,11 +3,12 @@ package jumphost
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/i18n"
 )
@@ -20,17 +21,6 @@ type SecretSummary struct {
 	// Linked reports that the secret belongs to the instance: tagged DBInstanceArn, the RDS master
 	// user secret, or named after the instance.
 	Linked bool
-}
-
-// secretListEntry is one secret of `aws secretsmanager list-secrets`.
-type secretListEntry struct {
-	ARN         string `json:"ARN"`
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
-	Tags        []struct {
-		Key   string `json:"Key"`
-		Value string `json:"Value"`
-	} `json:"Tags"`
 }
 
 // ListDBSecrets returns every secret of the profile and region of options, those linked to the
@@ -47,40 +37,28 @@ func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretS
 		return r.listSecrets(ctx, cfg, "", "", "")
 	}
 	instance := strings.TrimSpace(options.Name)
-	rawInstance, err := r.runAWSCapture(ctx, cfg.Args,
-		"rds", "describe-db-instances",
-		"--db-instance-identifier", instance,
-		"--query", "DBInstances[0].{arn:DBInstanceArn,masterSecret:MasterUserSecret.SecretArn}",
-		"--output", "json",
-	)
+	described, err := r.describeDBInstance(ctx, cfg, instance)
 	if err != nil {
 		return nil, err
 	}
-	var described struct {
-		ARN          string `json:"arn"`
-		MasterSecret string `json:"masterSecret"`
-	}
-	if e := json.Unmarshal([]byte(rawInstance), &described); e != nil {
-		return nil, i18n.NewError("jumphost.runner.failed_to_parse_rds_2", e)
-	}
 
-	return r.listSecrets(ctx, cfg, instance, described.ARN, described.MasterSecret)
+	return r.listSecrets(ctx, cfg, instance, aws.ToString(described.DBInstanceArn), rdsMasterSecretARN(&described))
 }
 
 // listSecrets lists every secret of cfg, those linked to instance first (see rankDBSecrets).
 func (r *Runner) listSecrets(ctx context.Context, cfg awsConfig, instance, instanceARN, masterSecret string) ([]SecretSummary, error) {
-	// The AWS CLI fetches every page of list-secrets before applying --query.
-	raw, err := r.runAWSCapture(ctx, cfg.Args,
-		"secretsmanager", "list-secrets",
-		"--query", "SecretList[].{ARN:ARN,Name:Name,Description:Description,Tags:Tags}",
-		"--output", "json",
-	)
+	awsCfg, err := r.apiConfig(ctx, cfg)
 	if err != nil {
-		return nil, i18n.NewError("jumphost.secrets.failed_to_list_secrets", err)
+		return nil, err
 	}
-	var entries []secretListEntry
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
-		return nil, i18n.NewError("jumphost.secrets.failed_to_parse_secrets", err)
+	var entries []smtypes.SecretListEntry
+	pages := secretsmanager.NewListSecretsPaginator(secretsmanager.NewFromConfig(awsCfg), &secretsmanager.ListSecretsInput{})
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, i18n.NewError("jumphost.secrets.failed_to_list_secrets", awsCallError(err))
+		}
+		entries = append(entries, page.SecretList...)
 	}
 	if len(entries) == 0 {
 		// The identity check of resolveAWSConfig learned the account.
@@ -94,18 +72,20 @@ func (r *Runner) listSecrets(ctx context.Context, cfg awsConfig, instance, insta
 }
 
 // rankDBSecrets summarizes entries, linked to the instance first, then by name.
-func rankDBSecrets(entries []secretListEntry, instance, instanceARN, masterSecretARN string) []SecretSummary {
+func rankDBSecrets(entries []smtypes.SecretListEntry, instance, instanceARN, masterSecretARN string) []SecretSummary {
 	instance = strings.ToLower(strings.TrimSpace(instance))
 	secrets := make([]SecretSummary, 0, len(entries))
-	for _, entry := range entries {
-		linked := (masterSecretARN != "" && entry.ARN == masterSecretARN) ||
-			(instance != "" && strings.Contains(strings.ToLower(entry.Name), instance))
+	for idx := range entries {
+		entry := &entries[idx]
+		arn, name := aws.ToString(entry.ARN), aws.ToString(entry.Name)
+		linked := (masterSecretARN != "" && arn == masterSecretARN) ||
+			(instance != "" && strings.Contains(strings.ToLower(name), instance))
 		for _, tag := range entry.Tags {
-			if tag.Key == "DBInstanceArn" && instanceARN != "" && tag.Value == instanceARN {
+			if aws.ToString(tag.Key) == "DBInstanceArn" && instanceARN != "" && aws.ToString(tag.Value) == instanceARN {
 				linked = true
 			}
 		}
-		secrets = append(secrets, SecretSummary{ARN: entry.ARN, Name: entry.Name, Description: entry.Description, Linked: linked})
+		secrets = append(secrets, SecretSummary{ARN: arn, Name: name, Description: aws.ToString(entry.Description), Linked: linked})
 	}
 	sort.SliceStable(secrets, func(i, j int) bool {
 		if secrets[i].Linked != secrets[j].Linked {

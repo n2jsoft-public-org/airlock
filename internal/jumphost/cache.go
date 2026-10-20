@@ -2,7 +2,6 @@ package jumphost
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/i18n"
@@ -85,25 +86,16 @@ func (r *Runner) resolveCacheSignIn(ctx context.Context, cfg awsConfig, options 
 // applyNodeReplicationGroup sets on target the sign-in of the replication group groupID of a cache
 // node: its user groups, AUTH token and encryption. IAM tokens are signed for the group.
 func (r *Runner) applyNodeReplicationGroup(ctx context.Context, cfg awsConfig, groupID string, target *ideTarget) error {
-	raw, err := r.runAWSCapture(ctx, cfg.Args,
-		"elasticache", "describe-replication-groups",
-		"--replication-group-id", groupID,
-		"--query", "ReplicationGroups[0]",
-		"--output", "json",
-	)
+	groups, err := r.replicationGroups(ctx, cfg, groupID)
 	if err != nil {
 		return err
 	}
-	var group struct {
-		UserGroupIDs             []string `json:"UserGroupIds"`
-		TransitEncryptionEnabled bool     `json:"TransitEncryptionEnabled"`
-		AuthTokenEnabled         bool     `json:"AuthTokenEnabled"`
+	var group ectypes.ReplicationGroup
+	if len(groups) > 0 {
+		group = groups[0]
 	}
-	if err := json.Unmarshal([]byte(raw), &group); err != nil {
-		return i18n.NewError("jumphost.cache.failed_to_parse_replication")
-	}
-	target.CacheAuth = cacheAuthMode(group.AuthTokenEnabled, group.UserGroupIDs)
-	target.CacheTLS = group.TransitEncryptionEnabled
+	target.CacheAuth = cacheAuthMode(aws.ToBool(group.AuthTokenEnabled), group.UserGroupIds)
+	target.CacheTLS = aws.ToBool(group.TransitEncryptionEnabled)
 	target.CacheReplicationGroup = groupID
 	return nil
 }
@@ -144,52 +136,36 @@ func (r *Runner) ListCacheIAMUsers(ctx context.Context, options *Options) ([]str
 	if err != nil {
 		return nil, err
 	}
-	groups, err := r.runAWSCapture(ctx, cfg.Args, "elasticache", "describe-user-groups", "--query", "UserGroups", "--output", "json")
+	groups, err := r.cacheUserGroups(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	users, err := r.runAWSCapture(ctx, cfg.Args, "elasticache", "describe-users", "--query", "Users", "--output", "json")
+	users, err := r.cacheUsers(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	return iamUsersOf(groups, users, strings.TrimSpace(options.Name))
+	return iamUsersOf(groups, users, strings.TrimSpace(options.Name)), nil
 }
 
 // iamUsersOf picks the IAM users of the user groups attached to cacheName.
-func iamUsersOf(groupsJSON, usersJSON, cacheName string) ([]string, error) {
-	var groups []struct {
-		UserIDs           []string `json:"UserIds"`
-		ReplicationGroups []string `json:"ReplicationGroups"`
-		ServerlessCaches  []string `json:"ServerlessCaches"`
-	}
-	var users []struct {
-		UserID         string `json:"UserId"`
-		Authentication struct {
-			Type string `json:"Type"`
-		} `json:"Authentication"`
-	}
-	if err := json.Unmarshal([]byte(groupsJSON), &groups); err != nil {
-		return nil, i18n.NewError("jumphost.cache.failed_to_parse_elasticache")
-	}
-	if err := json.Unmarshal([]byte(usersJSON), &users); err != nil {
-		return nil, i18n.NewError("jumphost.cache.failed_to_parse_elasticache_2")
-	}
+func iamUsersOf(groups []ectypes.UserGroup, users []ectypes.User, cacheName string) []string {
 	members := map[string]bool{}
 	for _, group := range groups {
 		if slices.Contains(group.ReplicationGroups, cacheName) || slices.Contains(group.ServerlessCaches, cacheName) {
-			for _, id := range group.UserIDs {
+			for _, id := range group.UserIds {
 				members[id] = true
 			}
 		}
 	}
 	iamUsers := make([]string, 0)
 	for _, user := range users {
-		if members[user.UserID] && user.Authentication.Type == "iam" {
-			iamUsers = append(iamUsers, user.UserID)
+		id := aws.ToString(user.UserId)
+		if members[id] && user.Authentication != nil && user.Authentication.Type == ectypes.AuthenticationTypeIam {
+			iamUsers = append(iamUsers, id)
 		}
 	}
 	sort.Strings(iamUsers)
-	return iamUsers, nil
+	return iamUsers
 }
 
 // prepareCacheTarget ends the preparation of a cache reached at address:port: it resolves the

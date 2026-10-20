@@ -2,37 +2,55 @@ package jumphost
 
 import (
 	"context"
-	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/n2jsoft/airlock/internal/awsapi"
 	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
-// unreachableMarkers are what the aws CLI prints when AWS could not be reached: such a failure
-// says nothing about the credentials.
-var unreachableMarkers = []string{
-	"Could not connect to the endpoint URL",
-	"Connect timeout on endpoint URL",
-	"Read timeout on endpoint URL",
-	"Connection was closed before we received a valid response",
-}
-
 // CheckIdentity checks the AWS sign-in of profile in region without ever signing in: expired or
-// missing credentials fail with ErrSignInRequired; AWS out of reach fails with another error.
+// missing credentials fail with ErrSignInRequired; AWS out of reach or a profile that cannot be
+// loaded fails with another error.
 func (r *Runner) CheckIdentity(ctx context.Context, profile, region string) error {
 	cfg := identityConfig(profile, region)
-	_, err := r.runAWSCapture(ctx, cfg.Args, "sts", "get-caller-identity", "--query", "Arn", "--output", "text")
-	if err == nil {
+	awsCfg, err := r.sdkConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if _, err = callerIdentity(ctx, &awsCfg); err == nil {
 		return nil
 	}
+	if checkErr := identityCheckError(ctx, cfg.Profile, err); checkErr != nil {
+		return checkErr
+	}
+	return i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
+}
+
+// identityCheckError is the failure err of an identity check of profile when it says nothing
+// about the credentials (ctx done, AWS out of reach): signing in would not fix it. Nil otherwise.
+func identityCheckError(ctx context.Context, profile string, err error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	for _, marker := range unreachableMarkers {
-		if strings.Contains(err.Error(), marker) {
-			return err
-		}
+	if awsapi.Unreachable(err) {
+		return i18n.NewError("jumphost.identity.aws_unreachable", profile, err)
 	}
-	return i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
+	return nil
+}
+
+// callerIdentity asks STS whom the credentials of awsCfg belong to.
+func callerIdentity(ctx context.Context, awsCfg *aws.Config) (*sts.GetCallerIdentityOutput, error) {
+	return sts.NewFromConfig(*awsCfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+}
+
+// callerArn returns the ARN of the caller identity of awsCfg.
+func callerArn(ctx context.Context, awsCfg *aws.Config) (string, error) {
+	out, err := callerIdentity(ctx, awsCfg)
+	if err != nil {
+		return "", err
+	}
+	return aws.ToString(out.Arn), nil
 }
 
 // SignIn signs profile in again when its AWS sign-in expired (aws sso login, through the

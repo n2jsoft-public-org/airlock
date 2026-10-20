@@ -19,21 +19,6 @@ import (
 	"github.com/n2jsoft/airlock/internal/awstag"
 )
 
-// respond writes the JSON reply of a fake AWS API.
-func respond(t testing.TB, w http.ResponseWriter, status int, body any) {
-	t.Helper()
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.WriteHeader(status)
-	if _, err := w.Write(raw); err != nil {
-		t.Error(err)
-	}
-}
-
 // secretIDOf is the SecretId of a GetSecretValue request.
 func secretIDOf(t testing.TB, r *http.Request) string {
 	t.Helper()
@@ -81,15 +66,15 @@ func (f *secretsAWS) serve(w http.ResponseWriter, r *http.Request) {
 		value, ok := secrets[id]
 		switch {
 		case code != "":
-			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": code, "message": "denied"})
+			awsapitest.Respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": code, "message": "denied"})
 		case !ok:
-			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})
+			awsapitest.Respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})
 		default:
-			respond(f.t, w, http.StatusOK, map[string]string{"ARN": id, "SecretString": value})
+			awsapitest.Respond(f.t, w, http.StatusOK, map[string]string{"ARN": id, "SecretString": value})
 		}
 	case "ListSecrets":
 		if code != "" {
-			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": code, "message": "denied"})
+			awsapitest.Respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": code, "message": "denied"})
 			return
 		}
 		list := make([]map[string]any, 0, len(secrets))
@@ -98,9 +83,9 @@ func (f *secretsAWS) serve(w http.ResponseWriter, r *http.Request) {
 				{"Key": testSecretTag.Key, "Value": testSecretTag.Value}, {"Key": "DBInstanceArn", "Value": testInstanceARN},
 			}})
 		}
-		respond(f.t, w, http.StatusOK, map[string]any{"SecretList": list})
+		awsapitest.Respond(f.t, w, http.StatusOK, map[string]any{"SecretList": list})
 	default:
-		respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "UnknownOperationException", "message": op})
+		awsapitest.Respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "UnknownOperationException", "message": op})
 	}
 }
 
@@ -288,10 +273,10 @@ func TestListReadOnlySecretsListsEveryPage(t *testing.T) {
 			for _, f := range body.Filters {
 				filters = append(filters, f.Key+"="+strings.Join(f.Values, ","))
 			}
-			respond(t, w, http.StatusOK, map[string]any{"SecretList": []map[string]any{{"ARN": "arn:page1", "Tags": tags}}, "NextToken": "more"})
+			awsapitest.Respond(t, w, http.StatusOK, map[string]any{"SecretList": []map[string]any{{"ARN": "arn:page1", "Tags": tags}}, "NextToken": "more"})
 			return
 		}
-		respond(t, w, http.StatusOK, map[string]any{"SecretList": []map[string]any{{"ARN": "arn:page2", "Tags": tags}}})
+		awsapitest.Respond(t, w, http.StatusOK, map[string]any{"SecretList": []map[string]any{{"ARN": "arn:page2", "Tags": tags}}})
 	})
 
 	arns, err := listReadOnlySecrets(context.Background(), cfg, "mssql-1", testInstanceARN, testSecretTag)
