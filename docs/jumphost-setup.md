@@ -100,9 +100,9 @@ route to Systems Manager (step 1).
 
 ## 5. Developer permissions
 
-Developers need the AWS CLI v2, the Session Manager plugin, and an IAM policy like the one below
-(one statement per purpose; drop the ones you do not use). Scope `Resource` to your accounts and
-regions.
+Developers need an IAM policy like the one below (one statement per purpose; drop the ones you do
+not use), and, for the tunnels through the jumphost (RDS, EKS, ElastiCache), the AWS CLI v2 and the
+Session Manager plugin. Scope `Resource` to your accounts and regions.
 
 ```json
 {

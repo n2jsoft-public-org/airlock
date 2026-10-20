@@ -448,10 +448,6 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	if t := strings.ToLower(strings.TrimSpace(options.ResourceType)); t == resourceDocker || t == resourceDockerCache {
 		return r.prepareDocker(ctx, &options)
 	}
-	if _, err := exec.LookPath("aws"); err != nil {
-		return nil, i18n.NewError("jumphost.runner.aws_cli_is_not")
-	}
-
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceDynamoDB) {
 		return r.prepareDynamoDB(ctx, &options)
 	}
@@ -462,6 +458,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache {
 		return nil, i18n.NewError("jumphost.runner.unsupported_resource_type_supported", options.ResourceType)
+	}
+	if err := requireTunnelTools(); err != nil {
+		return nil, err
 	}
 
 	cfg, err := r.resolveAWSConfig(ctx, &options)
@@ -641,10 +640,6 @@ func (r *Runner) listProfileNames() ([]string, error) {
 
 // ListAWSProfileSummaries returns available AWS profiles with display details.
 func (r *Runner) ListAWSProfileSummaries(ctx context.Context) ([]AWSProfileSummary, error) {
-	if _, err := exec.LookPath("aws"); err != nil {
-		return nil, i18n.NewError("jumphost.runner.aws_cli_is_not")
-	}
-
 	profiles, err := r.listProfileNames()
 	if err != nil {
 		return nil, err
@@ -689,10 +684,14 @@ func (r *Runner) ListResourceNames(ctx context.Context, options *Options) ([]str
 	return names, nil
 }
 
-// requireAWSCLI returns an error if the AWS CLI is not installed.
-func requireAWSCLI() error {
+// requireTunnelTools returns an error if the AWS CLI or the Session Manager plugin is not
+// installed: a tunnel runs `aws ssm start-session`, which needs both.
+func requireTunnelTools() error {
 	if _, err := exec.LookPath("aws"); err != nil {
 		return i18n.NewError("jumphost.runner.aws_cli_is_not")
+	}
+	if _, err := exec.LookPath("session-manager-plugin"); err != nil {
+		return i18n.NewError("jumphost.runner.session_manager_plugin_is_not")
 	}
 	return nil
 }
@@ -767,9 +766,6 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 func (r *Runner) ListResourceSummaries(ctx context.Context, options *Options) ([]ResourceSummary, error) {
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if err := r.checkModule(resourceType); err != nil {
-		return nil, err
-	}
-	if err := requireAWSCLI(); err != nil {
 		return nil, err
 	}
 	if !supportedResourceType(resourceType) {

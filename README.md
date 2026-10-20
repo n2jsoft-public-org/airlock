@@ -90,7 +90,7 @@ changing your execution policy.
 
 The installer then warns about another `airlock` left on your PATH, such as one from an earlier
 `make install` or `go install` in `GOPATH/bin`, and about a missing AWS CLI or Session Manager
-plugin.
+plugin, which only RDS, EKS and ElastiCache tunnels need.
 
 Like `airlock update`, the installer adds a 🚀 to the release it installs: see
 [Install tracking](#install-tracking).
@@ -134,7 +134,8 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 ### Prerequisites
 
 - **GitHub access** to `n2jsoft/airlock`, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
-- **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)** (used by `aws ssm start-session`)
+- **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)**, only for RDS, EKS and ElastiCache tunnels (used by `aws ssm start-session`).
+  Profiles, discovery, sign-in, DynamoDB and S3 go through the AWS API and need neither.
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
   When a profile's credentials are missing or expired, airlock signs you in again for you (no AWS CLI needed for that): the
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.

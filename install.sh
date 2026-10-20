@@ -252,16 +252,16 @@ warn_other_copies() {
 check_prerequisites() {
 	if ! command -v aws >/dev/null 2>&1; then
 		if [ "$os" = darwin ]; then
-			warn "aws was not found. Install AWS CLI v2: brew install awscli"
+			warn "aws was not found: RDS, EKS and ElastiCache tunnels need it. Install AWS CLI v2: brew install awscli"
 		else
-			warn "aws was not found. Install AWS CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+			warn "aws was not found: RDS, EKS and ElastiCache tunnels need it. Install AWS CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
 		fi
 	fi
 	if ! command -v session-manager-plugin >/dev/null 2>&1; then
 		if [ "$os" = darwin ]; then
-			warn "session-manager-plugin was not found. Install it: brew install --cask session-manager-plugin"
+			warn "session-manager-plugin was not found: RDS, EKS and ElastiCache tunnels need it. Install it: brew install --cask session-manager-plugin"
 		else
-			warn "session-manager-plugin was not found. Install it: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-linux-overview.html"
+			warn "session-manager-plugin was not found: RDS, EKS and ElastiCache tunnels need it. Install it: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-linux-overview.html"
 		fi
 	fi
 }

@@ -19,9 +19,6 @@ var searchableResourceTypes = []string{resourceRDS, resourceEKS, resourceElastiC
 // listing fails is reported in failures, keyed by type, and the others still return. err is set
 // only when nothing could be listed at all. options.AwsRegion is set to the region searched.
 func (r *Runner) SearchResources(ctx context.Context, options *Options) ([]ResourceSummary, map[string]error, error) {
-	if err := requireAWSCLI(); err != nil {
-		return nil, nil, err
-	}
 	// One identity check up front: concurrent ones could each start an SSO login.
 	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {

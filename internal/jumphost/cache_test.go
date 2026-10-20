@@ -68,7 +68,7 @@ type fakeElastiCache struct {
 	userGroups, users            []string
 }
 
-// installElastiCache points the SDK of profile dev at f, signed in, with a jumphost.
+// installElastiCache points the SDK of profile dev at f, signed in, with a jumphost and the tunnel tools.
 func installElastiCache(t *testing.T, f *fakeElastiCache) {
 	t.Helper()
 	installAWSAPI(t, func(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +95,7 @@ func installElastiCache(t *testing.T, f *fakeElastiCache) {
 			f.other(w, r)
 		}
 	})
+	installTunnelTools(t)
 }
 
 // respondCaches answers a describe of caches: the one named by the idParam form value, else all.

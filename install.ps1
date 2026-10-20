@@ -391,8 +391,8 @@ if ($SkipPath) {
 }
 
 Write-OtherCopies $InstallDir
-Test-Prerequisite 'aws' 'Install AWS CLI v2: winget install Amazon.AWSCLI'
-Test-Prerequisite 'session-manager-plugin' 'Install the Session Manager plugin: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-windows.html'
+Test-Prerequisite 'aws' 'RDS, EKS and ElastiCache tunnels need it. Install AWS CLI v2: winget install Amazon.AWSCLI'
+Test-Prerequisite 'session-manager-plugin' 'RDS, EKS and ElastiCache tunnels need it. Install the Session Manager plugin: https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-windows.html'
 if ($OrganizationConfig) {
     # Windows PowerShell turns any stderr line of a native command into an error under 'Stop'.
     $ErrorActionPreference = 'Continue'

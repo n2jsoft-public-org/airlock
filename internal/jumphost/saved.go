@@ -2,7 +2,6 @@ package jumphost
 
 import (
 	"context"
-	"os/exec"
 	"slices"
 	"strings"
 )
@@ -58,12 +57,9 @@ func (r *Runner) ForgetConnection(_ context.Context, ref TargetRef) error {
 	return r.prefs.Delete(ref)
 }
 
-// knownProfiles returns the local AWS CLI profiles; nil when they cannot be listed, so that no
+// knownProfiles returns the local AWS profiles; nil when they cannot be listed, so that no
 // entry is wrongly flagged as missing its profile.
 func (r *Runner) knownProfiles() map[string]bool {
-	if _, err := exec.LookPath("aws"); err != nil {
-		return nil
-	}
 	names, err := r.listProfileNames()
 	if err != nil {
 		return nil

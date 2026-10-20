@@ -62,8 +62,7 @@ func serveSignedIn(t testing.TB, w http.ResponseWriter, r *http.Request) bool {
 }
 
 // installAWSAPI points the SDK of profile dev at a fake AWS where it is signed in, a jumphost runs
-// and serve answers the other operations. The aws on PATH only passes the checks that the CLI is
-// installed: it fails if run.
+// and serve answers the other operations. The PATH is empty: only tunnels need the AWS CLI.
 func installAWSAPI(t *testing.T, serve http.HandlerFunc) {
 	t.Helper()
 	awsapitest.Env(t, func(w http.ResponseWriter, r *http.Request) {
@@ -71,10 +70,22 @@ func installAWSAPI(t *testing.T, serve http.HandlerFunc) {
 			serve(w, r)
 		}
 	}, "dev")
+	t.Setenv("PATH", t.TempDir())
+}
+
+// installTunnelTools puts on the PATH the given tunnel tools (aws, session-manager-plugin; both
+// when none is given), which only pass the checks that they are installed: they fail if run.
+func installTunnelTools(t *testing.T, tools ...string) {
+	t.Helper()
+	if len(tools) == 0 {
+		tools = []string{"aws", "session-manager-plugin"}
+	}
 	dir := t.TempDir()
-	// #nosec G306 -- the fake aws must be executable.
-	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte("#!/bin/sh\necho \"unexpected aws $*\" >&2\nexit 1\n"), 0o700); err != nil {
-		t.Fatal(err)
+	for _, tool := range tools {
+		// #nosec G306 -- the fake tool must be executable.
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte("#!/bin/sh\necho \"unexpected "+tool+" $*\" >&2\nexit 1\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", dir)
 }

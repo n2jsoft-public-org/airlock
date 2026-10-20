@@ -26,9 +26,6 @@ type SecretSummary struct {
 // ListDBSecrets returns every secret of the profile and region of options, those linked to the
 // RDS instance options.Name first, then by name.
 func (r *Runner) ListDBSecrets(ctx context.Context, options *Options) ([]SecretSummary, error) {
-	if err := requireAWSCLI(); err != nil {
-		return nil, err
-	}
 	cfg, err := r.resolveAWSConfig(ctx, options)
 	if err != nil {
 		return nil, err

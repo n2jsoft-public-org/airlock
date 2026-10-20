@@ -32,6 +32,7 @@ func installEKSAWS(t *testing.T, caData string) {
 			"name": "platform", "endpoint": "https://" + testEKSEndpoint, "certificateAuthority": map[string]string{"data": caData},
 		}})
 	})
+	installTunnelTools(t)
 }
 
 func prepareEKS(t *testing.T, kubeconfigDir string) *Session {
