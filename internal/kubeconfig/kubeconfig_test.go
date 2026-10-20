@@ -14,8 +14,8 @@ func testCluster() *Cluster {
 		Server:                   "https://localhost:15443",
 		TLSServerName:            "ABCD.gr7.eu-west-3.eks.amazonaws.com",
 		CertificateAuthorityData: "LS0tLS1CRUdJTg==",
-		Command:                  "aws",
-		Args:                     []string{"eks", "get-token", "--cluster-name", "platform", "--output", "json", "--profile", "dev", "--region", "eu-west-3"},
+		Command:                  "airlock",
+		Args:                     []string{"eks-token", "--cluster-name", "platform", "--profile", "dev", "--region", "eu-west-3"},
 	}
 }
 
@@ -74,8 +74,8 @@ func TestWriteGivesKubectlOneContextOnTheTunnel(t *testing.T) {
 		t.Fatalf("cluster = %+v, want the tunnel checked against the real endpoint", cluster)
 	}
 	exec := got.Users[0].User.Exec
-	if exec.APIVersion != "client.authentication.k8s.io/v1beta1" || exec.Command != "aws" || len(exec.Args) != 10 || exec.InteractiveMode != "Never" {
-		t.Fatalf("exec = %+v, want aws eks get-token", exec)
+	if exec.APIVersion != "client.authentication.k8s.io/v1beta1" || exec.Command != "airlock" || len(exec.Args) != 7 || exec.InteractiveMode != "Never" {
+		t.Fatalf("exec = %+v, want airlock eks-token", exec)
 	}
 }
 

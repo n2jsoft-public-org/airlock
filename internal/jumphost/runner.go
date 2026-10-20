@@ -1365,7 +1365,7 @@ func rdsIAMSessionInfo(localPort int, rdsHost string, rdsPort int, iamUser strin
 		fmt.Sprintf("  rds host:port        = %s:%d", rdsHost, rdsPort),
 		"",
 		"Otherwise, generate a temporary token (valid for 15 minutes) with:",
-		fmt.Sprintf("  aws rds generate-db-auth-token --hostname %s --port %d --username %s %s", rdsHost, rdsPort, iamUser, awsArgsHint),
+		fmt.Sprintf("  airlock rds-token --hostname %s --port %d --username %s %s", rdsHost, rdsPort, iamUser, awsArgsHint),
 	}
 }
 
@@ -1457,8 +1457,16 @@ func (r *Runner) prepareEKS(ctx context.Context, cfg awsConfig, options *Options
 	return preparedTarget{name: clusterName, display: displayName, ssmParameters: params, target: ideTarget{ClusterCA: caData}}, nil
 }
 
+// airlockExecutable is the path of the running airlock, which kubectl runs to sign in.
+func airlockExecutable() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return "airlock"
+}
+
 // writeKubeconfig writes the kubeconfig pointing Kubernetes clients at the tunnel of an EKS
-// cluster, signing in with aws eks get-token. It writes none without a kubeconfig directory, or
+// cluster, signing in with airlock eks-token. It writes none without a kubeconfig directory, or
 // without the certificate authority kubectl needs to trust the cluster. A failure only warns.
 func (r *Runner) writeKubeconfig(clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (path string, remove func() string, warning string) {
 	if r.kubeconfigDir == "" || caData == "" {
@@ -1469,8 +1477,8 @@ func (r *Runner) writeKubeconfig(clusterName, endpointHost, caData string, local
 		Server:                   fmt.Sprintf("https://localhost:%d", localPort),
 		TLSServerName:            endpointHost,
 		CertificateAuthorityData: caData,
-		Command:                  "aws",
-		Args:                     append([]string{"eks", "get-token", "--cluster-name", clusterName, "--output", "json"}, cfg.Args...),
+		Command:                  airlockExecutable(),
+		Args:                     append([]string{"eks-token", "--cluster-name", clusterName}, cfg.Args...),
 	})
 	if err != nil {
 		return "", nil, "no kubeconfig for this session: " + err.Error()
@@ -1922,7 +1930,7 @@ func tokenCommand(target *ideTarget, cfg awsConfig) string {
 	if !target.IAMAuth || target.RDSHost == "" {
 		return ""
 	}
-	args := []string{"aws", "rds", "generate-db-auth-token", "--hostname", target.RDSHost, "--port", strconv.Itoa(target.RDSPort), "--username", target.DBUser}
+	args := []string{"airlock", "rds-token", "--hostname", target.RDSHost, "--port", strconv.Itoa(target.RDSPort), "--username", target.DBUser}
 	return strings.Join(append(args, cfg.Args...), " ")
 }
 

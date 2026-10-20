@@ -161,6 +161,15 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.daemon_stop.short":    "Arrêter chaque session, puis le daemon",
 	"cli.daemon_restart.short": "Arrêter le daemon et ses sessions, puis le relancer",
 	"cli.daemon_run.short":     "Lancer le daemon au premier plan (démarré par airlock en mode daemon)",
+	// internal/cli/eks_token_cmd.go, internal/cli/rds_token_cmd.go
+	"cli.eks_token.short":             "Afficher le jeton avec lequel kubectl se connecte à un cluster EKS (lancé par le kubeconfig écrit par airlock)",
+	"cli.eks_token.flag.cluster-name": "Nom du cluster EKS",
+	"cli.rds_token.short":             "Afficher un jeton AWS IAM temporaire pour un utilisateur de base, valable 15 minutes",
+	"cli.rds_token.flag.hostname":     "Nom d'hôte de l'instance RDS",
+	"cli.rds_token.flag.port":         "Port de l'instance RDS",
+	"cli.rds_token.flag.username":     "Utilisateur de base avec lequel se connecter",
+	"cli.token.flag.profile":          "Profil AWS (par défaut : celui du SDK)",
+	"cli.token.flag.region":           "Région AWS (par défaut : celle du profil)",
 	// internal/cli/mcp_proxy_cmd.go
 	"cli.mcp_proxy.short": "Relayer un serveur MCP d'airlock sur stdio (écrit dans la configuration de Claude Desktop)",
 	// internal/cli/root.go

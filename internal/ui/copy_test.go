@@ -16,7 +16,7 @@ import (
 func copyTestSession() sessions.Session {
 	s := testSession(1, "archive")
 	s.LocalPort = 5432
-	s.Details.TokenCommand = "aws rds generate-db-auth-token --hostname archive.rds --port 5432 --username app_ro --profile dev --region eu-west-3"
+	s.Details.TokenCommand = "airlock rds-token --hostname archive.rds --port 5432 --username app_ro --profile dev --region eu-west-3"
 	s.Details.RestartCommand = "airlock rds archive 5432 --profile dev --region eu-west-3"
 	return s
 }
@@ -77,7 +77,7 @@ func TestCopyMenuCopiesByNumberOrSelection(t *testing.T) {
 	}
 
 	m = copyChosen(t, m, "c", "down", "enter")
-	if len(*copied) != 2 || !strings.HasPrefix((*copied)[1], "aws rds generate-db-auth-token") {
+	if len(*copied) != 2 || !strings.HasPrefix((*copied)[1], "airlock rds-token") {
 		t.Fatalf("copied = %q, want the token command", *copied)
 	}
 }

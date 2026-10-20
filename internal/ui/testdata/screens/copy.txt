@@ -23,7 +23,7 @@
  │                                │   │   Copy to the clipboard                                                     │
  │                                │   │                                                                             │
  │                                │   │   ▌ 1  Local address      localhost:5432                                    │
- │                                │   │     2  IAM token command  aws rds generate-db-auth-token --hostname arch…   │
+ │                                │   │     2  IAM token command  airlock rds-token --hostname archive.rds --por…   │
  │                                │   │     3  Reconnect command  airlock rds archive 5432 --profile dev --regio…   │
  │                                │   │                                                                             │
  │                                │   ╰─────────────────────────────────────────────────────────────────────────────╯

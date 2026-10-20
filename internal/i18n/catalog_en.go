@@ -194,6 +194,15 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.update.long":       "Checks the latest GitHub release of airlock and, when it is newer than this build, installs it in place of the running binary. GitHub access comes from GH_TOKEN, GITHUB_TOKEN or the GitHub CLI (gh auth login).",
 	"cli.update.flag.check": "Only report whether a newer release exists",
 	"cli.update.flag.force": "Install the latest release even when this build is newer, diverged or unversioned",
+	// internal/cli/eks_token_cmd.go, internal/cli/rds_token_cmd.go
+	"cli.eks_token.short":             "Print the credential kubectl signs in to an EKS cluster with (run by the kubeconfig airlock writes)",
+	"cli.eks_token.flag.cluster-name": "Name of the EKS cluster",
+	"cli.rds_token.short":             "Print a temporary AWS IAM token for a database user, valid 15 minutes",
+	"cli.rds_token.flag.hostname":     "Host name of the RDS instance",
+	"cli.rds_token.flag.port":         "Port of the RDS instance",
+	"cli.rds_token.flag.username":     "Database user to sign in as",
+	"cli.token.flag.profile":          "AWS profile (default: the SDK's default)",
+	"cli.token.flag.region":           "AWS region (default: the profile's)",
 	// internal/cli/version_cmd.go
 	"cli.version.short": "Print the airlock version (commit date and short hash)",
 	// internal/cli/connection_test_cmd.go

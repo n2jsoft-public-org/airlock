@@ -10,8 +10,8 @@ import (
 	"regexp"
 )
 
-// execAPIVersion is the ExecCredential version printed by `aws eks get-token`.
-const execAPIVersion = "client.authentication.k8s.io/v1beta1"
+// ExecAPIVersion is the ExecCredential version kubectl is told to expect from the token command.
+const ExecAPIVersion = "client.authentication.k8s.io/v1beta1"
 
 // Cluster describes a tunneled cluster and how its clients get a token.
 type Cluster struct {
@@ -23,7 +23,7 @@ type Cluster struct {
 	TLSServerName string
 	// CertificateAuthorityData is the base64 PEM of the cluster certificate authority.
 	CertificateAuthorityData string
-	// Command and Args print an ExecCredential holding a token, e.g. aws eks get-token.
+	// Command and Args print an ExecCredential holding a token, e.g. airlock eks-token.
 	Command string
 	Args    []string
 }
@@ -128,7 +128,7 @@ func document(c *Cluster) config {
 		}}},
 		Contexts: []namedContext{{Name: c.Name, Context: contextInfo{Cluster: c.Name, User: c.Name}}},
 		Users: []namedUser{{Name: c.Name, User: userInfo{Exec: execConfig{
-			APIVersion: execAPIVersion,
+			APIVersion: ExecAPIVersion,
 			Command:    c.Command,
 			// The token command never prompts: an expired SSO session fails with its own message.
 			InteractiveMode: "Never",

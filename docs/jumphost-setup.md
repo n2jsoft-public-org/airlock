@@ -163,7 +163,7 @@ regions.
 - `McpServerSecrets` is only needed for SQL Server through the MCP server (read-only secrets, or the
   RDS-managed master user secret when writes are enabled); restrict `GetSecretValue` to those
   secrets' ARNs when you can.
-- `rds generate-db-auth-token` signs the token locally: it needs no permission of its own beyond
+- `airlock rds-token` signs the token locally: it needs no permission of its own beyond
   `rds-db:connect` on the database user.
 
 ## 6. Check

@@ -3,6 +3,7 @@ package jumphost
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -43,7 +44,7 @@ func prepareEKS(t *testing.T, kubeconfigDir string) *Session {
 	return session
 }
 
-func TestPrepareEKSWritesSessionKubeconfig(t *testing.T) {
+func TestKubeconfigRunsAirlock(t *testing.T) {
 	installEKSAWS(t, "LS0tLS1CRUdJTg==")
 	dir := t.TempDir()
 	session := prepareEKS(t, dir)
@@ -56,10 +57,31 @@ func TestPrepareEKSWritesSessionKubeconfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"server": "https://localhost:15443"`, `"tls-server-name": "` + testEKSEndpoint + `"`, `"certificate-authority-data": "LS0tLS1CRUdJTg=="`, `"get-token"`, `"platform"`, `"--profile"`, `"dev"`, `"eu-west-3"`} {
+	for _, want := range []string{`"server": "https://localhost:15443"`, `"tls-server-name": "` + testEKSEndpoint + `"`, `"certificate-authority-data": "LS0tLS1CRUdJTg=="`, `"eks-token"`, `"platform"`, `"--profile"`, `"dev"`, `"eu-west-3"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("kubeconfig lacks %s:\n%s", want, raw)
 		}
+	}
+
+	var cfg struct {
+		Users []struct {
+			User struct {
+				Exec struct {
+					Command string   `json:"command"`
+					Args    []string `json:"args"`
+				} `json:"exec"`
+			} `json:"user"`
+		} `json:"users"`
+	}
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Users[0].User.Exec.Command != exe || cfg.Users[0].User.Exec.Args[0] != "eks-token" {
+		t.Fatalf("exec = %+v, want %s eks-token", cfg.Users[0].User.Exec, exe)
 	}
 
 	intro := strings.Join(session.Intro, "\n")

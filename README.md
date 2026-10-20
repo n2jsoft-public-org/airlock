@@ -430,7 +430,7 @@ Secrets Manager sign-in needs `secretsmanager:ListSecrets` and `secretsmanager:G
 Each EKS session gets its own kubeconfig, written to `~/.config/airlock/kube/`
 (`$XDG_CONFIG_HOME/airlock/kube` when set) and removed when the session stops. Its only context
 points at the tunnel, checks the certificate against the real cluster endpoint (`tls-server-name`)
-and signs in with `aws eks get-token`, with the session's profile and region. Your own
+and signs in with `airlock eks-token`, with the session's profile and region. Your own
 `~/.kube/config` is never touched. A kubeconfig left by an airlock that was killed is removed at
 the next start; those of another running airlock are kept.
 
