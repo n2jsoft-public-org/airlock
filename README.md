@@ -64,6 +64,7 @@ airlock rds my-db 5432       # …or connect directly
 ```
 
 Then point your tools at `localhost:5432`. That's it. Later, `airlock update` keeps it current.
+Something not working? Run `airlock doctor` ([Troubleshooting](#-troubleshooting)).
 
 <details>
 <summary><b>What the installer does, and its options</b></summary>
@@ -141,6 +142,8 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
   Profiles that assume a role with MFA (`mfa_serial`) are not supported yet.
 - **A running jumphost** (not for DynamoDB, S3 and CloudWatch Logs): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
+
+`airlock doctor` checks all of these for you: see [Troubleshooting](#-troubleshooting).
 
 ## 🛰 How it works
 
@@ -1241,6 +1244,36 @@ setting. An invalid managed file is ignored with a warning.
 > Locks are policy, not a barrier: the barrier is AWS IAM. Developers can edit their own
 > `config.json` and cache, so a lock resists a determined developer only with a managed file that
 > holds the organization file inline, or a path they cannot write.
+
+## 🩺 Troubleshooting
+
+`airlock doctor` checks what airlock needs, without changing anything (it never signs in, writes a
+file nor starts the daemon), and prints one line per check with the fix under every problem:
+
+```text
+✓ airlock v1.18.0
+✓ aws: aws-cli/2.32.12 Python/3.13.9 Darwin/25.0.0 exe/arm64
+✗ session-manager-plugin is not on the PATH
+    session-manager-plugin is not installed: RDS, EKS and ElastiCache tunnels need it. Install it …
+! AWS profile staging: the sign-in is missing or expired
+    run airlock and pick profile staging, or aws sso login --profile staging
+✓ AWS profile prod (eu-west-3): signed in, account 111111111111
+! AWS profile prod: missing IAM permission ec2:DescribeInstances to find the jumphost
+    ask your AWS administrator to allow ec2:DescribeInstances for profile prod
+```
+
+It checks the airlock version (and a newer release, unless `AIRLOCK_NO_UPDATE_CHECK` is set),
+other `airlock` binaries on the PATH, the AWS CLI and the Session Manager plugin, `config.json`
+(invalid or deprecated keys), the organization config, the sign-in and the running jumphost of
+every AWS profile (concurrently, 5 s each), the daemon (another version than this airlock), its MCP
+gateway port and AI client files, and the OS keychain. It exits with status 1 when a check failed
+(✗), 0 otherwise.
+
+```sh
+airlock doctor                            # every profile, in its own region
+airlock doctor --profile prod --region eu-west-3
+airlock doctor --json                     # the same results for scripts and support requests
+```
 
 ## 🛠 Development
 

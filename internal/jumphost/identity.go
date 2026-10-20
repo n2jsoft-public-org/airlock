@@ -13,18 +13,31 @@ import (
 // missing credentials fail with ErrSignInRequired; AWS out of reach or a profile that cannot be
 // loaded fails with another error.
 func (r *Runner) CheckIdentity(ctx context.Context, profile, region string) error {
+	_, err := r.Account(ctx, profile, region)
+	return err
+}
+
+// Account is CheckIdentity returning the AWS account id the credentials of profile belong to.
+func (r *Runner) Account(ctx context.Context, profile, region string) (string, error) {
 	cfg := identityConfig(profile, region)
 	awsCfg, err := r.sdkConfig(ctx, cfg)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err = callerIdentity(ctx, &awsCfg); err == nil {
-		return nil
+	out, err := callerIdentity(ctx, &awsCfg)
+	if err == nil {
+		return aws.ToString(out.Account), nil
 	}
 	if checkErr := identityCheckError(ctx, cfg.Profile, err); checkErr != nil {
-		return checkErr
+		return "", checkErr
 	}
-	return i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
+	return "", i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
+}
+
+// FindJumphost returns the id of a running instance carrying the jumphost tag in profile and
+// region, without checking or renewing the sign-in.
+func (r *Runner) FindJumphost(ctx context.Context, profile, region string) (string, error) {
+	return r.getJumphostID(ctx, identityConfig(profile, region))
 }
 
 // identityCheckError is the failure err of an identity check of profile when it says nothing
