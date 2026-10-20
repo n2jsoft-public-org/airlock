@@ -132,8 +132,7 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			}
 			var end int
 			switch {
-			// ponytail: MySQL strings take backslash escapes unless sql_mode has NO_BACKSLASH_ESCAPES (not
-			// the RDS default); the read-only transaction and one-statement protocol back the guard there.
+			// MySQL strings take backslash escapes: connections drop NO_BACKSLASH_ESCAPES (mysqlSQLMode).
 			case (c == '\'' || c == '"') && mysqlFamily:
 				end = escapeStringEnd(runes, i+1, c)
 			case c == '\'' && engine == EnginePostgres && i > 0 && (runes[i-1] == 'E' || runes[i-1] == 'e') && (i == 1 || !isIdentContinuation(runes[i-2])):

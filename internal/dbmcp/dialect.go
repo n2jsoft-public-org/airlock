@@ -100,11 +100,23 @@ ORDER BY i.name`,
 // schemas are databases). The querier passes the schema once: it fits one "?".
 const mysqlSchema = "COALESCE(NULLIF(?, ''), DATABASE())"
 
+// mysqlSQLMode is the server's sql_mode without the modes that change where strings end, so the
+// read-only guard reads quotes and backslashes as the default mode does: ANSI_QUOTES, the
+// combinations that turn it back on (ANSI; DB2, MAXDB, MSSQL, ORACLE and POSTGRESQL on MariaDB) and
+// NO_BACKSLASH_ESCAPES.
+var mysqlSQLMode = func() string {
+	expr := "CONCAT(',', @@SESSION.sql_mode, ',')"
+	for _, mode := range []string{"ANSI", "DB2", "MAXDB", "MSSQL", "ORACLE", "POSTGRESQL", "ANSI_QUOTES", "NO_BACKSLASH_ESCAPES"} {
+		expr = "REPLACE(" + expr + ", '," + mode + ",', ',')"
+	}
+	return "TRIM(BOTH ',' FROM " + expr + ")"
+}()
+
 var mysqlDialect = dialect{
 	engine:     EngineMySQL,
 	readOnlyTx: true,
 	// max_execution_time only bounds SELECT statements; execute relies on its context deadline.
-	connParams:   map[string]string{"max_execution_time": "30000"},
+	connParams:   map[string]string{"max_execution_time": "30000", "sql_mode": mysqlSQLMode},
 	databasesSQL: "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') ORDER BY schema_name",
 	tablesSQL: `SELECT table_schema, table_name, table_type FROM information_schema.tables
 WHERE table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
@@ -132,7 +144,7 @@ ORDER BY index_name`,
 var mariaDBDialect = func() dialect {
 	d := mysqlDialect
 	d.engine = EngineMariaDB
-	d.connParams = map[string]string{"max_statement_time": "30"}
+	d.connParams = map[string]string{"max_statement_time": "30", "sql_mode": mysqlSQLMode}
 	d.columnsSQL = `SELECT column_name, column_type, is_nullable, NULLIF(column_default, 'NULL') FROM information_schema.columns
 WHERE table_schema = ` + mysqlSchema + ` AND table_name = ? ORDER BY ordinal_position`
 	return d

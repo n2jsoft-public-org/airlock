@@ -15,7 +15,7 @@ import (
 // SELECT STRAIGHT_JOIN c.country, SUM(o.amount) AS total FROM orders o JOIN customers c ON c.id = o.customer_id
 // WHERE o.amount > 990 AND c.name LIKE 'c%' GROUP BY c.country ORDER BY total DESC
 
-// EXPLAIN ANALYZE of MySQL 8.4.
+// EXPLAIN ANALYZE (text tree) of MySQL 8.4.
 func TestSummarizeMySQLTree(t *testing.T) {
 	plan, rowCount := summarizeMySQLTree(readFile(t, "testdata/mysql_actual.txt"))
 
@@ -52,6 +52,64 @@ func TestSummarizeMySQLTreeNeverExecuted(t *testing.T) {
 		"    -> Index lookup on b using a_id (a_id=a.id)  (cost=0.35 rows=1) (never executed)\n")
 	if got := plan.Operators[2]; got != "  Index lookup on b using a_id (a_id=a.id) | cost 0.35 | est rows 1 | never executed" {
 		t.Fatalf("operator = %q", got)
+	}
+}
+
+// EXPLAIN ANALYZE FORMAT=JSON (version 2) of MySQL 8.4: the nodes of the text tree.
+func TestSummarizeMySQLJSONTree(t *testing.T) {
+	nodes, err := mysqlJSONTree(readFile(t, "testdata/mysql_actual.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, rowCount := summarizeTree(nodes)
+
+	if rowCount == nil || *rowCount != 1 || plan.EstimatedCost != 32570 || plan.EstimatedRows != 5549 {
+		t.Fatalf("rows %v, cost %v, estimated rows %v", rowCount, plan.EstimatedCost, plan.EstimatedRows)
+	}
+	if plan.ExecutionTimeMs == nil || *plan.ExecutionTimeMs != 19.6 {
+		t.Fatalf("execution %v", plan.ExecutionTimeMs)
+	}
+	if want := []string{
+		"Sort: total DESC | actual rows 1 x 1 loops | time 19.6..19.6 ms",
+		"  Table scan on <temporary> | actual rows 1 x 1 loops | time 19.6..19.6 ms",
+		"    Aggregate using temporary table | actual rows 1 x 1 loops | time 19.6..19.6 ms",
+		"      Nested loop inner join | cost 32570 | est rows 5549 | actual rows 75 x 1 loops | time 0.572..19.5 ms",
+		"        Filter: ((o.amount > 990.00) and (o.customer_id is not null)) | cost 15089 | est rows 49945 | actual rows 1350 x 1 loops | time 0.454..18.5 ms",
+		"          Table scan on o | cost 15089 | est rows 149850 | actual rows 150000 x 1 loops | time 0.434..12.6 ms",
+		"        Filter: (c.`name` like 'c%') | cost 0.25 | est rows 0.111 | actual rows 0.0556 x 1350 loops | time 0.00064..0.000642 ms",
+		"          Single-row index lookup on c using PRIMARY (id=o.customer_id) | cost 0.25 | est rows 1 | actual rows 1 x 1350 loops | time 0.000505..0.000521 ms",
+	}; !slices.Equal(plan.Operators, want) {
+		t.Fatalf("operators:\n%s", strings.Join(plan.Operators, "\n"))
+	}
+	if want := []string{
+		"Filter: ((o.amount > 990.00) and (o.customer_id is not null)): estimated 49945 rows, got 1350 per loop; stale statistics (ANALYZE TABLE) or correlated conditions mislead the optimizer, and the nodes above inherit the error",
+		"Table scan on o read 150000 rows: an index matching the filter may help",
+	}; !slices.Equal(plan.Warnings, want) {
+		t.Fatalf("warnings:\n%s", strings.Join(plan.Warnings, "\n"))
+	}
+}
+
+// Newer versions put the plan under query_plan; a node never run has no actual values.
+func TestMySQLJSONTreeQueryPlanAndNeverExecuted(t *testing.T) {
+	nodes, err := mysqlJSONTree(`{"query_plan": {"operation": "Nested loop inner join", "estimated_rows": 1.0,
+"estimated_total_cost": 0.7, "actual_rows": 0.0, "actual_loops": 1, "actual_first_row_ms": 0.010208, "actual_last_row_ms": 0.010208,
+"inputs": [{"operation": "Covering index scan on e using PRIMARY", "estimated_rows": 1.0, "estimated_total_cost": 0.35,
+"actual_rows": 0.0, "actual_loops": 1, "actual_first_row_ms": 0.007458, "actual_last_row_ms": 0.007458},
+{"operation": "Single-row covering index lookup on o using PRIMARY (id=e.id)", "estimated_rows": 1.0, "estimated_total_cost": 0.35}]},
+"json_schema_version": "2.0"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _ := summarizeTree(nodes)
+	if want := []string{
+		"Nested loop inner join | cost 0.7 | est rows 1 | actual rows 0 x 1 loops | time 0.0102..0.0102 ms",
+		"  Covering index scan on e using PRIMARY | cost 0.35 | est rows 1 | actual rows 0 x 1 loops | time 0.00746..0.00746 ms",
+		"  Single-row covering index lookup on o using PRIMARY (id=e.id) | cost 0.35 | est rows 1 | never executed",
+	}; !slices.Equal(plan.Operators, want) {
+		t.Fatalf("operators:\n%s", strings.Join(plan.Operators, "\n"))
+	}
+	if _, err := mysqlJSONTree(`{"query_block": {}}`); err == nil {
+		t.Fatal("a version 1 plan must be refused")
 	}
 }
 
@@ -123,18 +181,37 @@ func TestSummarizeMySQLJSONSubqueriesAfterTables(t *testing.T) {
 }
 
 func TestMySQLPlanRunsInRolledBackReadOnlyTransaction(t *testing.T) {
+	const args = "SELECT * FROM orders WHERE customer_id = ? AND status = ? | 42 | open"
 	for _, tc := range []struct {
-		dialect   *dialect
-		mode      string
-		fixture   string
-		statement string
+		dialect    *dialect
+		mode       string
+		fixture    string
+		oldVersion bool // MySQL before 8.3, which has no explain_json_format_version
+		statements []string
 	}{
-		{&mysqlDialect, PlanActual, "mysql_actual.txt", "EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = ? AND status = ? | 42 | open"},
-		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", "EXPLAIN FORMAT=JSON SELECT * FROM orders WHERE customer_id = ? AND status = ? | 42 | open"},
-		{&mariaDBDialect, PlanActual, "mariadb_actual.json", "ANALYZE FORMAT=JSON SELECT * FROM orders WHERE customer_id = ? AND status = ? | 42 | open"},
+		{&mysqlDialect, PlanActual, "mysql_actual.json", false, []string{
+			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 2", "EXPLAIN ANALYZE FORMAT=JSON " + args, "ROLLBACK",
+		}},
+		{&mysqlDialect, PlanActual, "mysql_actual.txt", true, []string{
+			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 2", "ROLLBACK",
+			"BEGIN READ ONLY", "EXPLAIN ANALYZE " + args, "ROLLBACK",
+		}},
+		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", false, []string{
+			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 1", "EXPLAIN FORMAT=JSON " + args, "ROLLBACK",
+		}},
+		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", true, []string{
+			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 1", "ROLLBACK",
+			"BEGIN READ ONLY", "EXPLAIN FORMAT=JSON " + args, "ROLLBACK",
+		}},
+		{&mariaDBDialect, PlanActual, "mariadb_actual.json", false, []string{"BEGIN READ ONLY", "ANALYZE FORMAT=JSON " + args, "ROLLBACK"}},
 	} {
 		q, db, _ := newTestQuerier(tc.dialect, staticCreds{fallback: "shop"})
-		db.answer("", []string{"EXPLAIN"}, []driver.Value{readFile(t, "testdata/"+tc.fixture)})
+		// The plan answers its statement only: the fake picks any answer whose prefix matches.
+		explain := strings.Fields(tc.statements[len(tc.statements)-2])[0]
+		db.answer(explain, []string{"EXPLAIN"}, []driver.Value{readFile(t, "testdata/"+tc.fixture)})
+		if tc.oldVersion {
+			db.answers["SET SESSION explain_json_format_version"] = fakeAnswer{err: &mysql.MySQLError{Number: mysqlUnknownVariable}}
+		}
 
 		result, err := q.Plan(context.Background(), PlanRequest{
 			SQL: "SELECT * FROM orders WHERE customer_id = ? AND status = ?", Values: []any{42.0, "open"}, Mode: tc.mode,
@@ -142,7 +219,7 @@ func TestMySQLPlanRunsInRolledBackReadOnlyTransaction(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := db.statements(), []string{"BEGIN READ ONLY", tc.statement, "ROLLBACK"}; !slices.Equal(got, want) {
+		if got, want := db.statements(), tc.statements; !slices.Equal(got, want) {
 			t.Fatalf("statements:\n%q\nwant:\n%q", got, want)
 		}
 		if result.Mode != tc.mode || len(result.Statements) != 1 || len(result.Statements[0].Operators) == 0 ||
@@ -158,7 +235,6 @@ func TestMySQLPlanExplainsOldVersionsAndRejectsOtherEnginesOptions(t *testing.T)
 		{SQL: "DELETE FROM users"},
 		{SQL: "SELECT ?", Parameters: "@p0 int", Values: []any{1.0}},
 		{SQL: "SELECT 1", IncludeXML: true},
-		{SQL: "SELECT 1", IncludeJSON: true},
 	} {
 		if _, err := q.Plan(context.Background(), req); err == nil {
 			t.Errorf("%+v: expected an error", req)
@@ -168,6 +244,14 @@ func TestMySQLPlanExplainsOldVersionsAndRejectsOtherEnginesOptions(t *testing.T)
 		t.Fatalf("database was touched: %v %v", db.statements(), *opened)
 	}
 
+	// Before 8.3, EXPLAIN ANALYZE has no JSON output; before 8.0.18, there is no EXPLAIN ANALYZE.
+	db.answers["SET SESSION explain_json_format_version"] = fakeAnswer{err: &mysql.MySQLError{Number: mysqlUnknownVariable}}
+	if _, err := q.Plan(context.Background(), PlanRequest{SQL: "SELECT 1", IncludeJSON: true}); err == nil || !strings.Contains(err.Error(), "8.3") {
+		t.Fatalf("err = %v, want the version needed", err)
+	}
+	if got := db.statements(); slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "EXPLAIN") }) {
+		t.Fatalf("the statement was explained anyway: %q", got)
+	}
 	db.answers["EXPLAIN ANALYZE"] = fakeAnswer{err: &mysql.MySQLError{Number: mysqlParseError, Message: "You have an error in your SQL syntax"}}
 	if _, err := q.Plan(context.Background(), PlanRequest{SQL: "SELECT 1"}); err == nil || !strings.Contains(err.Error(), "8.0.18") {
 		t.Fatalf("err = %v, want the version needed", err)

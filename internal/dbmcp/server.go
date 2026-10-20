@@ -50,9 +50,9 @@ type queryPlanInput struct {
 	Database    string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
 	Parameters  string `json:"parameters,omitempty" jsonschema:"SQL Server only: parameter declaration, as sp_executesql takes it and applications send it, e.g. @p0 int, @p2 nvarchar(6); PostgreSQL infers the types of $1, $2… (cast in the statement where it cannot), MySQL converts the values of ?"`
 	Values      []any  `json:"values,omitempty" jsonschema:"one value per parameter, in order: string, number, boolean or null"`
-	Mode        string `json:"mode,omitempty" jsonschema:"actual (default) runs the statement in a transaction rolled back (EXPLAIN ANALYZE on MySQL 8.0.18 or later); estimated only plans it (on SQL Server, without parameters)"`
+	Mode        string `json:"mode,omitempty" jsonschema:"actual (default) runs the statement in a transaction rolled back (EXPLAIN ANALYZE on MySQL 8.0.18 or later, as JSON from 8.3); estimated only plans it (on SQL Server, without parameters)"`
 	IncludeXML  bool   `json:"include_xml,omitempty" jsonschema:"SQL Server only: also return the raw showplan XML, to save as a .sqlplan file for SSMS"`
-	IncludeJSON bool   `json:"include_json,omitempty" jsonschema:"PostgreSQL and MySQL: also return the raw EXPLAIN JSON output, for plan visualizers (not with MySQL's actual plans, a text tree)"`
+	IncludeJSON bool   `json:"include_json,omitempty" jsonschema:"PostgreSQL and MySQL: also return the raw EXPLAIN JSON output, for plan visualizers (MySQL's actual plans only from 8.3: before, they are a text tree)"`
 }
 
 type executeInput struct {

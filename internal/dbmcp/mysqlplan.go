@@ -15,34 +15,47 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// mysqlParseError is the MySQL error of a statement it cannot parse (ER_PARSE_ERROR).
-const mysqlParseError = 1064
+// MySQL errors: a statement it cannot parse (ER_PARSE_ERROR), a variable it does not know
+// (ER_UNKNOWN_SYSTEM_VARIABLE).
+const (
+	mysqlParseError      = 1064
+	mysqlUnknownVariable = 1193
+)
 
 // mysqlExplainStatement returns the statement giving the plan of statement in mode: JSON plans,
-// but for MySQL's EXPLAIN ANALYZE, which only has a text tree before MySQL 8.3.
-func mysqlExplainStatement(engine Engine, mode, statement string) string {
+// but for MySQL's EXPLAIN ANALYZE before MySQL 8.3 (jsonVersion false), which only has a text tree.
+func mysqlExplainStatement(engine Engine, mode string, jsonVersion bool, statement string) string {
 	switch {
 	case mode == PlanEstimated:
 		return "EXPLAIN FORMAT=JSON " + statement
 	case engine == EngineMariaDB:
 		return "ANALYZE FORMAT=JSON " + statement
+	case jsonVersion:
+		return "EXPLAIN ANALYZE FORMAT=JSON " + statement
 	default:
 		return "EXPLAIN ANALYZE " + statement
 	}
+}
+
+// mysqlJSONVersion picks the JSON plan format of MySQL 8.3 or later for mode: version 2 for
+// EXPLAIN ANALYZE, which has no other, version 1 for EXPLAIN, whatever an earlier plan of the
+// pooled connection chose. Older versions do not know the variable.
+func mysqlJSONVersion(mode string) string {
+	if mode == PlanActual {
+		return "SET SESSION explain_json_format_version = 2"
+	}
+	return "SET SESSION explain_json_format_version = 1"
 }
 
 // mysqlPlan returns the plan of a statement checked read-only. Actual plans run it in a read-only
 // transaction always rolled back, so even a statement slipping past the guard changes nothing.
 func (q *sqlQuerier) mysqlPlan(ctx context.Context, req *PlanRequest, mode string) (PlanResult, error) {
 	engine := q.dialect.engine
-	tree := mode == PlanActual && engine == EngineMySQL
 	switch {
 	case strings.TrimSpace(req.Parameters) != "":
 		return PlanResult{}, errors.New("MySQL takes no parameter declaration: use ? in the statement and pass their values")
 	case req.IncludeXML:
 		return PlanResult{}, errors.New("include_xml is for SQL Server: use include_json for the raw EXPLAIN FORMAT=JSON output")
-	case req.IncludeJSON && tree:
-		return PlanResult{}, errors.New("MySQL's EXPLAIN ANALYZE has no JSON output: use the estimated mode with include_json")
 	}
 	args := make([]any, len(req.Values))
 	for i, value := range req.Values {
@@ -54,11 +67,23 @@ func (q *sqlQuerier) mysqlPlan(ctx context.Context, req *PlanRequest, mode strin
 	}
 
 	var document string
+	var jsonVersion bool // MySQL 8.3 or later, which chooses its JSON plan format
 	err := q.withPool(ctx, req.Database, func(db *sql.DB) (err error) {
-		document, err = q.explainFrom(ctx, db, mysqlExplainStatement(engine, mode, req.SQL), args)
+		if jsonVersion = engine == EngineMySQL; jsonVersion {
+			document, err = q.explainFrom(ctx, db, mysqlExplainStatement(engine, mode, true, req.SQL), args, mysqlJSONVersion(mode))
+			if !isMySQLError(err, mysqlUnknownVariable) {
+				return err
+			}
+			jsonVersion = false
+			if req.IncludeJSON && mode == PlanActual {
+				return errors.New("MySQL's EXPLAIN ANALYZE has JSON output from MySQL 8.3: on older versions use the estimated mode with include_json")
+			}
+		}
+		document, err = q.explainFrom(ctx, db, mysqlExplainStatement(engine, mode, false, req.SQL), args)
 		return err
 	})
-	if myErr, ok := errors.AsType[*mysql.MySQLError](err); ok && tree && myErr.Number == mysqlParseError {
+	tree := mode == PlanActual && engine == EngineMySQL
+	if isMySQLError(err, mysqlParseError) && tree && !jsonVersion {
 		return PlanResult{}, fmt.Errorf("EXPLAIN ANALYZE needs MySQL 8.0.18 or later: on older versions use the estimated mode: %w", err)
 	}
 	if err != nil {
@@ -67,10 +92,19 @@ func (q *sqlQuerier) mysqlPlan(ctx context.Context, req *PlanRequest, mode strin
 
 	var statement StatementPlan
 	var rowCount *int64
-	if tree {
+	switch {
+	case tree && jsonVersion:
+		var nodes []treeNode
+		if nodes, err = mysqlJSONTree(document); err != nil {
+			return PlanResult{}, fmt.Errorf("reading the plan: %w", err)
+		}
+		statement, rowCount = summarizeTree(nodes)
+	case tree:
 		statement, rowCount = summarizeMySQLTree(document)
-	} else if statement, err = summarizeMySQLJSON(document); err != nil {
-		return PlanResult{}, fmt.Errorf("reading the plan: %w", err)
+	default:
+		if statement, err = summarizeMySQLJSON(document); err != nil {
+			return PlanResult{}, fmt.Errorf("reading the plan: %w", err)
+		}
 	}
 	statement.Statement = strings.Join(strings.Fields(req.SQL), " ")
 	result := PlanResult{Mode: mode, Statements: []StatementPlan{statement}, RowCount: rowCount}
@@ -78,6 +112,12 @@ func (q *sqlQuerier) mysqlPlan(ctx context.Context, req *PlanRequest, mode strin
 		result.PlanJSON = json.RawMessage(document)
 	}
 	return result, nil
+}
+
+// isMySQLError reports whether err is the MySQL error number.
+func isMySQLError(err error, number uint16) bool {
+	myErr, ok := errors.AsType[*mysql.MySQLError](err)
+	return ok && myErr.Number == number
 }
 
 // rowsMisestimated reports whether estimated and actual rows are far apart enough to matter.
@@ -391,7 +431,73 @@ func summarizeMySQLTree(document string) (plan StatementPlan, rowCount *int64) {
 		}
 		nodes = append(nodes, n)
 	}
+	return summarizeTree(nodes)
+}
 
+// mysqlJSONNode is one access path of MySQL's JSON plan, version 2 (EXPLAIN ANALYZE FORMAT=JSON):
+// the nodes of the text tree, with the same operation titles.
+type mysqlJSONNode struct {
+	EstimatedRows *float64        `json:"estimated_rows"`
+	EstimatedCost *float64        `json:"estimated_total_cost"`
+	ActualRows    *float64        `json:"actual_rows"`
+	ActualLoops   *float64        `json:"actual_loops"`
+	Operation     string          `json:"operation"`
+	Inputs        []mysqlJSONNode `json:"inputs"`
+	FirstRowMs    float64         `json:"actual_first_row_ms"`
+	LastRowMs     float64         `json:"actual_last_row_ms"`
+}
+
+// mysqlJSONTree reads MySQL's JSON plan, version 2, as the nodes of the text tree. The plan is the
+// document itself, or under query_plan in newer versions.
+func mysqlJSONTree(document string) ([]treeNode, error) {
+	var plan struct {
+		QueryPlan *mysqlJSONNode `json:"query_plan"`
+		mysqlJSONNode
+	}
+	if err := json.Unmarshal([]byte(document), &plan); err != nil {
+		return nil, err
+	}
+	root := &plan.mysqlJSONNode
+	if plan.QueryPlan != nil {
+		root = plan.QueryPlan
+	}
+	if root.Operation == "" {
+		return nil, errors.New("no operation in the plan")
+	}
+	var nodes []treeNode
+	var walk func(n *mysqlJSONNode, depth int)
+	walk = func(n *mysqlJSONNode, depth int) {
+		node := treeNode{title: n.Operation, depth: depth}
+		if n.EstimatedCost != nil && n.EstimatedRows != nil {
+			node.hasCost, node.cost, node.rows = true, treeRound(*n.EstimatedCost), treeRound(*n.EstimatedRows)
+		}
+		if n.ActualRows != nil && n.ActualLoops != nil {
+			node.hasActual, node.actual, node.loop = true, treeRound(*n.ActualRows), *n.ActualLoops
+			node.startMs, node.endMs = treeRound(n.FirstRowMs), treeRound(n.LastRowMs)
+		} else {
+			node.neverExecuted = true
+		}
+		nodes = append(nodes, node)
+		for i := range n.Inputs {
+			walk(&n.Inputs[i], depth+1)
+		}
+	}
+	walk(root, 0)
+	return nodes, nil
+}
+
+// treeRound rounds f as the text tree prints it: whole above 1000, else 3 significant digits.
+func treeRound(f float64) float64 {
+	if math.Abs(f) >= 1000 {
+		return math.Round(f)
+	}
+	rounded, _ := strconv.ParseFloat(strconv.FormatFloat(f, 'g', 3, 64), 64) //nolint:errcheck // FormatFloat's output always parses.
+	return rounded
+}
+
+// summarizeTree summarizes the nodes of an EXPLAIN ANALYZE tree, and returns the number of rows
+// the statement returned.
+func summarizeTree(nodes []treeNode) (plan StatementPlan, rowCount *int64) {
 	s := StatementPlan{Operators: []string{}}
 	if len(nodes) > 0 && nodes[0].hasActual {
 		rowCount = new(int64(math.Round(nodes[0].actual * nodes[0].loop)))

@@ -1,0 +1,116 @@
+{
+  "query": "/* select#1 */ select straight_join `c`.`country` AS `country`,sum(`o`.`amount`) AS `total` from `shop`.`orders` `o` join `shop`.`customers` `c` where ((`c`.`id` = `o`.`customer_id`) and (`o`.`amount` > 990.00) and (`c`.`name` like 'c%')) group by `shop`.`c`.`country` order by `total` desc",
+  "inputs": [
+    {
+      "inputs": [
+        {
+          "inputs": [
+            {
+              "inputs": [
+                {
+                  "inputs": [
+                    {
+                      "alias": "o",
+                      "operation": "Table scan on o",
+                      "table_name": "orders",
+                      "access_type": "table",
+                      "actual_rows": 150000.0,
+                      "schema_name": "shop",
+                      "actual_loops": 1,
+                      "used_columns": [
+                        "id",
+                        "customer_id",
+                        "amount"
+                      ],
+                      "estimated_rows": 149850.0,
+                      "actual_last_row_ms": 12.554556999999999,
+                      "actual_first_row_ms": 0.433959,
+                      "estimated_total_cost": 15089.250000000002
+                    }
+                  ],
+                  "condition": "((o.amount > 990.00) and (o.customer_id is not null))",
+                  "operation": "Filter: ((o.amount > 990.00) and (o.customer_id is not null))",
+                  "access_type": "filter",
+                  "actual_rows": 1350.0,
+                  "actual_loops": 1,
+                  "estimated_rows": 49945.00417113304,
+                  "actual_last_row_ms": 18.476422,
+                  "actual_first_row_ms": 0.45433300000000004,
+                  "estimated_total_cost": 15089.250000000002
+                },
+                {
+                  "inputs": [
+                    {
+                      "alias": "c",
+                      "covering": false,
+                      "operation": "Single-row index lookup on c using PRIMARY (id=o.customer_id)",
+                      "index_name": "PRIMARY",
+                      "table_name": "customers",
+                      "access_type": "index",
+                      "actual_rows": 1.0,
+                      "schema_name": "shop",
+                      "actual_loops": 1350,
+                      "used_columns": [
+                        "id",
+                        "name",
+                        "country"
+                      ],
+                      "estimated_rows": 1.0,
+                      "lookup_condition": "id=o.customer_id",
+                      "index_access_type": "index_lookup",
+                      "actual_last_row_ms": 0.0005206688888888889,
+                      "actual_first_row_ms": 0.0005051555555555555,
+                      "estimated_total_cost": 0.25000022244467685
+                    }
+                  ],
+                  "condition": "(c.`name` like 'c%')",
+                  "operation": "Filter: (c.`name` like 'c%')",
+                  "access_type": "filter",
+                  "actual_rows": 0.05555555555555555,
+                  "actual_loops": 1350,
+                  "estimated_rows": 0.11110000312328339,
+                  "actual_last_row_ms": 0.0006422548148148148,
+                  "actual_first_row_ms": 0.0006395437037037037,
+                  "estimated_total_cost": 0.25000022244467685
+                }
+              ],
+              "join_type": "inner join",
+              "operation": "Nested loop inner join",
+              "access_type": "join",
+              "actual_rows": 75.0,
+              "actual_loops": 1,
+              "estimated_rows": 5548.890119405282,
+              "join_algorithm": "nested_loop",
+              "actual_last_row_ms": 19.456376000000002,
+              "actual_first_row_ms": 0.5717909999999999,
+              "estimated_total_cost": 32570.001459896564
+            }
+          ],
+          "operation": "Aggregate using temporary table",
+          "access_type": "temp_table_aggregate",
+          "actual_rows": 1.0,
+          "actual_loops": 1,
+          "actual_last_row_ms": 19.559255,
+          "actual_first_row_ms": 19.559255
+        }
+      ],
+      "operation": "Table scan on <temporary>",
+      "table_name": "<temporary>",
+      "access_type": "table",
+      "actual_rows": 1.0,
+      "actual_loops": 1,
+      "actual_last_row_ms": 19.561546999999997,
+      "actual_first_row_ms": 19.561505
+    }
+  ],
+  "operation": "Sort: total DESC",
+  "query_type": "select",
+  "access_type": "sort",
+  "actual_rows": 1.0,
+  "sort_fields": [
+    "total DESC"
+  ],
+  "actual_loops": 1,
+  "actual_last_row_ms": 19.616797,
+  "actual_first_row_ms": 19.616755
+}

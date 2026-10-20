@@ -713,18 +713,21 @@ visualizers such as [explain.dalibo.com](https://explain.dalibo.com).
 
 On **MySQL** and **MariaDB**:
 
-- `actual` runs `EXPLAIN ANALYZE` (MySQL 8.0.18 or later, Aurora MySQL 3) or `ANALYZE FORMAT=JSON`
-  (MariaDB) in a read-only transaction always rolled back. On older MySQL versions, use `estimated`.
+- `actual` runs `EXPLAIN ANALYZE FORMAT=JSON` (MySQL 8.3 or later), `EXPLAIN ANALYZE` (MySQL 8.0.18
+  or later, Aurora MySQL 3) or `ANALYZE FORMAT=JSON` (MariaDB) in a read-only transaction always rolled
+  back. On older MySQL versions, use `estimated`.
 - `estimated` runs `EXPLAIN FORMAT=JSON`.
 
 A parameterized statement uses `?` with `values`, one per parameter. The warnings point out large
 full scans and big estimate misses. `include_json` also returns the raw `EXPLAIN FORMAT=JSON`
-output (not with MySQL's `actual` mode, whose plan is a text tree).
+output (with MySQL's `actual` mode, from MySQL 8.3 only: before, its plan is a text tree).
 
 MySQL schemas are databases: `list_tables` and `describe_table` default to the session's database,
 and `list_tables` lists every readable database when the session has none. Reads run in a
 `READ ONLY` transaction, with a 30 s server-side timeout (`max_execution_time`, or
-`max_statement_time` on MariaDB). An IAM sign-in needs a user created with
+`max_statement_time` on MariaDB). Each connection drops the `sql_mode` flags that change where a
+string ends (`ANSI_QUOTES`, `NO_BACKSLASH_ESCAPES` and the modes that include them, such as `ANSI`),
+so the read-only guard reads statements as the server does. An IAM sign-in needs a user created with
 `IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`.
 
 **Kubernetes tools (EKS, always read-only)**

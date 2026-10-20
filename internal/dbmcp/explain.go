@@ -72,8 +72,9 @@ func (q *sqlQuerier) postgresPlan(ctx context.Context, req *PlanRequest, mode st
 	return result, nil
 }
 
-// explainFrom runs an EXPLAIN statement in a read-only transaction always rolled back, and returns its JSON plan.
-func (q *sqlQuerier) explainFrom(ctx context.Context, db *sql.DB, statement string, args []any) (string, error) {
+// explainFrom runs an EXPLAIN statement in a read-only transaction always rolled back, after the
+// setup statements, and returns its plan.
+func (q *sqlQuerier) explainFrom(ctx context.Context, db *sql.DB, statement string, args []any, setup ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
@@ -83,7 +84,7 @@ func (q *sqlQuerier) explainFrom(ctx context.Context, db *sql.DB, statement stri
 	}
 	defer func() { _ = tx.Rollback() }() //nolint:errcheck // the transaction only reads; ending it is all that matters.
 
-	for _, setup := range q.dialect.txSetup {
+	for _, setup := range slices.Concat(q.dialect.txSetup, setup) {
 		if _, err := tx.ExecContext(ctx, setup); err != nil {
 			return "", err
 		}

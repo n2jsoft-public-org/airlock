@@ -133,7 +133,8 @@ func TestMySQLConfigTLSModes(t *testing.T) {
 	} {
 		t.Run(string(tc.mode), func(t *testing.T) {
 			config := mysqlConfig(Address{Host: "shop.db.internal", Port: 3306, TLS: tc.mode}, "shop", mysqlDialect.connParams)
-			if config.Addr != "shop.db.internal:3306" || config.DBName != "shop" || !config.InterpolateParams || config.Params["max_execution_time"] != "30000" {
+			if config.Addr != "shop.db.internal:3306" || config.DBName != "shop" || !config.InterpolateParams || config.Params["max_execution_time"] != "30000" ||
+				config.Params["sql_mode"] != mysqlSQLMode {
 				t.Fatalf("config = %+v", config)
 			}
 			// RDS IAM tokens go as cleartext passwords: never without TLS.
