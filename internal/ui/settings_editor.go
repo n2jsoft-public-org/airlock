@@ -119,6 +119,7 @@ const (
 // section not listed follows them, titled with its id.
 var SettingSections = []string{
 	"general", "aws", "mcp", "agent", "daemon", "modules.sql", "modules.k8s", "modules.cache", "modules.dynamodb", "modules.s3",
+	"modules.logs",
 }
 
 // settingsSection is one entry of the left pane: its id and its settings, as indices in the snapshot.

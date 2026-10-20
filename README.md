@@ -31,7 +31,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 | 🧭 **Guided wizard** | Pick a recent connection, or go resource type → profile → target → review. Search every target of a profile in one list. |
 | 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password and AWS Secrets Manager sign-in are available too, with an optional OS keychain. |
 | 🪟 **Parallel sessions** | Open as many tunnels as you need, switch between them with a keystroke. Local ports never collide. |
-| 🤖 **AI-ready** | Each database, EKS, cache, DynamoDB and S3 session serves a guarded MCP server and registers it for Claude Code and VS Code. |
+| 🤖 **AI-ready** | Each database, EKS, cache, DynamoDB, S3 and CloudWatch Logs session serves a guarded MCP server and registers it for Claude Code and VS Code. |
 | 🗄 **Direct databases** | Declare the PostgreSQL and SQL Server databases you reach without jumphost, and get the same MCP server, audit log and IDE data source. |
 | 🧾 **Audited** | Every MCP call is shown live in the dashboard and written to a daily JSONL audit log. |
 | 🧩 **IDE integration** | Registers the tunnel as an IntelliJ data source in `.idea/dataSources.xml`. |
@@ -135,12 +135,12 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 
 - **GitHub access** to `n2jsoft/airlock`, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
 - **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)**, only for RDS, EKS and ElastiCache tunnels (used by `aws ssm start-session`).
-  Profiles, discovery, sign-in, DynamoDB and S3 go through the AWS API and need neither.
+  Profiles, discovery, sign-in, DynamoDB, S3 and CloudWatch Logs go through the AWS API and need neither.
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
   When a profile's credentials are missing or expired, airlock signs you in again for you (no AWS CLI needed for that): the
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
   Profiles that assume a role with MFA (`mfa_serial`) are not supported yet.
-- **A running jumphost** (not for DynamoDB and S3): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
+- **A running jumphost** (not for DynamoDB, S3 and CloudWatch Logs): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
 
 ## 🛰 How it works
 
@@ -184,6 +184,7 @@ airlock eks my-cluster 15432         # tunnel to a private EKS API endpoint
 airlock elasticache my-cache 6379    # tunnel to an ElastiCache cluster
 airlock dynamodb eu-west-3         # DynamoDB tables of a region, for the AI assistant (MCP)
 airlock s3                         # S3 buckets of a profile, for the AI assistant (MCP)
+airlock logs eu-west-3             # CloudWatch Logs of a region, read-only, for the AI assistant (MCP)
 airlock direct legacy-billing        # a direct database declared with airlock connection add
 airlock docker pg                    # a database running in a local Docker container
 airlock forward search.internal 443  # any host:port the jumphost reaches
@@ -317,7 +318,7 @@ on the resource type step.
 |---|---|
 | any letter · `/` | Filter recent connections by name, type, profile or region: type right away, or press `/` first when the name starts with a shortcut letter (`n`, `s`, `d`, `q`, `j`, `k`…) |
 | `n` | Start a new connection (resource type → AWS profile → target → review) |
-| `s` | Search a target: choose a profile, then pick among all its RDS, EKS, ElastiCache, DynamoDB and S3 targets in one list |
+| `s` | Search a target: choose a profile, then pick among all its RDS, EKS, ElastiCache, DynamoDB, S3 and CloudWatch Logs targets in one list |
 | `d` | Forget a recent connection |
 | `r` | Switch region (on the resource type, target and search steps) |
 | `esc` | Go back one step (from the first step of a wizard opened with `n`, back to the sessions); while AWS answers, cancel |
@@ -660,9 +661,9 @@ session instead.
 ## 🤖 AI access with MCP
 
 For **RDS PostgreSQL** and **SQL Server** sessions, **direct databases**, **EKS** clusters and
-**Redis / Valkey ElastiCache** caches, **DynamoDB** tables and **S3** buckets, airlock serves an MCP server on
+**Redis / Valkey ElastiCache** caches, **DynamoDB** tables, **S3** buckets and **CloudWatch Logs**, airlock serves an MCP server on
 `127.0.0.1` for as long as the session runs, so AI assistants can explore them: through the tunnel,
-straight at the server for direct databases, or through the AWS API for DynamoDB and S3.
+straight at the server for direct databases, or through the AWS API for DynamoDB, S3 and CloudWatch Logs.
 
 **Database tools**
 
@@ -781,9 +782,25 @@ session), `s3:ListBucket` and `s3:GetObject` (`s3:GetObjectVersion` with `versio
 `--mcp-allow-writes`. Compressed objects (`Content-Encoding: gzip`) and SSE-C objects are not read.
 `--no-mcp` is refused for S3.
 
+**CloudWatch Logs tools** (always read-only)
+
+| Tool | Description |
+|---|---|
+| `list_log_groups` | List the log groups of the region, by name `prefix` or `pattern`, with retention, stored bytes and class |
+| `list_log_streams` | List the streams of a group, the most recently written first |
+| `query` | Run a Logs Insights query on one or more groups over a time range (default the last 15 minutes): up to 1000 rows, with the records and bytes scanned. Waits 60 s, then stops the query |
+| `filter_events` | Tail a group: its newest events matching a filter pattern over a time range, optionally only some streams (replies are capped, with a `truncated` flag) |
+
+A CloudWatch Logs session is the region of a profile, like DynamoDB: no tunnel, no jumphost, no
+port. Times are durations before now (`15m`, `1h`, `7d`) or RFC 3339. Logs Insights bills every GB
+it scans: the tools default to a short range and report the bytes scanned. The profile needs
+`logs:DescribeLogGroups` (to open the session), `logs:DescribeLogStreams`, `logs:StartQuery`,
+`logs:GetQueryResults`, `logs:StopQuery` and `logs:FilterLogEvents`. `--no-mcp` and
+`--mcp-allow-writes` are refused.
+
 **Registration.** The server is registered as `<prefix>-<profile>-<instance>` for a database,
 `<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
-cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB and `<prefix>-<profile>-s3` for S3 (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
+cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB, `<prefix>-<profile>-s3` for S3 and `<prefix>-<profile>-logs-<region>` for CloudWatch Logs (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
 name never share one, in the configuration of the AI clients chosen by `mcp.clients` (or
 `--mcp-clients`):
 
@@ -851,7 +868,7 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 | `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
 | `open_session` | Open a target, with a reason you read |
 | `close_session` | Close a session an agent opened |
-| `db_*`, `k8s_*`, `cache_*`, `dynamo_*`, `s3_*` | The tools of the sessions above, with a `session` argument |
+| `db_*`, `k8s_*`, `cache_*`, `dynamo_*`, `s3_*`, `logs_*` | The tools of the sessions above, with a `session` argument |
 
 An opening asked by an agent shows an **approval dialog** in every open dashboard (`y` allow, `n`
 deny, 2 minutes to answer); with no dashboard open it is refused at once. `agent.autoConnect` lets
@@ -945,7 +962,8 @@ path, e.g. `modules.sql.defaultDbUser`:
     "k8s": { "enabled": true },
     "cache": { "enabled": true },
     "dynamodb": { "enabled": false },
-    "s3": { "enabled": true }
+    "s3": { "enabled": true },
+    "logs": { "enabled": true }
   }
 }
 ```
@@ -966,7 +984,7 @@ path, e.g. `modules.sql.defaultDbUser`:
 | `agent.writes` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
 | `agent.idleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
 | `daemon.idleTimeout` | none | `10m` | Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. `10m` or `8h` (at least `1m`); read at the daemon's start |
-| `modules.<name>.enabled` | none | `true` | `false`: airlock neither lists nor opens the targets of that module: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, `s3` |
+| `modules.<name>.enabled` | none | `true` | `false`: airlock neither lists nor opens the targets of that module: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, `s3`, `logs` (CloudWatch Logs) |
 | `modules.sql.defaultDbUser` | `--db-user` | none (asked) | Database user prefilled on RDS: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or `engine=user` pairs (`postgres`, `mysql`, `sqlserver`), e.g. `app_ro,sqlserver=mcp_ro` (see below) |
 | `modules.sql.readOnlySecretTag` | `--read-only-secret-tag` | none (SQL Server read-only MCP off) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets |
 

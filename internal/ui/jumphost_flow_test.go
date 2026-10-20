@@ -1036,6 +1036,24 @@ func TestS3ReviewHasNoPortAndOffersWrites(t *testing.T) {
 	}
 }
 
+func TestLogsReviewIsReadOnlyWithNothingToChoose(t *testing.T) {
+	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{MCPAllowWrites: true})
+	m.flow, m.step = flowNew, jumphostStepReview
+	m.options.ResourceType, m.options.Name, m.options.AwsProfile = "logs", "eu-west-3", "dev"
+	if got := m.reviewFields(); len(got) != 0 {
+		t.Fatalf("fields = %v, want none", got)
+	}
+	m, _ = wizardUpdate(t, m, key("tab")) // no field to move to: no panic
+	panel := m.renderReviewPanel(100, false)
+	if strings.Contains(panel, i18n.T("ui.jumphost_flow_view.port")) || !strings.Contains(panel, i18n.T("ui.jumphost_flow_view.read_only")) {
+		t.Fatalf("panel = %s", panel)
+	}
+	next, _ := m.connectReviewed()
+	if wizard, ok := next.(jumphostWizardModel); !ok || wizard.options.MCPAllowWrites {
+		t.Fatal("--mcp-allow-writes must not reach a read-only Logs session")
+	}
+}
+
 func TestWizardOffersS3OnlyWithMCP(t *testing.T) {
 	hasS3 := func(m jumphostWizardModel) bool {
 		return slices.ContainsFunc(m.typeOptions(), func(o resourceTypeOption) bool { return o.name == "s3" })
@@ -1076,7 +1094,7 @@ func TestDirectAndDockerReviewsIgnoreWritesWhenLocked(t *testing.T) {
 	runner.saved["/legacy-billing"] = jumphost.ConnectionPrefs{DBUser: "mcp_ro", SignIn: jumphost.SignInPassword, MCPAllowWrites: true}
 	direct := newDirectWizard(t, runner, &fakeDirectStore{dbs: testDirectDatabases()})
 	direct.writesLocked = true
-	direct, _ = wizardUpdate(t, direct, key("6"))
+	direct, _ = wizardUpdate(t, direct, key("7"))
 	direct.directList.selectName("legacy-billing")
 	direct, cmd := wizardUpdate(t, direct, key("enter"))
 	direct, _ = wizardUpdate(t, direct, findMsg[directChoicesLoadedMsg](t, cmd))

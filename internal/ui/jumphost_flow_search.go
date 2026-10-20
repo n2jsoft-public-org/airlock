@@ -12,7 +12,7 @@ import (
 )
 
 // searchTypeOrder is the order failed types are reported in.
-var searchTypeOrder = []string{"rds", "eks", "elasticache", "dynamodb", "s3"}
+var searchTypeOrder = []string{"rds", "eks", "elasticache", "dynamodb", "s3", "logs"}
 
 // jumphostSearchLoadedMsg carries the targets of every type found by a search.
 type jumphostSearchLoadedMsg struct {

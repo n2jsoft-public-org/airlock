@@ -40,3 +40,10 @@ func TestS3SessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
 		t.Fatalf("keys differ by region: %q, %q", s.Key(), other.Key())
 	}
 }
+
+func TestLogsSessionRunsNoProcessButIsAnAWSSession(t *testing.T) {
+	s := Session{ResourceType: LogsResourceType, Target: "eu-west-3", Profile: "dev", Region: "eu-west-3"}
+	if !s.NoTunnel() || s.Direct() || s.Key() != "dev|eu-west-3|logs|eu-west-3" {
+		t.Fatalf("no tunnel = %v direct = %v key = %q", s.NoTunnel(), s.Direct(), s.Key())
+	}
+}

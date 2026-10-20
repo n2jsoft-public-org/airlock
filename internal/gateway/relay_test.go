@@ -317,3 +317,30 @@ func TestRelayedS3ImageReachesTheAgent(t *testing.T) {
 		t.Fatalf("content = %#v", res.Content[1])
 	}
 }
+
+func TestLogsSessionsServeTheLogsTools(t *testing.T) {
+	if kindOf("logs") != kindLogs || !slices.Contains(openableTypes, "logs") {
+		t.Fatalf("kindOf(logs) = %q, openable = %v", kindOf("logs"), openableTypes)
+	}
+	cs, err := connectClient(t.Context(), prototype(kindLogs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close() //nolint:errcheck // an in-memory session.
+	listed, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, proto := range listed.Tools {
+		tool, rerr := relayTool(kindLogs, proto)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		names = append(names, tool.Name)
+	}
+	slices.Sort(names)
+	if want := []string{"logs_filter_events", "logs_list_log_groups", "logs_list_log_streams", "logs_query"}; !slices.Equal(names, want) {
+		t.Fatalf("tools = %v, want %v", names, want)
+	}
+}

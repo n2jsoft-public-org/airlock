@@ -25,6 +25,10 @@
   │  S3   S3                                                           5 │
   │ Buckets d'un profil pour votre assistant IA (MCP), sans tunnel       │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  LOGS   CloudWatch Logs                                            6 │
+  │ Journaux d'une région pour votre assistant IA (MCP), sans tunnel     │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
@@ -32,8 +36,4 @@
 
 
 
-
-
-
-
-   ↑↓  naviguer   1-5  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter
+   ↑↓  naviguer   1-6  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter

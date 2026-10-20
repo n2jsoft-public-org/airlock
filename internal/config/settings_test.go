@@ -227,6 +227,9 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
     },
     "s3": {
       "enabled": true
+    },
+    "logs": {
+      "enabled": true
     }
   }
 }

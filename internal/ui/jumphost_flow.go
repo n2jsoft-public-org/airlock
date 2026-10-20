@@ -110,6 +110,7 @@ var resourceTypeOptions = []resourceTypeOption{
 	{name: "elasticache", titleKey: "ui.card.elasticache.title", descKey: "ui.card.elasticache.desc"},
 	{name: "dynamodb", titleKey: "ui.card.dynamodb.title", descKey: "ui.card.dynamodb.desc"},
 	{name: "s3", titleKey: "ui.card.s3.title", descKey: "ui.card.s3.desc"},
+	{name: "logs", titleKey: "ui.card.logs.title", descKey: "ui.card.logs.desc"},
 }
 
 // directCard is the Type step card of direct databases, offered when the dashboard has a store.
@@ -428,7 +429,7 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 	return m
 }
 
-// typeOptions are the cards of the Type step: the AWS types (the API-only ones, DynamoDB and S3, only
+// typeOptions are the cards of the Type step: the AWS types (the API-only ones, DynamoDB, S3 and Logs, only
 // with MCP, as their session is their MCP server), and direct databases when the dashboard has their
 // store; disabled modules have none.
 func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
@@ -454,8 +455,8 @@ func (m jumphostWizardModel) isDocker() bool {
 		m.step != jumphostStepType && m.step != jumphostStepStart
 }
 
-// isAPIOnly reports whether the flow works on an API-only type (DynamoDB, S3): no port, no sign-in,
-// only the MCP write toggle.
+// isAPIOnly reports whether the flow works on an API-only type (DynamoDB, S3, CloudWatch Logs): no
+// port, no sign-in, at most the MCP write toggle.
 func (m jumphostWizardModel) isAPIOnly() bool {
 	return jumphost.APIOnly(m.options.ResourceType)
 }
@@ -1015,6 +1016,9 @@ func (m jumphostWizardModel) reviewFields() []int {
 		return m.directReviewFields()
 	}
 	if m.isAPIOnly() {
+		if !m.mcpWritesApply() {
+			return nil // CloudWatch Logs: nothing to choose
+		}
 		return []int{reviewFieldMCPWrites}
 	}
 	fields := []int{reviewFieldPort}
@@ -1035,7 +1039,7 @@ func (m jumphostWizardModel) mcpApplies() bool {
 		return false
 	}
 	switch m.options.ResourceType {
-	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType, sessions.DynamoDBResourceType, sessions.S3ResourceType:
+	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType, sessions.DynamoDBResourceType, sessions.S3ResourceType, sessions.LogsResourceType:
 		return true
 	case "elasticache":
 		return jumphost.CacheEngineSupported(m.targetEngine)
@@ -1070,12 +1074,15 @@ func (m jumphostWizardModel) cacheUsersCmd() tea.Cmd {
 
 // mcpWritesApply reports whether the review offers the MCP write toggle: EKS is always read-only.
 func (m jumphostWizardModel) mcpWritesApply() bool {
-	return m.mcpApplies() && m.options.ResourceType != "eks"
+	return m.mcpApplies() && m.options.ResourceType != "eks" && m.options.ResourceType != sessions.LogsResourceType
 }
 
 // moveReviewFocus focuses the field delta positions away from the current one, wrapping around.
 func (m jumphostWizardModel) moveReviewFocus(delta int) jumphostWizardModel {
 	fields := m.reviewFields()
+	if len(fields) == 0 {
+		return m
+	}
 	current := 0
 	for idx, field := range fields {
 		if field == m.reviewFocus {
@@ -1149,6 +1156,8 @@ func (m jumphostWizardModel) submitReview() (tea.Model, tea.Cmd) {
 func (m jumphostWizardModel) connectReviewed() (tea.Model, tea.Cmd) {
 	if m.mcpWritesApply() {
 		m.options.MCPAllowWrites = m.mcpWrites
+	} else if m.options.ResourceType == sessions.LogsResourceType {
+		m.options.MCPAllowWrites = false // read-only, as the review shows; Prepare refuses writes
 	}
 	m.errorMsg = ""
 	m = m.blurReviewInputs()

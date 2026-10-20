@@ -37,7 +37,7 @@ func completeArgs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.
 			disabled = cfg.DisabledModules
 		}
 		var types []string
-		for _, resourceType := range []string{"rds", "eks", "elasticache", "dynamodb", "s3", "direct", "docker"} {
+		for _, resourceType := range []string{"rds", "eks", "elasticache", "dynamodb", "s3", "logs", "direct", "docker"} {
 			if !slices.Contains(disabled, jumphost.ModuleOf(resourceType)) {
 				types = append(types, resourceType+"\t"+i18n.T("cli.completion."+resourceType))
 			}

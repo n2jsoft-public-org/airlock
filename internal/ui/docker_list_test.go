@@ -54,7 +54,7 @@ func newDockerWizard(t *testing.T, source *fakeDockerContainers) jumphostWizardM
 // dockerListStep picks the Docker card and delivers the listing.
 func dockerListStep(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 	t.Helper()
-	m, cmd := wizardUpdate(t, m, key("6"))
+	m, cmd := wizardUpdate(t, m, key("7"))
 	if m.step != jumphostStepTarget || !m.isDocker() {
 		t.Fatalf("step = %v docker = %v, want the Docker list", m.step, m.isDocker())
 	}
@@ -64,11 +64,11 @@ func dockerListStep(t *testing.T, m jumphostWizardModel) jumphostWizardModel {
 
 func TestWizardOffersDockerCardOnlyWithSource(t *testing.T) {
 	without := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
-	if len(without.typeOptions()) != 5 || strings.Contains(wizardView(without), "Docker database") {
+	if len(without.typeOptions()) != 6 || strings.Contains(wizardView(without), "Docker database") {
 		t.Fatalf("options = %d, want no Docker card without source", len(without.typeOptions()))
 	}
 	with := newDockerWizard(t, &fakeDockerContainers{})
-	if len(with.typeOptions()) != 6 || !strings.Contains(wizardView(with), "Docker database") {
+	if len(with.typeOptions()) != 7 || !strings.Contains(wizardView(with), "Docker database") {
 		t.Fatalf("options = %d, want the Docker card:\n%s", len(with.typeOptions()), wizardView(with))
 	}
 }
@@ -76,7 +76,7 @@ func TestWizardOffersDockerCardOnlyWithSource(t *testing.T) {
 func TestDockerListLoadsInTheBackground(t *testing.T) {
 	source := &fakeDockerContainers{list: testContainers()}
 	m := newDockerWizard(t, source)
-	m, cmd := wizardUpdate(t, m, key("6"))
+	m, cmd := wizardUpdate(t, m, key("7"))
 	if source.calls != 0 || cmd == nil || !strings.Contains(wizardView(m), "Looking for database and cache containers") {
 		t.Fatalf("calls = %d, want the listing in a command:\n%s", source.calls, wizardView(m))
 	}

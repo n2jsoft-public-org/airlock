@@ -52,6 +52,7 @@ var Keys = []Key{
 	{Name: "modules.cache.enabled"},
 	{Name: "modules.dynamodb.enabled"},
 	{Name: "modules.s3.enabled"},
+	{Name: "modules.logs.enabled"},
 }
 
 // renamedKeys maps each flat key of the earlier layout to the key replacing it.
@@ -442,6 +443,8 @@ func (f *file) field(key string) **string {
 		return &f.DynamoDBEnabled
 	case "modules.s3.enabled":
 		return &f.S3Enabled
+	case "modules.logs.enabled":
+		return &f.LogsEnabled
 	case legacyProductionProfiles:
 		return &f.ProductionProfiles
 	default:

@@ -55,8 +55,8 @@ func (t *toolset) add(server *mcp.Server) {
 	}, t.listTargets)
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_sessions", Annotations: readOnly,
-		Description: "List the running airlock sessions: their id (the session argument of the db_, k8s_, cache_, dynamo_ and s3_ tools), " +
-			"target, who opened them, whether they allow writes, and which tools apply (tools: db, k8s, cache, dynamo, s3 or none).",
+		Description: "List the running airlock sessions: their id (the session argument of the db_, k8s_, cache_, dynamo_, s3_ and logs_ tools), " +
+			"target, who opened them, whether they allow writes, and which tools apply (tools: db, k8s, cache, dynamo, s3, logs or none).",
 	}, t.listSessions)
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "open_session",
@@ -75,7 +75,7 @@ func (t *toolset) add(server *mcp.Server) {
 
 type listTargetsInput struct {
 	Profile string `json:"profile,omitempty" jsonschema:"AWS profile to search live; without it the saved connections are listed"`
-	Type    string `json:"type,omitempty" jsonschema:"only targets of this type: rds, eks, elasticache, dynamodb, s3 or direct"`
+	Type    string `json:"type,omitempty" jsonschema:"only targets of this type: rds, eks, elasticache, dynamodb, s3, logs or direct"`
 	Query   string `json:"query,omitempty" jsonschema:"only targets whose name contains this text"`
 }
 
@@ -248,7 +248,7 @@ type sessionInfo struct {
 	Region   string `json:"region,omitempty"`
 	State    string `json:"state"`
 	OpenedBy string `json:"openedBy"`
-	// Tools is the prefix of the relayed tools that apply: db, k8s, cache, dynamo, s3, or none.
+	// Tools is the prefix of the relayed tools that apply: db, k8s, cache, dynamo, s3, logs, or none.
 	Tools string `json:"tools"`
 	About string `json:"about,omitempty"`
 	// MCP is the dashboard's MCP line: it tells why no server runs.

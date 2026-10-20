@@ -17,6 +17,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dynamomcp"
 	"github.com/n2jsoft/airlock/internal/kubemcp"
+	"github.com/n2jsoft/airlock/internal/logsmcp"
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/s3mcp"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -31,10 +32,11 @@ const (
 	kindCache  kind = "cache"
 	kindDynamo kind = "dynamo"
 	kindS3     kind = "s3"
+	kindLogs   kind = "logs"
 )
 
 // kinds is the order the relayed tools are listed in.
-var kinds = []kind{kindDB, kindK8s, kindCache, kindDynamo, kindS3}
+var kinds = []kind{kindDB, kindK8s, kindCache, kindDynamo, kindS3, kindLogs}
 
 // kindOf is the kind of the sessions of resourceType; empty when they serve no tool.
 func kindOf(resourceType string) kind {
@@ -49,6 +51,8 @@ func kindOf(resourceType string) kind {
 		return kindDynamo
 	case sessions.S3ResourceType:
 		return kindS3
+	case sessions.LogsResourceType:
+		return kindLogs
 	default:
 		return ""
 	}
@@ -72,8 +76,10 @@ func prototype(k kind) *mcp.Server {
 		return cachemcp.NewServer(&cachemcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil)
 	case kindDynamo:
 		return dynamomcp.NewServer(&dynamomcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil)
-	default:
+	case kindS3:
 		return s3mcp.NewServer(&s3mcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil)
+	default:
+		return logsmcp.NewServer(&logsmcp.ServerConfig{Name: "prototype"}, nil, nil)
 	}
 }
 

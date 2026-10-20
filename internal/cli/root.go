@@ -41,7 +41,7 @@ func NewRootCmd() *cobra.Command {
 	options := jumphost.Options{}
 
 	cmd := &cobra.Command{
-		Use:          "airlock [eks|rds|elasticache|dynamodb|s3|direct|docker] [name] [local-port]",
+		Use:          "airlock [eks|rds|elasticache|dynamodb|s3|logs|direct|docker] [name] [local-port]",
 		Short:        i18n.T("cli.root.short"),
 		Long:         i18n.T("cli.root.long"),
 		Args:         cobra.MaximumNArgs(3),
@@ -379,7 +379,7 @@ func promptResourceType(in io.Reader, out io.Writer) (string, error) {
 	}
 
 	value = strings.ToLower(strings.TrimSpace(value))
-	if value != "eks" && value != "rds" && value != "elasticache" && value != "dynamodb" && value != "s3" {
+	if value != "eks" && value != "rds" && value != "elasticache" && value != "dynamodb" && value != "s3" && value != "logs" {
 		return "", i18n.NewError("cli.root.invalid_resource_type_expected", value)
 	}
 

@@ -54,7 +54,7 @@ const (
 
 // supportedResourceType reports whether resourceType (lower case) is one airlock connects to.
 func supportedResourceType(resourceType string) bool {
-	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3 || resourceType == resourceForward
+	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3 || resourceType == resourceLogs || resourceType == resourceForward
 }
 
 type Options struct {
@@ -456,6 +456,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceS3) {
 		return r.prepareS3(ctx, &options)
 	}
+	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceLogs) {
+		return r.prepareLogs(ctx, &options)
+	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))
 	if resourceType != resourceEKS && resourceType != resourceRDS && resourceType != resourceElastiCache && resourceType != resourceForward {
@@ -711,6 +714,8 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 		return r.dynamoDBTargets(ctx, cfg)
 	case resourceS3:
 		return r.s3Targets(ctx, cfg)
+	case resourceLogs:
+		return r.logsTargets(ctx, cfg)
 	case resourceRDS:
 		instances, err := r.rdsInstances(ctx, cfg)
 		if err != nil {

@@ -10,7 +10,7 @@ const resourceS3 = "s3"
 // port; its MCP server is the session.
 func APIOnly(resourceType string) bool {
 	switch strings.ToLower(strings.TrimSpace(resourceType)) {
-	case resourceDynamoDB, resourceS3:
+	case resourceDynamoDB, resourceS3, resourceLogs:
 		return true
 	default:
 		return false

@@ -1,6 +1,6 @@
 ---
 name: airlock
-description: Reach private AWS resources (RDS and other SQL databases, EKS clusters, ElastiCache and Docker caches, DynamoDB tables, S3 buckets) through the airlock MCP tools. Use when the user asks to query a database, inspect a Kubernetes cluster, read a cache key, a DynamoDB item or an S3 object, or to investigate data or an incident in an AWS account.
+description: Reach private AWS resources (RDS and other SQL databases, EKS clusters, ElastiCache and Docker caches, DynamoDB tables, S3 buckets, CloudWatch Logs) through the airlock MCP tools. Use when the user asks to query a database, inspect a Kubernetes cluster, read a cache key, a DynamoDB item, an S3 object or Lambda / ECS logs, or to investigate data or an incident in an AWS account.
 ---
 
 # airlock
@@ -9,7 +9,7 @@ airlock opens connections to private AWS resources and serves MCP tools on them.
 in two shapes:
 
 - **Gateway** (the airlock daemon): `list_targets`, `list_sessions`, `open_session`,
-  `close_session`, then `db_`, `k8s_`, `cache_`, `dynamo_` and `s3_` tools taking a `session` id.
+  `close_session`, then `db_`, `k8s_`, `cache_`, `dynamo_`, `s3_` and `logs_` tools taking a `session` id.
 - **Session servers** (an airlock the user runs in a terminal): one MCP server per open session,
   whose tools carry no prefix (`query`, `list_tables`, `pod_logs`…).
 
@@ -36,7 +36,7 @@ in two shapes:
 ## Per resource
 
 Tool names below are those of a session server; the gateway prefixes them with their family
-(`db_query`, `k8s_pod_logs`, `cache_info`, `dynamo_scan`, `s3_list_objects`).
+(`db_query`, `k8s_pod_logs`, `cache_info`, `dynamo_scan`, `s3_list_objects`, `logs_query`).
 
 - **SQL**: explore with `list_databases`, `list_tables` and `describe_table` before writing a
   query. `query` runs one SELECT/WITH statement and caps the rows. `query_plan`
@@ -46,6 +46,9 @@ Tool names below are those of a session server; the gateway prefixes them with t
 - **Cache**: `info` first; `scan_keys` with a pattern rather than reading every key.
 - **DynamoDB**: `describe_table` for its keys and indexes; prefer `query` (by key) over `scan`.
 - **S3**: `list_objects` with a prefix; `head_object` before downloading a large object.
+- **CloudWatch Logs**: `list_log_groups` with a prefix (`/aws/lambda/`, `/ecs/`), then
+  `filter_events` to tail a group or `query` (Logs Insights, billed per GB scanned) over a short
+  range first: widen it only when needed.
 
 ## No airlock tools?
 

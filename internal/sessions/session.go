@@ -31,6 +31,9 @@ const (
 	// S3ResourceType is the type of S3 sessions: every bucket of an AWS profile, reached through the
 	// AWS API, with no aws process to run but an AWS identity to watch.
 	S3ResourceType = "s3"
+	// LogsResourceType is the type of CloudWatch Logs sessions: an AWS profile and region reached
+	// through the AWS API, read-only, with no aws process to run but an AWS identity to watch.
+	LogsResourceType = "logs"
 )
 
 // ID identifies a session; a restart or reconnection keeps it.
@@ -162,7 +165,7 @@ func (s *Session) Active() bool { return s.State != StateEnded }
 func (s *Session) Direct() bool { return direct(s.ResourceType) }
 
 // NoTunnel reports a session running no aws process: a direct or Docker session, or an API-only one
-// (DynamoDB, S3), which, unlike them, has an AWS profile and region.
+// (DynamoDB, S3, CloudWatch Logs), which, unlike them, has an AWS profile and region.
 func (s *Session) NoTunnel() bool { return noTunnel(s.ResourceType) }
 
 func direct(resourceType string) bool {

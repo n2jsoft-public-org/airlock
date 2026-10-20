@@ -25,6 +25,10 @@
   │  S3   S3                                                           5 │
   │ Buckets of a profile for your AI assistant (MCP), no tunnel          │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  LOGS   CloudWatch Logs                                            6 │
+  │ Log groups of a region for your AI assistant (MCP), no tunnel        │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
@@ -32,8 +36,4 @@
 
 
 
-
-
-
-
-   ↑↓  move   1-5  pick   enter  select   r  region   s  search   ?  help   q  quit
+   ↑↓  move   1-6  pick   enter  select   r  region   s  search   ?  help   q  quit
