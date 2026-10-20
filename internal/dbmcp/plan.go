@@ -3,6 +3,7 @@ package dbmcp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -28,11 +29,14 @@ type PlanRequest struct {
 	Database string
 	SQL      string
 	// Parameters declares the parameters SQL uses, as sp_executesql does: "@p0 int, @p1 nvarchar(6)".
+	// SQL Server only: PostgreSQL infers the types of $1, $2…
 	Parameters string
-	// Values holds one value per declared parameter, in order: string, number, bool or nil.
-	Values     []any
-	Mode       string
-	IncludeXML bool
+	// Values holds one value per parameter, in order: string, number, bool or nil.
+	Values []any
+	Mode   string
+	// IncludeXML returns the raw showplans (SQL Server), IncludeJSON the raw EXPLAIN output (PostgreSQL).
+	IncludeXML  bool
+	IncludeJSON bool
 }
 
 // PlanResult is the execution plan of a statement, summarized for reading.
@@ -45,6 +49,8 @@ type PlanResult struct {
 	Statements []StatementPlan `json:"statements"`
 	// PlanXML holds the raw showplans, one per statement, to save as .sqlplan files.
 	PlanXML []string `json:"plan_xml,omitempty"`
+	// PlanJSON holds the raw EXPLAIN (FORMAT JSON) output of PostgreSQL.
+	PlanJSON json.RawMessage `json:"plan_json,omitempty"`
 }
 
 // planSettings returns the statements turning plan capture on, then off, for mode.
@@ -57,11 +63,8 @@ func planSettings(mode string) (on, off []string) {
 		[]string{"SET STATISTICS TIME OFF", "SET STATISTICS IO OFF", "SET STATISTICS XML OFF"}
 }
 
-// Plan returns the execution plan of a read-only statement (SQL Server only).
+// Plan returns the execution plan of a read-only statement.
 func (q *sqlQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, error) {
-	if q.dialect.engine != EngineSQLServer {
-		return PlanResult{}, errors.New("query plans are only available on SQL Server; on PostgreSQL run EXPLAIN with the query tool")
-	}
 	mode := req.Mode
 	if mode == "" {
 		mode = PlanActual
@@ -71,6 +74,12 @@ func (q *sqlQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, err
 	}
 	if err := CheckReadOnly(q.dialect.engine, req.SQL); err != nil {
 		return PlanResult{}, err
+	}
+	if q.dialect.engine == EnginePostgres {
+		return q.postgresPlan(ctx, &req, mode)
+	}
+	if req.IncludeJSON {
+		return PlanResult{}, errors.New("include_json is for PostgreSQL: use include_xml for the raw SQL Server showplan")
 	}
 	batch, args, err := planBatch(req.SQL, req.Parameters, req.Values, mode)
 	if err != nil {

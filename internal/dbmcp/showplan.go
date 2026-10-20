@@ -23,6 +23,11 @@ type StatementPlan struct {
 	// CPUTimeMs and ElapsedTimeMs are measured (actual plans only).
 	CPUTimeMs     *int `json:"cpu_time_ms,omitempty"`
 	ElapsedTimeMs *int `json:"elapsed_time_ms,omitempty"`
+	// PlanningTimeMs and ExecutionTimeMs are PostgreSQL's (actual plans only).
+	PlanningTimeMs  *float64 `json:"planning_time_ms,omitempty"`
+	ExecutionTimeMs *float64 `json:"execution_time_ms,omitempty"`
+	// Settings are the PostgreSQL settings changed from their default that affect planning.
+	Settings []string `json:"settings,omitempty"`
 	// MemoryGrant is granted and, for actual plans, used memory.
 	MemoryGrant string `json:"memory_grant,omitempty"`
 	// Parameters lists the parameters with the values the plan was compiled for and ran with.

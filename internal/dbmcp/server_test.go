@@ -116,7 +116,7 @@ func TestServerReadOnlyTools(t *testing.T) {
 	session := connect(t, testServerConfig(false), &fakeQuerier{})
 
 	got := strings.Join(toolNames(t, session), ",")
-	if got != "describe_table,list_databases,list_tables,query" {
+	if got != "describe_table,list_databases,list_tables,query,query_plan" {
 		t.Fatalf("tools = %s", got)
 	}
 	if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "read-only") || !strings.Contains(instructions, "profile dev") {
@@ -222,7 +222,9 @@ func TestDescribeAndListTools(t *testing.T) {
 func TestInstructionsKeepTheTunnelText(t *testing.T) {
 	want := "Database app (PostgreSQL dialect), reached through an airlock SSM tunnel. AWS profile dev, region eu-west-3. " +
 		"Access is read-only. Explore with list_databases, list_tables and describe_table before writing queries. " +
-		"The query tool runs one SELECT/WITH statement and returns at most 1000 rows."
+		"The query tool runs one SELECT/WITH statement and returns at most 1000 rows. " +
+		"To analyze a slow query, get its plan with query_plan (EXPLAIN ANALYZE, rolled back), passing the values of $1, $2… " +
+		"the application sends; pg_stat_statements tells which queries cost the most, when installed."
 	if got := instructions(testServerConfig(false)); got != want {
 		t.Fatalf("instructions = %q\nwant %q", got, want)
 	}
@@ -239,22 +241,18 @@ func TestInstructionsOfADirectDatabase(t *testing.T) {
 	}
 }
 
-func TestServerOffersQueryPlanToSQLServerOnly(t *testing.T) {
-	sqlServer := &ServerConfig{Name: "acme-dev-app", Target: "app", Profile: "dev", Region: "eu-west-3", Engine: EngineSQLServer}
-	session := connect(t, sqlServer, &fakeQuerier{})
-	if got := strings.Join(toolNames(t, session), ","); got != "describe_table,list_databases,list_tables,query,query_plan" {
-		t.Fatalf("SQL Server tools = %s", got)
-	}
-	if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "query_plan") {
-		t.Fatalf("instructions = %q", instructions)
-	}
-
-	postgres := connect(t, testServerConfig(false), &fakeQuerier{})
-	if got := strings.Join(toolNames(t, postgres), ","); strings.Contains(got, "query_plan") {
-		t.Fatalf("PostgreSQL tools = %s", got)
-	}
-	if instructions := postgres.InitializeResult().Instructions; strings.Contains(instructions, "query_plan") {
-		t.Fatalf("PostgreSQL instructions = %q", instructions)
+func TestServerOffersQueryPlanToBothEngines(t *testing.T) {
+	for _, cfg := range []*ServerConfig{
+		{Name: "acme-dev-app", Target: "app", Profile: "dev", Region: "eu-west-3", Engine: EngineSQLServer},
+		testServerConfig(false),
+	} {
+		session := connect(t, cfg, &fakeQuerier{})
+		if got := strings.Join(toolNames(t, session), ","); got != "describe_table,list_databases,list_tables,query,query_plan" {
+			t.Fatalf("%s tools = %s", cfg.Engine, got)
+		}
+		if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "query_plan") {
+			t.Fatalf("%s instructions = %q", cfg.Engine, instructions)
+		}
 	}
 }
 

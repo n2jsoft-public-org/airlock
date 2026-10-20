@@ -1,0 +1,89 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Gather Merge",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 5186.79,
+      "Total Cost": 5196.91,
+      "Plan Rows": 88,
+      "Plan Width": 15,
+      "Output": ["c.country", "o.id", "o.amount"],
+      "Workers Planned": 1,
+      "Plans": [
+        {
+          "Node Type": "Sort",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 4186.78,
+          "Total Cost": 4187.00,
+          "Plan Rows": 88,
+          "Plan Width": 15,
+          "Output": ["c.country", "o.id", "o.amount"],
+          "Sort Key": ["o.amount DESC"],
+          "Plans": [
+            {
+              "Node Type": "Hash Join",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Join Type": "Inner",
+              "Startup Cost": 44.01,
+              "Total Cost": 4183.93,
+              "Plan Rows": 88,
+              "Plan Width": 15,
+              "Output": ["c.country", "o.id", "o.amount"],
+              "Inner Unique": true,
+              "Hash Cond": "(o.customer_id = c.id)",
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": true,
+                  "Async Capable": false,
+                  "Relation Name": "orders",
+                  "Schema": "public",
+                  "Alias": "o",
+                  "Startup Cost": 0.00,
+                  "Total Cost": 3675.71,
+                  "Plan Rows": 176471,
+                  "Plan Width": 16,
+                  "Output": ["o.id", "o.customer_id", "o.status", "o.amount"]
+                },
+                {
+                  "Node Type": "Hash",
+                  "Parent Relationship": "Inner",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 44.00,
+                  "Total Cost": 44.00,
+                  "Plan Rows": 1,
+                  "Plan Width": 7,
+                  "Output": ["c.country", "c.id"],
+                  "Plans": [
+                    {
+                      "Node Type": "Seq Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "customers",
+                      "Schema": "public",
+                      "Alias": "c",
+                      "Startup Cost": 0.00,
+                      "Total Cost": 44.00,
+                      "Plan Rows": 1,
+                      "Plan Width": 7,
+                      "Output": ["c.country", "c.id"],
+                      "Filter": "((c.country = 'FR'::text) AND ((c.id % 10) = 0))"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

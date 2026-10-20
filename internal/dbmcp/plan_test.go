@@ -88,18 +88,6 @@ func TestParameterValue(t *testing.T) {
 	}
 }
 
-func TestPlanOnPostgresPointsToExplain(t *testing.T) {
-	q, db, _ := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
-
-	_, err := q.Plan(context.Background(), PlanRequest{SQL: "SELECT 1"})
-	if err == nil || !strings.Contains(err.Error(), "EXPLAIN") {
-		t.Fatalf("err = %v", err)
-	}
-	if len(db.statements()) != 0 {
-		t.Fatalf("database was touched: %v", db.statements())
-	}
-}
-
 func TestPlanRejectedByGuardNeverReachesDatabase(t *testing.T) {
 	q, db, opened := newTestQuerier(&sqlServerDialect, staticCreds{fallback: "app"})
 
@@ -108,6 +96,7 @@ func TestPlanRejectedByGuardNeverReachesDatabase(t *testing.T) {
 		{SQL: "SELECT 1; DROP TABLE users"},
 		{SQL: "SELECT 1", Mode: "profile"},
 		{SQL: "SELECT @p0", Parameters: "@p0 int OUTPUT", Values: []any{1.0}},
+		{SQL: "SELECT 1", IncludeJSON: true},
 	} {
 		if _, err := q.Plan(context.Background(), req); err == nil {
 			t.Errorf("%+v: expected an error", req)

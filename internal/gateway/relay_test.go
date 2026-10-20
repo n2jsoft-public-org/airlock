@@ -61,8 +61,8 @@ func TestRelayedToolsMirrorTheSessionTools(t *testing.T) {
 	if strings.Contains(tools["db_query"].Description, "PostgreSQL") {
 		t.Fatalf("db_query names one dialect: %q", tools["db_query"].Description)
 	}
-	if !strings.HasPrefix(tools["db_query_plan"].Description, "SQL Server sessions only") {
-		t.Fatalf("db_query_plan must say it serves SQL Server only: %q", tools["db_query_plan"].Description)
+	if desc := tools["db_query_plan"].Description; !strings.Contains(desc, "SQL Server") || !strings.Contains(desc, "PostgreSQL") {
+		t.Fatalf("db_query_plan must serve both engines: %q", desc)
 	}
 	if hint := tools["db_execute"].Annotations.DestructiveHint; hint == nil || !*hint {
 		t.Fatal("db_execute must keep its destructive hint")
