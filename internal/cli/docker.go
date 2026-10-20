@@ -79,7 +79,7 @@ func openDocker(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 		dashboard := *env.dashboard
 		dashboard.DockerAtStart, dashboard.OpenDocker = true, options.Name
 		if shouldUseDaemon(env.cfg, interactive) {
-			return runDaemonView(cmd, options, false, env.discovery, &dashboard)
+			return runDaemonView(cmd, options, nil, env.discovery, &dashboard)
 		}
 		return ui.RunJumphostSessions(cmd.Context(), env.manager, env.discovery, 0, *options, cmd.OutOrStdout(), dashboard)
 	}

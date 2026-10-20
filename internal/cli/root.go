@@ -70,7 +70,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", i18n.T("cli.root.flag.mode"))
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newDoctorCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newSkillsCmd(), newMCPProxyCmd(), newEKSTokenCmd(), newRDSTokenCmd(), newSSOLoginCmd(), newForwardCmd(), newExecCmd())
+	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newDoctorCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newSkillsCmd(), newMCPProxyCmd(), newEKSTokenCmd(), newRDSTokenCmd(), newSSOLoginCmd(), newForwardCmd(), newExecCmd(), newUpCmd(), newDownCmd())
 	localizeCobra(cmd)
 
 	return cmd
@@ -182,88 +182,22 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 			}
 		}()
 	}
-	configPath, org := sources.path, sources.org.Org
-	// Every opening registers its IDE data source and MCP servers in the directory airlock was
-	// started in; empty leaves it to the runner (the working directory).
-	projectDir, err := os.Getwd()
+	env, err := newDashboardEnv(cmd, &cfg, &sources)
 	if err != nil {
-		projectDir = ""
-	}
-
-	// Runners share the registry so parallel sessions never reuse a local port or target, and an
-	// MCP host per AI client selection so database sessions are served on one localhost listener
-	// and registered in the same AI clients until mcpClients changes.
-	registry := jumphost.NewSessionRegistry()
-	hosts := newMCPHosts()
-	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
-	mcpLogDir, err := appdir.LogsDir()
-	if err != nil {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), i18n.T("cli.root.warning_mcp_queries_will"), err) //nolint:errcheck // best-effort terminal output
-	}
-	// Each EKS session gets a kubeconfig in ~/.config/airlock/kube; a lookup failure only disables it.
-	kubeconfigDir, err := appdir.KubeconfigDir()
-	if err != nil {
-		cmd.PrintErr(i18n.Format("cli.root.warning_eks_sessions_will", err))
-	} else if _, removeErr := kubeconfig.RemoveOrphans(kubeconfigDir); removeErr != nil {
-		// Kubeconfigs left by a killed airlock go; those of a running one stay.
-		cmd.PrintErr(i18n.Format("cli.root.warning_stale_eks_kubeconfigs", removeErr))
-	}
-	// Connections live in ~/.config/airlock/saved-connections.json; a failure only disables the
-	// remembered choices and the direct databases.
-	var prefsPath string
-	var databaseStore *connections.Databases
-	if saved, openErr := openSavedConnections(cmd.ErrOrStderr()); openErr != nil {
-		cmd.PrintErr(i18n.Format("cli.root.warning_saved_connections_are", openErr))
-	} else {
-		prefsPath, databaseStore = saved.Path(), saved.Databases()
-	}
-	shared := sharedRunnerOptions(&cfg, org, registry, hosts.For(&cfg), mcpLogDir, kubeconfigDir, databaseStore)
-	shared.In = cmd.InOrStdin()
-	databases := shared.Databases
-
-	// SSO sign-ins suspend the dashboard, so their browser prompt, URL and code stay readable.
-	handoff := ui.NewTerminalHandoff()
-	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
-	keychainStore := newKeychain()
-	// The dashboard's runner follows config.json, the flags of this run applied over it: the next
-	// openings and the wizard use its new values. It stays silent: its progress would corrupt the
-	// full-screen display.
-	tuiRunners := newRunnerSource(configPath, org, withOverrides(overridesFromFlags(cmd.Flags()), func(next config.Config, nextOrg *config.Organization) (*jumphost.Runner, error) {
-		// Not "options": that is the parameter of executeJumphost.
-		tuiOptions := sharedRunnerOptions(&next, nextOrg, registry, hosts.For(&next), mcpLogDir, kubeconfigDir, databaseStore)
-		tuiOptions.In = cmd.InOrStdin()
-		tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
-		tuiOptions.Keychain, tuiOptions.Interactive = keychainStore, handoff.Run
-		return jumphost.NewRunner(&tuiOptions), nil
-	}))
-	// Built once now, so the wizard always has a last valid runner to fall back on.
-	if _, err = tuiRunners.Current(); err != nil {
 		return err
 	}
-	discovery := reloadingDiscovery{source: tuiRunners}
-	dashboard := ui.DashboardOptions{Handoff: handoff, Environments: cfg.EnvironmentSet(), WritesLocked: shared.WritesLocked}
+	manager, discovery, shared, prefsPath, databases := env.manager, env.discovery, env.shared, env.prefsPath, env.shared.Databases
+	dashboard := env.dashboard
 	if wizardOrg != nil {
 		dashboard.OrganizationNotice, dashboard.OrganizationNoticeShown = wizardOrg.banner(), wizardOrg.markShown
 	}
-	if configPath != "" {
-		store := newConfigSettingsStore(configPath, org, cmd.Flags())
-		store.managed = sources.org.Managed
-		dashboard.Settings = store
-	}
-	if databaseStore != nil {
-		dashboard.Databases = databaseStore
-	}
-	dashboard.Docker = shared.Containers
 	if latestRelease != "" {
 		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
 	}
-	// The dashboard's sessions live in this process and end with it (CLI mode).
-	manager := sessions.NewManager(cmd.Context(), sessions.Config{Runner: tuiRunners.Source()})
-	dashboard.ProjectDir = projectDir
 
 	if wizard {
 		if shouldUseDaemon(&cfg, interactive) {
-			return runDaemonView(cmd, options, false, discovery, &dashboard)
+			return runDaemonView(cmd, options, nil, discovery, &dashboard)
 		}
 		return ui.RunJumphostSessions(cmd.Context(), manager, discovery, 0, *options, cmd.OutOrStdout(), dashboard)
 	}
@@ -309,8 +243,13 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	}
 	// In daemon mode, an interactive run is a view of the daemon, which opens the named target.
 	if shouldUseDaemon(&cfg, interactive) {
-		openFirst := options.ResourceType != "" && options.Name != ""
-		return runDaemonView(cmd, options, openFirst, discovery, &dashboard)
+		var open daemonOpener
+		if options.ResourceType != "" && options.Name != "" {
+			open = func(service sessions.Service, base *jumphost.Options) (sessions.ID, error) {
+				return openInDaemon(cmd, service, base, terminalInteractive(cmd))
+			}
+		}
+		return runDaemonView(cmd, options, open, discovery, &dashboard)
 	}
 
 	if options.ResourceType == "" {
@@ -336,6 +275,91 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	first := manager.Adopt(session, options)
 
 	return ui.RunJumphostSessions(cmd.Context(), manager, discovery, first, *options, cmd.OutOrStdout(), dashboard)
+}
+
+// dashboardEnv is what the dashboard of a connect command runs on: the CLI-mode sessions, the
+// wizard's discovery following config.json, and the runner options both modes share.
+type dashboardEnv struct {
+	discovery reloadingDiscovery
+	manager   *sessions.Manager
+	prefsPath string
+	shared    jumphost.RunnerOptions
+	dashboard ui.DashboardOptions
+}
+
+// newDashboardEnv builds the dashboard environment of cfg, resolved from sources.
+func newDashboardEnv(cmd *cobra.Command, cfg *config.Config, sources *configSources) (*dashboardEnv, error) {
+	configPath, org := sources.path, sources.org.Org
+	// Every opening registers its IDE data source and MCP servers in the directory airlock was
+	// started in; empty leaves it to the runner (the working directory).
+	projectDir, err := os.Getwd()
+	if err != nil {
+		projectDir = ""
+	}
+
+	// Runners share the registry so parallel sessions never reuse a local port or target, and an
+	// MCP host per AI client selection so database sessions are served on one localhost listener
+	// and registered in the same AI clients until mcpClients changes.
+	registry := jumphost.NewSessionRegistry()
+	hosts := newMCPHosts()
+	// SQL run through MCP servers is logged to ~/.config/airlock/logs; a lookup failure only disables the log.
+	mcpLogDir, err := appdir.LogsDir()
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), i18n.T("cli.root.warning_mcp_queries_will"), err) //nolint:errcheck // best-effort terminal output
+	}
+	// Each EKS session gets a kubeconfig in ~/.config/airlock/kube; a lookup failure only disables it.
+	kubeconfigDir, err := appdir.KubeconfigDir()
+	if err != nil {
+		cmd.PrintErr(i18n.Format("cli.root.warning_eks_sessions_will", err))
+	} else if _, removeErr := kubeconfig.RemoveOrphans(kubeconfigDir); removeErr != nil {
+		// Kubeconfigs left by a killed airlock go; those of a running one stay.
+		cmd.PrintErr(i18n.Format("cli.root.warning_stale_eks_kubeconfigs", removeErr))
+	}
+	// Connections live in ~/.config/airlock/saved-connections.json; a failure only disables the
+	// remembered choices and the direct databases.
+	var prefsPath string
+	var databaseStore *connections.Databases
+	if saved, openErr := openSavedConnections(cmd.ErrOrStderr()); openErr != nil {
+		cmd.PrintErr(i18n.Format("cli.root.warning_saved_connections_are", openErr))
+	} else {
+		prefsPath, databaseStore = saved.Path(), saved.Databases()
+	}
+	shared := sharedRunnerOptions(cfg, org, registry, hosts.For(cfg), mcpLogDir, kubeconfigDir, databaseStore)
+	shared.In = cmd.InOrStdin()
+
+	// SSO sign-ins suspend the dashboard, so their browser prompt, URL and code stay readable.
+	handoff := ui.NewTerminalHandoff()
+	// Passwords the user asks to remember go to the OS keychain; only the wizard offers it.
+	keychainStore := newKeychain()
+	// The dashboard's runner follows config.json, the flags of this run applied over it: the next
+	// openings and the wizard use its new values. It stays silent: its progress would corrupt the
+	// full-screen display.
+	tuiRunners := newRunnerSource(configPath, org, withOverrides(overridesFromFlags(cmd.Flags()), func(next config.Config, nextOrg *config.Organization) (*jumphost.Runner, error) {
+		tuiOptions := sharedRunnerOptions(&next, nextOrg, registry, hosts.For(&next), mcpLogDir, kubeconfigDir, databaseStore)
+		tuiOptions.In = cmd.InOrStdin()
+		tuiOptions.Out, tuiOptions.Err, tuiOptions.PrefsPath = io.Discard, io.Discard, prefsPath
+		tuiOptions.Keychain, tuiOptions.Interactive = keychainStore, handoff.Run
+		return jumphost.NewRunner(&tuiOptions), nil
+	}))
+	// Built once now, so the wizard always has a last valid runner to fall back on.
+	if _, err = tuiRunners.Current(); err != nil {
+		return nil, err
+	}
+	discovery := reloadingDiscovery{source: tuiRunners}
+	dashboard := ui.DashboardOptions{Handoff: handoff, Environments: cfg.EnvironmentSet(), WritesLocked: shared.WritesLocked}
+	if configPath != "" {
+		store := newConfigSettingsStore(configPath, org, cmd.Flags())
+		store.managed = sources.org.Managed
+		dashboard.Settings = store
+	}
+	if databaseStore != nil {
+		dashboard.Databases = databaseStore
+	}
+	dashboard.Docker = shared.Containers
+	// The dashboard's sessions live in this process and end with it (CLI mode).
+	manager := sessions.NewManager(cmd.Context(), sessions.Config{Runner: tuiRunners.Source()})
+	dashboard.ProjectDir = projectDir
+	return &dashboardEnv{discovery: discovery, manager: manager, prefsPath: prefsPath, shared: shared, dashboard: dashboard}, nil
 }
 
 // sharedRunnerOptions are the runner options of both modes, from the config, its organization and

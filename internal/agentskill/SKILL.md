@@ -24,6 +24,9 @@ in two shapes:
 4. Call the tools of the session's family (`tools:` in `list_sessions`) with its `session` id.
 5. `close_session` on the sessions you opened once done. Sessions the user opened stay open.
 
+A `.airlock.json` at the root of the user's repository lists, by stack, the targets the project
+uses: prefer those targets. The user opens a whole stack with `airlock up [stack]` in a terminal.
+
 ## Rules
 
 - Stay read-only unless the user asked for a change. Ask for `writes` only for a change the user

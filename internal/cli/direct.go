@@ -68,7 +68,7 @@ func openDirect(cmd *cobra.Command, options *jumphost.Options, interactive bool,
 		dashboard.OpenDirect = options.Name
 		// In daemon mode the review step opens it in the daemon: the password is typed the same way.
 		if shouldUseDaemon(env.cfg, interactive) {
-			return runDaemonView(cmd, options, false, env.discovery, &dashboard)
+			return runDaemonView(cmd, options, nil, env.discovery, &dashboard)
 		}
 		return ui.RunJumphostSessions(cmd.Context(), env.manager, env.discovery, 0, *options, cmd.OutOrStdout(), dashboard)
 	}

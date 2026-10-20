@@ -34,6 +34,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 | 🤖 **AI-ready** | Each database, EKS, cache, DynamoDB, S3 and CloudWatch Logs session serves a guarded MCP server and registers it for Claude Code and VS Code. |
 | 🗄 **Direct databases** | Declare the PostgreSQL, SQL Server, MySQL and MariaDB databases you reach without jumphost, and get the same MCP server, audit log and IDE data source. |
 | 🧾 **Audited** | Every MCP call is shown live in the dashboard and written to a daily JSONL audit log. |
+| 📦 **Project stacks** | Commit `.airlock.json` with the targets an application needs; `airlock up` opens them all. |
 | 🧩 **IDE integration** | Registers the tunnel as an IntelliJ data source in `.idea/dataSources.xml`. |
 | 🌍 **Region aware** | Switch region at any time from a searchable list (`paris`, `eu-west`, `japan`…). |
 | 👥 **Team settings** | Share one config string with `airlock config export` / `import`. |
@@ -193,6 +194,7 @@ airlock docker pg                    # a database running in a local Docker cont
 airlock forward search.internal 443  # any host:port the jumphost reaches
 airlock rds my-db 5432 --db-user app_ro
 airlock exec rds my-db -- npm run migrate   # run a command with the tunnel open (see below)
+airlock up                           # every target of the project's .airlock.json (see below)
 ```
 
 <details>
@@ -622,6 +624,72 @@ airlock docker cache
 - MCP writes are on by default. Without a terminal, `--mcp-allow-writes=false` turns them off; in
   the dashboard, the `MCP` toggle of the review does. Agents list the containers with `list_targets` and open them with `open_session`
   (`type: "docker"`, or `"docker-cache"`) under the usual agent policy.
+
+### Project stacks
+
+An application's repository can commit a `.airlock.json` listing the targets it needs, by stack.
+After a clone, `airlock up` opens them all: sessions of the dashboard in CLI mode, of the daemon in
+daemon mode, exactly as `airlock <type> <name>` would open each one.
+
+```json
+{
+  "default": "dev",
+  "stacks": {
+    "dev": [
+      { "type": "rds", "name": "orders-db", "port": 5432, "dbUser": "app_ro" },
+      { "type": "eks", "name": "platform" },
+      { "type": "elasticache", "name": "sessions", "port": 6379 },
+      { "type": "forward", "host": "search.internal", "remotePort": 443, "port": 9200 },
+      { "type": "direct", "name": "legacy-billing" }
+    ],
+    "staging": { "profile": "staging", "region": "eu-west-1", "targets": [
+      { "type": "rds", "name": "orders-db" }
+    ] }
+  }
+}
+```
+
+```sh
+airlock up            # the default stack (or the only one)
+airlock up staging
+airlock up --list     # the stacks and their targets
+airlock down staging  # daemon mode: close the sessions of the stack
+```
+
+airlock reads the file of the working directory, else of the nearest parent: the search stops at
+the repository root (the directory holding `.git`), and never reads `$HOME`. A stack is a list of
+targets, or an object whose `profile` and `region` apply to the targets that give none.
+
+| Key | Targets | Meaning |
+|---|---|---|
+| `type` | all | `rds`, `eks`, `elasticache`, `dynamodb`, `s3`, `logs`, `forward`, `direct`, `docker` |
+| `name` | all but `forward` | The target, as `airlock <type> <name>` takes it |
+| `host`, `remotePort` | `forward` | The host and port to forward to |
+| `port` | `rds`, `eks`, `elasticache`, `forward` | The local port; left out, the usual choice |
+| `dbUser`, `dbSecret` | `rds`, `elasticache` | As `--db-user` and `--db-secret`: a user, and the name or ARN of a Secrets Manager secret |
+| `mcpAllowWrites` | `rds`, `elasticache`, `dynamodb`, `s3`, `direct`, `docker` | As `--mcp-allow-writes` |
+| `profile`, `region` | AWS targets | The AWS profile and region |
+
+- **Targets only.** Any other key is an error naming the file, the stack and the target; so are a
+  target listed twice and a local port used twice. Settings (mode, tags, MCP clients,
+  environments) stay in `config.json` and the organization config, whose locks still apply: a
+  disabled module fails its target, a locked `agent.writes` ignores `mcpAllowWrites`.
+- **No secrets.** The file is committed: keys that look like a password or a token are refused.
+  RDS signs in with IAM or the secret `dbSecret` names; direct and Docker databases use the
+  password remembered in the keychain (open them once from the dashboard with "Remember in
+  keychain").
+- **One by one, in order.** The first target of an AWS profile signs it in, the next ones find the
+  sign-in valid. A target whose session is already running is reused. A target that fails does
+  not stop the others: each line says what happened, and airlock waits for Enter before the
+  dashboard when one failed.
+- **Production is confirmed.** `airlock up` lists the targets with their environment first, and
+  asks before opening production ones. It needs a terminal.
+- **`airlock down`** closes the running daemon sessions of the stack's targets, whoever opened
+  them. In CLI mode the sessions belong to the dashboard of `airlock up`: quit it.
+
+The file comes from a repository: airlock reads it as untrusted input. It can only name targets you
+could already open with your own credentials and settings; nothing in it is run, written to an MCP
+client file or IDE file, or changes a setting.
 
 ### Parallel sessions
 

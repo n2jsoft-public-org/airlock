@@ -55,7 +55,7 @@ func TestDaemonViewRefusesSettingFlags(t *testing.T) {
 		if err := cmd.ParseFlags([]string{"--" + setting.flag, "v"}); err != nil {
 			t.Fatal(err)
 		}
-		err := runDaemonView(cmd, &jumphost.Options{}, false, nil, &ui.DashboardOptions{})
+		err := runDaemonView(cmd, &jumphost.Options{}, nil, nil, &ui.DashboardOptions{})
 		want := "--" + setting.flag + " does not apply in daemon mode: the daemon uses config.json (airlock config set " + setting.key + " <value>), or run with --mode cli"
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %v, want %q", err, want)

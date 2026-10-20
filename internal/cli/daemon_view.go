@@ -87,8 +87,12 @@ func terminalInteractive(cmd *cobra.Command) jumphost.InteractiveFunc {
 	}
 }
 
-// runDaemonView shows the daemon's sessions; when openFirst, the target of options is opened first.
-func runDaemonView(cmd *cobra.Command, options *jumphost.Options, openFirst bool, discovery ui.JumphostDiscovery, dashboard *ui.DashboardOptions) error {
+// daemonOpener opens sessions in the daemon before its view starts, base holding the options of
+// the view and its project directory; it returns the session the view shows first.
+type daemonOpener func(service sessions.Service, base *jumphost.Options) (sessions.ID, error)
+
+// runDaemonView shows the daemon's sessions, after the openings of open when not nil.
+func runDaemonView(cmd *cobra.Command, options *jumphost.Options, open daemonOpener, discovery ui.JumphostDiscovery, dashboard *ui.DashboardOptions) error {
 	if err := checkDaemonFlags(cmd.Flags()); err != nil {
 		return err
 	}
@@ -131,9 +135,9 @@ func runDaemonView(cmd *cobra.Command, options *jumphost.Options, openFirst bool
 	}
 	base := *options
 	var first sessions.ID
-	if openFirst {
+	if open != nil {
 		base.ProjectDir = view.ProjectDir
-		if first, err = openInDaemon(cmd, client, &base, terminalInteractive(cmd)); err != nil {
+		if first, err = open(client, &base); err != nil {
 			return err
 		}
 	}
@@ -157,23 +161,33 @@ func openInDaemon(cmd *cobra.Command, service sessions.Service, options *jumphos
 // runningSessionOf returns the running session of the target of options, 0 when none. It is that
 // target when its type and name match, and its profile: the one options gives, else AWS_PROFILE,
 // else default, as the runner resolves it. The region only counts when options gives it: the
-// daemon resolves a missing one from the profile's configuration. Names match in any case.
+// daemon resolves a missing one from the profile's configuration. Direct and Docker sessions have
+// no profile. Names match in any case.
 func runningSessionOf(list []sessions.Session, options *jumphost.Options) sessions.ID {
-	profile := strings.TrimSpace(options.AwsProfile)
-	if profile == "" {
-		profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
-	}
-	if profile == "" {
-		profile = "default"
-	}
+	profile := effectiveProfile(options.AwsProfile)
+	resourceType := strings.TrimSpace(options.ResourceType)
 	region := strings.TrimSpace(options.AwsRegion)
 	for index := range list {
 		s := &list[index]
-		if s.Active() && strings.EqualFold(s.ResourceType, strings.TrimSpace(options.ResourceType)) &&
-			strings.EqualFold(s.Target, strings.TrimSpace(options.Name)) && strings.EqualFold(s.Profile, profile) &&
+		// A Docker container named in a stack may hold a cache: its session is a docker-cache one.
+		sameType := strings.EqualFold(s.ResourceType, resourceType) || (resourceType == dockerResourceType && s.ResourceType == sessions.DockerCacheResourceType)
+		if s.Active() && sameType &&
+			strings.EqualFold(s.Target, strings.TrimSpace(options.Name)) && (s.Direct() || strings.EqualFold(s.Profile, profile)) &&
 			(region == "" || strings.EqualFold(s.Region, region)) {
 			return s.ID
 		}
 	}
 	return 0
+}
+
+// effectiveProfile is the AWS profile an opening with profile uses: profile, else AWS_PROFILE,
+// else default, as the runner resolves it.
+func effectiveProfile(profile string) string {
+	if profile = strings.TrimSpace(profile); profile != "" {
+		return profile
+	}
+	if profile = strings.TrimSpace(os.Getenv("AWS_PROFILE")); profile != "" {
+		return profile
+	}
+	return "default"
 }
