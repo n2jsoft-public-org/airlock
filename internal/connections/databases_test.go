@@ -59,7 +59,7 @@ func TestDatabasesPutNormalizesAndValidates(t *testing.T) {
 		t.Fatalf("stored = %+v, want it normalized", got)
 	}
 	var fieldErr *directdb.FieldError
-	if err := dbs.Put("", directdb.Database{Name: "bad", Engine: "mysql", Host: "db", User: "u"}); !errors.As(err, &fieldErr) || fieldErr.Field != "engine" {
+	if err := dbs.Put("", directdb.Database{Name: "bad", Engine: "oracle", Host: "db", User: "u"}); !errors.As(err, &fieldErr) || fieldErr.Field != "engine" {
 		t.Fatalf("err = %v, want an engine field error", err)
 	}
 }
@@ -178,7 +178,7 @@ func TestDatabasesPutAllKeepsChoicesAndOtherEntries(t *testing.T) {
 	} else if entry.Choices.SignIn != "password" {
 		t.Fatalf("analytics choices = %+v, want them kept on a production-only change", entry.Choices)
 	}
-	if err := dbs.PutAll([]directdb.Database{{Name: "bad", Engine: "mysql"}}); err == nil || !strings.Contains(err.Error(), `database "bad"`) {
+	if err := dbs.PutAll([]directdb.Database{{Name: "bad", Engine: "oracle"}}); err == nil || !strings.Contains(err.Error(), `database "bad"`) {
 		t.Fatalf("err = %v, want the invalid database named", err)
 	}
 }

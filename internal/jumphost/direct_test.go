@@ -490,6 +490,12 @@ func TestPrepareDirectCarriesTLSToTheIDEDataSource(t *testing.T) {
 			`<property name="encrypt" value="true"/>`, `<property name="trustServerCertificate" value="false"/>`,
 		}},
 		{engine: directdb.EngineSQLServer, tls: directdb.TLSDisable, want: []string{`<property name="encrypt" value="false"/>`}},
+		{engine: directdb.EngineMySQL, tls: "", want: []string{"jdbc:mysql://db.internal:3306/", `<property name="sslMode" value="REQUIRED"/>`}},
+		{engine: directdb.EngineMySQL, tls: directdb.TLSVerify, want: []string{`<property name="sslMode" value="VERIFY_IDENTITY"/>`}},
+		{engine: directdb.EngineMySQL, tls: directdb.TLSDisable, want: []string{`<property name="sslMode" value="DISABLED"/>`}},
+		{engine: directdb.EngineMariaDB, tls: "", want: []string{"jdbc:mariadb://db.internal:3306/", `<property name="sslMode" value="trust"/>`}},
+		{engine: directdb.EngineMariaDB, tls: directdb.TLSVerify, want: []string{`<property name="sslMode" value="verify-full"/>`}},
+		{engine: directdb.EngineMariaDB, tls: directdb.TLSDisable, want: []string{`<property name="sslMode" value="disable"/>`}},
 	} {
 		t.Run(string(tc.engine)+"/"+string(tc.tls), func(t *testing.T) {
 			stubDirectMCP(t)

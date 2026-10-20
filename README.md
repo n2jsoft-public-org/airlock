@@ -32,7 +32,7 @@ IntelliJ data sources and a guarded **MCP server** so AI assistants can query tu
 | 🔑 **Passwordless databases** | RDS sign-in with short-lived AWS IAM tokens. Password and AWS Secrets Manager sign-in are available too, with an optional OS keychain. |
 | 🪟 **Parallel sessions** | Open as many tunnels as you need, switch between them with a keystroke. Local ports never collide. |
 | 🤖 **AI-ready** | Each database, EKS, cache, DynamoDB, S3 and CloudWatch Logs session serves a guarded MCP server and registers it for Claude Code and VS Code. |
-| 🗄 **Direct databases** | Declare the PostgreSQL and SQL Server databases you reach without jumphost, and get the same MCP server, audit log and IDE data source. |
+| 🗄 **Direct databases** | Declare the PostgreSQL, SQL Server, MySQL and MariaDB databases you reach without jumphost, and get the same MCP server, audit log and IDE data source. |
 | 🧾 **Audited** | Every MCP call is shown live in the dashboard and written to a daily JSONL audit log. |
 | 🧩 **IDE integration** | Registers the tunnel as an IntelliJ data source in `.idea/dataSources.xml`. |
 | 🌍 **Region aware** | Switch region at any time from a searchable list (`paris`, `eu-west`, `japan`…). |
@@ -515,7 +515,7 @@ the real host name (`--resolve`, `tls-server-name`, or skip the check).
 
 ### Direct databases
 
-Some PostgreSQL and SQL Server databases need no jumphost: you reach them directly (VPN, peering
+Some PostgreSQL, SQL Server, MySQL and MariaDB databases need no jumphost: you reach them directly (VPN, peering
 or a public endpoint) with a user and a password. Declare them once, and airlock opens them like
 any other connection, without tunnel nor AWS profile: same MCP server (`airlock-<name>`), audit
 log, IntelliJ data source, sign-in check and environment badge.
@@ -523,6 +523,7 @@ log, IntelliJ data source, sign-in check and environment badge.
 ```sh
 airlock connection add legacy-billing --engine sqlserver --host billing.db.internal --user mcp_ro --environment prod
 airlock connection add analytics --engine postgres --host 10.0.4.12 --database events --user reader --tls verify
+airlock connection add shop --engine mysql --host shop.db.internal --user reader
 airlock connection list                # every saved connection, with its ENV: direct and through a jumphost
 airlock connection edit analytics --port 6432
 airlock connection test legacy-billing # signs in and runs SELECT 1
@@ -536,12 +537,12 @@ recent connections as `direct · host:port`; `d` forgets one.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--engine` | required | `postgres` or `sqlserver` |
+| `--engine` | required | `postgres`, `sqlserver`, `mysql` or `mariadb` |
 | `--host` | required | Host name or IP address, without scheme or port |
-| `--port` | 5432 / 1433 | Port of the database |
-| `--database` | `postgres` / the login's default | Database opened when none is named |
+| `--port` | 5432 / 1433 / 3306 | Port of the database |
+| `--database` | `postgres` / the login's default / none | Database opened when none is named; on MySQL and MariaDB, none: the MCP tools list every database and take the database to use |
 | `--user` | required | User signing in with its password |
-| `--tls` | `require` | `require` encrypts without checking the certificate; `verify` also checks it, against the host name, with your system's trusted CAs; `disable` sends everything in clear text, for local databases only |
+| `--tls` | `require` | `require` encrypts without checking the certificate; `verify` also checks it, against the host name, with your system's trusted CAs; `disable` sends everything in clear text, for local databases only (MySQL and MariaDB never send a cleartext password without TLS) |
 | `--environment` | none | Environment of the environments setting; `prod` is production |
 
 `--environment ""` clears the environment. The production environment is always saved as `prod`,
@@ -581,7 +582,7 @@ until `airlock daemon restart`.
 
 ### Docker databases and caches
 
-airlock finds the PostgreSQL, SQL Server, Redis and Valkey containers running locally in Docker and
+airlock finds the PostgreSQL, SQL Server, MySQL, MariaDB, Redis and Valkey containers running locally in Docker and
 signs in with the credentials of their environment or command: nothing to declare, nothing saved.
 
 ```bash
@@ -601,12 +602,18 @@ airlock docker cache
 - User, password and database come from `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`
   (Bitnami: `POSTGRESQL_*`), or `sa` and `MSSQL_SA_PASSWORD` / `SA_PASSWORD` for SQL Server. A
   password given as a `*_FILE` secret is typed in the dashboard.
+- MySQL and MariaDB (official and Bitnami images, container port 3306; an image named `mariadb` is
+  MariaDB): `root` and `MYSQL_ROOT_PASSWORD` / `MARIADB_ROOT_PASSWORD`, else `MYSQL_USER` /
+  `MYSQL_PASSWORD` (or `MARIADB_*`), and the database of `MYSQL_DATABASE` / `MARIADB_DATABASE`.
+  `MYSQL_ALLOW_EMPTY_PASSWORD` / `MARIADB_ALLOW_EMPTY_ROOT_PASSWORD` sign in as `root` without
+  password; with `MYSQL_RANDOM_ROOT_PASSWORD` or a `*_FILE` secret, the password is typed in the
+  dashboard.
 - Redis and Valkey: container port 6379, user `default`; the password comes from `--requirepass`
   in the container command, else `REDIS_PASSWORD` / `VALKEY_PASSWORD`, else there is no auth.
   Agents see them as `type: "docker-cache"` with the `cache_*` tools. Not supported yet: ACL
   users, Redis Cluster, TLS, a password only in a mounted `redis.conf` (the dashboard asks for it
   once refused), a command given as one shell string.
-- The engine port must be published (`-p <host-port>:5432`); TLS is off.
+- The engine port must be published (`-p <host-port>:5432`, `:3306`…); TLS is off.
 - The active Docker context must be the local daemon: published ports are reached on
   `127.0.0.1`, so remote contexts are not supported.
 - MCP writes are on by default. Without a terminal, `--mcp-allow-writes=false` turns them off; in
@@ -661,7 +668,7 @@ session instead.
 
 ## 🤖 AI access with MCP
 
-For **RDS PostgreSQL**, **MySQL**, **MariaDB** (Aurora included) and **SQL Server** sessions, **direct databases**, **EKS** clusters and
+For **RDS PostgreSQL**, **MySQL**, **MariaDB** (Aurora included) and **SQL Server** sessions, **direct databases** (PostgreSQL, SQL Server, MySQL, MariaDB), local **Docker** databases and caches, **EKS** clusters and
 **Redis / Valkey ElastiCache** caches, **DynamoDB** tables, **S3** buckets and **CloudWatch Logs**, airlock serves an MCP server on
 `127.0.0.1` for as long as the session runs, so AI assistants can explore them: through the tunnel,
 straight at the server for direct databases, or through the AWS API for DynamoDB, S3 and CloudWatch Logs.

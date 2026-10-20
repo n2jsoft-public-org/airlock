@@ -47,7 +47,7 @@ func TestReadFileRejectsInvalidFiles(t *testing.T) {
 		"unknown field":    {`{"version": 1, "databases": {"billing": {"engine": "postgres", "host": "h", "user": "u", "password": "p"}}}`, []string{"password"}},
 		"unsupported":      {`{"version": 2, "databases": {}}`, []string{"version 2", "update airlock"}},
 		"missing version":  {`{"databases": {}}`, []string{"version 0"}},
-		"invalid database": {`{"version": 1, "databases": {"billing": {"engine": "mysql", "host": "h", "user": "u"}}}`, []string{`database "billing"`, "engine: must be postgres or sqlserver"}},
+		"invalid database": {`{"version": 1, "databases": {"billing": {"engine": "oracle", "host": "h", "user": "u"}}}`, []string{`database "billing"`, "engine: must be postgres, sqlserver, mysql or mariadb"}},
 		"invalid name":     {`{"version": 1, "databases": {"Billing": {"engine": "postgres", "host": "h", "user": "u"}}}`, []string{`database "Billing"`, "name:"}},
 	} {
 		path := writeDatabasesFile(t, tc.content)

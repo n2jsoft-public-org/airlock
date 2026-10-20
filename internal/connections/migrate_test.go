@@ -145,7 +145,7 @@ func TestMigrateWithOnlyConnections(t *testing.T) {
 
 func TestMigrateStopsOnAnUnreadableOldFile(t *testing.T) {
 	for name, files := range map[string][2]string{
-		"databases":   {`{"version": 1, "databases": {"bad": {"engine": "mysql"}}}`, legacyConnections},
+		"databases":   {`{"version": 1, "databases": {"bad": {"engine": "oracle"}}}`, legacyConnections},
 		"connections": {legacyDatabases, "{not json"},
 	} {
 		t.Run(name, func(t *testing.T) {

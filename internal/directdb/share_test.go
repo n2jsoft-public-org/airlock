@@ -14,7 +14,9 @@ import (
 func TestExportImportRoundTrip(t *testing.T) {
 	billing := Database{Name: "legacy-billing", Engine: EngineSQLServer, Host: "billing.db.internal", User: "mcp_ro", TLS: TLSVerify, Port: 14330, Environment: "prod"}
 	archive := testDatabase("archive")
-	shared, err := Export([]Database{billing, archive})
+	shop := Database{Name: "shop", Engine: EngineMySQL, Host: "shop.db.internal", User: "reader"}
+	wiki := Database{Name: "wiki", Engine: EngineMariaDB, Host: "127.0.0.1", User: "root", TLS: TLSDisable, Database: "wiki"}
+	shared, err := Export([]Database{billing, archive, shop, wiki})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,8 +28,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Changes) != 2 || !plan.HasChanges() {
-		t.Fatalf("changes = %+v, want the two exported databases", plan.Changes)
+	if len(plan.Changes) != 4 || !plan.HasChanges() {
+		t.Fatalf("changes = %+v, want the four exported databases", plan.Changes)
 	}
 	if plan.Changes[0].Database != archive || plan.Changes[0].Kind != ChangeAdded || plan.Changes[1].Database != billing {
 		t.Fatalf("changes = %+v, want archive then legacy-billing, added", plan.Changes)
@@ -37,7 +39,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err = ApplyImport(writer, &plan); err != nil {
 		t.Fatal(err)
 	}
-	if writer.calls != 1 || !reflect.DeepEqual(writer.written, []Database{archive, billing}) {
+	if writer.calls != 1 || !reflect.DeepEqual(writer.written, []Database{archive, billing, shop, wiki}) {
 		t.Fatalf("written = %+v in %d calls, want both databases in one write", writer.written, writer.calls)
 	}
 }
@@ -191,7 +193,7 @@ func TestImportRejectsUnknownFieldsVersionsAndInvalidDatabases(t *testing.T) {
 	}{
 		"unknown field":    {`{"version": 1, "databases": {"billing": {"engine": "postgres", "host": "h", "user": "u", "password": "p"}}}`, []string{"password", "update airlock"}},
 		"newer version":    {`{"version": 2, "databases": {"billing": {"engine": "postgres", "host": "h", "user": "u"}}}`, []string{"version 2", "update airlock"}},
-		"invalid database": {`{"version": 1, "databases": {"archive": {"engine": "postgres", "host": "h", "user": "u"}, "billing": {"engine": "mysql", "host": "h", "user": "u"}}}`, []string{`database "billing"`, "engine"}},
+		"invalid database": {`{"version": 1, "databases": {"archive": {"engine": "postgres", "host": "h", "user": "u"}, "billing": {"engine": "oracle", "host": "h", "user": "u"}}}`, []string{`database "billing"`, "engine"}},
 	} {
 		_, err := PlanImport(nil, sharecode.Encode("airlockdb1:", []byte(tc.payload)))
 		if err == nil || errors.Is(err, ErrInvalidShare) {

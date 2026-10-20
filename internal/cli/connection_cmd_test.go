@@ -82,6 +82,22 @@ func TestConnectionAddWritesTheDatabase(t *testing.T) {
 	}
 }
 
+func TestConnectionAddMySQLDefaultsToPort3306(t *testing.T) {
+	store, _ := testDatabases(t)
+	for _, engine := range []string{"mysql", "mariadb"} {
+		out, err := runAirlock(t, "db", "add", engine+"-shop", "--engine", engine, "--host", "shop.db.internal", "--user", "reader")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "Added "+engine+"-shop ("+engine+", shop.db.internal:3306)") {
+			t.Fatalf("out = %q", out)
+		}
+		if db, found := getStored(t, store, engine+"-shop"); !found || db.Engine != directdb.Engine(engine) || db.Database != "" {
+			t.Fatalf("stored = %+v (found %v)", db, found)
+		}
+	}
+}
+
 func TestConnectionAddRefusesAnExistingName(t *testing.T) {
 	store, _ := testDatabases(t)
 	putDatabase(t, store, &billing)
@@ -96,7 +112,7 @@ func TestConnectionAddRefusesAnExistingName(t *testing.T) {
 
 func TestConnectionAddRejectsInvalidValues(t *testing.T) {
 	testDatabases(t)
-	if _, err := runAirlock(t, "db", "add", "legacy-billing", "--engine", "mysql", "--host", "h", "--user", "u"); err == nil || !strings.HasPrefix(err.Error(), "engine:") {
+	if _, err := runAirlock(t, "db", "add", "legacy-billing", "--engine", "oracle", "--host", "h", "--user", "u"); err == nil || !strings.HasPrefix(err.Error(), "engine:") {
 		t.Fatalf("err = %v, want an engine field error", err)
 	}
 	if _, err := runAirlock(t, "db", "add", "Legacy_Billing", "--engine", "postgres", "--host", "h", "--user", "u"); err == nil || !strings.HasPrefix(err.Error(), "name:") {

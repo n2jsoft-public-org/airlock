@@ -70,7 +70,7 @@ func TestDefaultDatabase(t *testing.T) {
 }
 
 func TestCheckDirectSignInRefusesUnsupportedEngines(t *testing.T) {
-	err := CheckDirectSignIn(context.Background(), "mysql", PasswordCredentials("u", "p", ""), Address{Host: "db", Port: 3306})
+	err := CheckDirectSignIn(context.Background(), "oracle", PasswordCredentials("u", "p", ""), Address{Host: "db", Port: 1521})
 	if !errors.Is(err, ErrEngineUnsupported) {
 		t.Fatalf("err = %v, want ErrEngineUnsupported", err)
 	}

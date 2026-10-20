@@ -49,3 +49,8 @@ func (e Engine) Dialect() string {
 func (e Engine) mysqlFamily() bool {
 	return e == EngineMySQL || e == EngineMariaDB
 }
+
+// direct reports whether e is reached directly, without tunnel: every supported engine is.
+func (e Engine) direct() bool {
+	return e == EnginePostgres || e == EngineSQLServer || e.mysqlFamily()
+}

@@ -49,6 +49,9 @@ var formFieldsByName = map[string]int{
 	"database": formFieldDatabase, "user": formFieldUser, "tls": formFieldTLS, "environment": formFieldEnvironment,
 }
 
+// directEngines are the engines in the order the form cycles them.
+var directEngines = []directdb.Engine{directdb.EnginePostgres, directdb.EngineSQLServer, directdb.EngineMySQL, directdb.EngineMariaDB}
+
 // directTLSModes are the TLS modes in the order the form cycles them.
 var directTLSModes = []directdb.TLSMode{directdb.TLSRequire, directdb.TLSVerify, directdb.TLSDisable}
 
@@ -178,16 +181,13 @@ func (f directForm) focusField(field int) directForm {
 	return f
 }
 
-// toggle changes the focused choice: delta steps through the TLS modes and the environments; the engine
-// has two values, any delta swaps them.
+// toggle changes the focused choice: delta steps through the engines, the TLS modes and the environments.
 func (f directForm) toggle(delta int) directForm {
 	switch f.focus {
 	case formFieldEngine:
-		if f.engine == directdb.EngineSQLServer {
-			f.engine = directdb.EnginePostgres
-		} else {
-			f.engine = directdb.EngineSQLServer
-		}
+		count := len(directEngines)
+		current := slices.Index(directEngines, f.engine)
+		f.engine = directEngines[((current+delta)%count+count)%count]
 		f = f.withPlaceholders()
 	case formFieldTLS:
 		count := len(directTLSModes)
@@ -310,6 +310,10 @@ func (f directForm) View(styles Styles, width int) string {
 	panelWidth := min(width, reviewPanelWidth)
 	// Border (2) and padding (2) around the panel content.
 	inner := panelWidth - 4
+	engines := make([]string, 0, len(directEngines))
+	for _, engine := range directEngines {
+		engines = append(engines, string(engine))
+	}
 	tlsModes := make([]string, 0, len(directTLSModes))
 	for _, mode := range directTLSModes {
 		tlsModes = append(tlsModes, string(mode))
@@ -320,7 +324,7 @@ func (f directForm) View(styles Styles, width int) string {
 		rows = append(rows, f.row(styles, field, label, value, help, inner)...)
 	}
 	add(formFieldName, i18n.T("ui.direct_form.name"), inputView(f.name), i18n.T("ui.direct_form.names_mcp_server_ide"))
-	add(formFieldEngine, i18n.T("ui.direct_form.engine"), choiceSelector(styles, []string{string(directdb.EnginePostgres), string(directdb.EngineSQLServer)}, string(f.engine)), i18n.T("ui.direct_form.or_space_change_engine"))
+	add(formFieldEngine, i18n.T("ui.direct_form.engine"), choiceSelector(styles, engines, string(f.engine)), i18n.T("ui.direct_form.or_space_change_engine"))
 	add(formFieldHost, i18n.T("ui.direct_form.host"), inputView(f.host), i18n.T("ui.direct_form.host_name_or_ip"))
 	add(formFieldPort, i18n.T("ui.jumphost_flow_view.port"), inputView(f.port), i18n.T("ui.direct_form.leave_empty_for_engine"))
 	add(formFieldDatabase, i18n.T("ui.direct_form.database"), inputView(f.dbName), i18n.T("ui.direct_form.leave_empty_for_default"))

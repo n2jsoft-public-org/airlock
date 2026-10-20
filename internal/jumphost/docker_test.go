@@ -46,6 +46,21 @@ func dockerRunner(t *testing.T, containers ...dockerdb.Container) *Runner {
 	return directRunner(t, &RunnerOptions{Containers: byName})
 }
 
+func TestPrepareDockerOpensMySQLAndMariaDB(t *testing.T) {
+	for engine, want := range map[dockerdb.Engine]dbmcp.Engine{dockerdb.EngineMySQL: dbmcp.EngineMySQL, dockerdb.EngineMariaDB: dbmcp.EngineMariaDB} {
+		started := stubDirectMCP(t)
+		c := dockerdb.Container{Name: "shop", Image: string(engine) + ":latest", Engine: engine, Host: "127.0.0.1", Port: 13306, User: "root", Trust: true}
+		session, err := dockerRunner(t, c).Prepare(context.Background(), Options{ResourceType: "docker", Name: "shop"})
+		if err != nil {
+			t.Fatalf("%s: %v", engine, err)
+		}
+		session.Release()
+		if len(*started) != 1 || (*started)[0].Engine != want || (*started)[0].DBName != "" || (*started)[0].Address.TLS != dbmcp.TLSDisable {
+			t.Fatalf("%s: MCP config = %+v", engine, *started)
+		}
+	}
+}
+
 func TestPrepareDockerReadsTheContainer(t *testing.T) {
 	started := stubDirectMCP(t)
 	session, err := dockerRunner(t, pgContainer()).Prepare(context.Background(), Options{ResourceType: "docker", Name: "pg", MCPAllowWrites: true})

@@ -141,6 +141,16 @@ func TestDirectFormEngineSetsPortPlaceholder(t *testing.T) {
 	if m.directForm.engine != directdb.EngineSQLServer || !strings.Contains(view, "1433 (default)") || !strings.Contains(view, "login default") {
 		t.Fatalf("engine = %q, want SQL Server and its defaults:\n%s", m.directForm.engine, view)
 	}
+
+	m, _ = wizardUpdate(t, m, key(" "))
+	if view := wizardView(m); m.directForm.engine != directdb.EngineMySQL || !strings.Contains(view, "3306 (default)") {
+		t.Fatalf("engine = %q, want MySQL and its defaults:\n%s", m.directForm.engine, view)
+	}
+	m, _ = wizardUpdate(t, m, key(" "))
+	m, _ = wizardUpdate(t, m, key(" "))
+	if m.directForm.engine != directdb.EnginePostgres {
+		t.Fatalf("engine = %q, want the cycle back to PostgreSQL", m.directForm.engine)
+	}
 }
 
 func TestDirectFormCyclesTLS(t *testing.T) {

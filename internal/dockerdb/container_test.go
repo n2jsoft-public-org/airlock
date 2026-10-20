@@ -75,6 +75,46 @@ func TestParseSQLServer(t *testing.T) {
 	}
 }
 
+func TestParseMySQLAndMariaDB(t *testing.T) {
+	cases := []struct {
+		name, image string
+		env         []string
+		want        Container
+	}{
+		{"root password", "mysql:8.4", []string{"MYSQL_ROOT_PASSWORD=rootpw", "MYSQL_USER=app", "MYSQL_PASSWORD=apppw", "MYSQL_DATABASE=shop"},
+			Container{Engine: EngineMySQL, User: "root", Password: "rootpw", Database: "shop"}},
+		{"created user", "mysql:8.4", []string{"MYSQL_RANDOM_ROOT_PASSWORD=yes", "MYSQL_USER=app", "MYSQL_PASSWORD=apppw"},
+			Container{Engine: EngineMySQL, User: "app", Password: "apppw"}},
+		{"empty root password", "mysql:8.4", []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"},
+			Container{Engine: EngineMySQL, User: "root", Trust: true}},
+		{"random root password is asked", "mysql:8.4", []string{"MYSQL_RANDOM_ROOT_PASSWORD=yes"},
+			Container{Engine: EngineMySQL, User: "root"}},
+		{"root password file is asked", "mysql:8.4", []string{"MYSQL_ROOT_PASSWORD_FILE=/run/secrets/pw"},
+			Container{Engine: EngineMySQL, User: "root"}},
+		{"user password file is asked", "mysql:8.4", []string{"MYSQL_RANDOM_ROOT_PASSWORD=yes", "MYSQL_USER=app", "MYSQL_PASSWORD_FILE=/run/secrets/pw"},
+			Container{Engine: EngineMySQL, User: "app"}},
+		{"mariadb root password", "mariadb:11", []string{"MARIADB_ROOT_PASSWORD=rootpw", "MARIADB_DATABASE=shop"},
+			Container{Engine: EngineMariaDB, User: "root", Password: "rootpw", Database: "shop"}},
+		{"mariadb created user", "mariadb:11", []string{"MARIADB_RANDOM_ROOT_PASSWORD=1", "MARIADB_USER=app", "MARIADB_PASSWORD=apppw"},
+			Container{Engine: EngineMariaDB, User: "app", Password: "apppw"}},
+		{"mariadb empty root password", "mariadb:11", []string{"MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1"},
+			Container{Engine: EngineMariaDB, User: "root", Trust: true}},
+		{"mariadb reads the MYSQL_ variables", "mariadb:10.11", []string{"MYSQL_ROOT_PASSWORD=rootpw", "MYSQL_DATABASE=shop"},
+			Container{Engine: EngineMariaDB, User: "root", Password: "rootpw", Database: "shop"}},
+		{"bitnami mysql", "bitnami/mysql:8.4", []string{"MYSQL_ROOT_USER=admin", "MYSQL_ROOT_PASSWORD=rootpw"},
+			Container{Engine: EngineMySQL, User: "admin", Password: "rootpw"}},
+		{"bitnami mariadb empty password", "bitnami/mariadb:11", []string{"ALLOW_EMPTY_PASSWORD=yes"},
+			Container{Engine: EngineMariaDB, User: "root", Trust: true}},
+	}
+	for _, tc := range cases {
+		got := parseOne(t, fixture(t, "db", tc.image, "3306/tcp", `[{"HostIp":"0.0.0.0","HostPort":"13306"}]`, tc.env...))
+		tc.want.Name, tc.want.Image, tc.want.Host, tc.want.Port = "db", tc.image, "127.0.0.1", 13306
+		if got != tc.want {
+			t.Errorf("%s: got %+v\nwant %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestParseAddresses(t *testing.T) {
 	cases := map[string]string{
 		`[{"HostIp":"127.0.0.1","HostPort":"55432"}]`:    "127.0.0.1:55432",
@@ -269,6 +309,8 @@ func TestPasswordHints(t *testing.T) {
 	hints := map[Engine]string{
 		EnginePostgres:  "POSTGRES_PASSWORD",
 		EngineSQLServer: "MSSQL_SA_PASSWORD",
+		EngineMySQL:     "MYSQL_ROOT_PASSWORD",
+		EngineMariaDB:   "MARIADB_ROOT_PASSWORD",
 		EngineRedis:     "REDIS_PASSWORD (or --requirepass)",
 		EngineValkey:    "VALKEY_PASSWORD (or --requirepass)",
 	}

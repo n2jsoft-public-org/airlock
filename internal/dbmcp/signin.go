@@ -59,7 +59,7 @@ func CheckSignIn(ctx context.Context, awsEngine string, creds CredentialProvider
 // CheckDirectSignIn signs in to the database reached directly at addr with creds and runs SELECT 1
 // on the default database. A refused password comes back wrapped in ErrSignInRejected.
 func CheckDirectSignIn(ctx context.Context, engine Engine, creds CredentialProvider, addr Address) error {
-	if engine != EnginePostgres && engine != EngineSQLServer {
+	if !engine.direct() {
 		return fmt.Errorf("%w: %s", ErrEngineUnsupported, engine)
 	}
 	return checkSignIn(ctx, func() Querier { return newQuerier(engine, creds, addr) })

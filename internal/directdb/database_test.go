@@ -15,7 +15,7 @@ func testDatabase(name string) Database {
 }
 
 func TestDefaultPort(t *testing.T) {
-	for engine, want := range map[Engine]int{EnginePostgres: 5432, EngineSQLServer: 1433, "mysql": 0} {
+	for engine, want := range map[Engine]int{EnginePostgres: 5432, EngineSQLServer: 1433, EngineMySQL: 3306, EngineMariaDB: 3306, "oracle": 0} {
 		if got := DefaultPort(engine); got != want {
 			t.Fatalf("DefaultPort(%q) = %d, want %d", engine, got, want)
 		}
@@ -55,7 +55,9 @@ func TestValidateAcceptsValidDatabases(t *testing.T) {
 		Name: "legacy-billing-2", Engine: EngineSQLServer, Host: "10.0.3.12", Database: "Billing",
 		User: "mcp_ro", TLS: TLSDisable, Port: 14330, Environment: "prod",
 	}
-	for _, db := range []Database{minimal, full} {
+	mysql := Database{Name: "shop", Engine: EngineMySQL, Host: "shop.db.internal", User: "reader", TLS: TLSVerify}
+	mariadb := Database{Name: "wiki", Engine: EngineMariaDB, Host: "localhost", User: "root", TLS: TLSDisable}
+	for _, db := range []Database{minimal, full, mysql, mariadb} {
 		if err := db.Validate(); err != nil {
 			t.Fatalf("Validate(%+v) = %v, want nil", db, err)
 		}
@@ -82,7 +84,7 @@ func TestValidateNamesTheInvalidField(t *testing.T) {
 	}{
 		"empty name":     {func(d *Database) { d.Name = "" }, "name"},
 		"upper case":     {func(d *Database) { d.Name = "Billing" }, "name"},
-		"unknown engine": {func(d *Database) { d.Engine = "mysql" }, "engine"},
+		"unknown engine": {func(d *Database) { d.Engine = "oracle" }, "engine"},
 		"empty engine":   {func(d *Database) { d.Engine = "" }, "engine"},
 		"empty host":     {func(d *Database) { d.Host = "" }, "host"},
 		"scheme":         {func(d *Database) { d.Host = "postgres://db.internal" }, "host"},

@@ -8,7 +8,7 @@
   ╭──────────────────────────────────────────────────────────────────────╮
   │ ▌ Name         legacy-billing                                        │
   │   Names the MCP server, the IDE data source and the keychain entry.  │
-  │   Engine       ● postgres │ sqlserver                                │
+  │   Engine       ● postgres │ sqlserver │ mysql │ mariadb              │
   │   Host         db.internal                                           │
   │   Port         5432 (default)                                        │
   │   Database     postgres (default)                                    │

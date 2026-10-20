@@ -8,7 +8,7 @@
   ╭──────────────────────────────────────────────────────────────────────╮
   │ ▌ Nom            legacy-billing                                      │
   │   Nom du serveur MCP, de la source IDE et de l'entrée du trousseau.  │
-  │   Moteur         ● postgres │ sqlserver                              │
+  │   Moteur         ● postgres │ sqlserver │ mysql │ mariadb            │
   │   Hôte           db.internal                                         │
   │   Port           5432 (par défaut)                                   │
   │   Base           postgres (par défaut)                               │

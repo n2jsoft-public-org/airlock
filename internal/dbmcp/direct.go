@@ -32,7 +32,7 @@ type DirectConfig struct {
 // StartDirect mounts the MCP server of a direct database on host and registers it in the
 // project's AI clients. Its audit events carry no AWS profile nor region.
 func StartDirect(host *mcpserve.Host, cfg *DirectConfig) (*Handle, error) {
-	if cfg.Engine != EnginePostgres && cfg.Engine != EngineSQLServer {
+	if !cfg.Engine.direct() {
 		return nil, fmt.Errorf("%w: %s", ErrEngineUnsupported, cfg.Engine)
 	}
 

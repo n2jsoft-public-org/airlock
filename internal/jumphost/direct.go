@@ -75,6 +75,28 @@ func jdbcHost(host string) string {
 // airlock connects with.
 func jdbcTLSProperties(db *directdb.Database) map[string]string {
 	tls := db.EffectiveTLS()
+	switch db.Engine {
+	case directdb.EngineMySQL:
+		// MySQL Connector/J.
+		switch tls {
+		case directdb.TLSDisable:
+			return map[string]string{"sslMode": "DISABLED"}
+		case directdb.TLSVerify:
+			return map[string]string{"sslMode": "VERIFY_IDENTITY"}
+		default:
+			return map[string]string{"sslMode": "REQUIRED"}
+		}
+	case directdb.EngineMariaDB:
+		// MariaDB Connector/J 3.
+		switch tls {
+		case directdb.TLSDisable:
+			return map[string]string{"sslMode": "disable"}
+		case directdb.TLSVerify:
+			return map[string]string{"sslMode": "verify-full"}
+		default:
+			return map[string]string{"sslMode": "trust"}
+		}
+	}
 	if db.Engine == directdb.EngineSQLServer {
 		switch tls {
 		case directdb.TLSDisable:

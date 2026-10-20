@@ -22,6 +22,8 @@ type Engine string
 const (
 	EnginePostgres  Engine = "postgres"
 	EngineSQLServer Engine = "sqlserver"
+	EngineMySQL     Engine = "mysql"
+	EngineMariaDB   Engine = "mariadb"
 )
 
 // TLSMode is how the connection to a direct database is encrypted.
@@ -93,6 +95,8 @@ func DefaultPort(e Engine) int {
 		return 5432
 	case EngineSQLServer:
 		return 1433
+	case EngineMySQL, EngineMariaDB:
+		return 3306
 	default:
 		return 0
 	}
@@ -115,8 +119,8 @@ func (d *Database) Validate() error {
 	if err := ValidName(d.Name); err != nil {
 		return err
 	}
-	if d.Engine != EnginePostgres && d.Engine != EngineSQLServer {
-		return &FieldError{Field: "engine", Message: "must be postgres or sqlserver"}
+	if DefaultPort(d.Engine) == 0 {
+		return &FieldError{Field: "engine", Message: "must be postgres, sqlserver, mysql or mariadb"}
 	}
 	if message := hostProblem(d.Host); message != "" {
 		return &FieldError{Field: "host", Message: message}

@@ -121,7 +121,7 @@ func TestStartDirectSignsInWithThePassword(t *testing.T) {
 }
 
 func TestStartDirectRefusesUnsupportedEngines(t *testing.T) {
-	handle, err := StartDirect(mcpserve.NewHost(), testDirectConfig(t, "mysql"))
+	handle, err := StartDirect(mcpserve.NewHost(), testDirectConfig(t, "oracle"))
 	if handle != nil || !errors.Is(err, ErrEngineUnsupported) {
 		t.Fatalf("handle = %v, err = %v; want nil, ErrEngineUnsupported", handle, err)
 	}

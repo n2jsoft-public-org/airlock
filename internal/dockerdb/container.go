@@ -1,4 +1,4 @@
-// Package dockerdb finds the PostgreSQL, SQL Server, Redis and Valkey servers running in local
+// Package dockerdb finds the PostgreSQL, SQL Server, MySQL, MariaDB, Redis and Valkey servers running in local
 // Docker containers, with the credentials their configuration gives. Nothing is saved: every call
 // asks docker again.
 package dockerdb
@@ -24,6 +24,8 @@ type Engine string
 const (
 	EnginePostgres  Engine = "postgres"
 	EngineSQLServer Engine = "sqlserver"
+	EngineMySQL     Engine = "mysql"
+	EngineMariaDB   Engine = "mariadb"
 	EngineRedis     Engine = "redis"
 	EngineValkey    Engine = "valkey"
 )
@@ -57,6 +59,10 @@ func (c *Container) PasswordHint() string {
 	switch c.Engine {
 	case EngineSQLServer:
 		return "MSSQL_SA_PASSWORD"
+	case EngineMySQL:
+		return "MYSQL_ROOT_PASSWORD"
+	case EngineMariaDB:
+		return "MARIADB_ROOT_PASSWORD"
 	case EngineRedis:
 		return "REDIS_PASSWORD (or --requirepass)"
 	case EngineValkey:
@@ -121,7 +127,7 @@ func Available() bool {
 // Client finds the database containers through the docker CLI of the active Docker context.
 type Client struct{}
 
-// List returns the running PostgreSQL, SQL Server, Redis and Valkey containers, sorted by name.
+// List returns the running PostgreSQL, SQL Server, MySQL, MariaDB, Redis and Valkey containers, sorted by name.
 func (Client) List(ctx context.Context) ([]Container, error) {
 	ids, err := runDocker(ctx, "ps", "-q")
 	if err != nil {
@@ -181,6 +187,7 @@ var enginePorts = []struct {
 }{
 	{port: "5432/tcp", engine: EnginePostgres},
 	{port: "1433/tcp", engine: EngineSQLServer},
+	{port: "3306/tcp", engine: EngineMySQL},
 	{port: "6379/tcp", engine: EngineRedis},
 }
 
@@ -206,8 +213,12 @@ func containerOf(raw *inspected) (Container, bool) {
 	if !ok {
 		return Container{}, false
 	}
-	if engine == EngineRedis && strings.Contains(strings.ToLower(raw.Config.Image), "valkey") {
+	image := strings.ToLower(raw.Config.Image)
+	switch {
+	case engine == EngineRedis && strings.Contains(image, "valkey"):
 		engine = EngineValkey
+	case engine == EngineMySQL && strings.Contains(image, "mariadb"):
+		engine = EngineMariaDB
 	}
 	env := environ(raw.Config.Env)
 	c := Container{Name: strings.TrimPrefix(raw.Name, "/"), Image: raw.Config.Image, Engine: engine}
@@ -231,6 +242,8 @@ func containerOf(raw *inspected) (Container, bool) {
 	case EngineSQLServer:
 		c.User = "sa"
 		c.Password = firstSet(env, "MSSQL_SA_PASSWORD", "SA_PASSWORD")
+	case EngineMySQL, EngineMariaDB:
+		mysqlCredentials(&c, env)
 	case EngineRedis, EngineValkey:
 		c.User = "default"
 		c.Password = requirePass(raw.Config.Entrypoint, raw.Config.Cmd)
@@ -241,6 +254,34 @@ func containerOf(raw *inspected) (Container, bool) {
 		c.Trust = c.Password == ""
 	}
 	return c, true
+}
+
+// mysqlCredentials reads the account of a MySQL or MariaDB container (official and Bitnami images,
+// whose MYSQL_ and MARIADB_ variables both apply): root with its password, else the user created
+// with its password, else root without password when allowed. Otherwise the password stays
+// unknown (a *_FILE secret, MYSQL_RANDOM_ROOT_PASSWORD), for the created user if any, else root.
+func mysqlCredentials(c *Container, env map[string]string) {
+	root := firstSet(env, "MYSQL_ROOT_USER", "MARIADB_ROOT_USER")
+	if root == "" {
+		root = "root"
+	}
+	user := firstSet(env, "MYSQL_USER", "MARIADB_USER")
+	c.Database = firstSet(env, "MYSQL_DATABASE", "MARIADB_DATABASE")
+	rootPassword := firstSet(env, "MYSQL_ROOT_PASSWORD", "MARIADB_ROOT_PASSWORD")
+	userPassword := firstSet(env, "MYSQL_PASSWORD", "MARIADB_PASSWORD")
+	switch {
+	case rootPassword != "":
+		c.User, c.Password = root, rootPassword
+	case user != "" && userPassword != "":
+		c.User, c.Password = user, userPassword
+	case firstSet(env, "MYSQL_ALLOW_EMPTY_PASSWORD", "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD", "MARIADB_ALLOW_EMPTY_PASSWORD") != "" ||
+		strings.EqualFold(env["ALLOW_EMPTY_PASSWORD"], "yes"):
+		c.User, c.Trust = root, true
+	case user != "":
+		c.User = user
+	default:
+		c.User = root
+	}
 }
 
 // databasePort finds the engine port of raw among its published, then exposed, ports.
