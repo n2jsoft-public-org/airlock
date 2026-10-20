@@ -188,6 +188,7 @@ airlock direct legacy-billing        # a direct database declared with airlock c
 airlock docker pg                    # a database running in a local Docker container
 airlock forward search.internal 443  # any host:port the jumphost reaches
 airlock rds my-db 5432 --db-user app_ro
+airlock exec rds my-db -- npm run migrate   # run a command with the tunnel open (see below)
 ```
 
 <details>
@@ -444,6 +445,50 @@ kubectl get namespaces    # k9s, Lens and other clients read it too
 The session log shows the exact path, and the dashboard's `Kube` row the `KUBECONFIG` value. To
 keep your own context of the cluster instead, point it at the tunnel:
 `kubectl --server https://localhost:<port> --tls-server-name <endpoint host> get namespaces`.
+
+### Running a command with the tunnel open
+
+`airlock exec` opens a target, runs one command with its connection settings in the environment,
+then closes the session and exits with the command's exit status: for scripts, migrations and CI.
+
+```sh
+airlock exec rds my-db -- npm run migrate
+airlock exec eks my-cluster -- kubectl get pods
+airlock exec direct legacy-billing -- ./report.sh
+airlock exec rds my-db 15432 --profile prod --db-user app_ro -- psql -c 'select 1'
+```
+
+It opens `rds`, `eks`, `elasticache`, `direct` and `docker` targets the way `airlock <type> <name>`
+does: the choices saved for the target (profile, region, local port, user, sign-in method, secret),
+overridden by `--profile`, `--region`, `--db-user`, `--db-secret` and the local port. It serves no
+MCP server and registers no IDE data source, and always runs in its own process, whatever the mode.
+It waits, two minutes at most, for the tunnel to listen and the database or cache to accept the
+sign-in, then runs the command; any failure closes the tunnel first. The command gets airlock's
+standard input and output, and the signals airlock receives (`SIGTERM` from a script or CI;
+`Ctrl+C` in a terminal reaches it directly). airlock's own progress goes to stderr.
+
+| Target | Variables |
+|---|---|
+| every target | `AIRLOCK_HOST`, `AIRLOCK_PORT` (the local end of the tunnel, or the direct database) |
+| databases, caches | `AIRLOCK_USER`, `AIRLOCK_PASSWORD`, `AIRLOCK_DATABASE`, when known |
+| PostgreSQL | `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGSSLMODE` (`require` through a tunnel), `DATABASE_URL=postgres://…` |
+| SQL Server | `SQLCMDSERVER` (`host,port`), `SQLCMDUSER`, `SQLCMDPASSWORD`, `SQLCMDDBNAME`, `DATABASE_URL=sqlserver://…` |
+| Redis, Valkey | `REDIS_URL` (`rediss://` with TLS), `AIRLOCK_TLS_SERVER_NAME` (the host the certificate names) |
+| EKS | `KUBECONFIG`, the session's own kubeconfig |
+
+The password is the AWS IAM token, the secret's password or the password remembered in the OS
+keychain: airlock never prints it, and URLs escape it. Other engines (MySQL, Memcached) only get
+`AIRLOCK_HOST` and `AIRLOCK_PORT`.
+
+- **An AWS IAM token is valid 15 minutes.** A long command keeps working if it connects early, as
+  connections stay open; one that reconnects later needs a fresh token (`airlock rds-token`).
+- **Through a tunnel, certificates name the real host, not `127.0.0.1`.** `sslmode=require` and
+  `TrustServerCertificate=true` encrypt without checking the host name; a TLS cache client checks
+  it against `AIRLOCK_TLS_SERVER_NAME` (`redis-cli --tls --sni "$AIRLOCK_TLS_SERVER_NAME"`) or skips
+  the check.
+- **Without a terminal nothing is asked.** An expired AWS sign-in fails (in a terminal it signs in
+  as the connect commands do), and a password must come from the keychain or `--db-secret`. A
+  target with several read-only secrets fails too: pick one with `--db-secret`.
 
 ### Any host and port
 
@@ -1050,7 +1095,7 @@ terminal that opened it. An AWS sign-in during an opening runs in that terminal 
 drops while its terminal is gone is reconnected automatically, unless AWS asks to sign in again:
 then press `r` in any dashboard.
 
-Runs without a terminal (scripts) stay standalone, whatever the mode. `airlock update` replaces
+Runs without a terminal (scripts) and `airlock exec` stay standalone, whatever the mode. `airlock update` replaces
 the binary, not the running daemon: when it runs another version, the next `airlock` asks before
 restarting it (restarting closes its sessions), and `airlock daemon status` tells too.
 `airlock uninstall` lists the running daemon and its sessions among what it will do, and stops them

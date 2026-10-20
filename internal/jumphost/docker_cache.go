@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/n2jsoft/airlock/internal/cachemcp"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
 )
 
@@ -37,6 +38,7 @@ func (r *Runner) openDockerCache(options *Options, c *dockerdb.Container, passwo
 		r.attachMCP(session, handle, display)
 	}
 	session.SignIn = &dockerCacheSignIn{user: c.User, conn: cachemcp.ConnConfig{Credentials: creds, Host: c.Host, LocalPort: c.Port}}
+	session.client = cacheCredentialsClient(dbmcp.Address{Host: c.Host, Port: c.Port, TLS: dbmcp.TLSDisable}, creds)
 	session.release = sessionRelease(func() { r.registry.release(label) }, session.mcp)
 	return session, nil
 }

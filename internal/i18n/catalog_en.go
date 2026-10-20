@@ -206,6 +206,17 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.rds_token.flag.username":     "Database user to sign in as",
 	"cli.token.flag.profile":          "AWS profile (default: the SDK's default)",
 	"cli.token.flag.region":           "AWS region (default: the profile's)",
+	// internal/cli/exec_cmd.go
+	"cli.exec.short":             "Run a command with a tunnel open and its connection settings in the environment",
+	"cli.exec.long":              "Opens the target like airlock <type> <name> (saved choices, --profile, --region, --db-user, --db-secret, local port), without dashboard, MCP server nor IDE data source; waits until the tunnel listens and the sign-in works; runs the command after -- with the connection settings in its environment (AIRLOCK_HOST, AIRLOCK_PORT, PG*, SQLCMD*, DATABASE_URL, REDIS_URL, KUBECONFIG); then closes the session and exits with the command's status. An AWS IAM token is valid 15 minutes: connect early.",
+	"cli.exec.command_required":  "give the command to run after --, e.g. airlock exec rds my-db -- psql",
+	"cli.exec.target_required":   "give the type and name of the target before --, e.g. airlock exec rds my-db -- psql",
+	"cli.exec.unsupported_type":  "airlock exec opens rds, eks, elasticache, direct and docker targets, not %q",
+	"cli.exec.saved_in_several":  "%s %s is saved for several profiles or regions (%s): pass --profile and --region",
+	"cli.exec.no_saved_password": "no password remembered for %s: open it once from the dashboard with \"Remember in keychain\", or pass --db-secret",
+	"cli.exec.no_kubeconfig":     "no kubeconfig could be written for %s",
+	"cli.exec.cannot_start":      "could not run %s: %w",
+	"cli.exec.ready":             "airlock: %s ready on %s; running the command with %s\n",
 	// internal/cli/version_cmd.go
 	"cli.version.short": "Print the airlock version (commit date and short hash)",
 	// internal/cli/connection_test_cmd.go
@@ -952,6 +963,10 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"sessions.manager.this_session_does_not": "this session does not read its password from Secrets Manager",
 	// internal/sessions/signin.go
 	"sessions.signin.no_database_credentials_found": "no database credentials found",
+	"sessions.standalone.not_ready":                 "%s is not ready after %s: the tunnel or the sign-in took too long",
+	"sessions.standalone.tunnel_ended":              "the tunnel ended before listening (%v):\n%s",
+	"sessions.standalone.several_credentials":       "%s has several credentials (%s): pick one with --db-secret",
+	"sessions.standalone.sign_in_failed":            "could not sign in as %s (%s): %w",
 	"sessions.signin.none_of_database_credentials":  "none of the database credentials signs in",
 	// internal/sessions (concatenated errors)
 	"sessions.manager.still_running_stop_first": "%s is still running: stop it first",

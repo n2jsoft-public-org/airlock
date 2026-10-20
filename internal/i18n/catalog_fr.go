@@ -173,6 +173,17 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.rds_token.flag.username":     "Utilisateur de base avec lequel se connecter",
 	"cli.token.flag.profile":          "Profil AWS (par défaut : celui du SDK)",
 	"cli.token.flag.region":           "Région AWS (par défaut : celle du profil)",
+	// internal/cli/exec_cmd.go
+	"cli.exec.short":             "Lancer une commande avec un tunnel ouvert et ses paramètres de connexion dans l'environnement",
+	"cli.exec.long":              "Ouvre la cible comme airlock <type> <nom> (choix enregistrés, --profile, --region, --db-user, --db-secret, port local), sans tableau de bord, serveur MCP ni source de données IDE ; attend que le tunnel écoute et que la connexion fonctionne ; lance la commande après -- avec les paramètres de connexion dans son environnement (AIRLOCK_HOST, AIRLOCK_PORT, PG*, SQLCMD*, DATABASE_URL, REDIS_URL, KUBECONFIG) ; puis ferme la session et sort avec le code de la commande. Un jeton AWS IAM est valable 15 minutes : connectez-vous tôt.",
+	"cli.exec.command_required":  "donnez la commande à lancer après --, par ex. airlock exec rds my-db -- psql",
+	"cli.exec.target_required":   "donnez le type et le nom de la cible avant --, par ex. airlock exec rds my-db -- psql",
+	"cli.exec.unsupported_type":  "airlock exec ouvre les cibles rds, eks, elasticache, direct et docker, pas %q",
+	"cli.exec.saved_in_several":  "%s %s est enregistrée pour plusieurs profils ou régions (%s) : passez --profile et --region",
+	"cli.exec.no_saved_password": "aucun mot de passe retenu pour %s : ouvrez-la une fois depuis le tableau de bord avec \"Retenir dans le trousseau\", ou passez --db-secret",
+	"cli.exec.no_kubeconfig":     "aucun kubeconfig n'a pu être écrit pour %s",
+	"cli.exec.cannot_start":      "impossible de lancer %s : %w",
+	"cli.exec.ready":             "airlock : %s prête sur %s ; lancement de la commande avec %s\n",
 	// internal/cli/mcp_proxy_cmd.go
 	"cli.mcp_proxy.short": "Relayer un serveur MCP d'airlock sur stdio (écrit dans la configuration de Claude Desktop)",
 	// internal/cli/root.go
@@ -952,6 +963,10 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"sessions.manager.this_session_does_not": "cette session ne lit pas son mot de passe dans Secrets Manager",
 	// internal/sessions/signin.go
 	"sessions.signin.no_database_credentials_found": "aucun identifiant de base trouvé",
+	"sessions.standalone.not_ready":                 "%s n'est pas prête après %s : le tunnel ou la connexion a pris trop de temps",
+	"sessions.standalone.tunnel_ended":              "le tunnel s'est arrêté avant d'écouter (%v) :\n%s",
+	"sessions.standalone.several_credentials":       "%s a plusieurs identifiants (%s) : choisissez-en un avec --db-secret",
+	"sessions.standalone.sign_in_failed":            "connexion impossible en tant que %s (%s) : %w",
 	"sessions.signin.none_of_database_credentials":  "aucun des identifiants de base ne permet de se connecter",
 	// internal/sessions (concatenated errors)
 	"sessions.manager.still_running_stop_first": "%s tourne encore : arrêtez-le d'abord",

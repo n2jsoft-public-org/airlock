@@ -218,6 +218,9 @@ func (r *Runner) openDatabase(options *Options, db *directdb.Database, engine db
 		database: dbmcp.DefaultDatabase(string(db.Engine), db.Database),
 		addr:     addr,
 	}
+	session.client = func(context.Context, *SignInCandidate) (Client, error) {
+		return Client{Engine: string(engine), Address: addr, User: db.User, Password: password, Database: dbmcp.DefaultDatabase(string(db.Engine), db.Database)}, nil
+	}
 	session.release = sessionRelease(func() { r.registry.release(spec.label) }, session.mcp, removeDataSource)
 	return session, nil
 }

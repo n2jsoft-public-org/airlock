@@ -111,18 +111,7 @@ func (s *sessionSignIn) Check(ctx context.Context, c SignInCandidate) error {
 	if s.resourceType == resourceElastiCache {
 		return s.checkCache(ctx, c, port)
 	}
-	target := &s.target
-	database := dbmcp.DefaultDatabase(target.Engine, target.Database)
-	var creds dbmcp.CredentialProvider
-	switch {
-	case c.SecretARN != "":
-		creds = dbmcp.SecretCredentials(s.awsCfg, c.SecretARN, c.User, database)
-	case target.IAMAuth:
-		creds = dbmcp.IAMTokenCredentials(s.awsCfg, target.RDSHost, target.RDSPort, c.User, database)
-	default:
-		creds = dbmcp.PasswordCredentials(c.User, target.DBPassword, database)
-	}
-	return checkSignIn(ctx, target.Engine, creds, port)
+	return checkSignIn(ctx, s.target.Engine, rdsCredentials(s.awsCfg, &s.target, &c), port)
 }
 
 // checkCache signs in to the cache through the tunnel with c and runs PING.

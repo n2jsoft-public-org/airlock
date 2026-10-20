@@ -350,7 +350,7 @@ func (m *Manager) output(e *entry, line string) {
 	wasReady, connections := e.info.Ready, e.info.Connections
 	m.lines(e, line)
 	switch {
-	case strings.Contains(line, "Waiting for connections"):
+	case strings.Contains(line, tunnelListening):
 		e.info.Ready = true
 	case strings.Contains(line, "Connection accepted"):
 		e.info.Ready = true

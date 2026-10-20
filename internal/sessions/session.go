@@ -159,14 +159,18 @@ func (s *Session) Active() bool { return s.State != StateEnded }
 
 // Direct reports a session reached without tunnel (a direct database, or a Docker database or
 // cache): it runs no aws process.
-func (s *Session) Direct() bool {
-	return s.ResourceType == DirectResourceType || s.ResourceType == DockerResourceType || s.ResourceType == DockerCacheResourceType
-}
+func (s *Session) Direct() bool { return direct(s.ResourceType) }
 
 // NoTunnel reports a session running no aws process: a direct or Docker session, or an API-only one
 // (DynamoDB, S3), which, unlike them, has an AWS profile and region.
-func (s *Session) NoTunnel() bool {
-	return s.Direct() || jumphost.APIOnly(s.ResourceType)
+func (s *Session) NoTunnel() bool { return noTunnel(s.ResourceType) }
+
+func direct(resourceType string) bool {
+	return resourceType == DirectResourceType || resourceType == DockerResourceType || resourceType == DockerCacheResourceType
+}
+
+func noTunnel(resourceType string) bool {
+	return direct(resourceType) || jumphost.APIOnly(resourceType)
 }
 
 // ReconnectPending reports a session waiting for, or going through, an automatic reconnection.

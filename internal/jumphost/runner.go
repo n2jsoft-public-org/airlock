@@ -219,6 +219,8 @@ type Session struct {
 	Intro       []string
 	LocalPort   int
 	releaseOnce sync.Once
+	// client returns the Client of the session; nil for a tunnel without credentials (EKS).
+	client func(ctx context.Context, c *SignInCandidate) (Client, error)
 	// Environment is the environment of a direct database's definition, and Production whether it
 	// is the production environment (AWS sessions are matched by profile in the dashboard).
 	Environment string
@@ -553,6 +555,10 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		if session.Details.Auth == "" && session.ReadCredentials != nil {
 			session.Details.Auth = "Secrets Manager · read-only secrets " + r.readOnlySecretTag.String()
 		}
+		session.client = rdsClient(awsCfg, &target, session.LocalPort)
+	}
+	if resourceType == resourceElastiCache {
+		session.client = r.cacheClient(resolvedTargetName, &target, session.LocalPort, cfg)
 	}
 
 	var removeDataSource func() string
