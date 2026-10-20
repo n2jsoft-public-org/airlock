@@ -296,7 +296,7 @@ func (t *toolset) options(ctx context.Context, discovery Discovery, tg *target, 
 		switch {
 		case !ok && tg.prefs.PasswordInKeychain:
 			// The keychain entry is found through the AWS account: an expired sign-in hides it.
-			return jumphost.Options{}, fmt.Errorf("AWS sign-in required (or the OS keychain did not answer): ask the user to run `aws sso login --profile %s`, then retry", tg.profile)
+			return jumphost.Options{}, fmt.Errorf("AWS sign-in required (or the OS keychain did not answer): ask the user to sign in to profile %s again from airlock, then retry", tg.profile)
 		case !ok:
 			return jumphost.Options{}, errors.New(reasonNoPassword)
 		}
@@ -309,7 +309,7 @@ func (t *toolset) options(ctx context.Context, discovery Discovery, tg *target, 
 func openFailure(err error, tg *target) string {
 	switch {
 	case errors.Is(err, jumphost.ErrSignInRequired):
-		return fmt.Sprintf("AWS sign-in required: ask the user to run `aws sso login --profile %s`, then retry", tg.profile)
+		return fmt.Sprintf("AWS sign-in required: ask the user to sign in to profile %s again from airlock, then retry", tg.profile)
 	case errors.Is(err, jumphost.ErrPasswordRequired):
 		return reasonNoPassword
 	default:

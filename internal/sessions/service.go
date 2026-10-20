@@ -26,7 +26,7 @@ type Service interface {
 	Remove(ctx context.Context, id ID) error
 	// Restart prepares an ended session again: same target, profile, region, port and sign-in.
 	Restart(ctx context.Context, id ID, interactive jumphost.InteractiveFunc) error
-	// SignInAWS signs the AWS profile of a running session in again (aws sso login, run with
+	// SignInAWS signs the AWS profile of a running session in again (airlock sso-login, run with
 	// interactive), keeping its tunnel open.
 	SignInAWS(ctx context.Context, id ID, interactive jumphost.InteractiveFunc) error
 	// ChooseSignIn checks the sign-in candidate index of a session waiting for a choice.
@@ -38,7 +38,7 @@ type Service interface {
 	// Credentials reads the credentials the password dialog shows.
 	Credentials(ctx context.Context, id ID) ([]jumphost.DBCredentials, error)
 	// ResolveApproval answers the pending approval id: approve allows the opening, whose terminal
-	// commands (aws sso login) run with interactive. An approving answer returns once the opening
+	// commands (airlock sso-login) run with interactive. An approving answer returns once the opening
 	// was prepared. A request already answered, withdrawn or expired gives ErrApprovalResolved.
 	ResolveApproval(ctx context.Context, id ApprovalID, approve bool, interactive jumphost.InteractiveFunc) error
 	// StopAll stops every session and waits for them to end.
@@ -47,8 +47,8 @@ type Service interface {
 
 // OpenRequest is a session to open, as the wizard built it.
 type OpenRequest struct {
-	// Interactive runs the commands needing the user's terminal during the preparation (aws sso
-	// login); nil uses the runner's.
+	// Interactive runs the commands needing the user's terminal during the preparation (airlock
+	// sso-login); nil uses the runner's.
 	Interactive jumphost.InteractiveFunc `json:"-"`
 	// Warning, when set, ends the session's intro.
 	Warning string           `json:"warning,omitempty"`

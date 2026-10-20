@@ -103,7 +103,7 @@ func (s *interactiveOpener) Open(ctx context.Context, req sessions.OpenRequest) 
 	if req.Interactive == nil {
 		return 0, errors.New("no terminal")
 	}
-	return 1, req.Interactive(ctx, "sign in", "aws", "sso", "login")
+	return 1, req.Interactive(ctx, "sign in", "airlock", "sso-login")
 }
 
 func TestInteractiveReachesOnlyTheClientThatOpened(t *testing.T) {
@@ -147,7 +147,7 @@ func TestInteractiveReachesOnlyTheClientThatOpened(t *testing.T) {
 	<-otherDone
 	mu.Lock()
 	defer mu.Unlock()
-	if len(calls) != 1 || calls[0] != "asker aws sso login" {
+	if len(calls) != 1 || calls[0] != "asker airlock sso-login" {
 		t.Fatalf("interactive calls = %v", calls)
 	}
 }

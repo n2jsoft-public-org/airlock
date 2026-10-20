@@ -27,7 +27,7 @@ func (r *identityRunner) CheckIdentity(context.Context, string, string) error {
 }
 
 func (r *identityRunner) SignIn(ctx context.Context, _, _ string) error {
-	if err := jumphost.RunInteractive(ctx, "test", "aws", "sso", "login"); err != nil {
+	if err := jumphost.RunInteractive(ctx, "test", "airlock", "sso-login"); err != nil {
 		return err
 	}
 	r.mu.Lock()

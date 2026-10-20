@@ -70,7 +70,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", i18n.T("cli.root.flag.mode"))
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newSkillsCmd(), newMCPProxyCmd(), newEKSTokenCmd(), newRDSTokenCmd())
+	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newSkillsCmd(), newMCPProxyCmd(), newEKSTokenCmd(), newRDSTokenCmd(), newSSOLoginCmd())
 	localizeCobra(cmd)
 
 	return cmd

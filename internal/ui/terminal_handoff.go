@@ -20,7 +20,7 @@ type suspendable interface {
 	RestoreTerminal() error
 }
 
-// TerminalHandoff runs the commands needing the user's terminal, such as aws sso login, while the
+// TerminalHandoff runs the commands needing the user's terminal, such as airlock sso-login, while the
 // dashboard runs: it suspends the dashboard meanwhile, so the command's prompts, URL and codes are
 // readable, then restores it. Commands run one at a time.
 type TerminalHandoff struct {

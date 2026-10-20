@@ -67,7 +67,7 @@ func readProfileSections(path string, isConfig bool, set map[string]struct{}) er
 // ProfileRegion returns the region set for profile in the shared files; "" when there is none or
 // the profile is unknown.
 func ProfileRegion(ctx context.Context, profile string) string {
-	shared, err := sharedProfile(ctx, profile)
+	shared, err := SharedProfile(ctx, profile)
 	if err != nil {
 		return ""
 	}
@@ -77,16 +77,16 @@ func ProfileRegion(ctx context.Context, profile string) string {
 // SourceProfile returns the source_profile of profile in the shared files; "" when there is none
 // or the profile is unknown.
 func SourceProfile(ctx context.Context, profile string) string {
-	shared, err := sharedProfile(ctx, profile)
+	shared, err := SharedProfile(ctx, profile)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(shared.SourceProfileName)
 }
 
-// sharedProfile reads profile from the shared files. The files are named explicitly:
+// SharedProfile reads profile from the shared files. The files are named explicitly:
 // LoadSharedConfigProfile ignores AWS_CONFIG_FILE otherwise.
-func sharedProfile(ctx context.Context, profile string) (config.SharedConfig, error) {
+func SharedProfile(ctx context.Context, profile string) (config.SharedConfig, error) {
 	paths := sharedFilePaths()
 	return config.LoadSharedConfigProfile(ctx, profile, func(o *config.LoadSharedConfigOptions) {
 		o.ConfigFiles = paths[:1]

@@ -44,7 +44,7 @@ func TestApprovalThroughTheSocket(t *testing.T) {
 	if got.err != nil || got.grant.Interactive == nil {
 		t.Fatalf("grant = %+v, %v", got.grant, got.err)
 	}
-	if err := got.grant.Interactive(t.Context(), "sign in", "aws", "sso", "login"); err != nil || len(ran) != 3 {
+	if err := got.grant.Interactive(t.Context(), "sign in", "airlock", "sso-login"); err != nil || len(ran) != 2 {
 		t.Fatalf("the interactive must run in the answering view: %v %v", ran, err)
 	}
 	got.grant.Done()

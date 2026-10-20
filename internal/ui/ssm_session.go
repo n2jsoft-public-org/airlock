@@ -97,7 +97,7 @@ type ssmModel struct {
 	// copier puts text on the clipboard (copyToClipboard); copyCursor is the copy menu's choice.
 	copier   func(text string) error
 	answered map[sessions.ApprovalID]bool
-	// interactive runs the terminal commands of the openings (aws sso login); projectDir is set on
+	// interactive runs the terminal commands of the openings (airlock sso-login); projectDir is set on
 	// every opening.
 	interactive jumphost.InteractiveFunc
 	reconnect   func(ctx context.Context) (sessions.Service, error)

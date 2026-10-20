@@ -83,7 +83,7 @@ func TestOpenSessionApprovedInADashboard(t *testing.T) {
 	runner.Direct("billing")
 	var ranInView atomic.Bool
 	runner.OnPrepare = func(ctx context.Context) error {
-		return jumphost.RunInteractive(ctx, "sign in", "aws", "sso", "login")
+		return jumphost.RunInteractive(ctx, "sign in", "airlock", "sso-login")
 	}
 	m, _ := newTestManager(t, runner)
 	m.ViewsChanged(1)
@@ -153,7 +153,7 @@ func TestOpenSessionNeedingSSOWithoutView(t *testing.T) {
 	m, _ := newTestManager(t, runner)
 	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev")}}, nil)
 	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"})
-	if !isError || !strings.Contains(text, "aws sso login --profile dev") {
+	if !isError || !strings.Contains(text, "sign in to profile dev again from airlock") {
 		t.Fatalf("sso = %q", text)
 	}
 	if o := runner.PreparedOptions()[0]; !o.Unattended || o.AwsProfile != "dev" || o.AwsRegion != "eu-west-3" {
@@ -185,7 +185,7 @@ func TestOpenSessionWithoutKeychainPassword(t *testing.T) {
 		want     string
 		keychain bool
 	}{
-		{keychain: true, want: "AWS sign-in required (or the OS keychain did not answer): ask the user to run `aws sso login --profile dev`, then retry"},
+		{keychain: true, want: "AWS sign-in required (or the OS keychain did not answer): ask the user to sign in to profile dev again from airlock, then retry"},
 		{keychain: false, want: "no saved password for this connection"},
 	}
 	for _, tc := range cases {

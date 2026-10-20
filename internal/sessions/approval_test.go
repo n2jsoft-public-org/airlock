@@ -71,7 +71,7 @@ func TestApprovalFirstAnswerWinsAndWaitsForTheOpening(t *testing.T) {
 	if got.err != nil || got.grant.Interactive == nil || got.grant.Done == nil {
 		t.Fatalf("grant = %+v, %v", got.grant, got.err)
 	}
-	if err := got.grant.Interactive(t.Context(), "sign in", "aws", "sso", "login"); err != nil || !ran {
+	if err := got.grant.Interactive(t.Context(), "sign in", "airlock", "sso-login"); err != nil || !ran {
 		t.Fatalf("the approving view's interactive must run: ran=%v err=%v", ran, err)
 	}
 	if err := m.ResolveApproval(t.Context(), pending.ID, false, nil); !errors.Is(err, sessions.ErrApprovalResolved) {

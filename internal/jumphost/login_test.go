@@ -3,7 +3,9 @@ package jumphost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -27,7 +29,7 @@ func TestExpiredIdentitySignsInThroughTheInteractiveRunner(t *testing.T) {
 	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, true); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"aws", "sso", "login", "--profile", "dev"}; !reflect.DeepEqual(got, want) {
+	if want := []string{executable(t), "sso-login", "--profile", "dev"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("interactive command = %v, want %v", got, want)
 	}
 }
@@ -86,7 +88,32 @@ func TestEnsureIdentitySignsInTheSourceProfile(t *testing.T) {
 	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "app", Region: "eu-west-3"}, true); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"aws", "sso", "login", "--profile", "corp"}; !reflect.DeepEqual(got, want) {
+	if want := []string{executable(t), "sso-login", "--profile", "corp"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("interactive command = %v, want %v", got, want)
+	}
+}
+
+// executable is the airlock binary the runner re-runs to sign in: the test binary here.
+func executable(t *testing.T) string {
+	t.Helper()
+	path, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestFailedSignInKeepsItsReason(t *testing.T) {
+	installExpiredSTS(t)
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: func(context.Context, string, string, ...string) error {
+		return fmt.Errorf("dashboard gone: %w", ErrSignInRequired)
+	}})
+
+	err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, true)
+	if err == nil {
+		t.Fatal("ensureIdentity succeeded, want the sign-in error")
+	}
+	if !errors.Is(err, ErrSignInRequired) || !strings.Contains(err.Error(), "dashboard gone") {
+		t.Fatalf("err = %v, want the cause kept", err)
 	}
 }

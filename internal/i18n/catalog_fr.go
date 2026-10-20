@@ -1012,7 +1012,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"jumphost.runner.rds_instance_endpoint_port":          "le port du point d'accès de l'instance RDS est absent",
 	"jumphost.runner.no_aws_region_for":                   "aucune région AWS pour le profil %q : passez --region, définissez AWS_REGION, configurez la région du profil (aws configure set region <région> --profile %s), ou définissez une valeur par défaut avec `airlock config set aws.defaultRegion <région>`",
 	"jumphost.runner.no_running_jumphost_instance":        "aucune instance jumphost en cours d'exécution taguée %s dans %s (profil %s). Utilisez-vous le bon profil/la bonne région ? Le tag vient de \"aws.jumphostTag\" : %s",
-	"jumphost.runner.failed_to_authorize_please":          "échec de l'autorisation. Vérifiez la configuration de votre CLI AWS",
+	"jumphost.runner.failed_to_authorize_please":          "échec de l'autorisation, vérifiez votre configuration AWS : %w",
 	"jumphost.runner.failed_to_retrieve_current":          "échec de la récupération de l'identité courante. Vérifiez la configuration de votre CLI AWS",
 	"jumphost.runner.no_rds_instance_found":               "aucune instance RDS trouvée",
 	"jumphost.runner.rds_instance_endpoint_is":            "le point d'accès de l'instance RDS est absent",
@@ -1097,4 +1097,12 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.config_organization_token.deleted":  "Jeton retiré du trousseau.\n",
 	// internal/cli/config_share_cmd.go
 	"cli.config_share.locked_not_imported": "verrouillé par l'organisation, non importé",
+	// internal/awssso/login.go
+	"awssso.profile": "impossible de lire le profil AWS %s : %w",
+	"awssso.not_sso": "le profil AWS %s n'est pas configuré pour IAM Identity Center (sso_session ou sso_start_url)",
+	"awssso.call":    "échec de la connexion AWS : %w",
+	"awssso.expired": "le code de connexion a expiré avant d'être confirmé : réessayez",
+	// internal/cli/sso_login_cmd.go
+	"cli.sso_login.short":        "Connecter un profil AWS avec IAM Identity Center",
+	"cli.sso_login.flag.profile": "Profil AWS à connecter",
 }

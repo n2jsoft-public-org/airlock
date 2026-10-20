@@ -21,11 +21,11 @@ func TestJumphostErrorsLocalize(t *testing.T) {
 func TestInteractiveErrorLocalizes(t *testing.T) {
 	i18n.SetLanguage("fr")
 	t.Cleanup(func() { i18n.SetLanguage("en") })
-	err := RunInteractive(t.Context(), "sign in", "aws", "sso", "login")
-	if err == nil || err.Error() != "no terminal to run aws" {
+	err := RunInteractive(t.Context(), "sign in", "airlock", "sso-login")
+	if err == nil || err.Error() != "no terminal to run airlock" {
 		t.Fatalf("Error() = %v, want English", err)
 	}
-	if got := i18n.Localize(err); got != "aucun terminal pour lancer aws" {
+	if got := i18n.Localize(err); got != "aucun terminal pour lancer airlock" {
 		t.Fatalf("Localize = %q, want French", got)
 	}
 }

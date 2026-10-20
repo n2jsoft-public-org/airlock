@@ -21,7 +21,7 @@ func TestSSOLoginUsesTheInteractiveOfTheContext(t *testing.T) {
 	if err := runner.ssoLogin(ctx, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	if fromRunner != nil || len(fromContext) != 5 || fromContext[0] != "aws" || fromContext[4] != "dev" {
+	if fromRunner != nil || len(fromContext) != 4 || fromContext[1] != "sso-login" || fromContext[3] != "dev" {
 		t.Fatalf("runner = %v, context = %v", fromRunner, fromContext)
 	}
 	if err := runner.ssoLogin(context.Background(), "dev"); err != nil || fromRunner == nil {

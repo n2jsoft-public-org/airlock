@@ -53,7 +53,7 @@ func callerArn(ctx context.Context, awsCfg *aws.Config) (string, error) {
 	return aws.ToString(out.Arn), nil
 }
 
-// SignIn signs profile in again when its AWS sign-in expired (aws sso login, through the
+// SignIn signs profile in again when its AWS sign-in expired (airlock sso-login, through the
 // interactive runner of ctx), leaving running tunnels alone.
 func (r *Runner) SignIn(ctx context.Context, profile, region string) error {
 	return r.ensureIdentity(ctx, identityConfig(profile, region), true)

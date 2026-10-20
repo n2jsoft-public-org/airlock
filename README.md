@@ -136,7 +136,7 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 - **GitHub access** to `n2jsoft/airlock`, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
 - **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)** (used by `aws ssm start-session`)
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
-  When a profile's credentials are missing or expired, airlock runs `aws sso login` for you: the
+  When a profile's credentials are missing or expired, airlock signs you in again for you (no AWS CLI needed for that): the
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
   Profiles that assume a role with MFA (`mfa_serial`) are not supported yet.
 - **A running jumphost** (not for DynamoDB and S3): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).

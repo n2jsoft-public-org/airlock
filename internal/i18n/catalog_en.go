@@ -1012,7 +1012,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"jumphost.runner.rds_instance_endpoint_port":          "RDS instance endpoint port is missing",
 	"jumphost.runner.no_aws_region_for":                   "no AWS region for profile %q: pass --region, set AWS_REGION, configure the profile's region (aws configure set region <region> --profile %s), or set a default with `airlock config set aws.defaultRegion <region>`",
 	"jumphost.runner.no_running_jumphost_instance":        "no running jumphost instance tagged %s in %s (profile %s). Are you using the correct profile/region? The tag comes from \"aws.jumphostTag\": %s",
-	"jumphost.runner.failed_to_authorize_please":          "failed to authorize. Please check your AWS CLI configuration",
+	"jumphost.runner.failed_to_authorize_please":          "failed to authorize, please check your AWS configuration: %w",
 	"jumphost.runner.failed_to_retrieve_current":          "failed to retrieve current identity. Please check your AWS CLI configuration",
 	"jumphost.runner.no_rds_instance_found":               "no RDS instance found",
 	"jumphost.runner.rds_instance_endpoint_is":            "RDS instance endpoint is missing",
@@ -1097,4 +1097,12 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.config_organization_token.deleted":  "Token removed from the keychain.\n",
 	// internal/cli/config_share_cmd.go
 	"cli.config_share.locked_not_imported": "locked by the organization, not imported",
+	// internal/awssso/login.go
+	"awssso.profile": "cannot read AWS profile %s: %w",
+	"awssso.not_sso": "AWS profile %s is not configured for IAM Identity Center (sso_session or sso_start_url)",
+	"awssso.call":    "AWS sign-in failed: %w",
+	"awssso.expired": "the sign-in code expired before it was confirmed: try again",
+	// internal/cli/sso_login_cmd.go
+	"cli.sso_login.short":        "Sign an AWS profile in with IAM Identity Center",
+	"cli.sso_login.flag.profile": "AWS profile to sign in",
 }

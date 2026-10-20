@@ -90,7 +90,7 @@ func RunContract(t *testing.T, newService ServiceFactory) {
 		runner.Direct("billing")
 		var ran []string
 		runner.OnPrepare = func(ctx context.Context) error {
-			return jumphost.RunInteractive(ctx, "sign in", "aws", "sso", "login")
+			return jumphost.RunInteractive(ctx, "sign in", "airlock", "sso-login")
 		}
 		service := newService(t, runner, launcher)
 		_, err := service.Open(t.Context(), sessions.OpenRequest{
@@ -100,7 +100,7 @@ func RunContract(t *testing.T, newService ServiceFactory) {
 				return nil
 			},
 		})
-		if err != nil || len(ran) != 3 || ran[0] != "aws" {
+		if err != nil || len(ran) != 2 || ran[0] != "airlock" {
 			t.Fatalf("ran = %v, err = %v", ran, err)
 		}
 	})

@@ -81,7 +81,7 @@ func connectDaemonQuiet(ctx context.Context) (*daemon.Client, error) {
 func terminalInteractive(cmd *cobra.Command) jumphost.InteractiveFunc {
 	return func(ctx context.Context, purpose, name string, args ...string) error {
 		cmd.PrintErrln(purpose)
-		run := exec.CommandContext(ctx, name, args...) // #nosec G204 -- aws sso login, built by the runner.
+		run := exec.CommandContext(ctx, name, args...) // #nosec G204 -- airlock sso-login, built by the runner.
 		run.Stdin, run.Stdout, run.Stderr = os.Stdin, os.Stdout, os.Stderr
 		return run.Run()
 	}

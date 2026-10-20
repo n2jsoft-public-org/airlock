@@ -235,7 +235,7 @@ func opens(settings *Settings, production bool, views int) string {
 // signInFailure is the refusal of an AWS call that failed on profile.
 func signInFailure(err error, profile string) *mcp.CallToolResult {
 	if errors.Is(err, jumphost.ErrSignInRequired) {
-		return refusal("AWS sign-in required: ask the user to run `aws sso login --profile %s`, then retry", profile)
+		return refusal("AWS sign-in required: ask the user to sign in to profile %s again from airlock, then retry", profile)
 	}
 	return refusal("%v", err)
 }

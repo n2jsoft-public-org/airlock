@@ -6,7 +6,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
-// InteractiveFunc runs a command needing the user's terminal (aws sso login), purpose saying why.
+// InteractiveFunc runs a command needing the user's terminal (airlock sso-login), purpose saying why.
 type InteractiveFunc func(ctx context.Context, purpose, name string, args ...string) error
 
 type interactiveKey struct{}

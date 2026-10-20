@@ -177,7 +177,7 @@ func TestListTargetsSearchIsUnattended(t *testing.T) {
 	// Review Focus 1: an expired profile asks the agent to have the user sign in.
 	d.searchErr = jumphost.ErrSignInRequired
 	text, isError = callTool(t, cs, "list_targets", map[string]any{"profile": "dev"})
-	if !isError || !strings.Contains(text, "aws sso login --profile dev") {
+	if !isError || !strings.Contains(text, "sign in to profile dev again from airlock") {
 		t.Fatalf("expired profile = %q", text)
 	}
 }

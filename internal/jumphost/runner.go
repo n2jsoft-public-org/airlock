@@ -25,6 +25,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 	"github.com/n2jsoft/airlock/internal/awsapi"
+	"github.com/n2jsoft/airlock/internal/awssso"
 	"github.com/n2jsoft/airlock/internal/awstag"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dbuser"
@@ -147,7 +148,7 @@ type RunnerOptions struct {
 	Registry *SessionRegistry
 	// MCPHost serves the MCP servers of database sessions; share it between runners of one process.
 	MCPHost *mcpserve.Host
-	// Interactive runs a command needing the user's terminal (aws sso login), purpose saying why;
+	// Interactive runs a command needing the user's terminal (airlock sso-login), purpose saying why;
 	// nil runs it on In, Out and Err.
 	Interactive InteractiveFunc
 	// JumphostTag finds the SSM jumphost instance (Usage=jumphost when zero).
@@ -1135,10 +1136,14 @@ func (r *Runner) ssoLogin(ctx context.Context, profile string) error {
 		interactive = r.interactive
 	}
 	if interactive == nil {
-		return r.runAWSStreaming(ctx, nil, "sso", "login", "--profile", profile)
+		return awssso.Login(ctx, profile, awssso.TerminalPrompt(r.err))
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
 	}
 	purpose := fmt.Sprintf("The AWS credentials of profile %s are missing or expired: signing in again.", profile)
-	return interactive(ctx, purpose, "aws", "sso", "login", "--profile", profile)
+	return interactive(ctx, purpose, executable, "sso-login", "--profile", profile)
 }
 
 // ensureIdentity checks the AWS identity of cfg, signing in again when it is missing or expired,
@@ -1184,7 +1189,7 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 	}
 
 	if authErr := r.ssoLogin(ctx, loginProfile); authErr != nil {
-		return i18n.NewError("jumphost.runner.failed_to_authorize_please")
+		return i18n.NewError("jumphost.runner.failed_to_authorize_please", authErr)
 	}
 
 	// Credentials cached before the sign-in are the ones STS rejected.
@@ -1738,7 +1743,7 @@ var kubemcpStart = kubemcp.Start
 func (r *Runner) sdkConfig(ctx context.Context, cfg awsConfig) (aws.Config, error) {
 	c, err := r.configs.Get(ctx, cfg.Profile, cfg.Region)
 	if _, ok := errors.AsType[config.AssumeRoleTokenProviderNotSetError](err); ok {
-		// ponytail: MFA assume-role profiles need a token prompt; revisit with phase D (sign-in without the CLI).
+		// ponytail: MFA assume-role profiles need an on-disk assume-role cache shared by every process; see Decisions in docs/superpowers/plans/2026-10-20-drop-aws-cli.md.
 		return aws.Config{}, i18n.NewError("jumphost.runner.aws_config_mfa", cfg.Profile)
 	}
 	if err != nil {
