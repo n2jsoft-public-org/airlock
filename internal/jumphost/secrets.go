@@ -1,9 +1,9 @@
 package jumphost
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -123,9 +123,6 @@ func secretShortName(secretID string) string {
 	return name[strings.LastIndex(name, "/")+1:]
 }
 
-// secretARNSuffix is the "-" and 6 random characters Secrets Manager appends to a name in an ARN.
-var secretARNSuffix = regexp.MustCompile(`-[A-Za-z0-9]{6}$`)
-
 // SecretDisplayName returns the name of a secret ARN without its random suffix; any other secret
 // ID (a name) is returned unchanged.
 func SecretDisplayName(secretID string) string {
@@ -134,23 +131,44 @@ func SecretDisplayName(secretID string) string {
 	if !strings.HasPrefix(secretID, "arn:") || !ok {
 		return secretID
 	}
-	return secretARNSuffix.ReplaceAllString(name, "")
+	return dbmcp.SecretARNSuffix.ReplaceAllString(name, "")
 }
 
 // resolveSecretSignIn reads the password secret once before connecting, so an unreadable secret
-// fails before the tunnel opens, and returns the user: the secret's, else typedUser.
-func resolveSecretSignIn(ctx context.Context, cfg *aws.Config, secretID, typedUser string) (string, error) {
+// fails before the tunnel opens, and returns the user (the secret's, else typedUser) and the ARN to
+// read it with: secretID, or the current ARN of a secret recreated under its name.
+func resolveSecretSignIn(ctx context.Context, cfg *aws.Config, secretID, typedUser string) (user, arn string, err error) {
 	secret, err := dbmcp.ReadPasswordSecret(ctx, cfg, secretID)
 	if err != nil {
-		return "", i18n.NewError("jumphost.cache.failed_to_read_secret", secretID, err)
+		return "", "", i18n.NewError("jumphost.cache.failed_to_read_secret", secretID, err)
 	}
+	arn = cmp.Or(secret.ARN, secretID)
 	if secret.Username != "" {
-		return secret.Username, nil
+		return secret.Username, arn, nil
 	}
 	if user := strings.TrimSpace(typedUser); user != "" {
-		return user, nil
+		return user, arn, nil
 	}
-	return "", i18n.NewError("jumphost.secrets.secret_has_no_username", SecretDisplayName(secretID))
+	return "", "", i18n.NewError("jumphost.secrets.secret_has_no_username", SecretDisplayName(secretID))
+}
+
+// rememberSecretARN makes options and the saved choices of their target read the secret with arn,
+// when it replaces options.DBSecretARN (a secret recreated under its name). Saving is best effort:
+// the stale ARN is found again by its name on the next connection.
+func (r *Runner) rememberSecretARN(ctx context.Context, options *Options, arn string) {
+	stale := strings.TrimSpace(options.DBSecretARN)
+	if arn == stale {
+		return
+	}
+	options.DBSecretARN = arn
+	target, ok := r.prefsTarget(ctx, options)
+	if !ok {
+		return
+	}
+	if prefs, found := r.prefs.Load(target); found && prefs.DBSecretARN == stale {
+		prefs.DBSecretARN = arn
+		_ = r.prefs.Save(target, &prefs) //nolint:errcheck // best effort, see above
+	}
 }
 
 // DBCredentials is a database sign-in read from Secrets Manager.

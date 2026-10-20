@@ -63,6 +63,10 @@ func (r *Runner) resolveCacheSignIn(ctx context.Context, cfg awsConfig, options 
 		if secret.Username != "" {
 			user = secret.Username
 		}
+		if secret.ARN != "" {
+			secretID = secret.ARN
+			r.rememberSecretARN(ctx, options, secretID)
+		}
 		target.DBSecretARN, target.DBUser = secretID, orCacheDefaultUser(user)
 	case options.DBPassword != "":
 		target.DBPassword, target.DBUser = options.DBPassword, orCacheDefaultUser(user)

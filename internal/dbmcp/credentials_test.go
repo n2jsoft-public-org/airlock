@@ -73,6 +73,11 @@ func (f *secretsAWS) serve(w http.ResponseWriter, r *http.Request) {
 	switch op {
 	case "GetSecretValue":
 		id := secretIDOf(f.t, r)
+		for arn := range secrets {
+			if SecretARNSuffix.ReplaceAllString(arn, "") == id {
+				id = arn // a partial ARN, the name of a secret, finds it
+			}
+		}
 		value, ok := secrets[id]
 		switch {
 		case code != "":
@@ -80,7 +85,7 @@ func (f *secretsAWS) serve(w http.ResponseWriter, r *http.Request) {
 		case !ok:
 			respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})
 		default:
-			respond(f.t, w, http.StatusOK, map[string]string{"SecretString": value})
+			respond(f.t, w, http.StatusOK, map[string]string{"ARN": id, "SecretString": value})
 		}
 	case "ListSecrets":
 		if code != "" {
@@ -503,5 +508,41 @@ func TestReadSecretOfAnExpiredSignInSaysSignInAgain(t *testing.T) {
 	_, err := ReadPasswordSecret(context.Background(), cfg, "arn:app-password")
 	if err == nil || !strings.Contains(err.Error(), "sign in again") {
 		t.Fatalf("err = %v, want the sign-in failure", err)
+	}
+}
+
+const (
+	staleSecretARN   = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/read-only-xyKAqI"
+	currentSecretARN = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/read-only-Eim4Md"
+)
+
+func TestReadPasswordSecretFindsARecreatedSecretByItsName(t *testing.T) {
+	fake, cfg := newSecretsAWS(t, map[string]string{currentSecretARN: `{"username":"app_ro","password":"s3cret"}`})
+	secret, err := ReadPasswordSecret(context.Background(), cfg, staleSecretARN)
+	if err != nil || secret != (PasswordSecret{Username: "app_ro", Password: "s3cret", ARN: currentSecretARN}) {
+		t.Fatalf("secret = %+v, %v; want the recreated secret and its ARN", secret, err)
+	}
+	if reads := fake.count("GetSecretValue"); reads != 2 {
+		t.Fatalf("reads = %d, want the ARN then the name", reads)
+	}
+}
+
+func TestReadPasswordSecretKeepsTheErrorOfADeletedSecret(t *testing.T) {
+	fake, cfg := newSecretsAWS(t, map[string]string{})
+	_, err := ReadPasswordSecret(context.Background(), cfg, staleSecretARN)
+	if err == nil || !strings.Contains(err.Error(), "ResourceNotFoundException") || fake.count("GetSecretValue") != 2 {
+		t.Fatalf("err = %v after %d reads, want the not found error of the ARN", err, fake.count("GetSecretValue"))
+	}
+	// A name has no suffix to drop, and other errors are not about a recreated secret.
+	for _, id := range []string{"dev/read-only", "arn:app-password"} {
+		fake, cfg = newSecretsAWS(t, map[string]string{})
+		if _, err := ReadPasswordSecret(context.Background(), cfg, id); err == nil || fake.count("GetSecretValue") != 1 {
+			t.Fatalf("%s: err = %v after %d reads, want one failed read", id, err, fake.count("GetSecretValue"))
+		}
+	}
+	fake, cfg = newSecretsAWS(t, map[string]string{currentSecretARN: "s3cret"})
+	fake.fail["GetSecretValue"] = "AccessDeniedException"
+	if _, err := ReadPasswordSecret(context.Background(), cfg, staleSecretARN); err == nil || fake.count("GetSecretValue") != 1 {
+		t.Fatalf("denied: err = %v after %d reads, want no retry", err, fake.count("GetSecretValue"))
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -206,18 +207,31 @@ type secretPayload struct {
 	Database string `json:"database"`
 }
 
+// SecretARNSuffix is the "-" and 6 random characters Secrets Manager appends to a name in an ARN.
+var SecretARNSuffix = regexp.MustCompile(`-[A-Za-z0-9]{6}$`)
+
 // secretString returns the SecretString of secretID, trimmed as the AWS CLI did (a secret made
-// from a file ends with a newline); "" for a binary secret.
-func secretString(ctx context.Context, cfg *aws.Config, secretID string) (string, error) {
-	out, err := secretsClient(cfg).GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretID)})
-	if err != nil {
-		return "", mcpserve.AWSError(err)
+// from a file ends with a newline); "" for a binary secret. A secret deleted and recreated (e.g. by
+// Terraform) keeps its name but gets a new ARN suffix: a full ARN not found is read again by its
+// name, the ARN without suffix, and arn is then the current ARN. Otherwise the first error stands.
+func secretString(ctx context.Context, cfg *aws.Config, secretID string) (value, arn string, err error) {
+	client := secretsClient(cfg)
+	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretID)})
+	_, notFound := errors.AsType[*types.ResourceNotFoundException](err)
+	if name := SecretARNSuffix.ReplaceAllString(secretID, ""); notFound && name != secretID &&
+		strings.HasPrefix(secretID, "arn:") && strings.Contains(secretID, ":secret:") {
+		if retry, retryErr := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(name)}); retryErr == nil {
+			out, err, arn = retry, nil, aws.ToString(retry.ARN)
+		}
 	}
-	return strings.TrimSpace(aws.ToString(out.SecretString)), nil
+	if err != nil {
+		return "", "", mcpserve.AWSError(err)
+	}
+	return strings.TrimSpace(aws.ToString(out.SecretString)), arn, nil
 }
 
 func readSecret(ctx context.Context, cfg *aws.Config, secretID string) (secretPayload, error) {
-	raw, err := secretString(ctx, cfg, secretID)
+	raw, _, err := secretString(ctx, cfg, secretID)
 	if err != nil {
 		return secretPayload{}, err
 	}
@@ -237,11 +251,13 @@ func readSecret(ctx context.Context, cfg *aws.Config, secretID string) (secretPa
 type PasswordSecret struct {
 	Username string
 	Password string
+	// ARN is the current ARN of a secret recreated under the name of the ARN read; empty otherwise.
+	ARN string
 }
 
 // ReadPasswordSecret reads secretID as a PasswordSecret. Plain text is the whole secret string, trimmed.
 func ReadPasswordSecret(ctx context.Context, cfg *aws.Config, secretID string) (PasswordSecret, error) {
-	raw, err := secretString(ctx, cfg, secretID)
+	raw, arn, err := secretString(ctx, cfg, secretID)
 	if err != nil {
 		return PasswordSecret{}, err
 	}
@@ -249,7 +265,7 @@ func ReadPasswordSecret(ctx context.Context, cfg *aws.Config, secretID string) (
 		if raw == "" {
 			return PasswordSecret{}, fmt.Errorf("secret %s is empty", secretID)
 		}
-		return PasswordSecret{Password: raw}, nil
+		return PasswordSecret{Password: raw, ARN: arn}, nil
 	}
 	var payload secretPayload
 	if json.Unmarshal([]byte(raw), &payload) != nil {
@@ -259,7 +275,7 @@ func ReadPasswordSecret(ctx context.Context, cfg *aws.Config, secretID string) (
 	if payload.Password == "" {
 		return PasswordSecret{}, fmt.Errorf("secret %s has no password", secretID)
 	}
-	return PasswordSecret{Username: payload.Username, Password: payload.Password}, nil
+	return PasswordSecret{Username: payload.Username, Password: payload.Password, ARN: arn}, nil
 }
 
 // readOnlySecretsProvider uses the read-only secrets published for an instance, one per database,

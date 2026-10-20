@@ -11,9 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/awsapi"
 	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft/airlock/internal/dbmcp"
 )
 
-// fakeSecretsManager serves GetSecretValue (values, by secret ID) and ListSecrets (the listed
+// fakeSecretsManager serves GetSecretValue (values, by secret ID or partial ARN) and ListSecrets (the listed
 // ARNs, tagged as the read-only secrets of secretsInstanceARN) to the SDK.
 type fakeSecretsManager struct {
 	t      testing.TB
@@ -50,8 +51,13 @@ func (f *fakeSecretsManager) serve(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			f.t.Error(err)
 		}
+		for arn := range f.values {
+			if dbmcp.SecretARNSuffix.ReplaceAllString(arn, "") == body.SecretID {
+				body.SecretID = arn // a partial ARN, the name of a secret, finds it
+			}
+		}
 		if value, ok := f.values[body.SecretID]; ok {
-			respond(f.t, w, http.StatusOK, map[string]string{"SecretString": value})
+			respond(f.t, w, http.StatusOK, map[string]string{"ARN": body.SecretID, "SecretString": value})
 			return
 		}
 		respond(f.t, w, http.StatusBadRequest, map[string]string{"__type": "ResourceNotFoundException", "message": "no such secret"})

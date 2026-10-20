@@ -76,24 +76,24 @@ func secretConfig(t *testing.T, value string, present bool) *aws.Config {
 }
 
 func TestResolveSecretSignInPrefersSecretUser(t *testing.T) {
-	user, err := resolveSecretSignIn(context.Background(), secretConfig(t, `{"username":"app_user","password":"s3cret"}`, true), "arn:secret", "typed")
-	if err != nil || user != "app_user" {
+	user, arn, err := resolveSecretSignIn(context.Background(), secretConfig(t, `{"username":"app_user","password":"s3cret"}`, true), "arn:secret", "typed")
+	if err != nil || user != "app_user" || arn != "arn:secret" {
 		t.Fatalf("user = %q, err = %v", user, err)
 	}
 }
 
 func TestResolveSecretSignInPlainTextNeedsUser(t *testing.T) {
-	if user, err := resolveSecretSignIn(context.Background(), secretConfig(t, "s3cret", true), "arn:secret", " typed "); err != nil || user != "typed" {
+	if user, _, err := resolveSecretSignIn(context.Background(), secretConfig(t, "s3cret", true), "arn:secret", " typed "); err != nil || user != "typed" {
 		t.Fatalf("user = %q, err = %v", user, err)
 	}
-	_, err := resolveSecretSignIn(context.Background(), secretConfig(t, "s3cret", true), "arn:secret", "")
+	_, _, err := resolveSecretSignIn(context.Background(), secretConfig(t, "s3cret", true), "arn:secret", "")
 	if err == nil || !strings.Contains(err.Error(), "has no username: fill the User field") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestResolveSecretSignInExplainsUnreadableSecret(t *testing.T) {
-	_, err := resolveSecretSignIn(context.Background(), secretConfig(t, "", false), "arn:secret", "typed")
+	_, _, err := resolveSecretSignIn(context.Background(), secretConfig(t, "", false), "arn:secret", "typed")
 	for _, want := range []string{"arn:secret", "secretsmanager:GetSecretValue", "kms:Decrypt", "ResourceNotFoundException"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("err = %v, want %q", err, want)
@@ -198,5 +198,33 @@ func TestSecretCredentialsReaderNeedsSecrets(t *testing.T) {
 	untagged := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
 	if untagged.secretCredentialsReader(nil, "archive", &ideTarget{InstanceARN: secretsInstanceARN}) != nil {
 		t.Error("session offers read-only secrets without readOnlySecretTag")
+	}
+}
+
+func TestResolveSecretSignInReturnsTheARNOfARecreatedSecret(t *testing.T) {
+	const stale = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/app-xyKAqI"
+	const current = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/app-Eim4Md"
+	cfg := installSecretsManager(t, map[string]string{current: "s3cret"}).cfg
+	user, arn, err := resolveSecretSignIn(context.Background(), cfg, stale, "typed")
+	if err != nil || user != "typed" || arn != current {
+		t.Fatalf("user = %q, arn = %q, err = %v; want the current ARN", user, arn, err)
+	}
+}
+
+func TestRememberSecretARNReplacesTheSavedARNOfARecreatedSecret(t *testing.T) {
+	const stale = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/app-xyKAqI"
+	const current = "arn:aws:secretsmanager:eu-west-3:111111111111:secret:dev/app-Eim4Md"
+	runner, _ := keychainRunner(t)
+	options := Options{ResourceType: "rds", Name: "archive", AwsProfile: "dev", AwsRegion: "eu-west-3",
+		SignIn: SignInSecret, DBSecretARN: stale, DBUser: "app_user"}
+	mustSave(t, runner, &options)
+
+	runner.rememberSecretARN(context.Background(), &options, current)
+	prefs, ok := runner.LoadConnectionPrefs(context.Background(), options)
+	if !ok || prefs.DBSecretARN != current || prefs.SignInMethod() != SignInSecret || prefs.DBUser != "app_user" {
+		t.Fatalf("prefs = %+v, %v; want the current ARN saved, the rest kept", prefs, ok)
+	}
+	if options.DBSecretARN != current {
+		t.Fatalf("options ARN = %q, want the current one", options.DBSecretARN)
 	}
 }

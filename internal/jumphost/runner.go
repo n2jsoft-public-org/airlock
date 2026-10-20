@@ -1382,9 +1382,10 @@ func (r *Runner) prepareRDS(ctx context.Context, cfg awsConfig, options *Options
 		if cfgErr != nil {
 			return preparedTarget{}, cfgErr
 		}
-		if secretUser, err = resolveSecretSignIn(ctx, &awsCfg, secretID, options.DBUser); err != nil {
+		if secretUser, secretID, err = resolveSecretSignIn(ctx, &awsCfg, secretID, options.DBUser); err != nil {
 			return preparedTarget{}, err
 		}
+		r.rememberSecretARN(ctx, options, secretID)
 	}
 
 	localPort, err := r.reservePort(sessionLabel(resourceRDS, instance.DBInstanceIdentifier, cfg), options.LocalPortNumber, instance.Endpoint.Port)
