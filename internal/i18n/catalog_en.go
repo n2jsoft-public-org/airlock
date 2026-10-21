@@ -270,6 +270,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"doctor.keychain.ok":                "OS keychain available",
 	"doctor.keychain.unavailable":       "the OS keychain is not available: passwords cannot be remembered",
 	"doctor.keychain.unavailable_fix":   "on Linux, run a Secret Service (gnome-keyring or KeePassXC) in your session; elsewhere, unlock the keychain",
+	"doctor.keychain.timeout":           "the OS keychain did not answer: keyring locked or not responding",
+	"doctor.keychain.timeout_fix":       "unlock the keyring (on Linux, gnome-keyring or KeePassXC) or check the Secret Service runs, then run airlock doctor again",
 
 	// internal/cli/exec_cmd.go
 	"cli.exec.short":             "Run a command with a tunnel open and its connection settings in the environment",

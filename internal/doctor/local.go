@@ -175,3 +175,9 @@ func Keychain(available bool) Result {
 	}
 	return warning("keychain", "", i18n.T("doctor.keychain.unavailable"), i18n.T("doctor.keychain.unavailable_fix"))
 }
+
+// KeychainNotResponding reports an OS keychain that did not answer in time: a locked Linux
+// keyring may wait for an unlock forever.
+func KeychainNotResponding() Result {
+	return warning("keychain", "", i18n.T("doctor.keychain.timeout"), i18n.T("doctor.keychain.timeout_fix"))
+}

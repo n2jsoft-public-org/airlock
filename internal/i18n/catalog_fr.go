@@ -237,6 +237,8 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"doctor.keychain.ok":                "trousseau du système disponible",
 	"doctor.keychain.unavailable":       "le trousseau du système n'est pas disponible : les mots de passe ne peuvent pas être mémorisés",
 	"doctor.keychain.unavailable_fix":   "sous Linux, lancez un Secret Service (gnome-keyring ou KeePassXC) dans votre session ; ailleurs, déverrouillez le trousseau",
+	"doctor.keychain.timeout":           "le trousseau du système n'a pas répondu : trousseau verrouillé ou qui ne répond pas",
+	"doctor.keychain.timeout_fix":       "déverrouillez le trousseau (sous Linux, gnome-keyring ou KeePassXC) ou vérifiez que le Secret Service tourne, puis relancez airlock doctor",
 
 	// internal/cli/exec_cmd.go
 	"cli.exec.short":             "Lancer une commande avec un tunnel ouvert et ses paramètres de connexion dans l'environnement",

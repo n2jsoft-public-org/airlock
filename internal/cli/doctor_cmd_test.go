@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 	"github.com/n2jsoft/airlock/internal/doctor"
@@ -59,5 +61,28 @@ func TestDoctorPrintsJSONAndFailsWithoutTunnelTools(t *testing.T) {
 		if statuses[check] != status {
 			t.Errorf("%s = %q, want %q (results %+v)", check, statuses[check], status, results)
 		}
+	}
+}
+
+// blockingStore never answers, like a locked Linux keyring waiting for an unlock.
+type blockingStore struct {
+	keychain.Store
+	release chan struct{}
+}
+
+func (s blockingStore) Get(string) (string, error) {
+	<-s.release
+	return "", keychain.ErrNotFound
+}
+
+func TestDoctorKeychainReportsAKeychainNotResponding(t *testing.T) {
+	store := blockingStore{release: make(chan struct{})}
+	defer close(store.release)
+	got := doctorKeychain(func() keychain.Store { return store }, 20*time.Millisecond)
+	if got.Status != doctor.Warning || !strings.Contains(got.Message, "not responding") {
+		t.Fatalf("result = %+v, want a warning saying the keychain does not respond", got)
+	}
+	if got := doctorKeychain(func() keychain.Store { return keychain.NewMemoryStore() }, time.Second); got.Status != doctor.OK {
+		t.Fatalf("result = %+v, want ok for a keychain answering", got)
 	}
 }

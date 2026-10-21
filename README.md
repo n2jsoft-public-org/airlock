@@ -1414,7 +1414,8 @@ It checks the airlock version (and a newer release, unless `AIRLOCK_NO_UPDATE_CH
 other `airlock` binaries on the PATH, the AWS CLI and the Session Manager plugin, `config.json`
 (invalid or deprecated keys), the organization config, the sign-in and the running jumphost of
 every AWS profile (concurrently, 5 s each), the daemon (another version than this airlock), its MCP
-gateway port and AI client files, and the OS keychain. It exits with status 1 when a check failed
+gateway port and AI client files, and the OS keychain (5 s: a locked Linux keyring that does not
+answer is a warning). It exits with status 1 when a check failed
 (✗), 0 otherwise.
 
 ```sh

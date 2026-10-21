@@ -90,6 +90,7 @@ func TestStatusOfPlainChecks(t *testing.T) {
 		{"gateway clients none", GatewayClients(nil, nil), Warning},
 		{"gateway clients", GatewayClients([]string{"~/.claude.json"}, nil), OK},
 		{"keychain", Keychain(false), Warning},
+		{"keychain not responding", KeychainNotResponding(), Warning},
 	}
 	for _, c := range cases {
 		if c.got.Status != c.want || (c.want != OK && c.got.Fix == "") {

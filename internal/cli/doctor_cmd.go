@@ -93,8 +93,22 @@ func runDoctor(ctx context.Context, profile, region string) []doctor.Result {
 	results = append(results, doctor.Organization(org.Source, organizationProbe(ctx, env, &org, settings))...)
 	results = append(results, doctorProfiles(ctx, &cfg, profile, region, tunnels)...)
 	results = append(results, doctorDaemon(ctx, &cfg, current)...)
-	results = append(results, doctor.Keychain(keychain.Available(newKeychain())))
+	results = append(results, doctorKeychain(newKeychain, doctorProbeTimeout))
 	return append([]doctor.Result{<-release}, results...)
+}
+
+// doctorKeychain checks the keychain open returns, as not responding when it has not answered
+// within timeout: a locked Linux keyring may wait for an unlock forever. The check is then left
+// running; the doctor exits without it.
+func doctorKeychain(open func() keychain.Store, timeout time.Duration) doctor.Result {
+	answer := make(chan bool, 1)
+	go func() { answer <- keychain.Available(open()) }()
+	select {
+	case available := <-answer:
+		return doctor.Keychain(available)
+	case <-time.After(timeout):
+		return doctor.KeychainNotResponding()
+	}
 }
 
 // latestRelease is the newer release than current ("" when none), unless the update check is off
