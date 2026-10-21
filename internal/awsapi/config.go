@@ -51,8 +51,9 @@ func sharedFilesStamp() [2]time.Time {
 	return stamp
 }
 
-// Get returns the cached config so the SDK credentials cache (SSO, assume-role)
-// is shared by all callers; it is loaded again when ~/.aws changed since it was loaded.
+// Get returns the cached config so the SDK credentials cache (SSO, assume-role, MFA)
+// is shared by all callers for the life of the process; it is loaded again when ~/.aws changed
+// since it was loaded.
 // Errors are not cached.
 func (c *Configs) Get(ctx context.Context, profile, region string) (aws.Config, error) {
 	key := profile + "\x00" + region
@@ -62,17 +63,12 @@ func (c *Configs) Get(ctx context.Context, profile, region string) (aws.Config, 
 	if e, ok := c.cache[key]; ok && e.files == stamp {
 		return e.cfg, nil
 	}
-	var opts []func(*config.LoadOptions) error
-	if profile != "" {
-		opts = append(opts, config.WithSharedConfigProfile(profile))
-	}
-	if region != "" {
-		opts = append(opts, config.WithRegion(region))
-	}
-	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	// No code prompt here: an MFA profile reads the codes typed by SignInMFA from the shared cache.
+	cfg, err := load(ctx, profile, region, nil)
 	if err != nil {
 		return aws.Config{}, err
 	}
+	withCachedRole(&cfg)
 	c.cache[key] = entry{cfg: cfg, files: stamp}
 	return cfg, nil
 }

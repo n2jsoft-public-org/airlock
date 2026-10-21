@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/n2jsoft/airlock/internal/awsapi"
 	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 )
 
@@ -192,55 +193,37 @@ func TestCheckIdentityReportsConfigErrors(t *testing.T) {
 	}
 }
 
-func TestMFAProfilesAreNotSupported(t *testing.T) {
-	installExpiredSTS(t)
+func TestMFAProfilesSignInWithACodeOnTheTerminal(t *testing.T) {
+	installExpiredSTS(t).Store(true) // STS answers: only the missing MFA code fails.
 	appendAWSConfig(t, "[profile mfa]\nregion = eu-west-3\nrole_arn = arn:aws:iam::111111111111:role/app\nsource_profile = dev\n"+
 		"mfa_serial = arn:aws:iam::111111111111:mfa/dev\n")
-	var logins atomic.Int32
-	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: countingInteractive(&logins)})
+	var unattended atomic.Int32
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: countingInteractive(&unattended)})
+	ctx := context.Background()
 
-	check := func(name string, err error) {
-		t.Helper()
-		if err == nil || errors.Is(err, ErrSignInRequired) || !strings.Contains(err.Error(), "mfa_serial") || !strings.Contains(err.Error(), "profile mfa ") {
-			t.Errorf("%s: err = %v, want the unsupported MFA profile named", name, err)
-		}
+	if err := runner.CheckIdentity(ctx, "mfa", "eu-west-3"); !errors.Is(err, ErrSignInRequired) {
+		t.Fatalf("CheckIdentity: err = %v, want ErrSignInRequired", err)
 	}
-	check("CheckIdentity", runner.CheckIdentity(context.Background(), "mfa", "eu-west-3"))
-	check("ensureIdentity", runner.ensureIdentity(context.Background(), awsConfig{Profile: "mfa", Region: "eu-west-3"}, true))
-	check("unattended ensureIdentity", runner.ensureIdentity(context.Background(), awsConfig{Profile: "mfa", Region: "eu-west-3"}, false))
-	if logins.Load() != 0 {
-		t.Fatal("an MFA profile must never trigger a sign-in")
+	if err := runner.ensureIdentity(ctx, awsConfig{Profile: "mfa", Region: "eu-west-3"}, false); !errors.Is(err, ErrSignInRequired) {
+		t.Fatalf("unattended ensureIdentity: err = %v, want ErrSignInRequired", err)
 	}
-}
+	if unattended.Load() != 0 {
+		t.Fatal("no sign-in without a terminal")
+	}
 
-func TestSignInRenewsAnExpiredSignIn(t *testing.T) {
-	signedIn := installExpiredSTS(t)
-	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
-	ctx := WithInteractive(context.Background(), func(context.Context, string, string, ...string) error {
-		signedIn.Store(true)
-		return nil
+	// The terminal runs airlock sso-login for the MFA profile itself, not its source_profile.
+	var args []string
+	ctx = WithInteractive(ctx, func(ctx context.Context, _, _ string, a ...string) error {
+		args = a
+		return awsapi.SignInMFA(ctx, "mfa", func(string) (string, error) { return "123456", nil })
 	})
-	if err := runner.SignIn(ctx, "dev", "eu-west-3"); err != nil {
+	if err := runner.ensureIdentity(ctx, awsConfig{Profile: "mfa", Region: "eu-west-3"}, true); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestEnsureIdentityPrintsTheCallerArn(t *testing.T) {
-	installExpiredSTS(t).Store(true)
-	var out strings.Builder
-	runner := NewRunner(&RunnerOptions{Out: &out, Err: io.Discard})
-	if err := runner.ensureIdentity(context.Background(), awsConfig{Profile: "dev", Region: "eu-west-3"}, false); err != nil {
-		t.Fatal(err)
+	if strings.Join(args, " ") != "sso-login --profile mfa" {
+		t.Fatalf("interactive args = %v", args)
 	}
-	if want := "Using AWS identity... arn:aws:iam::111111111111:user/dev\n"; out.String() != want {
-		t.Fatalf("output = %q, want %q", out.String(), want)
-	}
-}
-
-func TestAccountForAsksSTS(t *testing.T) {
-	installExpiredSTS(t).Store(true)
-	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
-	if got := runner.accountFor(context.Background(), "dev"); got != "111111111111" {
-		t.Fatalf("account = %q, want 111111111111", got)
+	if err := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard}).CheckIdentity(context.Background(), "mfa", "eu-west-3"); err != nil {
+		t.Fatalf("another runner must reuse the cached role: %v", err)
 	}
 }

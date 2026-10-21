@@ -20,7 +20,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
@@ -1158,7 +1157,7 @@ func (r *Runner) ssoLogin(ctx context.Context, profile string) error {
 		interactive = r.interactive
 	}
 	if interactive == nil {
-		return awssso.Login(ctx, profile, awssso.TerminalPrompt(r.err))
+		return awssso.Login(ctx, profile, awssso.TerminalPrompt(r.err), awssso.TerminalCode(r.in, r.err))
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -1201,11 +1200,7 @@ func (r *Runner) ensureIdentity(ctx context.Context, cfg awsConfig, interactive 
 		return i18n.NewError("jumphost.identity.aws_credentials_of_profile", ErrSignInRequired, cfg.Profile)
 	}
 	fprintf(r.out, "Failed. Reauthorize...\n")
-	// A profile without source_profile signs in itself.
-	loginProfile := cfg.Profile
-	if parentProfile := awsapi.SourceProfile(ctx, cfg.Profile); parentProfile != "" {
-		loginProfile = parentProfile
-	}
+	loginProfile := awsapi.LoginProfile(ctx, cfg.Profile)
 	if loginProfile == "" {
 		loginProfile = defaultAwsProfile
 	}
@@ -1764,10 +1759,6 @@ var kubemcpStart = kubemcp.Start
 // sdkConfig is r.configs.Get with a translated error.
 func (r *Runner) sdkConfig(ctx context.Context, cfg awsConfig) (aws.Config, error) {
 	c, err := r.configs.Get(ctx, cfg.Profile, cfg.Region)
-	if _, ok := errors.AsType[config.AssumeRoleTokenProviderNotSetError](err); ok {
-		// ponytail: MFA assume-role profiles need an on-disk assume-role cache shared by every process; see Decisions in docs/superpowers/plans/2026-10-20-drop-aws-cli.md.
-		return aws.Config{}, i18n.NewError("jumphost.runner.aws_config_mfa", cfg.Profile)
-	}
 	if err != nil {
 		return aws.Config{}, i18n.NewError("jumphost.runner.aws_config", err)
 	}

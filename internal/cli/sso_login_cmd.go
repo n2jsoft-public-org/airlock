@@ -16,7 +16,8 @@ func newSSOLoginCmd() *cobra.Command {
 		Args:   cobra.NoArgs,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return awssso.Login(cmd.Context(), profile, awssso.TerminalPrompt(cmd.ErrOrStderr()))
+			return awssso.Login(cmd.Context(), profile, awssso.TerminalPrompt(cmd.ErrOrStderr()),
+				awssso.TerminalCode(cmd.InOrStdin(), cmd.ErrOrStderr()))
 		},
 	}
 	cmd.Flags().StringVar(&profile, "profile", "", i18n.T("cli.sso_login.flag.profile"))

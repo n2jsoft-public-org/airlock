@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,26 @@ func TestProfilesWarnsOfAnExpiredSignInWithoutSigningIn(t *testing.T) {
 	results := checkDev(t, true)
 	if len(results) != 1 || results[0].Status != Warning || !strings.Contains(results[0].Fix, "aws sso login --profile dev") {
 		t.Fatalf("results = %+v, want one expired sign-in warning", results)
+	}
+}
+
+func TestProfilesWarnsOfAnMFAProfileWithoutACode(t *testing.T) {
+	fakeAWS(t, http.StatusOK, callerIdentityXML, http.StatusOK, instanceXML)
+	mfa := "\n[profile mfa]\nregion = eu-west-3\nsource_profile = dev\nrole_arn = arn:aws:iam::111111111111:role/app\nmfa_serial = arn:aws:iam::111111111111:mfa/dev\n"
+	f, err := os.OpenFile(os.Getenv("AWS_CONFIG_FILE"), os.O_APPEND|os.O_WRONLY, 0) // #nosec G703 -- the test's own config file.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(mfa); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runner := jumphost.NewRunner(&jumphost.RunnerOptions{Out: io.Discard, Err: io.Discard})
+	results := Profiles(context.Background(), runner, []Profile{{Name: "mfa", Region: "eu-west-3"}}, true, AWSTimeout)
+	if len(results) != 1 || results[0].Status != Warning || !strings.Contains(results[0].Fix, "sso-login --profile mfa") {
+		t.Fatalf("results = %+v, want one warning telling how to type the MFA code", results)
 	}
 }
 

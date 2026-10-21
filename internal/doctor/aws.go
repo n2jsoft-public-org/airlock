@@ -69,28 +69,18 @@ func checkProfile(ctx context.Context, aws AWS, p Profile, withJumphost bool, ti
 // apart from AWS out of reach. Result is a warning for an expired sign-in, else a failure.
 func signInResult(ctx context.Context, profile string, err error, timeout time.Duration) Result {
 	switch {
+	case errors.Is(err, jumphost.ErrSignInRequired) && awsapi.MFAProfile(ctx, profile):
+		return warning("aws-profile", profile, i18n.Format("doctor.profile.expired", profile), i18n.Format("doctor.profile.mfa_fix", profile, profile))
 	case errors.Is(err, jumphost.ErrSignInRequired):
-		login := profile
-		if parent := awsapi.SourceProfile(ctx, profile); parent != "" {
-			login = parent
-		}
 		// A warning: airlock signs in again when the profile is picked.
-		return warning("aws-profile", profile, i18n.Format("doctor.profile.expired", profile), i18n.Format("doctor.profile.expired_fix", profile, login))
+		return warning("aws-profile", profile, i18n.Format("doctor.profile.expired", profile), i18n.Format("doctor.profile.expired_fix", profile, awsapi.LoginProfile(ctx, profile)))
 	case ctx.Err() != nil:
 		return failure("aws-profile", profile, i18n.Format("doctor.profile.timeout", profile, timeout), i18n.T("doctor.profile.timeout_fix"))
 	case awsapi.Unreachable(err):
 		return failure("aws-profile", profile, i18n.Localize(err), i18n.T("doctor.network_fix"))
-	case mfaProfile(ctx, profile):
-		return failure("aws-profile", profile, i18n.Localize(err), i18n.T("doctor.profile.mfa_fix"))
 	default:
 		return failure("aws-profile", profile, i18n.Localize(err), i18n.Format("doctor.profile.config_fix", profile))
 	}
-}
-
-// mfaProfile reports a profile assuming a role with MFA, which airlock does not support.
-func mfaProfile(ctx context.Context, profile string) bool {
-	shared, err := awsapi.SharedProfile(ctx, profile)
-	return err == nil && shared.MFASerial != ""
 }
 
 // jumphostWarning words a failed jumphost lookup: a missing IAM permission, AWS out of reach, or

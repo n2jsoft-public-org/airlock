@@ -245,7 +245,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"doctor.profile.expired_fix":        "run airlock and pick profile %s, or aws sso login --profile %s",
 	"doctor.profile.timeout":            "AWS profile %s: AWS did not answer within %v",
 	"doctor.profile.timeout_fix":        "check your network connection, VPN and proxy; a profile without credentials waits for the EC2 instance metadata: give it sso_session, source_profile or keys",
-	"doctor.profile.mfa_fix":            "use a profile without mfa_serial, such as an IAM Identity Center (SSO) profile",
+	"doctor.profile.mfa_fix":            "run airlock and pick profile %s, or airlock sso-login --profile %s: both ask for the MFA code",
 	"doctor.profile.config_fix":         "check profile %s in ~/.aws/config and ~/.aws/credentials",
 	"doctor.network_fix":                "check your network connection, VPN and proxy",
 	"doctor.jumphost.ok":                "AWS profile %s: jumphost %s running",
@@ -1101,7 +1101,6 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"jumphost.runner.failed_to_serialize_ssm":             "failed to serialize SSM parameters: %w",
 	"jumphost.runner.invalid_local_port":                  "invalid local port %q: %w",
 	"jumphost.runner.aws_config":                          "failed to load the AWS configuration of the profile: %w",
-	"jumphost.runner.aws_config_mfa":                      "profile %s assumes a role with MFA (mfa_serial): airlock does not support MFA profiles yet",
 	"jumphost.runner.jumphost_lookup":                     "failed to look up the jumphost instance: %w",
 	"jumphost.runner.rds_list":                            "failed to list RDS instances: %w",
 	"jumphost.runner.eks_list":                            "failed to list EKS clusters: %w",
@@ -1198,12 +1197,15 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	// internal/cli/config_share_cmd.go
 	"cli.config_share.locked_not_imported": "locked by the organization, not imported",
 	// internal/awssso/login.go
-	"awssso.profile": "cannot read AWS profile %s: %w",
-	"awssso.not_sso": "AWS profile %s is not configured for IAM Identity Center (sso_session or sso_start_url)",
-	"awssso.call":    "AWS sign-in failed: %w",
-	"awssso.expired": "the sign-in code expired before it was confirmed: try again",
+	"awssso.profile":      "cannot read AWS profile %s: %w",
+	"awssso.not_sso":      "AWS profile %s is not configured for IAM Identity Center (sso_session or sso_start_url)",
+	"awssso.call":         "AWS sign-in failed: %w",
+	"awssso.expired":      "the sign-in code expired before it was confirmed: try again",
+	"awssso.no_mfa_code":  "no MFA code entered: %w",
+	"awsapi.mfa.required": "%w: profile %s assumes a role with the MFA device %s: pick it in airlock from a terminal, or run airlock sso-login --profile %s",
+	"awsapi.mfa.not_mfa":  "AWS profile %s does not assume a role with MFA (role_arn and mfa_serial)",
 	// internal/cli/sso_login_cmd.go
-	"cli.sso_login.short":        "Sign an AWS profile in with IAM Identity Center",
+	"cli.sso_login.short":        "Sign an AWS profile in with IAM Identity Center or an MFA code",
 	"cli.sso_login.flag.profile": "AWS profile to sign in",
 	// internal/projectstack/projectstack.go
 	"projectstack.read":            "cannot read %s: %w",

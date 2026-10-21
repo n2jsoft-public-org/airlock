@@ -141,7 +141,7 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
   When a profile's credentials are missing or expired, airlock signs you in again for you (no AWS CLI needed for that): the
   dashboard steps aside while it runs, so the browser prompt, URL and code stay readable, then comes back.
-  Profiles that assume a role with MFA (`mfa_serial`) are not supported yet.
+  Profiles that assume a role with MFA (`mfa_serial`) ask for the code once per role session: see [MFA profiles](#mfa-profiles).
 - **A running jumphost** (not for DynamoDB, S3 and CloudWatch Logs): an EC2 instance tagged `Usage=jumphost` ([configurable](#%EF%B8%8F-configuration)) in each account and region you connect to. See [Setting up a jumphost](docs/jumphost-setup.md).
 
 `airlock doctor` checks all of these for you: see [Troubleshooting](#-troubleshooting).
@@ -346,6 +346,30 @@ Without any of them, the header shows `region none` and the wizard opens the reg
 looks for targets. Non-interactive runs fail and name the settings to add. Press `r` to switch region
 from a searchable list (by code, city or country). Switching on the target step reloads the targets,
 or the search, for the new region.
+
+### MFA profiles
+
+A profile that assumes a role with an MFA device works like any other:
+
+```ini
+[profile prod-admin]
+source_profile = base
+role_arn = arn:aws:iam::123456789012:role/Admin
+mfa_serial = arn:aws:iam::123456789012:mfa/jane
+region = eu-west-3
+```
+
+When you pick it, airlock asks for the current code on the terminal (the dashboard steps aside
+while you type it, as for an SSO sign-in), then caches the role credentials in the AWS CLI's own
+cache, `~/.aws/cli/cache` (a file only you can read). Until the role session ends (one hour unless
+the profile sets `duration_seconds`), every airlock process uses them without asking again: the
+daemon, the MCP servers, `airlock eks-token` run by kubectl, and the `aws ssm start-session` of the
+tunnels. A code typed for the AWS CLI serves airlock too, and the other way round.
+
+Like the AWS CLI, airlock asks again 15 minutes before the session ends. Where no terminal is at
+hand (an MCP server, kubectl), an expired session fails with an error telling you to pick the
+profile in airlock, or to run `airlock sso-login --profile <profile>`. `mfa_serial` on a profile
+without `role_arn` is ignored, as the AWS CLI does.
 
 ### Database sign-in
 

@@ -212,7 +212,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"doctor.profile.expired_fix":        "lancez airlock et choisissez le profil %s, ou aws sso login --profile %s",
 	"doctor.profile.timeout":            "profil AWS %s : AWS n'a pas répondu en %v",
 	"doctor.profile.timeout_fix":        "vérifiez votre connexion réseau, VPN et proxy ; un profil sans identifiants attend les métadonnées d'instance EC2 : donnez-lui sso_session, source_profile ou des clés",
-	"doctor.profile.mfa_fix":            "utilisez un profil sans mfa_serial, comme un profil IAM Identity Center (SSO)",
+	"doctor.profile.mfa_fix":            "lancez airlock et choisissez le profil %s, ou airlock sso-login --profile %s : les deux demandent le code MFA",
 	"doctor.profile.config_fix":         "vérifiez le profil %s dans ~/.aws/config et ~/.aws/credentials",
 	"doctor.network_fix":                "vérifiez votre connexion réseau, VPN et proxy",
 	"doctor.jumphost.ok":                "profil AWS %s : jumphost %s en marche",
@@ -1101,7 +1101,6 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"jumphost.runner.failed_to_serialize_ssm":             "échec de la sérialisation des paramètres SSM : %w",
 	"jumphost.runner.invalid_local_port":                  "port local invalide %q : %w",
 	"jumphost.runner.aws_config":                          "échec du chargement de la configuration AWS du profil : %w",
-	"jumphost.runner.aws_config_mfa":                      "le profil %s endosse un rôle avec MFA (mfa_serial) : airlock ne prend pas encore en charge les profils MFA",
 	"jumphost.runner.jumphost_lookup":                     "échec de la recherche de l'instance jumphost : %w",
 	"jumphost.runner.rds_list":                            "échec de la liste des instances RDS : %w",
 	"jumphost.runner.eks_list":                            "échec de la liste des clusters EKS : %w",
@@ -1198,12 +1197,15 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	// internal/cli/config_share_cmd.go
 	"cli.config_share.locked_not_imported": "verrouillé par l'organisation, non importé",
 	// internal/awssso/login.go
-	"awssso.profile": "impossible de lire le profil AWS %s : %w",
-	"awssso.not_sso": "le profil AWS %s n'est pas configuré pour IAM Identity Center (sso_session ou sso_start_url)",
-	"awssso.call":    "échec de la connexion AWS : %w",
-	"awssso.expired": "le code de connexion a expiré avant d'être confirmé : réessayez",
+	"awssso.profile":      "impossible de lire le profil AWS %s : %w",
+	"awssso.not_sso":      "le profil AWS %s n'est pas configuré pour IAM Identity Center (sso_session ou sso_start_url)",
+	"awssso.call":         "échec de la connexion AWS : %w",
+	"awssso.expired":      "le code de connexion a expiré avant d'être confirmé : réessayez",
+	"awssso.no_mfa_code":  "aucun code MFA saisi : %w",
+	"awsapi.mfa.required": "%w : le profil %s endosse un rôle avec l'appareil MFA %s : choisissez-le dans airlock depuis un terminal, ou lancez airlock sso-login --profile %s",
+	"awsapi.mfa.not_mfa":  "le profil AWS %s n'endosse pas de rôle avec MFA (role_arn et mfa_serial)",
 	// internal/cli/sso_login_cmd.go
-	"cli.sso_login.short":        "Connecter un profil AWS avec IAM Identity Center",
+	"cli.sso_login.short":        "Connecter un profil AWS avec IAM Identity Center ou un code MFA",
 	"cli.sso_login.flag.profile": "Profil AWS à connecter",
 	// internal/projectstack/projectstack.go
 	"projectstack.read":            "impossible de lire %s : %w",

@@ -3,6 +3,8 @@ package awssso
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
+	"github.com/n2jsoft/airlock/internal/awsapi"
 	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
 )
 
@@ -82,7 +85,7 @@ func TestLoginWritesATokenTheSDKReads(t *testing.T) {
 	setup(t, tokenSteps(t, tokenError(t, "AuthorizationPendingException", "authorization_pending"), tokenOK(t)), ssoSessionProfile)
 
 	var gotURL, gotCode string
-	if err := Login(t.Context(), "dev", func(u, c string) { gotURL, gotCode = u, c }); err != nil {
+	if err := Login(t.Context(), "dev", func(u, c string) { gotURL, gotCode = u, c }, nil); err != nil {
 		t.Fatal(err)
 	}
 	if gotURL != "https://device?code=ABCD-EFGH" || gotCode != "ABCD-EFGH" {
@@ -133,7 +136,7 @@ func TestLoginWritesATokenTheSDKReads(t *testing.T) {
 func TestLoginLegacyProfileKeysByStartURL(t *testing.T) {
 	setup(t, tokenSteps(t, tokenOK(t)), "[profile old]\nsso_start_url = "+startURL+"\nsso_region = eu-west-3\nsso_account_id = 1\nsso_role_name = r\n")
 
-	if err := Login(t.Context(), "old", func(string, string) {}); err != nil {
+	if err := Login(t.Context(), "old", func(string, string) {}, nil); err != nil {
 		t.Fatal(err)
 	}
 	path, err := ssocreds.StandardCachedTokenFilepath(startURL)
@@ -160,7 +163,7 @@ func TestLoginSlowsDownWhenAsked(t *testing.T) {
 	setup(t, tokenSteps(t, tokenError(t, "SlowDownException", "slow_down"), tokenOK(t)), ssoSessionProfile)
 	waits := noWait(t)
 
-	if err := Login(t.Context(), "dev", func(string, string) {}); err != nil {
+	if err := Login(t.Context(), "dev", func(string, string) {}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if want := []time.Duration{time.Second, 6 * time.Second}; len(*waits) != 2 || (*waits)[0] != want[0] || (*waits)[1] != want[1] {
@@ -171,7 +174,7 @@ func TestLoginSlowsDownWhenAsked(t *testing.T) {
 func TestLoginRejectsANonSSOProfile(t *testing.T) {
 	setup(t, tokenSteps(t, tokenOK(t)), "[profile plain]\nregion = eu-west-3\n")
 
-	err := Login(t.Context(), "plain", func(string, string) { t.Error("must not prompt") })
+	err := Login(t.Context(), "plain", func(string, string) { t.Error("must not prompt") }, nil)
 	if err == nil || !strings.Contains(err.Error(), "plain") {
 		t.Errorf("err = %v, want one naming the profile", err)
 	}
@@ -180,7 +183,7 @@ func TestLoginRejectsANonSSOProfile(t *testing.T) {
 func TestLoginStopsOnExpiredDeviceCode(t *testing.T) {
 	setup(t, tokenSteps(t, tokenError(t, "ExpiredTokenException", "expired_token")), ssoSessionProfile)
 
-	if err := Login(t.Context(), "dev", func(string, string) {}); err == nil {
+	if err := Login(t.Context(), "dev", func(string, string) {}, nil); err == nil {
 		t.Fatal("want an error")
 	}
 	path, err := ssocreds.StandardCachedTokenFilepath("corp")
@@ -189,5 +192,41 @@ func TestLoginStopsOnExpiredDeviceCode(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err == nil {
 		t.Error("no token must be written")
+	}
+}
+
+func TestTerminalCodeReadsOneLine(t *testing.T) {
+	var out strings.Builder
+	code, err := TerminalCode(strings.NewReader(" 123456 \nrest\n"), &out)("arn:aws:iam::1:mfa/me")
+	if err != nil || code != "123456" || !strings.Contains(out.String(), "arn:aws:iam::1:mfa/me") {
+		t.Fatalf("code = %q, err = %v, prompt = %q", code, err, out.String())
+	}
+	if _, err := TerminalCode(strings.NewReader(""), io.Discard)("serial"); !errors.Is(err, awsapi.ErrMFACodeRequired) {
+		t.Fatalf("no code: err = %v, want ErrMFACodeRequired", err)
+	}
+}
+
+func TestLoginAsksAnMFAProfileForACode(t *testing.T) {
+	var tokenCode string
+	setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if op := awsapitest.Operation(r); op != "AssumeRole" {
+			t.Errorf("unexpected call %s", op)
+			return
+		}
+		tokenCode = r.FormValue("TokenCode")
+		awsapitest.RespondXML(t, w, 200, `<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIA</AccessKeyId>`+
+			`<SecretAccessKey>s</SecretAccessKey><SessionToken>t</SessionToken><Expiration>`+
+			time.Now().Add(time.Hour).UTC().Format(time.RFC3339)+`</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>`)
+	}, "[profile base]\nregion = eu-west-3\n\n[profile mfa]\nsource_profile = base\nrole_arn = arn:aws:iam::1:role/r\nmfa_serial = arn:aws:iam::1:mfa/me\n")
+	creds := filepath.Join(t.TempDir(), "credentials")
+	if err := os.WriteFile(creds, []byte("[base]\naws_access_key_id = AKID\naws_secret_access_key = s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", creds)
+
+	err := Login(t.Context(), "mfa", func(string, string) { t.Error("an MFA profile opens no browser") },
+		TerminalCode(strings.NewReader("654321\n"), io.Discard))
+	if err != nil || tokenCode != "654321" {
+		t.Fatalf("err = %v, token code = %q", err, tokenCode)
 	}
 }

@@ -1,7 +1,8 @@
-// Package awssso signs a profile in with AWS IAM Identity Center, without the aws CLI.
+// Package awssso signs a profile in with AWS IAM Identity Center or an MFA code, without the aws CLI.
 package awssso
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -32,6 +34,19 @@ func TerminalPrompt(w io.Writer) Prompt {
 		if err := platform.OpenURL(verificationURL); err != nil {
 			_, _ = fmt.Fprintf(w, "Could not open the browser: %v\n", err) //nolint:errcheck // same.
 		}
+	}
+}
+
+// TerminalCode asks for the MFA code on w and reads it from in, one line.
+func TerminalCode(in io.Reader, w io.Writer) awsapi.TokenCode {
+	return func(serial string) (string, error) {
+		_, _ = fmt.Fprintf(w, "MFA code for %s: ", serial) //nolint:errcheck // a closed terminal fails the read below.
+		line, err := bufio.NewReader(in).ReadString('\n')
+		code := strings.TrimSpace(line)
+		if code == "" {
+			return "", i18n.NewError("awssso.no_mfa_code", errors.Join(err, awsapi.ErrMFACodeRequired))
+		}
+		return code, nil
 	}
 }
 
@@ -65,10 +80,13 @@ type tokenFile struct {
 	RefreshToken          string `json:"refreshToken,omitempty"`
 }
 
-// Login signs profile in with the OAuth device-code flow and caches the token where the SDK and
-// the aws CLI find it.
+// Login signs profile in and caches the result where the SDK and the aws CLI find it: a profile
+// assuming a role with MFA asks for a code with code, others use the OAuth device-code flow.
 // ponytail: device-code flow only; add PKCE (authorization_code + loopback redirect) if users ask for the AWS CLI's default sign-in UX.
-func Login(ctx context.Context, profile string, prompt Prompt) error {
+func Login(ctx context.Context, profile string, prompt Prompt, code awsapi.TokenCode) error {
+	if awsapi.MFAProfile(ctx, profile) {
+		return awsapi.SignInMFA(ctx, profile, code)
+	}
 	shared, err := awsapi.SharedProfile(ctx, profile)
 	if err != nil {
 		return i18n.NewError("awssso.profile", profile, err)
