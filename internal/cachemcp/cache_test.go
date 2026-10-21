@@ -396,8 +396,11 @@ func TestBinaryValuesComeBackInBase64(t *testing.T) {
 		t.Errorf("GET = %#v", out.Reply)
 	}
 	out, _, err = c.Command(ctx, &commandInput{Args: []string{"HMGET", "h", binary, "text"}}, false)
-	if items, ok := out.Reply.([]any); !ok || err != nil || len(items) != 2 || decoded(t, items[0]) != binary || items[1] != "plain" {
-		t.Errorf("HMGET = %#v, %v", out.Reply, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items, ok := out.Reply.([]any); !ok || len(items) != 2 || decoded(t, items[0]) != binary || items[1] != "plain" {
+		t.Errorf("HMGET = %#v", out.Reply)
 	}
 }
 
@@ -413,7 +416,10 @@ func TestLongTextIsCutOnACharacter(t *testing.T) {
 		t.Fatalf("value = %T of %d bytes, truncated %v; want text cut before the split character", out.Value, len(fmt.Sprint(out.Value)), out.Truncated)
 	}
 	reply, _, err := c.Command(t.Context(), &commandInput{Args: []string{"GET", "s"}}, false)
-	if text, ok := reply.Reply.(string); err != nil || !ok || len(text) != maxStringBytes-1 {
-		t.Fatalf("GET = %T, %v", reply.Reply, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, ok := reply.Reply.(string); !ok || len(text) != maxStringBytes-1 {
+		t.Fatalf("GET = %T", reply.Reply)
 	}
 }

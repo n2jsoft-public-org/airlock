@@ -58,6 +58,9 @@ func TestConfigErrorsLocalize(t *testing.T) {
 	t.Cleanup(func() { i18n.SetLanguage("en") })
 	err := Set(writeConfig(t, `{}`), nil, "language", "de")
 	i18n.SetLanguage("en")
+	if err == nil {
+		t.Fatal("Set accepted an unknown language")
+	}
 	if !strings.Contains(err.Error(), "unknown language") {
 		t.Fatalf("Error() = %q, want English", err.Error())
 	}
