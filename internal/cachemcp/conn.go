@@ -46,9 +46,11 @@ type clients struct {
 	byDB    map[int]*redis.Client
 	cluster *redis.ClusterClient
 	tunnels *tunnels
+	// warning tells the assistant the cluster mode could not be read; empty otherwise.
+	warning string
 	cfg     ConnConfig
 	mu      sync.Mutex
-	// detected reports that INFO cluster was read: cluster is set in cluster mode.
+	// detected reports that the mode was read: cluster is set in cluster mode.
 	detected bool
 }
 
@@ -80,19 +82,26 @@ func (c *clients) clusterClient(ctx context.Context) (*redis.ClusterClient, erro
 	if detected {
 		return cluster, nil
 	}
-	enabled, err := clusterEnabled(ctx, c.get(0))
+	enabled, warning, err := clusterEnabled(ctx, c.get(0))
 	if err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.detected {
-		c.detected = true
+		c.detected, c.warning = true, warning
 		if enabled {
 			c.cluster = c.newCluster()
 		}
 	}
 	return c.cluster, nil
+}
+
+// modeWarning is the warning of the cluster mode detection, empty when the mode was read.
+func (c *clients) modeWarning() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.warning
 }
 
 func (c *clients) get(db int) *redis.Client {
@@ -145,7 +154,7 @@ func (c *clients) close() error {
 		errs = append(errs, c.cluster.Close())
 		c.cluster = nil
 	}
-	c.detected = false
+	c.detected, c.warning = false, ""
 	return errors.Join(errs...)
 }
 

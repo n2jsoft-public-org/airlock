@@ -43,6 +43,14 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		e.DB, e.Command = &db, command
 		return e, done
 	}
+	// result adds the cluster mode warning, once detection had to assume standalone.
+	result := func(out any, err error) (*mcp.CallToolResult, any, error) {
+		res, structured, err := mcpserve.ToolResult(out, err)
+		if warning := c.clients.modeWarning(); res != nil && warning != "" {
+			res.Content = append(res.Content, &mcp.TextContent{Text: "Warning: " + warning})
+		}
+		return res, structured, err
+	}
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "info", Description: "Show the cache state: INFO sections (server, memory, keyspace, stats, replication by default) and the number of keys.",
@@ -57,7 +65,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		_, done := start("info", in.DB, "INFO "+strings.ReplaceAll(sections, " ", ""))
 		out, err := c.Info(ctx, &in)
 		done(int64(len(out.Sections)), err)
-		return mcpserve.ToolResult(out, err)
+		return result(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -76,7 +84,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		if out.Keys == nil {
 			out.Keys = []keyInfo{}
 		}
-		return mcpserve.ToolResult(out, err)
+		return result(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -89,7 +97,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		out, err := c.Get(ctx, &in)
 		e.Truncated = out.Truncated
 		done(1, err)
-		return mcpserve.ToolResult(out, err)
+		return result(out, err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -102,7 +110,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 		out, count, err := c.Command(ctx, &in, false)
 		e.Truncated = out.Truncated
 		done(count, err)
-		return mcpserve.ToolResult(out, err)
+		return result(out, err)
 	})
 
 	if cfg.AllowWrites {
@@ -117,7 +125,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 			out, count, err := c.Command(ctx, &in, true)
 			e.Truncated = out.Truncated
 			done(count, err)
-			return mcpserve.ToolResult(out, err)
+			return result(out, err)
 		})
 	}
 	return server

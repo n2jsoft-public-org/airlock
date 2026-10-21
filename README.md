@@ -904,7 +904,9 @@ AWS IAM tokens are signed by airlock with your profile's credentials (it needs
 encrypts in transit, always for serverless caches. Memcached sessions stay plain tunnels.
 
 **Cluster mode.** The server reads `INFO cluster` on first use; with `cluster_enabled:1` (cluster
-mode enabled, serverless caches) it switches to a cluster client. The nodes announce private
+mode enabled, serverless caches) it switches to a cluster client. When the cache user's ACL refuses
+`INFO`, an `EXISTS` on two keys of different slots tells (a cluster answers `CROSSSLOT`); when that
+is refused too, the cache is used as standalone and every tool result carries a warning. The nodes announce private
 addresses only the jumphost reaches, so airlock opens one more SSM port forward to each node the
 first time it is needed (`aws ssm start-session` through the same jumphost, on a free local port),
 and keeps it until the session ends. A serverless cache announces its own endpoint, served by the
@@ -912,7 +914,8 @@ session's tunnel. Then:
 
 - `get_key`, `command` and `execute` go to the shard of the key; commands over keys of several
   slots answer `CROSSSLOT`, and commands without key (`DBSIZE`, `SLOWLOG GET`…) run on one node;
-- `scan_keys` scans the primaries one after the other; its cursor reads `<shard>:<cursor>`;
+- `scan_keys` scans the primaries one after the other; its cursor names the node being scanned, and
+  fails when that node is no longer a primary (failover, resharding): start the scan again;
 - `info` reads the sections of every primary, named `<node address> <section>`, and adds up their keys;
 - only database 0 exists.
 

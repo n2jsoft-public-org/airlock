@@ -183,21 +183,50 @@ func (c *clients) newCluster() *redis.ClusterClient {
 }
 
 // clusterEnabled reads cluster_enabled in INFO cluster. An engine without INFO cluster is
-// standalone; any other error (an ACL refusing INFO, LOADING, too many clients) comes back, as
-// guessing standalone on a cluster would give partial results.
-func clusterEnabled(ctx context.Context, client *redis.Client) (bool, error) {
+// standalone; an ACL refusing INFO leaves it to probeCluster; any other error (LOADING, too many
+// clients) comes back, as guessing standalone on a cluster would give partial results. warning is
+// set when the mode could not be read and standalone is assumed.
+func clusterEnabled(ctx context.Context, client *redis.Client) (enabled bool, warning string, err error) {
 	text, err := client.Info(ctx, "cluster").Result()
-	if err != nil {
-		if redis.HasErrorPrefix(err, "unknown command") || redis.HasErrorPrefix(err, "syntax error") ||
-			(redis.HasErrorPrefix(err, "") && strings.Contains(err.Error(), "not supported")) {
-			return false, nil
-		}
-		return false, mapError(err)
+	switch {
+	case err == nil:
+		return parseInfo(text)["cluster"]["cluster_enabled"] == "1", "", nil
+	case redis.HasErrorPrefix(err, "unknown command") || redis.HasErrorPrefix(err, "syntax error") ||
+		(redis.HasErrorPrefix(err, "") && strings.Contains(err.Error(), "not supported")):
+		return false, "", nil
+	case redis.HasErrorPrefix(err, "NOPERM"):
+		return probeCluster(ctx, client)
+	default:
+		return false, "", mapError(err)
 	}
-	return parseInfo(text)["cluster"]["cluster_enabled"] == "1", nil
 }
 
-// primaries are the primary nodes of cluster, sorted by address so a scan cursor can name one.
+// probeKeys hash to different slots (15495 and 3300).
+var probeKeys = []string{"{a}airlock-cluster-probe", "{b}airlock-cluster-probe"}
+
+// unknownModeWarning is shown with every tool result when the cache mode could not be read.
+const unknownModeWarning = "airlock could not tell whether this cache runs in cluster mode (the cache user's ACL refuses INFO and EXISTS): " +
+	"it is used as a standalone cache. On a cluster, info and scan_keys only see the node of the session's endpoint and keys of other shards answer MOVED."
+
+// probeCluster tells the mode without INFO, with a read every read ACL allows: a cluster refuses
+// EXISTS on keys of two slots, a standalone cache counts them. An ACL refusing it too assumes
+// standalone, with a warning.
+func probeCluster(ctx context.Context, client *redis.Client) (enabled bool, warning string, err error) {
+	err = client.Exists(ctx, probeKeys...).Err()
+	switch {
+	case err == nil:
+		return false, "", nil
+	case redis.HasErrorPrefix(err, "CROSSSLOT") || redis.HasErrorPrefix(err, "MOVED") ||
+		redis.HasErrorPrefix(err, "ASK") || redis.HasErrorPrefix(err, "CLUSTERDOWN"):
+		return true, "", nil
+	case redis.HasErrorPrefix(err, "NOPERM"):
+		return false, unknownModeWarning, nil
+	default:
+		return false, "", mapError(err)
+	}
+}
+
+// primaries are the primary nodes of cluster, sorted by address: the order a scan visits them.
 func primaries(ctx context.Context, cluster *redis.ClusterClient) ([]*redis.Client, error) {
 	var mu sync.Mutex
 	var nodes []*redis.Client

@@ -218,17 +218,22 @@ func TestScanVisitsEveryNodeWithACombinedCursor(t *testing.T) {
 	if cursor != "0" || len(got) != len(want)+1 || got[second.Addr()+"/h"] != "hash" {
 		t.Fatalf("keys = %v, cursors %v; want every key of both nodes", got, cursors)
 	}
-	if !strings.HasPrefix(cursors[0], "0:") && !strings.HasPrefix(cursors[0], "1:") {
-		t.Fatalf("cursors = %v, want <node>:<cursor>", cursors)
+	if !strings.HasPrefix(cursors[0], first.Addr()+"@") && !strings.HasPrefix(cursors[0], second.Addr()+"@") {
+		t.Fatalf("cursors = %v, want <address>@<cursor>", cursors)
 	}
-	for _, bad := range []string{"abc", "1", "x:1", "-1:0", "1:x"} {
+	for _, bad := range []string{"abc", "1", "@1", first.Addr() + "@x", first.Addr() + "@-1"} {
 		if _, err := c.scan(ctx, nodes, true, &scanInput{Cursor: bad}); err == nil {
 			t.Errorf("cursor %q must be refused", bad)
 		}
 	}
-	// A cursor past the last node (the cluster lost a shard) ends the scan.
-	if out, err := c.scan(ctx, nodes, true, &scanInput{Cursor: "5:0"}); err != nil || out.Cursor != "0" || len(out.Keys) != 0 {
-		t.Fatalf("past the last node = %+v, %v", out, err)
+	// The cursor names its node, wherever it is sorted now.
+	out, err := c.scan(ctx, nodes[1:], true, &scanInput{Cursor: nodes[1].Options().Addr + "@0", Limit: 100})
+	if err != nil || out.Cursor != "0" || len(out.Keys) != 4 {
+		t.Fatalf("resuming on the second node alone = %+v, %v; want its 4 keys", out, err)
+	}
+	// A node that is no longer a primary (failover, resharding) fails rather than skip a shard.
+	if _, err := c.scan(ctx, nodes[1:], true, &scanInput{Cursor: nodes[0].Options().Addr + "@3"}); err == nil || !strings.Contains(err.Error(), "no longer a primary") {
+		t.Fatalf("cursor of a gone node: %v", err)
 	}
 }
 
@@ -245,7 +250,7 @@ func TestStandaloneCacheIsNotTakenForACluster(t *testing.T) {
 
 func TestClusterDetectionOnlyTakesAMissingCommandForStandalone(t *testing.T) {
 	ctx := context.Background()
-	for _, reply := range []string{"LOADING Redis is loading the dataset in memory", "NOPERM User reader has no permissions to run the 'info' command"} {
+	for _, reply := range []string{"LOADING Redis is loading the dataset in memory", "ERR max number of clients reached"} {
 		c, m := testCache(t)
 		m.SetError(reply)
 		if _, err := c.clients.clusterClient(ctx); err == nil {
@@ -261,5 +266,79 @@ func TestClusterDetectionOnlyTakesAMissingCommandForStandalone(t *testing.T) {
 	m.SetError("ERR unknown command 'info', with args beginning with: 'cluster'")
 	if cluster, err := c.clients.clusterClient(ctx); err != nil || cluster != nil {
 		t.Fatalf("without INFO: clusterClient = %v, %v; want standalone", cluster, err)
+	}
+}
+
+// replyError is an error reply of the cache.
+type replyError string
+
+func (e replyError) Error() string { return string(e) }
+func (replyError) RedisError()     {}
+
+// replies makes a client answer the error reply mapped to a command name instead of sending it.
+type replies map[string]string
+
+func (r replies) DialHook(next redis.DialHook) redis.DialHook { return next }
+func (r replies) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if reply, ok := r[cmd.Name()]; ok {
+			cmd.SetErr(replyError(reply))
+			return cmd.Err()
+		}
+		return next(ctx, cmd)
+	}
+}
+func (r replies) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func TestClusterDetectionProbesWhenTheACLRefusesInfo(t *testing.T) {
+	ctx := context.Background()
+	noperm := "NOPERM User reader has no permissions to run the 'info' command"
+	cases := []struct {
+		replies   replies
+		name      string
+		cluster   bool
+		warning   bool
+		transient bool
+	}{
+		{name: "standalone counts the keys", replies: replies{"info": noperm}},
+		{name: "a cluster refuses keys of two slots", replies: replies{"info": noperm, "exists": "CROSSSLOT Keys in request don't hash to the same slot"}, cluster: true},
+		{name: "a cluster redirects", replies: replies{"info": noperm, "exists": "MOVED 3300 10.0.1.5:6379"}, cluster: true},
+		{name: "refused too: standalone with a warning", replies: replies{"info": noperm, "exists": "NOPERM User reader has no permissions to access one of the keys"}, warning: true},
+		{name: "a transient error comes back", replies: replies{"info": noperm, "exists": "LOADING Redis is loading the dataset in memory"}, transient: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := testCache(t)
+			c.clients.get(0).AddHook(tc.replies)
+			cluster, err := c.clients.clusterClient(ctx)
+			if tc.transient {
+				if err == nil || c.clients.detected {
+					t.Fatalf("clusterClient = %v, detected %v; want the error, not remembered", err, c.clients.detected)
+				}
+				return
+			}
+			if err != nil || (cluster != nil) != tc.cluster || (c.clients.modeWarning() != "") != tc.warning {
+				t.Fatalf("clusterClient = %v, %v, warning %q; want cluster %v, warning %v", cluster, err, c.clients.modeWarning(), tc.cluster, tc.warning)
+			}
+		})
+	}
+}
+
+func TestToolResultsWarnWhenTheClusterModeIsUnknown(t *testing.T) {
+	c, m := testCache(t)
+	seed(t, m.Set("k", "v"))
+	session, _ := connect(t, c, false)
+	if text, isError := callTool(t, session, "get_key", map[string]any{"key": "k"}); isError || strings.Contains(text, "Warning") {
+		t.Fatalf("get_key = %s, %v; want no warning", text, isError)
+	}
+	if err := c.clients.close(); err != nil {
+		t.Fatal(err)
+	}
+	c.clients.get(0).AddHook(replies{"info": "NOPERM no info", "exists": "NOPERM no keys"})
+	text, isError := callTool(t, session, "get_key", map[string]any{"key": "k"})
+	if isError || !strings.Contains(text, `"value":"v"`) || !strings.Contains(text, "Warning: "+unknownModeWarning) {
+		t.Fatalf("get_key = %s, %v; want the value and the warning", text, isError)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +48,7 @@ type infoOutput struct {
 type scanInput struct {
 	Pattern string `json:"pattern,omitempty" jsonschema:"glob pattern of the keys (default *)"`
 	Type    string `json:"type,omitempty" jsonschema:"only keys of this type: string, hash, list, set, zset or stream"`
-	Cursor  string `json:"cursor,omitempty" jsonschema:"cursor returned by a previous call, to continue the scan (<shard>:<cursor> in cluster mode)"`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"cursor returned by a previous call, to continue the scan"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"about how many keys to return (default 100, max 1000)"`
 	DB      int    `json:"db,omitempty" jsonschema:"database index, 0 to 1023 (default 0)"`
 }
@@ -223,17 +224,25 @@ func (c *cache) Scan(ctx context.Context, in *scanInput) (scanOutput, error) {
 	return c.scan(ctx, nodes, cluster, in)
 }
 
-// scan runs SCAN on nodes one after the other. In cluster mode the cursor is "<node>:<cursor>",
-// node being the index of a primary sorted by address.
+// scan runs SCAN on nodes one after the other. In cluster mode the cursor is "<address>@<cursor>",
+// naming the primary being scanned: a cursor whose primary is gone (failover, resharding) fails
+// rather than skip or repeat a shard.
 func (c *cache) scan(ctx context.Context, nodes []*redis.Client, cluster bool, in *scanInput) (scanOutput, error) {
 	limit := int64(clamp(in.Limit, defaultScanLimit, maxScanLimit))
 	pattern := strings.TrimSpace(in.Pattern)
 	if pattern == "" {
 		pattern = "*"
 	}
-	node, cursor, err := parseCursor(in.Cursor, cluster)
+	addr, cursor, err := parseCursor(in.Cursor, cluster)
 	if err != nil {
 		return scanOutput{}, err
+	}
+	node := 0
+	if addr != "" {
+		node = slices.IndexFunc(nodes, func(n *redis.Client) bool { return n.Options().Addr == addr })
+		if node < 0 {
+			return scanOutput{}, fmt.Errorf("the cluster changed during the scan (%s is no longer a primary, after a failover or a resharding): start the scan again without a cursor", addr)
+		}
 	}
 
 	keysOf := make([][]string, len(nodes))
@@ -259,7 +268,7 @@ func (c *cache) scan(ctx context.Context, nodes []*redis.Client, cluster bool, i
 	switch {
 	case node >= len(nodes):
 	case cluster:
-		out.Cursor = strconv.Itoa(node) + ":" + strconv.FormatUint(cursor, 10)
+		out.Cursor = nodes[node].Options().Addr + "@" + strconv.FormatUint(cursor, 10)
 	default:
 		out.Cursor = strconv.FormatUint(cursor, 10)
 	}
@@ -285,24 +294,24 @@ func (c *cache) scan(ctx context.Context, nodes []*redis.Client, cluster bool, i
 	return out, nil
 }
 
-// parseCursor reads a scan_keys cursor: "<node>:<cursor>" in cluster mode, a SCAN cursor otherwise;
-// empty and "0" start the scan.
-func parseCursor(text string, cluster bool) (node int, cursor uint64, err error) {
+// parseCursor reads a scan_keys cursor: "<address>@<cursor>" in cluster mode, a SCAN cursor
+// otherwise; empty and "0" start the scan (addr empty).
+func parseCursor(text string, cluster bool) (addr string, cursor uint64, err error) {
 	invalid := fmt.Errorf("invalid cursor %q: pass the cursor a previous scan_keys returned", text)
 	if text == "" || text == "0" {
-		return 0, 0, nil
+		return "", 0, nil
 	}
 	if cluster {
-		nodeText, cursorText, found := strings.Cut(text, ":")
-		if node, err = strconv.Atoi(nodeText); !found || err != nil || node < 0 {
-			return 0, 0, invalid
+		at := strings.LastIndex(text, "@")
+		if at <= 0 {
+			return "", 0, invalid
 		}
-		text = cursorText
+		addr, text = text[:at], text[at+1:]
 	}
 	if cursor, err = strconv.ParseUint(text, 10, 64); err != nil {
-		return 0, 0, invalid
+		return "", 0, invalid
 	}
-	return node, cursor, nil
+	return addr, cursor, nil
 }
 
 // ttlSeconds converts a go-redis TTL: -1 (no expiry) and -2 (no key) come back as is.
