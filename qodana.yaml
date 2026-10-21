@@ -2,6 +2,12 @@ version: "1.0"
 # The Go linter needs an Ultimate or Ultimate Plus Qodana license.
 linter: jetbrains/qodana-go:2026.1
 
+# Quality gate of the `qodana` job in ci.yml: in pull request mode, only the issues a pull request
+# adds count, so any new issue fails the required check.
+failureConditions:
+  severityThresholds:
+    any: 0
+
 exclude:
   # Bubble Tea models and their components update a value receiver and return it (Update, View,
   # with* helpers), while a few methods that must change the model in place (SetSize, refreshing

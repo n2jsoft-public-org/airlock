@@ -146,9 +146,32 @@ jobs:
           & (Join-Path $dir 'airlock.exe') version
           if ($LASTEXITCODE) { throw "airlock version failed" }
 
+  # Qodana Cloud analysis, failed by the quality gate of qodana.yaml. qodana.yml analyses main.
+  qodana:
+    # Pull requests from forks get no QODANA_TOKEN: skipped, which pr-ruleset accepts.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The pull request commit, not the merge commit.
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Pull request mode reports only the issues a pull request adds, against the base branch.
+          fetch-depth: 0
+
+      - name: Qodana Scan
+        uses: JetBrains/qodana-action@v2026.2
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
   # One required check for every job above, so adding a job only means adding it to `needs`.
   pr-ruleset:
-    needs: [test, lint, install]
+    needs: [test, lint, install, qodana]
     # Without !cancelled() a failed need skips this job, and a skipped check reports success.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest

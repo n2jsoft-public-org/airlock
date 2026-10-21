@@ -1,11 +1,9 @@
-# Qodana Cloud analysis. Informational only: it is not part of the `pr-ruleset` required check.
+# Qodana Cloud analysis of main, the baseline of pull requests. Pull requests run the `qodana` job
+# of ci.yml, part of the `pr-ruleset` required check.
 name: qodana
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
   push:
     branches:
       - main
@@ -25,9 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # The pull request commit, not the merge commit.
-          ref: ${{ github.event.pull_request.head.sha }}
-          # Pull request mode reports only the issues a pull request adds, against the base branch.
           fetch-depth: 0
 
       - name: Qodana Scan
