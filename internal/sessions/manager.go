@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -386,8 +387,33 @@ func (m *Manager) endLocked(e *entry, err error) {
 	e.cancel()
 	m.endSignInLocked(e)
 	m.changed(e)
+	m.pruneEndedLocked(e)
 	close(m.ended)
 	m.ended = make(chan struct{})
+}
+
+// maxEndedSessions is how many ended sessions the dashboards keep showing: a daemon running for
+// days would otherwise keep every session it ever ran.
+const maxEndedSessions = 20
+
+// pruneEndedLocked removes the ended sessions beyond the maxEndedSessions that ended last. The ones
+// waiting to reconnect stay, and so does last, the one just ended (it may be about to reconnect).
+func (m *Manager) pruneEndedLocked(last *entry) {
+	var ended []*entry
+	// Last opened first, so the stable sort keeps the newest of sessions ended at the same time.
+	for _, e := range slices.Backward(m.entries) {
+		if e != last && !e.info.Active() && !e.info.ReconnectPending() {
+			ended = append(ended, e)
+		}
+	}
+	keep := maxEndedSessions - 1 // and last
+	if len(ended) <= keep {
+		return
+	}
+	slices.SortStableFunc(ended, func(a, b *entry) int { return b.info.EndedAt.Compare(a.info.EndedAt) })
+	for _, e := range ended[keep:] {
+		m.removeLocked(e)
+	}
 }
 
 // TakeOver implements Service.
@@ -454,11 +480,16 @@ func (m *Manager) Remove(_ context.Context, id ID) error {
 	if e.info.Active() {
 		return i18n.NewError("sessions.manager.still_running_stop_first", e.info.Target)
 	}
+	m.removeLocked(e)
+	return nil
+}
+
+// removeLocked removes the ended session e and tells the subscribers.
+func (m *Manager) removeLocked(e *entry) {
 	m.stopReconnectingLocked(e)
 	index := m.indexLocked(e)
 	m.entries = append(m.entries[:index:index], m.entries[index+1:]...)
-	m.publish(&Event{Kind: EventRemoved, ID: id})
-	return nil
+	m.publish(&Event{Kind: EventRemoved, ID: e.info.ID})
 }
 
 // StopAll implements Service.

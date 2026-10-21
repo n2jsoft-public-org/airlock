@@ -78,7 +78,8 @@ func (p *awsProcess) Wait() error {
 	return p.cmd.Wait()
 }
 
-func (p *awsProcess) Terminate() { platform.TerminateGroup(p.cmd) }
+// Terminate returns at once: TerminateGroup waits for the group to stop, Wait reaps aws meanwhile.
+func (p *awsProcess) Terminate() { go platform.TerminateGroup(p.cmd) }
 
 func (p *awsProcess) read(reader io.Reader, output func(string)) {
 	defer p.readers.Done()

@@ -2127,8 +2127,9 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 	}
 
 	// Kill the entire process group when the context is cancelled.
-	done := make(chan struct{})
+	done, stopped := make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(stopped)
 		select {
 		case <-ctx.Done():
 			platform.TerminateGroup(cmd)
@@ -2138,6 +2139,8 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 
 	err := cmd.Wait()
 	close(done)
+	// A stopping group is gone, or killed, before airlock exits: it would keep the port otherwise.
+	<-stopped
 	// Stopped by ctx (a signal, see Run): the end the user asked for, as serveDirect.
 	if err != nil && ctx.Err() == nil {
 		return i18n.NewError("jumphost.runner.aws_failed", strings.Join(commandArgs, " "), err)

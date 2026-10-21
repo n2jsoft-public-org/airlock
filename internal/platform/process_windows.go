@@ -42,7 +42,9 @@ func StartInOwnGroup(cmd *exec.Cmd) {
 }
 
 // TerminateGroup stops the started cmd and the processes it spawned (session-manager-plugin for
-// aws). Windows has no termination signal for console processes, so the tree is ended forcibly.
+// aws). Windows has no termination signal for console processes, so the tree is ended forcibly:
+// there is nothing to escalate to, unlike Unix. taskkill /T finds the tree through parent PIDs, so
+// a session-manager-plugin whose aws already exited is out of reach (a job object would hold it).
 func TerminateGroup(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return

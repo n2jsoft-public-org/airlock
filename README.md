@@ -715,6 +715,8 @@ targets, or an object whose `profile` and `region` apply to the targets that giv
 - **One by one, in order.** The first target of an AWS profile signs it in, the next ones find the
   sign-in valid. A target whose session is already running (or waiting to reconnect) is reused; one
   an agent opened becomes the stack's, so the gateway no longer closes it when the agent goes idle.
+  A reused session keeps its local port: when the stack fixes another `port`, airlock warns and
+  leaves the session open; close it and run `airlock up` again to get that port.
   A target that fails does not stop the others: each line says what happened, and airlock waits for Enter before the
   dashboard when one failed.
 - **Production is confirmed.** `airlock up` and `airlock exec --stack` list the targets with their
@@ -760,7 +762,7 @@ on one of them switches to its session instead of opening a second one.
 | `m` | Switch the bottom panel between logs and MCP calls (sessions with an MCP server) |
 | `↑` `↓` · `pgup` `pgdn` | Scroll the logs; scrolling up pauses them |
 | `g` · `home` / `G` · `end` | Jump to the start of the logs / back to the live tail |
-| `x` | Stop the selected session, or close it once ended |
+| `x` | Stop the selected session, or close it once ended (the 20 sessions that ended last are kept, older ones go on their own) |
 | `r` | Restart the selected ended session: same target, local port and sign-in |
 | `c` | Copy the local address, the IAM token command, the reconnect command, the `KUBECONFIG` export or the last MCP call |
 | `a` | Choose the database credentials of the session, or check them again after a failure |

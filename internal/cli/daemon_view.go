@@ -152,6 +152,7 @@ func openInDaemon(cmd *cobra.Command, service sessions.Service, options *jumphos
 		return 0, err
 	}
 	if id := runningSessionOf(snapshot.Sessions, options); id != 0 {
+		cmd.PrintErr(otherPortWarning(sessionByID(snapshot.Sessions, id), options))
 		return id, nil
 	}
 	cmd.PrintErr(i18n.Format("cli.daemon_view.opening_in_airlock_daemon", options.ResourceType, options.Name))
@@ -178,6 +179,16 @@ func runningSessionOf(list []sessions.Session, options *jumphost.Options) sessio
 		}
 	}
 	return 0
+}
+
+// otherPortWarning warns that s, the running session reused for options, listens on another local
+// port than the one options fix; "" when options fix none or s listens on it. The session may be
+// the user's or another stack's: it is not closed for them.
+func otherPortWarning(s *sessions.Session, options *jumphost.Options) string {
+	if s == nil || options.LocalPortNumber <= 0 || s.NoTunnel() || s.LocalPort == options.LocalPortNumber {
+		return ""
+	}
+	return i18n.Format("cli.up.other_port", options.ResourceType+" "+options.Name, s.LocalPort, options.LocalPortNumber)
 }
 
 // effectiveProfile is the AWS profile an opening with profile uses: profile, else AWS_PROFILE,

@@ -1248,6 +1248,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.up.production_needs_terminal": "%d of these targets are in production: run in a terminal to confirm them\n",
 	"cli.up.mcp_writes":                "[MCP writes]",
 	"cli.up.running":                   "%s: already running\n",
+	"cli.up.other_port":                "%s: warning: the running session listens on localhost:%d, not on port %d: close it and run again to use that port\n",
 	"cli.up.opening":                   "Opening %s...\n",
 	"cli.up.failed":                    "  failed: %s\n",
 	"cli.up.target_failed":             "%s: %w",

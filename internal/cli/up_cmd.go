@@ -374,8 +374,10 @@ func openStack(ctx context.Context, out io.Writer, service sessions.Service, tar
 				continue
 			}
 			printTo(out, i18n.Format("cli.up.taken_over", label, s.OpenedBy))
+			printTo(out, otherPortWarning(s, options))
 		} else if id != 0 {
 			printTo(out, i18n.Format("cli.up.running", label))
+			printTo(out, otherPortWarning(sessionByID(snapshot.Sessions, id), options))
 		} else {
 			printTo(out, i18n.Format("cli.up.opening", label))
 			id, err = service.Open(ctx, sessions.OpenRequest{Options: *options, Interactive: interactive})

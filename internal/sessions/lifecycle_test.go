@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -301,5 +302,29 @@ func TestS3SessionRunsAtOnceAndStopsWithoutProcess(t *testing.T) {
 	}
 	if s := snapshotOf(t, m).Sessions[0]; s.State != sessions.StateEnded || !s.StopRequested {
 		t.Fatalf("session = %+v", s)
+	}
+}
+
+func TestEndedSessionsBeyondTheLimitAreRemovedOldestFirst(t *testing.T) {
+	m, runner, _ := newManager(t)
+	runner.Direct("running")
+	running := mustOpen(t, m, &jumphost.Options{ResourceType: "direct", Name: "running"})
+	var ended []sessions.ID
+	for idx := range sessions.MaxEndedSessions + 2 {
+		name := "db" + strconv.Itoa(idx)
+		runner.Direct(name)
+		id := mustOpen(t, m, &jumphost.Options{ResourceType: "direct", Name: name})
+		if err := m.Stop(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+		ended = append(ended, id)
+	}
+	var ids []sessions.ID
+	for _, s := range snapshotOf(t, m).Sessions {
+		ids = append(ids, s.ID)
+	}
+	want := append([]sessions.ID{running}, ended[2:]...)
+	if !slices.Equal(ids, want) {
+		t.Fatalf("sessions = %v, want the running one and the %d that ended last %v", ids, sessions.MaxEndedSessions, want)
 	}
 }

@@ -1248,6 +1248,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.up.production_needs_terminal": "%d de ces cibles sont en production : lancez dans un terminal pour les confirmer\n",
 	"cli.up.mcp_writes":                "[écritures MCP]",
 	"cli.up.running":                   "%s : déjà ouverte\n",
+	"cli.up.other_port":                "%s : attention : la session ouverte écoute sur localhost:%d, pas sur le port %d : fermez-la et relancez pour utiliser ce port\n",
 	"cli.up.opening":                   "Ouverture de %s...\n",
 	"cli.up.failed":                    "  échec : %s\n",
 	"cli.up.target_failed":             "%s : %w",

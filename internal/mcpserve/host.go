@@ -31,7 +31,9 @@ type Endpoint struct {
 
 type route struct {
 	handler http.Handler
-	token   string
+	// server is closed with the route: its sessions would wait for idleSessionTimeout otherwise.
+	server *mcp.Server
+	token  string
 }
 
 // Host serves the MCP servers of all sessions of this process on one localhost listener.
@@ -87,16 +89,29 @@ func (h *Host) Mount(slug string, server *mcp.Server) (Endpoint, error) {
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{SessionTimeout: idleSessionTimeout},
 	)
-	h.routes[slug] = route{handler: handler, token: token}
+	h.routes[slug] = route{handler: handler, server: server, token: token}
 	return Endpoint{URL: h.baseURL + routePrefix + slug, Token: token}, nil
 }
 
-// Unmount stops serving slug, and stops the listener when no route is left.
+// Unmount stops serving slug and closes the MCP sessions of its server, and stops the listener
+// when no route is left.
 func (h *Host) Unmount(slug string) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
+	server := h.routes[slug].server
 	delete(h.routes, slug)
+	err := h.stopIfIdleLocked()
+	h.mu.Unlock()
+
+	if server != nil {
+		for session := range server.Sessions() {
+			_ = session.Close() //nolint:errcheck // the client may be gone already.
+		}
+	}
+	return err
+}
+
+// stopIfIdleLocked stops the listener when no route is left.
+func (h *Host) stopIfIdleLocked() error {
 	if len(h.routes) > 0 || h.server == nil {
 		return nil
 	}

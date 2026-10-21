@@ -149,3 +149,43 @@ func TestHostStopsListeningAfterLastUnmount(t *testing.T) {
 		t.Fatal("listener must be closed after the last unmount")
 	}
 }
+
+func TestHostUnmountClosesTheSessionsOfTheRoute(t *testing.T) {
+	host := NewHost()
+	server := testServer()
+	endpoint, err := host.Mount("a", server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another route keeps the listener up: only the route's sessions must end.
+	mountTestServer(t, host, "b")
+	unmountOnCleanup(t, host, "b")
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	// Before 2026-07-28 the client sends no server/discover probe: its POST runs on a server session
+	// the SDK closes only after answering, which the count below could see.
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint:   endpoint.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: endpoint.Token}, Timeout: 10 * time.Second},
+	}, &mcp.ClientSessionOptions{ProtocolVersion: "2025-11-25"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }() //nolint:errcheck // the server closed it already.
+	count := func() int {
+		n := 0
+		for range server.Sessions() {
+			n++
+		}
+		return n
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("sessions before unmount = %d, want 1", n)
+	}
+
+	if err := host.Unmount("a"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 0 {
+		t.Fatalf("sessions after unmount = %d, want 0", n)
+	}
+}

@@ -286,3 +286,34 @@ func TestLoadStackFileResolvesSymbolicLinks(t *testing.T) {
 		t.Fatalf("path = %q, want %q", file.Path, want)
 	}
 }
+
+// A reused session keeps its port: up says so rather than close the user's session.
+func TestOpenStackWarnsWhenAReusedSessionRunsOnAnotherPort(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "")
+	search := runningSession(3, "default", "eu-west-3", "forward", "search.internal:443")
+	search.LocalPort = 9201
+	orders := runningSession(4, "default", "eu-west-3", "rds", "orders-db")
+	orders.LocalPort = 5432
+	service := &stackService{snapshot: sessions.Snapshot{Sessions: []sessions.Session{search, orders}}}
+	targets := []jumphost.Options{
+		{ResourceType: "forward", Name: "search.internal:443", LocalPortNumber: 9200},
+		{ResourceType: "rds", Name: "orders-db", LocalPortNumber: 5432},
+	}
+	var out bytes.Buffer
+	if _, _, err := openStack(t.Context(), &out, service, targets, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "forward search.internal:443: warning: the running session listens on localhost:9201, not on port 9200") {
+		t.Fatalf("output lacks the port warning:\n%s", out.String())
+	}
+	if strings.Count(out.String(), "warning") != 1 {
+		t.Fatalf("only the session on another port is warned about:\n%s", out.String())
+	}
+	direct := sessions.Session{ResourceType: "direct", State: sessions.StateRunning}
+	if got := otherPortWarning(&direct, &jumphost.Options{LocalPortNumber: 5432}); got != "" {
+		t.Fatalf("a direct session has no local port, warning %q", got)
+	}
+	if got := otherPortWarning(&search, &jumphost.Options{}); got != "" {
+		t.Fatalf("no port asked for, warning %q", got)
+	}
+}
