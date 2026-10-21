@@ -91,7 +91,7 @@ func (r *Runner) startMCP(ctx context.Context, options *Options, targetName stri
 			SkipRegistration:   options.SkipMCPRegistration,
 		})
 		if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
-			return nil, errors.New("set the tag of the read-only SQL Server secrets with `airlock config set readOnlySecretTag Key=Value` (or enable writes)")
+			return nil, errors.New("set the tag of the read-only SQL Server secrets with `airlock config set modules.sql.readOnlySecretTag Key=Value` (or enable writes)")
 		}
 		return handle, err
 	})

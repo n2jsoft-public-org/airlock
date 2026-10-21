@@ -266,7 +266,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.root.flag.region":               "Région AWS à utiliser (par défaut AWS_REGION, puis la région du profil)",
 	"cli.root.flag.no-ide-datasource":    "Ne pas enregistrer la connexion dans ./.idea/dataSources.xml",
 	"cli.root.flag.no-mcp":               "Ne pas servir de serveur MCP donnant aux assistants IA l'accès à la base, au cluster ou au cache",
-	"cli.root.flag.mcp-allow-writes":     "Laisser le serveur MCP modifier les données des bases et des caches (EKS reste en lecture seule)",
+	"cli.root.flag.mcp-allow-writes":     "Laisser le serveur MCP modifier les données des bases, des caches, des tables DynamoDB et des objets S3 (EKS et CloudWatch Logs restent en lecture seule)",
 	"cli.root.flag.db-user":              "Utilisateur de base ou de cache qui se connecte avec AWS IAM (RDS : par défaut l'utilisateur du moteur dans \"modules.sql.defaultDbUser\" du fichier de configuration)",
 	"cli.root.flag.db-secret":            "Secret Secrets Manager (ARN ou nom) contenant le mot de passe de la base ou du cache, en JSON ou en texte brut",
 	"cli.root.flag.jumphost-tag":         "Tag de l'instance jumphost SSM, en Clé=Valeur (config \"aws.jumphostTag\", par défaut Usage=jumphost)",
@@ -290,7 +290,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.update.flag.check": "Indiquer seulement si une version plus récente existe",
 	"cli.update.flag.force": "Installer la dernière version même si ce build est plus récent, divergent ou sans version",
 	// internal/cli/version_cmd.go
-	"cli.version.short": "Afficher la version d'airlock (date et hash court du commit)",
+	"cli.version.short": "Afficher la version d'airlock (le tag de la release, par ex. v1.2.0)",
 	// internal/cli/connection_test_cmd.go
 	"cli.connection_test.short": "Se connecter à une base directe et exécuter SELECT 1",
 	"cli.connection_test.long":  "Se connecte avec le mot de passe retenu dans le trousseau de l'OS, sinon le demande ; le mot de passe tapé n'est ni affiché ni enregistré.",

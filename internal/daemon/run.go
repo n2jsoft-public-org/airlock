@@ -109,8 +109,9 @@ func Run(ctx context.Context, cfg *RunConfig) error {
 		GatewayStatus: gateway.status,
 	})
 	go idle.watch(ctx, manager)
-	go func() { discard(server.Serve(listener)) }()
+	// Logged before serving: a client that reaches the daemon finds its log already there.
 	logf("daemon %s started (pid %d)", cfg.Version, os.Getpid())
+	go func() { discard(server.Serve(listener)) }()
 	if cfg.Gateway != nil {
 		started, err := cfg.Gateway(ctx, GatewayEnv{Manager: manager, Activity: idle.activity, Log: logf})
 		switch {

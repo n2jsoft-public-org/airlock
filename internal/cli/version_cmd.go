@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newVersionCmd prints the commit airlock was built from, as YYYYMMDD-<short sha>.
+// newVersionCmd prints the release airlock was built from, such as v1.2.0.
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",

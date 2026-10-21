@@ -173,7 +173,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.root.flag.region":               "AWS region to use (defaults to AWS_REGION, then the profile region)",
 	"cli.root.flag.no-ide-datasource":    "Do not register the connection in ./.idea/dataSources.xml",
 	"cli.root.flag.no-mcp":               "Do not serve an MCP server giving AI assistants access to the database, cluster or cache",
-	"cli.root.flag.mcp-allow-writes":     "Let the MCP server modify data of databases and caches (EKS stays read-only)",
+	"cli.root.flag.mcp-allow-writes":     "Let the MCP server modify data of databases, caches, DynamoDB tables and S3 objects (EKS and CloudWatch Logs stay read-only)",
 	"cli.root.flag.db-user":              "Database or cache user signing in with AWS IAM (RDS: defaults to the engine's user in \"modules.sql.defaultDbUser\" of the config file)",
 	"cli.root.flag.db-secret":            "Secrets Manager secret (ARN or name) holding the database or cache password, as JSON or plain text",
 	"cli.root.flag.jumphost-tag":         "Tag of the SSM jumphost instance, as Key=Value (config \"aws.jumphostTag\", default Usage=jumphost)",
@@ -290,7 +290,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.exec.cannot_start":      "could not run %s: %w",
 	"cli.exec.ready":             "airlock: %s ready on %s; running the command with %s\n",
 	// internal/cli/version_cmd.go
-	"cli.version.short": "Print the airlock version (commit date and short hash)",
+	"cli.version.short": "Print the airlock version (the release tag, e.g. v1.2.0)",
 	// internal/cli/connection_test_cmd.go
 	"cli.connection_test.short": "Sign in to a direct database and run SELECT 1",
 	"cli.connection_test.long":  "Signs in with the password remembered in the OS keychain, else asks it; the typed password is neither shown nor saved.",

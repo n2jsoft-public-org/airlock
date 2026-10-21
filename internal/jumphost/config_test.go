@@ -141,7 +141,7 @@ func TestStartMCPWithoutSecretTagExplainsConfig(t *testing.T) {
 	if handle != nil {
 		t.Fatal("no MCP server expected without a read-only secret tag")
 	}
-	if !strings.Contains(display, "`airlock config set readOnlySecretTag Key=Value`") {
+	if !strings.Contains(display, "`airlock config set modules.sql.readOnlySecretTag Key=Value`") {
 		t.Fatalf("display = %q, want the command setting the tag", display)
 	}
 }
