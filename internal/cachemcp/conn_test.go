@@ -76,7 +76,6 @@ func TestClientsPerDatabaseAndCredentialSwitch(t *testing.T) {
 
 func TestMapError(t *testing.T) {
 	cases := map[string]string{
-		"MOVED 3999 10.0.1.5:6379":                                     "another shard",
 		"NOPERM this user has no permissions to run the 'get' command": "refused by the cache user's ACL",
 		"NOAUTH Authentication required.":                              "rejected the credentials",
 	}

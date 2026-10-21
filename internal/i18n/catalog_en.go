@@ -1048,6 +1048,9 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"jumphost.cache.rbac_user_is_required":   "an RBAC user is required to sign in to %s with AWS IAM: pass --db-user",
 	"jumphost.cache.elasticache_user_groups": "failed to list the ElastiCache user groups: %w",
 	"jumphost.cache.elasticache_users":       "failed to list the ElastiCache users: %w",
+	// internal/jumphost/cache_nodes.go
+	"jumphost.cache.node_tunnel_failed": "failed to open the tunnel to cluster node %s: %w",
+	"jumphost.cache.node_tunnel_ended":  "the port forward ended before listening (%w): %s",
 	// internal/jumphost/direct.go
 	"jumphost.direct.direct_databases_are_not": "direct databases are not available",
 	// internal/jumphost/docker.go

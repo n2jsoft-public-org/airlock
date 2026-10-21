@@ -26,6 +26,8 @@ type SessionConfig struct {
 	Endpoint string
 	// Host is where LocalPort listens; empty is localhost (the tunnel of an ElastiCache session).
 	Host string
+	// Forward opens the tunnels to the nodes of a cluster-mode cache (see ConnConfig.Forward).
+	Forward Forward
 	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
 	ServerPrefix string
 	// LogDir receives the audit log of the tool calls; empty disables it.
@@ -34,8 +36,6 @@ type SessionConfig struct {
 	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
 	SkipRegistration bool
 	TLS              bool
-	// ClusterMode reports a cluster-mode-enabled replication group: one shard is reachable.
-	ClusterMode bool
 	// AllowWrites exposes the execute tool; the cache user's ACL still decides what is allowed.
 	AllowWrites bool
 }
@@ -66,8 +66,9 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	}
 	recorder := mcpserve.NewRecorder(cfg.LogDir)
 	c := &cache{
-		clients:     newClients(ConnConfig{Credentials: cfg.Credentials, ServerName: cfg.Endpoint, Host: cfg.Host, LocalPort: cfg.LocalPort, TLS: cfg.TLS}),
-		clusterMode: cfg.ClusterMode,
+		clients: newClients(ConnConfig{
+			Credentials: cfg.Credentials, ServerName: cfg.Endpoint, Host: cfg.Host, Forward: cfg.Forward, LocalPort: cfg.LocalPort, TLS: cfg.TLS,
+		}),
 	}
 	if cfg.OnRejected != nil {
 		var once sync.Once
@@ -75,10 +76,10 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 	}
 	server := NewServer(&ServerConfig{
 		Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region, Via: cfg.Via, Engine: engine,
-		AllowWrites: cfg.AllowWrites, ClusterMode: cfg.ClusterMode,
+		AllowWrites: cfg.AllowWrites,
 	}, c, recorder.Record)
 	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
-		Server: server, Recorder: recorder, Cleanup: c.clients.close,
+		Server: server, Recorder: recorder, Cleanup: c.clients.shutdown,
 		Name: name, ProjectDir: cfg.ProjectDir, AllowWrites: cfg.AllowWrites,
 		SkipRegistration: cfg.SkipRegistration,
 	})

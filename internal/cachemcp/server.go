@@ -24,7 +24,6 @@ type ServerConfig struct {
 	// Engine is redis or valkey.
 	Engine      string
 	AllowWrites bool
-	ClusterMode bool
 }
 
 // NewServer builds the MCP server of a cache; every call is passed to record.
@@ -140,14 +139,10 @@ func instructions(cfg *ServerConfig) string {
 	if via == "" {
 		via = fmt.Sprintf("(Amazon ElastiCache), reached through an airlock SSM tunnel. AWS profile %s, region %s.", cfg.Profile, cfg.Region)
 	}
-	text := fmt.Sprintf(
+	return fmt.Sprintf(
 		"%s cache %s %s %s "+
 			"Use info for the cache state, scan_keys to find keys (KEYS is never allowed), get_key to read a key of any type "+
 			"and command for other read commands.",
 		cfg.Engine, cfg.Target, via, access,
 	)
-	if cfg.ClusterMode {
-		text += " Cluster mode is enabled: only the shard reached through the tunnel is visible; keys of other shards answer MOVED."
-	}
-	return text
 }

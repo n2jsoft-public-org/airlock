@@ -887,8 +887,23 @@ The server signs in the way the cache asks, detected from the ElastiCache API:
 AWS IAM tokens are signed by airlock with your profile's credentials (it needs
 `elasticache:Connect` on the cache and the user; the wizard's suggestions also use
 `elasticache:DescribeUserGroups` and `elasticache:DescribeUsers`). TLS is used when the cache
-encrypts in transit, always for serverless caches. With cluster mode enabled, only the shard behind
-the tunnel is reachable: keys of other shards answer `MOVED`. Memcached sessions stay plain tunnels.
+encrypts in transit, always for serverless caches. Memcached sessions stay plain tunnels.
+
+**Cluster mode.** The server reads `INFO cluster` on first use; with `cluster_enabled:1` (cluster
+mode enabled, serverless caches) it switches to a cluster client. The nodes announce private
+addresses only the jumphost reaches, so airlock opens one more SSM port forward to each node the
+first time it is needed (`aws ssm start-session` through the same jumphost, on a free local port),
+and keeps it until the session ends. A serverless cache announces its own endpoint, served by the
+session's tunnel. Then:
+
+- `get_key`, `command` and `execute` go to the shard of the key; commands over keys of several
+  slots answer `CROSSSLOT`, and commands without key (`DBSIZE`, `SLOWLOG GET`…) run on one node;
+- `scan_keys` scans the primaries one after the other; its cursor reads `<shard>:<cursor>`;
+- `info` reads the sections of every primary, named `<node address> <section>`, and adds up their keys;
+- only database 0 exists.
+
+The read-only guard does not change: `CLUSTER`, `READONLY` and `ASKING` stay refused, airlock's
+client sends what cluster discovery needs.
 
 **DynamoDB tools**
 

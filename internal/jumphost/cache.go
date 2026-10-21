@@ -249,8 +249,10 @@ func cacheSignInApplies(target *ideTarget) bool {
 }
 
 // startCacheMCP serves the MCP server of a cache session and returns its display line: empty for
-// engines without server, "not started: …" on failure or without sign-in.
-func (r *Runner) startCacheMCP(ctx context.Context, options *Options, cacheName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *cachemcp.Handle, display string) {
+// engines without server, "not started: …" on failure or without sign-in. forward opens the
+// tunnels to the nodes of a cluster-mode cache.
+func (r *Runner) startCacheMCP(ctx context.Context, options *Options, cacheName string, localPort int, target *ideTarget, cfg awsConfig,
+	forward cachemcp.Forward, allowWrites bool) (handle *cachemcp.Handle, display string) {
 	if !CacheEngineSupported(target.Engine) {
 		return nil, ""
 	}
@@ -266,7 +268,7 @@ func (r *Runner) startCacheMCP(ctx context.Context, options *Options, cacheName 
 		Credentials: creds, OnRejected: r.forgetKeychainFunc(target.KeychainAccount, target.DBPassword),
 		ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region, Target: cacheName,
 		Engine: target.Engine, Endpoint: target.CacheEndpoint, ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
-		LocalPort: localPort, TLS: target.CacheTLS, ClusterMode: target.CacheClusterMode, AllowWrites: allowWrites,
+		LocalPort: localPort, TLS: target.CacheTLS, Forward: forward, AllowWrites: allowWrites,
 		SkipRegistration: options.SkipMCPRegistration,
 	})
 	if err != nil {

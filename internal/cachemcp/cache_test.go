@@ -90,18 +90,6 @@ func TestScanListsKeysWithTypeAndTTL(t *testing.T) {
 	}
 }
 
-func TestScanNotesClusterMode(t *testing.T) {
-	c, _ := testCache(t)
-	c.clusterMode = true
-	out, err := c.Scan(context.Background(), &scanInput{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.Note, "shard") {
-		t.Fatalf("note = %q", out.Note)
-	}
-}
-
 func TestGetReadsEveryType(t *testing.T) {
 	c, m := testCache(t)
 	seed(t, m.Set("s", "hello"))

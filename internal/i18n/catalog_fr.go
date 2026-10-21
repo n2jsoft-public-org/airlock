@@ -1048,6 +1048,9 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"jumphost.cache.rbac_user_is_required":   "un utilisateur RBAC est requis pour se connecter à %s avec AWS IAM : passez --db-user",
 	"jumphost.cache.elasticache_user_groups": "échec de la liste des groupes d'utilisateurs ElastiCache : %w",
 	"jumphost.cache.elasticache_users":       "échec de la liste des utilisateurs ElastiCache : %w",
+	// internal/jumphost/cache_nodes.go
+	"jumphost.cache.node_tunnel_failed": "impossible d'ouvrir le tunnel vers le nœud de cluster %s : %w",
+	"jumphost.cache.node_tunnel_ended":  "la redirection de port s'est arrêtée avant d'écouter (%w) : %s",
 	// internal/jumphost/direct.go
 	"jumphost.direct.direct_databases_are_not": "les bases directes ne sont pas disponibles",
 	// internal/jumphost/docker.go

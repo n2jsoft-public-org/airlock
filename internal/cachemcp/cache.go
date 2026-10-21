@@ -36,17 +36,18 @@ type infoInput struct {
 }
 
 type infoOutput struct {
+	// Sections are named "<primary address> <section>" in cluster mode, one set per primary.
 	Sections map[string]map[string]string `json:"sections"`
 	// Errors holds the sections the cache refused, with its answer.
 	Errors map[string]string `json:"errors,omitempty"`
-	// Keys is the number of keys of the database (DBSIZE).
+	// Keys is the number of keys of the database (DBSIZE), of every primary in cluster mode.
 	Keys int64 `json:"keys"`
 }
 
 type scanInput struct {
 	Pattern string `json:"pattern,omitempty" jsonschema:"glob pattern of the keys (default *)"`
 	Type    string `json:"type,omitempty" jsonschema:"only keys of this type: string, hash, list, set, zset or stream"`
-	Cursor  string `json:"cursor,omitempty" jsonschema:"cursor returned by a previous call, to continue the scan"`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"cursor returned by a previous call, to continue the scan (<shard>:<cursor> in cluster mode)"`
 	Limit   int    `json:"limit,omitempty" jsonschema:"about how many keys to return (default 100, max 1000)"`
 	DB      int    `json:"db,omitempty" jsonschema:"database index, 0 to 1023 (default 0)"`
 }
@@ -61,7 +62,6 @@ type keyInfo struct {
 type scanOutput struct {
 	// Cursor continues the scan; "0" when every key was visited.
 	Cursor string    `json:"cursor"`
-	Note   string    `json:"note,omitempty"`
 	Keys   []keyInfo `json:"keys"`
 }
 
@@ -107,16 +107,37 @@ type streamEntry struct {
 type cache struct {
 	clients *clients
 	// rejected is called when the cache refuses the credentials; nil when nothing is to be done.
-	rejected    func()
-	clusterMode bool
+	rejected func()
 }
 
-// client is the client of database db, refused out of 0..maxDB before any client is created.
-func (c *cache) client(db int) (*redis.Client, error) {
+// client is the client of database db, refused out of 0..maxDB before any client is created: in
+// cluster mode, the cluster client routing each key to its shard.
+func (c *cache) client(ctx context.Context, db int) (redis.UniversalClient, error) {
 	if db < 0 || db > maxDB {
 		return nil, fmt.Errorf("db must be between 0 and %d", maxDB)
 	}
-	return c.clients.get(db), nil
+	client, err := c.clients.open(ctx, db)
+	if err != nil {
+		return nil, c.fail(err)
+	}
+	return client, nil
+}
+
+// nodes are the primaries holding the keys of database db: the cache itself, or every primary of
+// a cluster, sorted by address. cluster reports cluster mode.
+func (c *cache) nodes(ctx context.Context, db int) (nodes []*redis.Client, cluster bool, err error) {
+	client, err := c.client(ctx, db)
+	if err != nil {
+		return nil, false, err
+	}
+	clusterClient, cluster := client.(*redis.ClusterClient)
+	if !cluster {
+		return []*redis.Client{c.clients.get(db)}, false, nil
+	}
+	if nodes, err = primaries(ctx, clusterClient); err != nil {
+		return nil, true, c.fail(err)
+	}
+	return nodes, true, nil
 }
 
 // fail maps err and reports refused credentials.
@@ -129,7 +150,7 @@ func (c *cache) fail(err error) error {
 }
 
 func (c *cache) Info(ctx context.Context, in *infoInput) (infoOutput, error) {
-	client, err := c.client(in.DB)
+	nodes, cluster, err := c.nodes(ctx, in.DB)
 	if err != nil {
 		return infoOutput{}, err
 	}
@@ -143,28 +164,34 @@ func (c *cache) Info(ctx context.Context, in *infoInput) (infoOutput, error) {
 		}
 	}
 	out := infoOutput{Sections: map[string]map[string]string{}}
-	// One section per INFO: Redis 6 accepts a single section argument.
-	for _, section := range sections {
-		text, infoErr := client.Info(ctx, section).Result()
-		if infoErr != nil {
-			if errors.Is(mapError(infoErr), ErrSignInRejected) {
-				return infoOutput{}, c.fail(infoErr)
-			}
-			if out.Errors == nil {
-				out.Errors = map[string]string{}
-			}
-			out.Errors[section] = infoErr.Error()
-			continue
+	for _, node := range nodes {
+		prefix := ""
+		if cluster {
+			prefix = node.Options().Addr + " "
 		}
-		for name, values := range parseInfo(text) {
-			out.Sections[name] = values
+		// One section per INFO: Redis 6 accepts a single section argument.
+		for _, section := range sections {
+			text, infoErr := node.Info(ctx, section).Result()
+			if infoErr != nil {
+				if errors.Is(mapError(infoErr), ErrSignInRejected) {
+					return infoOutput{}, c.fail(infoErr)
+				}
+				if out.Errors == nil {
+					out.Errors = map[string]string{}
+				}
+				out.Errors[prefix+section] = infoErr.Error()
+				continue
+			}
+			for name, values := range parseInfo(text) {
+				out.Sections[prefix+name] = values
+			}
 		}
+		keys, err := node.DBSize(ctx).Result()
+		if err != nil {
+			return infoOutput{}, c.fail(err)
+		}
+		out.Keys += keys
 	}
-	keys, err := client.DBSize(ctx).Result()
-	if err != nil {
-		return infoOutput{}, c.fail(err)
-	}
-	out.Keys = keys
 	return out, nil
 }
 
@@ -189,63 +216,93 @@ func parseInfo(text string) map[string]map[string]string {
 }
 
 func (c *cache) Scan(ctx context.Context, in *scanInput) (scanOutput, error) {
-	client, err := c.client(in.DB)
+	nodes, cluster, err := c.nodes(ctx, in.DB)
 	if err != nil {
 		return scanOutput{}, err
 	}
+	return c.scan(ctx, nodes, cluster, in)
+}
+
+// scan runs SCAN on nodes one after the other. In cluster mode the cursor is "<node>:<cursor>",
+// node being the index of a primary sorted by address.
+func (c *cache) scan(ctx context.Context, nodes []*redis.Client, cluster bool, in *scanInput) (scanOutput, error) {
 	limit := int64(clamp(in.Limit, defaultScanLimit, maxScanLimit))
 	pattern := strings.TrimSpace(in.Pattern)
 	if pattern == "" {
 		pattern = "*"
 	}
-	var cursor uint64
-	if in.Cursor != "" {
-		parsed, err := strconv.ParseUint(in.Cursor, 10, 64)
-		if err != nil {
-			return scanOutput{}, fmt.Errorf("invalid cursor %q: pass the cursor a previous scan_keys returned", in.Cursor)
-		}
-		cursor = parsed
+	node, cursor, err := parseCursor(in.Cursor, cluster)
+	if err != nil {
+		return scanOutput{}, err
 	}
 
-	var keys []string
-	for round := 0; round < scanRounds && int64(len(keys)) < limit; round++ {
+	keysOf := make([][]string, len(nodes))
+	found := int64(0)
+	for round := 0; round < scanRounds && found < limit && node < len(nodes); round++ {
 		var batch []string
-		var err error
 		if in.Type != "" {
-			batch, cursor, err = client.ScanType(ctx, cursor, pattern, limit, in.Type).Result()
+			batch, cursor, err = nodes[node].ScanType(ctx, cursor, pattern, limit, in.Type).Result()
 		} else {
-			batch, cursor, err = client.Scan(ctx, cursor, pattern, limit).Result()
+			batch, cursor, err = nodes[node].Scan(ctx, cursor, pattern, limit).Result()
 		}
 		if err != nil {
 			return scanOutput{}, c.fail(err)
 		}
-		keys = append(keys, batch...)
+		keysOf[node] = append(keysOf[node], batch...)
+		found += int64(len(batch))
 		if cursor == 0 {
-			break
+			node++
 		}
 	}
 
-	out := scanOutput{Cursor: strconv.FormatUint(cursor, 10), Keys: make([]keyInfo, 0, len(keys))}
-	if c.clusterMode {
-		out.Note = "cluster mode: only the keys of the shard reached through the tunnel are scanned"
+	out := scanOutput{Cursor: "0", Keys: make([]keyInfo, 0, found)}
+	switch {
+	case node >= len(nodes):
+	case cluster:
+		out.Cursor = strconv.Itoa(node) + ":" + strconv.FormatUint(cursor, 10)
+	default:
+		out.Cursor = strconv.FormatUint(cursor, 10)
 	}
-	if len(keys) == 0 {
-		return out, nil
-	}
-	pipe := client.Pipeline()
-	types := make([]*redis.StatusCmd, len(keys))
-	ttls := make([]*redis.DurationCmd, len(keys))
-	for idx, key := range keys {
-		types[idx] = pipe.Type(ctx, key)
-		ttls[idx] = pipe.TTL(ctx, key)
-	}
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		return scanOutput{}, c.fail(err)
-	}
-	for idx, key := range keys {
-		out.Keys = append(out.Keys, keyInfo{Key: key, Type: types[idx].Val(), TTL: ttlSeconds(ttls[idx].Val())})
+	for n, keys := range keysOf {
+		if len(keys) == 0 {
+			continue
+		}
+		// The node that returned the keys holds them.
+		pipe := nodes[n].Pipeline()
+		types := make([]*redis.StatusCmd, len(keys))
+		ttls := make([]*redis.DurationCmd, len(keys))
+		for idx, key := range keys {
+			types[idx] = pipe.Type(ctx, key)
+			ttls[idx] = pipe.TTL(ctx, key)
+		}
+		if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+			return scanOutput{}, c.fail(err)
+		}
+		for idx, key := range keys {
+			out.Keys = append(out.Keys, keyInfo{Key: key, Type: types[idx].Val(), TTL: ttlSeconds(ttls[idx].Val())})
+		}
 	}
 	return out, nil
+}
+
+// parseCursor reads a scan_keys cursor: "<node>:<cursor>" in cluster mode, a SCAN cursor otherwise;
+// empty and "0" start the scan.
+func parseCursor(text string, cluster bool) (node int, cursor uint64, err error) {
+	invalid := fmt.Errorf("invalid cursor %q: pass the cursor a previous scan_keys returned", text)
+	if text == "" || text == "0" {
+		return 0, 0, nil
+	}
+	if cluster {
+		nodeText, cursorText, found := strings.Cut(text, ":")
+		if node, err = strconv.Atoi(nodeText); !found || err != nil || node < 0 {
+			return 0, 0, invalid
+		}
+		text = cursorText
+	}
+	if cursor, err = strconv.ParseUint(text, 10, 64); err != nil {
+		return 0, 0, invalid
+	}
+	return node, cursor, nil
 }
 
 // ttlSeconds converts a go-redis TTL: -1 (no expiry) and -2 (no key) come back as is.
@@ -260,7 +317,7 @@ func (c *cache) Get(ctx context.Context, in *getKeyInput) (keyValue, error) {
 	if in.Key == "" {
 		return keyValue{}, errors.New("key is required")
 	}
-	client, err := c.client(in.DB)
+	client, err := c.client(ctx, in.DB)
 	if err != nil {
 		return keyValue{}, err
 	}
@@ -305,7 +362,7 @@ func (c *cache) Get(ctx context.Context, in *getKeyInput) (keyValue, error) {
 	return out, nil
 }
 
-func (c *cache) readString(ctx context.Context, client *redis.Client, out *keyValue) error {
+func (c *cache) readString(ctx context.Context, client redis.Cmdable, out *keyValue) error {
 	length, err := client.StrLen(ctx, out.Key).Result()
 	if err != nil {
 		return err
@@ -318,7 +375,7 @@ func (c *cache) readString(ctx context.Context, client *redis.Client, out *keyVa
 	return nil
 }
 
-func (c *cache) readHash(ctx context.Context, client *redis.Client, out *keyValue, limit int) error {
+func (c *cache) readHash(ctx context.Context, client redis.Cmdable, out *keyValue, limit int) error {
 	length, err := client.HLen(ctx, out.Key).Result()
 	if err != nil {
 		return err
@@ -349,7 +406,7 @@ func (c *cache) readHash(ctx context.Context, client *redis.Client, out *keyValu
 	return nil
 }
 
-func (c *cache) readList(ctx context.Context, client *redis.Client, out *keyValue, limit int) error {
+func (c *cache) readList(ctx context.Context, client redis.Cmdable, out *keyValue, limit int) error {
 	length, err := client.LLen(ctx, out.Key).Result()
 	if err != nil {
 		return err
@@ -363,7 +420,7 @@ func (c *cache) readList(ctx context.Context, client *redis.Client, out *keyValu
 	return nil
 }
 
-func (c *cache) readSet(ctx context.Context, client *redis.Client, out *keyValue, limit int) error {
+func (c *cache) readSet(ctx context.Context, client redis.Cmdable, out *keyValue, limit int) error {
 	length, err := client.SCard(ctx, out.Key).Result()
 	if err != nil {
 		return err
@@ -397,7 +454,7 @@ func (c *cache) readSet(ctx context.Context, client *redis.Client, out *keyValue
 	return nil
 }
 
-func (c *cache) readSortedSet(ctx context.Context, client *redis.Client, out *keyValue, limit int) error {
+func (c *cache) readSortedSet(ctx context.Context, client redis.Cmdable, out *keyValue, limit int) error {
 	length, err := client.ZCard(ctx, out.Key).Result()
 	if err != nil {
 		return err
@@ -422,7 +479,7 @@ func (c *cache) readSortedSet(ctx context.Context, client *redis.Client, out *ke
 	return nil
 }
 
-func (c *cache) readStream(ctx context.Context, client *redis.Client, out *keyValue, limit int) error {
+func (c *cache) readStream(ctx context.Context, client redis.Cmdable, out *keyValue, limit int) error {
 	length, err := client.XLen(ctx, out.Key).Result()
 	if err != nil {
 		return err
@@ -464,7 +521,7 @@ func (c *cache) Command(ctx context.Context, in *commandInput, write bool) (comm
 	if err := check(in.Args); err != nil {
 		return commandOutput{}, 0, err
 	}
-	client, err := c.client(in.DB)
+	client, err := c.client(ctx, in.DB)
 	if err != nil {
 		return commandOutput{}, 0, err
 	}

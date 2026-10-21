@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -344,11 +345,9 @@ type ideTarget struct {
 	// IAM tokens are signed for; empty otherwise.
 	CacheReplicationGroup string
 	RDSPort               int
-	// CacheTLS reports in-transit encryption; CacheServerless a serverless cache; CacheClusterMode a
-	// cluster-mode-enabled replication group, whose other shards the tunnel cannot reach.
-	CacheTLS         bool
-	CacheServerless  bool
-	CacheClusterMode bool
+	// CacheTLS reports in-transit encryption; CacheServerless a serverless cache.
+	CacheTLS        bool
+	CacheServerless bool
 	// IAMAuth reports whether the session signs in with AWS IAM: the instance accepts it (not SQL
 	// Server) and the user did not choose a password instead.
 	IAMAuth bool
@@ -591,7 +590,8 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		r.attachMCP(session, handle, display)
 	}
 	if resourceType == resourceElastiCache && !options.SkipMCP {
-		handle, display := r.startCacheMCP(ctx, &options, resolvedTargetName, session.LocalPort, &target, cfg, options.MCPAllowWrites)
+		forward := r.cacheNodeForward(jumphostID, cfg.Args, label, net.JoinHostPort(host, strings.TrimSpace(remotePort)), session.LocalPort)
+		handle, display := r.startCacheMCP(ctx, &options, resolvedTargetName, session.LocalPort, &target, cfg, forward, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
 	if (resourceType == resourceRDS && signInApplies(&target, options.MCPAllowWrites)) ||
@@ -1564,10 +1564,9 @@ func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options 
 		groupID := aws.ToString(group.ReplicationGroupId)
 		if address, port := groupEndpoint(group); address != "" {
 			return r.prepareCacheTarget(ctx, cfg, options, groupID, address, port, &ideTarget{
-				Engine:           elastiCacheEngine(aws.ToString(group.Engine)),
-				CacheAuth:        cacheAuthMode(aws.ToBool(group.AuthTokenEnabled), group.UserGroupIds),
-				CacheTLS:         aws.ToBool(group.TransitEncryptionEnabled),
-				CacheClusterMode: aws.ToBool(group.ClusterEnabled),
+				Engine:    elastiCacheEngine(aws.ToString(group.Engine)),
+				CacheAuth: cacheAuthMode(aws.ToBool(group.AuthTokenEnabled), group.UserGroupIds),
+				CacheTLS:  aws.ToBool(group.TransitEncryptionEnabled),
 			}, func(localPort int) string {
 				return fmt.Sprintf("ElastiCache %s %s:%d -> localhost:%d", groupID, address, port, localPort)
 			})
