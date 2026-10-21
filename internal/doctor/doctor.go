@@ -2,11 +2,6 @@
 // in, writes a file nor starts a process that stays.
 package doctor
 
-import (
-	"io"
-	"strings"
-)
-
 // Status is the outcome of a check.
 type Status string
 
@@ -47,20 +42,4 @@ func Failed(results []Result) bool {
 		}
 	}
 	return false
-}
-
-var marks = map[Status]string{OK: "✓", Warning: "!", Failure: "✗"}
-
-// Write prints one line per result, with its fix indented under it.
-func Write(w io.Writer, results []Result) error {
-	var b strings.Builder
-	for i := range results {
-		r := &results[i]
-		b.WriteString(marks[r.Status] + " " + r.Message + "\n")
-		if r.Fix != "" {
-			b.WriteString("    " + r.Fix + "\n")
-		}
-	}
-	_, err := io.WriteString(w, b.String())
-	return err
 }

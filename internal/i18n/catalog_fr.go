@@ -184,6 +184,11 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.doctor.profiles_unreadable": "les profils AWS ne peuvent pas être lus : %v",
 	"cli.doctor.profiles_none":       "aucun profil AWS dans ~/.aws/config ni ~/.aws/credentials",
 	"cli.doctor.profiles_fix":        "configurez un profil, par exemple aws configure sso, ou passez --profile",
+	"cli.doctor.section.install":     "Installation",
+	"cli.doctor.section.config":      "Configuration",
+	"cli.doctor.section.aws":         "Profils AWS",
+	"cli.doctor.section.daemon":      "Daemon et passerelle MCP",
+	"cli.doctor.section.keychain":    "Trousseau du système",
 
 	// internal/doctor
 	"doctor.version.ok":                 "airlock %s",

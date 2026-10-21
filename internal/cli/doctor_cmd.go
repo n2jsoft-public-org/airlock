@@ -21,6 +21,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/n2jsoft/airlock/internal/orgconfig"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
+	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/n2jsoft/airlock/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -41,15 +42,22 @@ func newDoctorCmd() *cobra.Command {
 		Long:  i18n.T("cli.doctor.long"),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			results := runDoctor(cmd.Context(), profile, region)
+			sections := doctorSections(cmd.Context(), profile, region)
+			var results []doctor.Result
 			if asJSON {
+				results = ui.CheckDoctor(sections)
 				data, err := json.MarshalIndent(results, "", "  ")
 				if err != nil {
 					return err
 				}
 				outf(cmd, "%s\n", string(data))
-			} else if err := doctor.Write(cmd.OutOrStdout(), results); err != nil {
-				return err
+			} else {
+				var err error
+				if results, err = ui.ShowDoctor(sections, cmd.InOrStdin(), cmd.OutOrStdout()); errors.Is(err, ui.ErrDoctorCanceled) {
+					return &ExitCodeError{Code: 130}
+				} else if err != nil {
+					return err
+				}
 			}
 			if doctor.Failed(results) {
 				return &ExitCodeError{Code: 1}
@@ -63,15 +71,10 @@ func newDoctorCmd() *cobra.Command {
 	return cmd
 }
 
-// runDoctor gathers what the checks need from config.json and the machine, then runs them.
-func runDoctor(ctx context.Context, profile, region string) []doctor.Result {
+// doctorSections gathers what the checks need from config.json and the machine, and groups the
+// checks in sections that run concurrently.
+func doctorSections(ctx context.Context, profile, region string) []ui.DoctorSection {
 	current := version.String()
-	// GitHub answers while the AWS checks run.
-	release := make(chan doctor.Result, 1)
-	go func() {
-		latest, checkErr := latestRelease(ctx, current)
-		release <- doctor.Version(current, latest, checkErr)
-	}()
 	self, err := os.Executable()
 	if err != nil {
 		self = os.Args[0]
@@ -87,14 +90,26 @@ func runDoctor(ctx context.Context, profile, region string) []doctor.Result {
 	settings, settingsErr := config.Settings(path, org.Org)
 	tunnels := slices.ContainsFunc(tunnelModules, func(m string) bool { return !slices.Contains(cfg.DisabledModules, m) })
 
-	results := []doctor.Result{doctor.OtherBinaries(self, os.Getenv("PATH"))}
-	results = append(results, doctor.TunnelTools(ctx, tunnels)...)
-	results = append(results, doctor.Config(path, errors.Join(pathErr, loadErr, settingsErr), deprecatedKeys(settings)))
-	results = append(results, doctor.Organization(org.Source, organizationProbe(ctx, env, &org, settings))...)
-	results = append(results, doctorProfiles(ctx, &cfg, profile, region, tunnels)...)
-	results = append(results, doctorDaemon(ctx, &cfg, current)...)
-	results = append(results, doctorKeychain(newKeychain, doctorProbeTimeout))
-	return append([]doctor.Result{<-release}, results...)
+	return []ui.DoctorSection{
+		{Title: i18n.T("cli.doctor.section.install"), Run: func() []doctor.Result {
+			latest, checkErr := latestRelease(ctx, current)
+			return append([]doctor.Result{doctor.Version(current, latest, checkErr), doctor.OtherBinaries(self, os.Getenv("PATH"))},
+				doctor.TunnelTools(ctx, tunnels)...)
+		}},
+		{Title: i18n.T("cli.doctor.section.config"), Run: func() []doctor.Result {
+			return append([]doctor.Result{doctor.Config(path, errors.Join(pathErr, loadErr, settingsErr), deprecatedKeys(settings))},
+				doctor.Organization(org.Source, organizationProbe(ctx, env, &org, settings))...)
+		}},
+		{Title: i18n.T("cli.doctor.section.aws"), Run: func() []doctor.Result {
+			return doctorProfiles(ctx, &cfg, profile, region, tunnels)
+		}},
+		{Title: i18n.T("cli.doctor.section.daemon"), Run: func() []doctor.Result {
+			return doctorDaemon(ctx, &cfg, current)
+		}},
+		{Title: i18n.T("cli.doctor.section.keychain"), Run: func() []doctor.Result {
+			return []doctor.Result{doctorKeychain(newKeychain, doctorProbeTimeout)}
+		}},
+	}
 }
 
 // doctorKeychain checks the keychain open returns, as not responding when it has not answered

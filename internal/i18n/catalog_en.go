@@ -217,6 +217,11 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.doctor.profiles_unreadable": "the AWS profiles cannot be read: %v",
 	"cli.doctor.profiles_none":       "no AWS profile in ~/.aws/config nor ~/.aws/credentials",
 	"cli.doctor.profiles_fix":        "set up a profile, e.g. aws configure sso, or pass --profile",
+	"cli.doctor.section.install":     "Installation",
+	"cli.doctor.section.config":      "Configuration",
+	"cli.doctor.section.aws":         "AWS profiles",
+	"cli.doctor.section.daemon":      "Daemon and MCP gateway",
+	"cli.doctor.section.keychain":    "OS keychain",
 
 	// internal/doctor
 	"doctor.version.ok":                 "airlock %s",

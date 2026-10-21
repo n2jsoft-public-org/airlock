@@ -11,16 +11,8 @@ import (
 	"testing"
 )
 
-func TestWritePrintsTheFixUnderEveryNonOkLine(t *testing.T) {
-	var b strings.Builder
+func TestFailedReportsAFailureOnly(t *testing.T) {
 	results := []Result{ok("a", "", "fine"), warning("b", "", "meh", "do x"), failure("c", "", "bad", "do y")}
-	if err := Write(&b, results); err != nil {
-		t.Fatal(err)
-	}
-	want := "✓ fine\n! meh\n    do x\n✗ bad\n    do y\n"
-	if b.String() != want {
-		t.Fatalf("Write = %q, want %q", b.String(), want)
-	}
 	if !Failed(results) || Failed(results[:2]) {
 		t.Fatal("Failed must report the failure only")
 	}
