@@ -317,6 +317,47 @@ func TestOpenSessionWritesOnARunningReadOnlySession(t *testing.T) {
 	}
 }
 
+// Writes the user turned on (a stack's mcpAllowWrites) are asked for before an agent reuses them.
+func TestOpenSessionWritesOnAUserSessionAreApproved(t *testing.T) {
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	id := openDirect(t, m, runner, "billing", dbmcp.NewServer(&dbmcp.ServerConfig{Name: "airlock-billing", Target: "billing"}, &fakeQuerier{}), true, "")
+	m.ViewsChanged(1)
+	_, events, err := m.Subscribe(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, audit := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll, AgentWrites: true}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
+	args := map[string]any{"type": "direct", "name": "billing", "writes": true}
+	for _, approve := range []bool{false, true} {
+		go func() {
+			ev := sessionstest.Wait(t, events, func(ev sessions.Event) bool { return ev.Kind == sessions.EventApprovalRequested })
+			if !ev.Approval.Writes {
+				t.Errorf("approval = %+v", ev.Approval)
+			}
+			if rerr := m.ResolveApproval(context.Background(), ev.Approval.ID, approve, nil); rerr != nil {
+				t.Error(rerr)
+			}
+		}()
+		text, isError := callTool(t, cs, "open_session", args)
+		if !approve {
+			if !isError || !strings.Contains(text, "denied") {
+				t.Fatalf("denied = %q", text)
+			}
+			continue
+		}
+		if reply := decodeText[openReply](t, text); isError || reply.Session != int(id) || !reply.Reused || !reply.Writes {
+			t.Fatalf("approved = %q", text)
+		}
+	}
+	if got := (*audit)[len(*audit)-1].Decision; got != "approved, reused" {
+		t.Fatalf("decision = %q", got)
+	}
+	if len(runner.PreparedOptions()) != 1 {
+		t.Fatalf("prepared = %+v, want the user's opening only", runner.PreparedOptions())
+	}
+}
+
 // F4: an approved opening failing before it opens releases the approving view at once.
 func TestOpenSessionApprovedThenRefusedReleasesTheView(t *testing.T) {
 	runner := sessionstest.NewRunner()

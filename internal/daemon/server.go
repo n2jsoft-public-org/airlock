@@ -143,6 +143,7 @@ func (s *Server) handleConn(conn net.Conn) {
 }
 
 type idParams struct {
+	Stack       string      `json:"stack,omitempty"`
 	ID          sessions.ID `json:"id"`
 	Index       int         `json:"index,omitempty"`
 	Interactive bool        `json:"interactive,omitempty"`
@@ -238,6 +239,8 @@ func (s *Server) handle(ctx context.Context, sc *serverConn, method string, para
 	switch method {
 	case "sessions.stop":
 		return nil, s.service.Stop(ctx, p.ID)
+	case "sessions.take-over":
+		return nil, s.service.TakeOver(ctx, p.ID, p.Stack)
 	case "sessions.remove":
 		return nil, s.service.Remove(ctx, p.ID)
 	case "signin.choose":

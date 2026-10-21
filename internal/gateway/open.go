@@ -84,31 +84,24 @@ func (t *toolset) openSession(ctx context.Context, req *mcp.CallToolRequest, in 
 		if in.Writes && !running.MCPWrites() {
 			return refuse("session %d runs %s read-only: close it (close_session, or ask the user) and open it again with writes", running.ID, tg.name)
 		}
-		audit.Decision = "reused"
+		reused := "reused"
+		// Writes the user (a stack's mcpAllowWrites) or another agent turned on are still asked for.
+		if in.Writes && running.OpenedBy != agent {
+			grant, reason := t.approve(ctx, agent, &in, &tg, &settings, audit)
+			releaseGrant(grant)
+			if reason != "" {
+				return refuse("%s", reason)
+			}
+			reused = audit.Decision + ", reused"
+		}
+		audit.Decision = reused
 		t.record(audit)
 		return jsonResult(openOutput{Session: int(running.ID), Reused: true, Writes: running.MCPWrites(), Tools: toolsOf(running), MCP: running.Details.MCP})
 	}
 
-	var grant sessions.Grant
-	switch decision := Decide(in.Writes, &settings, tg.env.Production, t.manager.Views()); decision.Verdict {
-	case Refuse:
-		return refuse("%s", decision.Reason)
-	case Prompt:
-		grant, err = t.manager.RequestApproval(ctx, sessions.Approval{
-			Agent: agent, Reason: in.Reason, Type: tg.typ, Target: tg.name, Profile: tg.profile, Region: tg.region,
-			Environment: tg.env.Name, Production: tg.env.Production, Writes: in.Writes,
-		})
-		switch {
-		case errors.Is(err, sessions.ErrNoView):
-			return refuse("%s", reasonNoView)
-		case errors.Is(err, sessions.ErrApprovalDenied), errors.Is(err, sessions.ErrApprovalExpired):
-			return refuse("%v", err)
-		case err != nil:
-			return refuse("the request was withdrawn: %v", err)
-		}
-		audit.Decision = "approved"
-	default:
-		audit.Decision = "auto"
+	grant, reason := t.approve(ctx, agent, &in, &tg, &settings, audit)
+	if reason != "" {
+		return refuse("%s", reason)
 	}
 
 	options, err := t.options(ctx, discovery, &tg, agent, in.Writes)
@@ -138,6 +131,36 @@ func (t *toolset) openSession(ctx context.Context, req *mcp.CallToolRequest, in 
 	}
 	t.record(audit)
 	return jsonResult(openOutput{Session: int(id), Writes: session.MCPWrites(), Tools: toolsOf(session), MCP: session.Details.MCP})
+}
+
+// approve decides the opening of tg by agent, asking a dashboard when the settings want it. It sets
+// the audit's decision and returns the grant to release once the opening is prepared, or why the
+// opening is refused.
+func (t *toolset) approve(ctx context.Context, agent string, in *openInput, tg *target, settings *Settings, audit *mcpserve.ToolEvent) (grant sessions.Grant, refusal string) {
+	decision := Decide(in.Writes, settings, tg.env.Production, t.manager.Views())
+	switch decision.Verdict {
+	case Refuse:
+		return sessions.Grant{}, decision.Reason
+	case Prompt:
+		var err error
+		grant, err = t.manager.RequestApproval(ctx, sessions.Approval{
+			Agent: agent, Reason: in.Reason, Type: tg.typ, Target: tg.name, Profile: tg.profile, Region: tg.region,
+			Environment: tg.env.Name, Production: tg.env.Production, Writes: in.Writes,
+		})
+		switch {
+		case errors.Is(err, sessions.ErrNoView):
+			return sessions.Grant{}, reasonNoView
+		case errors.Is(err, sessions.ErrApprovalDenied), errors.Is(err, sessions.ErrApprovalExpired):
+			return sessions.Grant{}, err.Error()
+		case err != nil:
+			return sessions.Grant{}, "the request was withdrawn: " + err.Error()
+		}
+		audit.Decision = "approved"
+		return grant, ""
+	default:
+		audit.Decision = "auto"
+		return sessions.Grant{}, ""
+	}
 }
 
 func releaseGrant(grant sessions.Grant) {

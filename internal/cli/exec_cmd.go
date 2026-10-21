@@ -18,6 +18,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/config"
 	"github.com/n2jsoft/airlock/internal/connections"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/jumphost"
 	"github.com/n2jsoft/airlock/internal/sessions"
@@ -97,7 +98,7 @@ func runExec(cmd *cobra.Command, args []string, options *jumphost.Options) error
 	if !slices.Contains(execResourceTypes, options.ResourceType) {
 		return i18n.NewError("cli.exec.unsupported_type", target[0])
 	}
-	return execWith(cmd, command, []jumphost.Options{*options}, func(*jumphost.Options) []string { return target })
+	return execWith(cmd, command, []jumphost.Options{*options}, nil, func(*jumphost.Options) []string { return target })
 }
 
 // runExecStack opens every target of a stack of the project's .airlock.json that a program
@@ -124,7 +125,7 @@ func runExecStack(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	targets := slices.DeleteFunc(stackOptions(list), func(options jumphost.Options) bool { //nolint:gocritic // a few targets.
-		skip := jumphost.APIOnly(options.ResourceType)
+		skip := !slices.Contains(execResourceTypes, options.ResourceType)
 		if skip {
 			cmd.PrintErr(i18n.Format("cli.exec.stack_skipped", options.ResourceType+" "+options.Name))
 		}
@@ -133,8 +134,16 @@ func runExecStack(cmd *cobra.Command, args []string) error {
 	if len(targets) == 0 {
 		return i18n.NewError("cli.exec.stack_no_tunnel", name)
 	}
+	// Like airlock up, the targets are listed first and production ones confirmed: without a
+	// terminal to confirm them, they are refused.
+	confirm := func(envs environment.Set, databases jumphost.DirectDatabases) error {
+		if !confirmStack(cmd, file.Path, name, targets, envs, databases, isInteractiveInput(cmd.InOrStdin())) {
+			return errors.New(i18n.T("cli.up.cancelled"))
+		}
+		return nil
+	}
 	// The stack's port and credentials are those the flags would give.
-	return execWith(cmd, args[dash:], targets, func(options *jumphost.Options) []string {
+	return execWith(cmd, args[dash:], targets, confirm, func(options *jumphost.Options) []string {
 		target := []string{options.ResourceType, options.Name}
 		if options.LocalPortNumber > 0 {
 			target = append(target, strconv.Itoa(options.LocalPortNumber))
@@ -145,8 +154,9 @@ func runExecStack(cmd *cobra.Command, args []string) error {
 
 // execWith opens targets one after the other without dashboard, MCP server nor IDE data source,
 // runs command with their connection settings in its environment, then closes them. args gives
-// the type, name and local port of a target, as typed before --.
-func execWith(cmd *cobra.Command, command []string, targets []jumphost.Options, args func(*jumphost.Options) []string) error {
+// the type, name and local port of a target, as typed before --. confirm, when set, may stop the
+// opening first.
+func execWith(cmd *cobra.Command, command []string, targets []jumphost.Options, confirm func(environment.Set, jumphost.DirectDatabases) error, args func(*jumphost.Options) []string) error {
 	cfg, sources, err := loadConfig(cmd)
 	if err != nil {
 		return err
@@ -154,6 +164,11 @@ func execWith(cmd *cobra.Command, command []string, targets []jumphost.Options, 
 	// Without a terminal nobody signs in nor types a password: the keychain or --db-secret must do.
 	interactive := isInteractiveInput(cmd.InOrStdin())
 	runner, runnerOptions := execRunner(cmd, &cfg, sources.org.Org)
+	if confirm != nil {
+		if refused := confirm(cfg.EnvironmentSet(), runnerOptions.Databases); refused != nil {
+			return refused
+		}
+	}
 
 	// Until the command runs, Ctrl+C and the like stop the opening and close what it started.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)

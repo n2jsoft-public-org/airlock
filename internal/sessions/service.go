@@ -22,6 +22,9 @@ type Service interface {
 	// Open prepares and starts a session; canceling ctx during the preparation releases it.
 	Open(ctx context.Context, req OpenRequest) (ID, error)
 	Stop(ctx context.Context, id ID) error
+	// TakeOver gives the session id, opened by an agent, to the user's stack: the gateway no
+	// longer closes it, airlock down closes it with the stack.
+	TakeOver(ctx context.Context, id ID, stack string) error
 	// Remove closes an ended session.
 	Remove(ctx context.Context, id ID) error
 	// Restart prepares an ended session again: same target, profile, region, port and sign-in.

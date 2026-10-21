@@ -146,9 +146,10 @@ func (m *Manager) failSignInLocked(e *entry, err error, prefix string) {
 }
 
 // savePrefsLocked remembers the sign-in options of e for its target; a failure is a notice. An
-// agent's session never changes the user's remembered choices.
+// agent's session, or a stack's (its file is the project's, not the user's), never changes the
+// user's remembered choices.
 func (m *Manager) savePrefsLocked(e *entry) {
-	if e.info.OpenedBy != "" {
+	if e.info.OpenedBy != "" || e.info.Options.Stack != "" {
 		return
 	}
 	options := restartOptions(e)

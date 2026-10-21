@@ -62,6 +62,10 @@ func (f *fakeService) Stop(_ context.Context, id sessions.ID) error {
 	f.record("stop " + itoa(id))
 	return nil
 }
+func (f *fakeService) TakeOver(_ context.Context, id sessions.ID, _ string) error {
+	f.record("take-over " + itoa(id))
+	return nil
+}
 func (f *fakeService) Remove(_ context.Context, id sessions.ID) error {
 	f.record("remove " + itoa(id))
 	return nil

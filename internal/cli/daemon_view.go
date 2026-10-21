@@ -158,11 +158,11 @@ func openInDaemon(cmd *cobra.Command, service sessions.Service, options *jumphos
 	return service.Open(cmd.Context(), sessions.OpenRequest{Options: *options, Interactive: interactive})
 }
 
-// runningSessionOf returns the running session of the target of options, 0 when none. It is that
-// target when its type and name match, and its profile: the one options gives, else AWS_PROFILE,
-// else default, as the runner resolves it. The region only counts when options gives it: the
-// daemon resolves a missing one from the profile's configuration. Direct and Docker sessions have
-// no profile. Names match in any case.
+// runningSessionOf returns the running session of the target of options, or the one waiting to
+// reconnect, 0 when none. It is that target when its type and name match, and its profile: the one
+// options gives, else AWS_PROFILE, else default, as the runner resolves it. The region only counts
+// when options gives it: the daemon resolves a missing one from the profile's configuration.
+// Direct and Docker sessions have no profile. Names match in any case.
 func runningSessionOf(list []sessions.Session, options *jumphost.Options) sessions.ID {
 	profile := effectiveProfile(options.AwsProfile)
 	resourceType := strings.TrimSpace(options.ResourceType)
@@ -171,7 +171,7 @@ func runningSessionOf(list []sessions.Session, options *jumphost.Options) sessio
 		s := &list[index]
 		// A Docker container named in a stack may hold a cache: its session is a docker-cache one.
 		sameType := strings.EqualFold(s.ResourceType, resourceType) || (resourceType == dockerResourceType && s.ResourceType == sessions.DockerCacheResourceType)
-		if s.Active() && sameType &&
+		if (s.Active() || s.ReconnectPending()) && sameType &&
 			strings.EqualFold(s.Target, strings.TrimSpace(options.Name)) && (s.Direct() || strings.EqualFold(s.Profile, profile)) &&
 			(region == "" || strings.EqualFold(s.Region, region)) {
 			return s.ID

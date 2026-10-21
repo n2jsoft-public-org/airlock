@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -119,6 +120,10 @@ func loadStackFile() (*projectstack.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The file's path names its stacks' sessions: up and down agree through a symbolic link too.
+	if resolved, linkErr := filepath.EvalSymlinks(dir); linkErr == nil {
+		dir = resolved
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "" // only the git root and the filesystem root stop the search.
@@ -166,7 +171,7 @@ func stackOptions(targets []projectstack.Target) []jumphost.Options {
 }
 
 // describeTarget is the line naming the target of options: type, name, profile and region when
-// given, local port when fixed.
+// given, local port when fixed, and MCP writes when the target turns them on.
 func describeTarget(options *jumphost.Options) string {
 	text := options.ResourceType + " " + options.Name
 	if where := options.AwsProfile + "/" + options.AwsRegion; where != "/" {
@@ -174,6 +179,9 @@ func describeTarget(options *jumphost.Options) string {
 	}
 	if options.LocalPortNumber > 0 {
 		text += " → localhost:" + strconv.Itoa(options.LocalPortNumber)
+	}
+	if options.MCPAllowWrites {
+		text += " " + i18n.T("cli.up.mcp_writes")
 	}
 	return text
 }
@@ -210,7 +218,7 @@ func runUp(cmd *cobra.Command, path, stack string, targets []jumphost.Options, d
 	if err != nil {
 		return err
 	}
-	if !confirmStack(cmd, path, stack, targets, cfg.EnvironmentSet(), env.shared.Databases) {
+	if !confirmStack(cmd, path, stack, targets, cfg.EnvironmentSet(), env.shared.Databases, true) {
 		return errors.New(i18n.T("cli.up.cancelled"))
 	}
 	// Until the dashboard runs, Ctrl+C and the like stop the openings.
@@ -302,8 +310,8 @@ func printAddresses(out io.Writer, list []sessions.Session, ids []sessions.ID) {
 }
 
 // confirmStack prints the targets of stack with their environment, and asks before opening
-// production ones.
-func confirmStack(cmd *cobra.Command, path, stack string, targets []jumphost.Options, envs environment.Set, databases jumphost.DirectDatabases) bool {
+// production ones; without interactive, a terminal to ask in, they are refused.
+func confirmStack(cmd *cobra.Command, path, stack string, targets []jumphost.Options, envs environment.Set, databases jumphost.DirectDatabases, interactive bool) bool {
 	cmd.PrintErr(i18n.Format("cli.up.plan", stack, path))
 	production := 0
 	for idx := range targets {
@@ -315,6 +323,10 @@ func confirmStack(cmd *cobra.Command, path, stack string, targets []jumphost.Opt
 			}
 		}
 		cmd.PrintErr("  " + line + "\n")
+	}
+	if production > 0 && !interactive {
+		cmd.PrintErr(i18n.Format("cli.up.production_needs_terminal", production))
+		return false
 	}
 	return production == 0 || confirm(cmd, i18n.Format("cli.up.confirm_production", production))
 }
@@ -354,7 +366,15 @@ func openStack(ctx context.Context, out io.Writer, service sessions.Service, tar
 		options := &targets[idx]
 		label := options.ResourceType + " " + options.Name
 		id := runningSessionOf(snapshot.Sessions, options)
-		if id != 0 {
+		if s := sessionByID(snapshot.Sessions, id); s != nil && s.OpenedBy != "" {
+			// Left to the agent, the gateway would close it when the agent goes idle.
+			if err = service.TakeOver(ctx, id, options.Stack); err != nil {
+				failures = append(failures, i18n.NewError("cli.up.target_failed", label, err))
+				printTo(out, i18n.Format("cli.up.failed", i18n.Localize(err)))
+				continue
+			}
+			printTo(out, i18n.Format("cli.up.taken_over", label, s.OpenedBy))
+		} else if id != 0 {
 			printTo(out, i18n.Format("cli.up.running", label))
 		} else {
 			printTo(out, i18n.Format("cli.up.opening", label))
@@ -390,7 +410,8 @@ func closeStack(ctx context.Context, out io.Writer, service sessions.Service, ke
 		closed := 0
 		for idx := range snapshot.Sessions {
 			s := &snapshot.Sessions[idx]
-			if !s.Active() || s.Options.Stack != key {
+			// A session waiting to reconnect would come back: it is stopped too.
+			if (!s.Active() && !s.ReconnectPending()) || s.Options.Stack != key {
 				continue
 			}
 			label := s.ResourceType + " " + s.Target
@@ -402,8 +423,16 @@ func closeStack(ctx context.Context, out io.Writer, service sessions.Service, ke
 			printTo(out, i18n.Format("cli.down.closed", label))
 		}
 		for idx := range targets {
-			if id := runningSessionOf(snapshot.Sessions, &targets[idx]); id != 0 && !ownedBy(snapshot.Sessions, id, key) {
-				printTo(out, i18n.Format("cli.down.kept", targets[idx].ResourceType+" "+targets[idx].Name))
+			s := sessionByID(snapshot.Sessions, runningSessionOf(snapshot.Sessions, &targets[idx]))
+			if s == nil || s.Options.Stack == key {
+				continue
+			}
+			label := targets[idx].ResourceType + " " + targets[idx].Name
+			if s.Options.Stack != "" {
+				// Another stack (another worktree, say) opened it: it stays for that one.
+				printTo(out, i18n.Format("cli.down.kept_stack", label, s.Options.Stack))
+			} else {
+				printTo(out, i18n.Format("cli.down.kept", label))
 			}
 		}
 		if closed == 0 && len(errs) == 0 {
@@ -427,14 +456,14 @@ func closeStack(ctx context.Context, out io.Writer, service sessions.Service, ke
 	return errors.Join(errs...)
 }
 
-// ownedBy reports whether the session id of list was opened by airlock up for the stack key.
-func ownedBy(list []sessions.Session, id sessions.ID, key string) bool {
+// sessionByID is the session id of list, nil when none.
+func sessionByID(list []sessions.Session, id sessions.ID) *sessions.Session {
 	for idx := range list {
 		if list[idx].ID == id {
-			return list[idx].Options.Stack == key
+			return &list[idx]
 		}
 	}
-	return false
+	return nil
 }
 
 // printTo writes text to out, the terminal: best effort.

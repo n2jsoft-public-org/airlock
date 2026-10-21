@@ -390,6 +390,21 @@ func (m *Manager) endLocked(e *entry, err error) {
 	m.ended = make(chan struct{})
 }
 
+// TakeOver implements Service.
+func (m *Manager) TakeOver(_ context.Context, id ID, stack string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.findLocked(id)
+	if e == nil {
+		return ErrUnknownSession
+	}
+	// A reconnection prepares e.options again: they change too.
+	e.info.OpenedBy, e.info.Options.OpenedBy, e.options.OpenedBy = "", "", ""
+	e.info.Options.Stack, e.options.Stack = stack, stack
+	m.changed(e)
+	return nil
+}
+
 // Stop implements Service.
 func (m *Manager) Stop(_ context.Context, id ID) error {
 	m.mu.Lock()

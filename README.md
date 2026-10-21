@@ -705,21 +705,26 @@ targets, or an object whose `profile` and `region` apply to the targets that giv
   password remembered in the keychain (open them once from the dashboard with "Remember in
   keychain").
 - **One by one, in order.** The first target of an AWS profile signs it in, the next ones find the
-  sign-in valid. A target whose session is already running is reused. A target that fails does
-  not stop the others: each line says what happened, and airlock waits for Enter before the
+  sign-in valid. A target whose session is already running (or waiting to reconnect) is reused; one
+  an agent opened becomes the stack's, so the gateway no longer closes it when the agent goes idle.
+  A target that fails does not stop the others: each line says what happened, and airlock waits for Enter before the
   dashboard when one failed.
-- **Production is confirmed.** `airlock up` lists the targets with their environment first, and
-  asks before opening production ones. It needs a terminal.
+- **Production is confirmed.** `airlock up` and `airlock exec --stack` list the targets with their
+  environment, and `[MCP writes]` when `mcpAllowWrites` turns them on, then ask before opening
+  production ones. `airlock up` needs a terminal; without one, `airlock exec --stack` refuses a
+  stack with production targets.
 - **`airlock up --detach`** (daemon mode) opens the targets in the daemon, starting it when
   needed, prints `<type> <name> → <address>` for each on stdout, and returns without the
   dashboard. A failed target makes it exit with status 1 once the others are open.
 - **`airlock down`** closes the daemon sessions `airlock up` opened for that stack of that file
-  (each session records it), even targets since removed from the file. A session of one of its
-  targets opened otherwise (by hand, by another stack, or reused by `up`) is kept and named;
+  (each session records it; a symbolic link to the directory gives the same file), even targets
+  since removed from the file and sessions waiting to reconnect. A session of one of its targets
+  opened otherwise (by hand, or by another stack, such as another worktree's, which is named) is
+  kept;
   `airlock down --all` closes every running session of the stack's targets, whoever opened them.
   In CLI mode the sessions belong to the dashboard of `airlock up`: quit it.
 - **`airlock exec --stack [stack] -- <command>`** opens every target of the stack that has a
-  tunnel or a direct address (`dynamodb`, `s3` and `logs` are skipped), runs the command and closes
+  tunnel or a direct address (`dynamodb`, `s3`, `logs` and `forward` are skipped), runs the command and closes
   them, as `airlock exec` does for one target. The variables of each target get the prefix of its
   name in upper case, characters other than letters and digits becoming `_` (`orders-db`:
   `ORDERS_DB_DATABASE_URL`, `ORDERS_DB_PGHOST`, `ORDERS_DB_AIRLOCK_PORT`); when two names give the
@@ -731,7 +736,8 @@ targets, or an object whose `profile` and `region` apply to the targets that giv
 
 The file comes from a repository: airlock reads it as untrusted input. It can only name targets you
 could already open with your own credentials and settings; nothing in it is run, written to an MCP
-client file or IDE file, or changes a setting.
+client file or IDE file, remembered as your sign-in choices, or changes a setting. Writes it turns on
+for agents are still approved in a dashboard each time an agent asks for them.
 
 ### Parallel sessions
 
@@ -1029,7 +1035,8 @@ An opening asked by an agent shows an **approval dialog** in every open dashboar
 deny, 2 minutes to answer); with no dashboard open it is refused at once. `agent.autoConnect` lets
 agents open without asking: `non-prod` (targets outside the production environment) or `all`. Agents
 never get writes unless `agent.writes` is `true`, not even on your own sessions opened with writes,
-and a write request is always approved in a dashboard. A session an agent opened carries `AGENT ·
+and a write request is always approved in a dashboard, also on a running session whose writes you,
+a stack or another agent turned on. A session an agent opened carries `AGENT ·
 <name>`, gets no IntelliJ data source nor entry of its own, signs in with the choices saved for that
 connection, and closes after `agent.idleTimeout` (`30m`) without a call through the gateway. An agent
 opening never signs in to AWS in the background: an expired SSO session is refused (or, when

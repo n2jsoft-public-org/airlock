@@ -180,7 +180,8 @@ func TestExecStackChecksItsArgumentsBeforeOpening(t *testing.T) {
 	if err := os.Mkdir(dir+"/.git", 0o750); err != nil {
 		t.Fatal(err)
 	}
-	data := `{"stacks":{"dev":[{"type":"dynamodb","name":"orders"}]}}`
+	// airlock exec opens neither an API-only target nor a forward.
+	data := `{"stacks":{"dev":[{"type":"dynamodb","name":"orders"},{"type":"forward","host":"h","remotePort":443}]}}`
 	if err := os.WriteFile(dir+"/.airlock.json", []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}

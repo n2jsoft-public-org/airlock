@@ -96,19 +96,24 @@ func TestSingleCandidateIsCheckedAndRememberedWhenDiscovered(t *testing.T) {
 	waitSaved(t, runner)
 }
 
-// M6: an agent's opening never changes the user's remembered choices.
-func TestAgentSignInIsNotRemembered(t *testing.T) {
-	checker := &fakeSignIn{candidates: []jumphost.SignInCandidate{{Label: "ro", User: "app_ro", Discovered: true}}}
-	m, runner, _ := newManager(t)
-	runner.Direct("billing").SignIn = checker
-	events := subscribe(t, m)
-	id := mustOpen(t, m, &jumphost.Options{Name: "billing", ResourceType: "direct", OpenedBy: "claude-code"})
-	sessionstest.Wait(t, events, signIn(id, sessions.SignInDone))
-	for range 20 {
-		sleep()
-	}
-	if saved := runner.SavedOptions(); len(saved) != 0 {
-		t.Fatalf("saved = %+v, want nothing saved for an agent session", saved)
+// M6: an agent's opening, or a stack's, never changes the user's remembered choices.
+func TestAgentAndStackSignInsAreNotRemembered(t *testing.T) {
+	for _, options := range []jumphost.Options{
+		{Name: "billing", ResourceType: "direct", OpenedBy: "claude-code"},
+		{Name: "billing", ResourceType: "direct", Stack: "/repo/.airlock.json#dev", MCPAllowWrites: true},
+	} {
+		checker := &fakeSignIn{candidates: []jumphost.SignInCandidate{{Label: "ro", User: "app_ro", Discovered: true}}}
+		m, runner, _ := newManager(t)
+		runner.Direct("billing").SignIn = checker
+		events := subscribe(t, m)
+		id := mustOpen(t, m, &options)
+		sessionstest.Wait(t, events, signIn(id, sessions.SignInDone))
+		for range 20 {
+			sleep()
+		}
+		if saved := runner.SavedOptions(); len(saved) != 0 {
+			t.Fatalf("saved = %+v, want nothing saved for %+v", saved, options)
+		}
 	}
 }
 
@@ -286,4 +291,25 @@ func TestChoiceOfTheFirstSubscriberReachesTheSecond(t *testing.T) {
 		t.Fatalf("sign-in = %+v", done.Session.SignIn)
 	}
 	sessionstest.Wait(t, first, signIn(id, sessions.SignInDone))
+}
+
+// airlock up takes over an agent's session: the gateway no longer sees it as the agent's, and a
+// reconnection keeps it the stack's.
+func TestTakeOverGivesAnAgentSessionToTheStack(t *testing.T) {
+	m, runner, _ := newManager(t)
+	runner.Direct("billing")
+	id := mustOpen(t, m, &jumphost.Options{Name: "billing", ResourceType: "direct", OpenedBy: "claude-code"})
+	if err := m.TakeOver(t.Context(), id, "/repo/.airlock.json#dev"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := m.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := snapshot.Sessions[0]; s.OpenedBy != "" || s.Options.OpenedBy != "" || s.Options.Stack != "/repo/.airlock.json#dev" {
+		t.Fatalf("session = %+v", s)
+	}
+	if err := m.TakeOver(t.Context(), id+1, ""); !errors.Is(err, sessions.ErrUnknownSession) {
+		t.Fatalf("unknown session: %v", err)
+	}
 }

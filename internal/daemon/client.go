@@ -275,6 +275,10 @@ func (c *Client) Stop(ctx context.Context, id sessions.ID) error {
 	return c.peer.call(ctx, "sessions.stop", idParams{ID: id}, nil)
 }
 
+func (c *Client) TakeOver(ctx context.Context, id sessions.ID, stack string) error {
+	return c.peer.call(ctx, "sessions.take-over", idParams{ID: id, Stack: stack}, nil)
+}
+
 func (c *Client) Remove(ctx context.Context, id sessions.ID) error {
 	return c.peer.call(ctx, "sessions.remove", idParams{ID: id}, nil)
 }

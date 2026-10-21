@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/n2jsoft/airlock/internal/environment"
 	"github.com/n2jsoft/airlock/internal/jumphost"
@@ -23,6 +24,7 @@ type stackService struct {
 	fail     map[string]bool
 	opened   []jumphost.Options
 	stopped  []sessions.ID
+	taken    map[sessions.ID]string
 	snapshot sessions.Snapshot
 	nextID   sessions.ID
 }
@@ -36,6 +38,14 @@ func (s *stackService) Open(_ context.Context, req sessions.OpenRequest) (sessio
 	}
 	s.nextID++
 	return s.nextID, nil
+}
+
+func (s *stackService) TakeOver(_ context.Context, id sessions.ID, stack string) error {
+	if s.taken == nil {
+		s.taken = map[sessions.ID]string{}
+	}
+	s.taken[id] = stack
+	return nil
 }
 
 func (s *stackService) Stop(_ context.Context, id sessions.ID) error {
@@ -77,6 +87,25 @@ func TestOpenStackReusesRunningSessionsAndGoesOnAfterAFailure(t *testing.T) {
 	}
 }
 
+// An agent's session up reuses becomes the stack's: the gateway would close it under the user.
+func TestOpenStackTakesOverAnAgentSession(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "")
+	agents := runningSession(3, "default", "eu-west-3", "rds", "orders-db")
+	agents.OpenedBy = "claude-code"
+	service := &stackService{snapshot: sessions.Snapshot{Sessions: []sessions.Session{agents, runningSession(4, "default", "eu-west-3", "eks", "platform")}}}
+	targets := []jumphost.Options{{ResourceType: "rds", Name: "orders-db", Stack: "/repo/.airlock.json#dev"}, {ResourceType: "eks", Name: "platform", Stack: "/repo/.airlock.json#dev"}}
+	var out bytes.Buffer
+	if _, _, err := openStack(t.Context(), &out, service, targets, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(service.taken) != 1 || service.taken[3] != "/repo/.airlock.json#dev" {
+		t.Fatalf("taken = %v, want the agent's session only", service.taken)
+	}
+	if !strings.Contains(out.String(), "rds orders-db: already running, opened by claude-code") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
 func TestOpenStackFailsWhenNothingOpens(t *testing.T) {
 	service := &stackService{fail: map[string]bool{"a": true, "b": true}}
 	_, _, err := openStack(t.Context(), &bytes.Buffer{}, service, []jumphost.Options{{ResourceType: "rds", Name: "a"}, {ResourceType: "rds", Name: "b"}}, nil)
@@ -97,19 +126,23 @@ func TestCloseStackStopsOnlyTheSessionsUpOpenedForTheStack(t *testing.T) {
 		owned(runningSession(3, "default", "eu-west-3", "rds", "orders-db"), "/repo/.airlock.json#staging"),
 		owned(runningSession(4, "default", "eu-west-3", "rds", "dropped-from-file"), "/repo/.airlock.json#dev"),
 		owned(sessions.Session{ID: 5, ResourceType: "rds", Target: "ended", State: sessions.StateEnded}, "/repo/.airlock.json#dev"),
+		owned(sessions.Session{ID: 6, ResourceType: "rds", Target: "asleep", State: sessions.StateEnded, ReconnectAt: time.Now()}, "/repo/.airlock.json#dev"),
+		owned(runningSession(7, "default", "eu-west-3", "rds", "shared-db"), "/other/.airlock.json#dev"),
 	}}}
 	var out bytes.Buffer
 	err := closeStack(t.Context(), &out, service, "/repo/.airlock.json#dev", []jumphost.Options{
-		{ResourceType: "rds", Name: "orders-db"}, {ResourceType: "eks", Name: "platform"},
+		{ResourceType: "rds", Name: "orders-db"}, {ResourceType: "eks", Name: "platform"}, {ResourceType: "rds", Name: "shared-db"},
 	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(service.stopped, []sessions.ID{1, 4}) {
-		t.Fatalf("stopped = %v, want the dev sessions up opened", service.stopped)
+	if !slices.Equal(service.stopped, []sessions.ID{1, 4, 6}) {
+		t.Fatalf("stopped = %v, want the dev sessions up opened, also the one waiting to reconnect", service.stopped)
 	}
-	if !strings.Contains(out.String(), "eks platform: kept") {
-		t.Fatalf("output:\n%s", out.String())
+	for _, want := range []string{"eks platform: kept, airlock up did not open it", "rds shared-db: kept, airlock up opened it for /other/.airlock.json#dev"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
 	}
 
 	out.Reset()
@@ -136,18 +169,19 @@ func TestCloseStackWithAllStopsTheRunningSessionsOfTheStack(t *testing.T) {
 		runningSession(1, "default", "eu-west-3", "rds", "orders-db"),
 		runningSession(2, "default", "eu-west-3", "rds", "other-db"),
 		{ID: 3, ResourceType: sessions.DockerCacheResourceType, Target: "redis", State: sessions.StateRunning},
+		{ID: 4, ResourceType: "eks", Target: "platform", Profile: "default", State: sessions.StateEnded, Reconnecting: true},
 	}}}
 	var out bytes.Buffer
 	err := closeStack(t.Context(), &out, service, "", []jumphost.Options{
-		{ResourceType: "rds", Name: "orders-db"}, {ResourceType: "eks", Name: "platform"}, {ResourceType: "docker", Name: "redis"},
+		{ResourceType: "rds", Name: "orders-db"}, {ResourceType: "eks", Name: "platform"}, {ResourceType: "docker", Name: "redis"}, {ResourceType: "eks", Name: "other"},
 	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(service.stopped) != 2 || service.stopped[0] != 1 || service.stopped[1] != 3 {
+	if !slices.Equal(service.stopped, []sessions.ID{1, 4, 3}) {
 		t.Fatalf("stopped = %v", service.stopped)
 	}
-	if !strings.Contains(out.String(), "eks platform: not running") {
+	if !strings.Contains(out.String(), "eks other: not running") {
 		t.Fatalf("output:\n%s", out.String())
 	}
 }
@@ -158,13 +192,14 @@ func TestConfirmStackAsksOnlyForProduction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	interactive := true
 	ask := func(answer string, targets ...jumphost.Options) (bool, string) {
 		cmd := &cobra.Command{}
 		var out bytes.Buffer
 		cmd.SetIn(strings.NewReader(answer))
 		cmd.SetOut(&out)
 		cmd.SetErr(&out)
-		return confirmStack(cmd, ".airlock.json", "dev", targets, envs, nil), out.String()
+		return confirmStack(cmd, ".airlock.json", "dev", targets, envs, nil, interactive), out.String()
 	}
 	if ok, out := ask("", jumphost.Options{ResourceType: "rds", Name: "a", AwsProfile: "app-dev"}); !ok || strings.Contains(out, "[y/N]") || !strings.Contains(out, "rds a (app-dev/) [dev]") {
 		t.Fatalf("no production: %v\n%s", ok, out)
@@ -175,6 +210,14 @@ func TestConfirmStackAsksOnlyForProduction(t *testing.T) {
 	}
 	if ok, _ := ask("y\n", prod); !ok {
 		t.Fatal("production accepted")
+	}
+	// airlock exec --stack in a script: production is refused, it cannot be confirmed.
+	interactive = false
+	if ok, out := ask("y\n", prod); ok || strings.Contains(out, "[y/N]") || !strings.Contains(out, "run in a terminal to confirm") {
+		t.Fatalf("production without a terminal: %v\n%s", ok, out)
+	}
+	if ok, _ := ask("", jumphost.Options{ResourceType: "rds", Name: "a", AwsProfile: "app-dev"}); !ok {
+		t.Fatal("no production without a terminal")
 	}
 }
 
@@ -196,7 +239,7 @@ func TestStackOptionsAndList(t *testing.T) {
 	}
 	var out bytes.Buffer
 	printStacks(&out, file)
-	if want := "/repo/.airlock.json\ndev (default)\n  rds orders-db (p/r) → localhost:5432\nqa\n  forward h:443\n"; out.String() != want {
+	if want := "/repo/.airlock.json\ndev (default)\n  rds orders-db (p/r) → localhost:5432 [MCP writes]\nqa\n  forward h:443\n"; out.String() != want {
 		t.Fatalf("printStacks() =\n%s", out.String())
 	}
 }
@@ -214,5 +257,32 @@ func TestCompleteStacks(t *testing.T) {
 	got, _ := completeStacks(nil, nil, "")
 	if strings.Join(got, ",") != "dev\tdefault,qa" {
 		t.Fatalf("completeStacks() = %q", got)
+	}
+}
+
+// up and down name the stack's sessions by the file's path: a symbolic link gives the same one.
+func TestLoadStackFileResolvesSymbolicLinks(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(dir, "repo")
+	if err = os.MkdirAll(filepath.Join(repo, ".git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(repo, projectstack.FileName), []byte(`{"stacks":{"dev":[{"type":"eks","name":"a"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err = os.Symlink(repo, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(link)
+	file, err := loadStackFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(repo, projectstack.FileName); file.Path != want {
+		t.Fatalf("path = %q, want %q", file.Path, want)
 	}
 }
