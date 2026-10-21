@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	// tunnelListening is the line session-manager-plugin prints once the local port listens.
-	tunnelListening = "Waiting for connections"
 	// standaloneTailLines is how much of the tunnel output explains a tunnel that ended early.
 	standaloneTailLines = 20
 	// standaloneStopTimeout bounds the wait for a terminated tunnel to exit.
@@ -35,7 +33,7 @@ type Standalone struct {
 // timeout for it to listen and for the database sign-in to work. Nobody can choose between several
 // credentials: they fail. Any failure stops the tunnel and releases the session.
 func OpenStandalone(ctx context.Context, runner Runner, launch Launcher, options *jumphost.Options, timeout time.Duration) (_ *Standalone, err error) {
-	session, err := runner.Prepare(ctx, *options)
+	session, err := runner.Prepare(jumphost.WithLauncher(ctx, launch), *options)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +79,7 @@ func (s *Standalone) startTunnel(ctx context.Context, launch Launcher) error {
 			tail = tail[1:]
 		}
 		mu.Unlock()
-		if strings.Contains(line, tunnelListening) {
+		if strings.Contains(line, jumphost.TunnelListening) {
 			once.Do(func() { close(listening) })
 		}
 	})

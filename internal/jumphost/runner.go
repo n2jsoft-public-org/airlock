@@ -406,21 +406,19 @@ func NewRunner(opts *RunnerOptions) *Runner {
 	return runner
 }
 
-// Run prepares a single session and streams it in the current terminal until it ends.
+// Run prepares a single session and streams it in the current terminal until it ends or a signal
+// stops airlock: aws runs in a process group of its own, which no signal of the terminal reaches.
 func (r *Runner) Run(ctx context.Context, options *Options) error {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
 	session, err := r.Prepare(ctx, *options)
 	if err != nil {
 		return err
 	}
-	release := func() {
+	defer func() {
 		if msg := session.Release(); msg != "" {
 			fprintf(r.out, "%s\n", msg)
 		}
-	}
-	stopHangupWatch := RunOnHangup(release)
-	defer func() {
-		stopHangupWatch()
-		release()
 	}()
 
 	if session.ResourceType == resourceDirect || session.ResourceType == resourceDocker || session.ResourceType == resourceDockerCache || APIOnly(session.ResourceType) {
@@ -590,7 +588,7 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		r.attachMCP(session, handle, display)
 	}
 	if resourceType == resourceElastiCache && !options.SkipMCP {
-		forward := r.cacheNodeForward(jumphostID, cfg.Args, label, net.JoinHostPort(host, strings.TrimSpace(remotePort)), session.LocalPort)
+		forward := r.cacheNodeForward(launcherFrom(ctx), jumphostID, cfg.Args, label, net.JoinHostPort(host, strings.TrimSpace(remotePort)), session.LocalPort)
 		handle, display := r.startCacheMCP(ctx, &options, resolvedTargetName, session.LocalPort, &target, cfg, forward, options.MCPAllowWrites)
 		r.attachMCP(session, handle, display)
 	}
@@ -2133,7 +2131,8 @@ func (r *Runner) runAWSStreaming(ctx context.Context, awsArgs []string, commandA
 
 	err := cmd.Wait()
 	close(done)
-	if err != nil {
+	// Stopped by ctx (a signal, see Run): the end the user asked for, as serveDirect.
+	if err != nil && ctx.Err() == nil {
 		return i18n.NewError("jumphost.runner.aws_failed", strings.Join(commandArgs, " "), err)
 	}
 

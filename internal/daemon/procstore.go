@@ -64,7 +64,8 @@ func (s *procStore) remove(pid int) error {
 	return s.write(slices.DeleteFunc(pids, func(p int) bool { return p == pid }))
 }
 
-// killLeftovers stops the recorded processes that still run aws (only its PID is recorded): a
+// killLeftovers stops the process groups of the recorded aws processes (only their PIDs are
+// recorded): those still running aws, and those whose aws ended but not session-manager-plugin. A
 // PID reused by another program is left alone. It empties the record and returns how many it stopped.
 func (s *procStore) killLeftovers() int {
 	s.mu.Lock()
@@ -74,10 +75,10 @@ func (s *procStore) killLeftovers() int {
 	killed := 0
 	for _, pid := range pids {
 		name, err := platform.ProcessName(pid)
-		if err != nil {
+		if err != nil && !platform.GroupAlive(pid) {
 			continue
 		}
-		if name = strings.ToLower(name); name != "aws" && name != "aws.exe" { // not aws-vault and the like.
+		if name = strings.ToLower(name); err == nil && name != "aws" && name != "aws.exe" { // not aws-vault and the like.
 			continue
 		}
 		if platform.TerminatePID(pid) == nil {

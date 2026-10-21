@@ -32,6 +32,9 @@ func ProcessAlive(pid int) bool {
 	return code == stillActive
 }
 
+// GroupAlive is false on Windows: a process tree is reached only through its live root.
+func GroupAlive(int) bool { return false }
+
 // StartInOwnGroup makes cmd start in a process group of its own, so the console's Ctrl+C reaches
 // airlock only and TerminateGroup decides when cmd stops.
 func StartInOwnGroup(cmd *exec.Cmd) {

@@ -6,32 +6,45 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
 
-// fakeForward maps announced node addresses to local ones, counting the tunnels opened and stopped.
+// fakeForward maps announced node addresses to local ones, counting the tunnels opened and stopped
+// and the failed attempts; end ends the last tunnel opened.
 type fakeForward struct {
 	locals  map[string]string
 	fail    error
+	end     chan struct{}
 	opened  int
 	stopped int
+	failed  int
 	mu      sync.Mutex
 }
 
-func (f *fakeForward) forward(_ context.Context, addr string) (local string, stop func(), err error) {
+func (f *fakeForward) forward(_ context.Context, addr string) (local string, stop func(), done <-chan struct{}, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
-		return "", nil, f.fail
+		f.failed++
+		return "", nil, nil, f.fail
 	}
 	f.opened++
+	f.end = make(chan struct{})
 	return f.locals[addr], func() {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.stopped++
-	}, nil
+	}, f.end, nil
+}
+
+// counts returns opened, stopped and failed.
+func (f *fakeForward) counts() (opened, stopped, failed int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.opened, f.stopped, f.failed
 }
 
 // cleanup runs closeFn once the test ends, failing the test on error.
@@ -88,22 +101,59 @@ func TestDialNodeRemapsAnnouncedAddressesThroughOneTunnelEach(t *testing.T) {
 	}
 }
 
-func TestDialNodeRetriesAFailedTunnel(t *testing.T) {
+func TestDialNodeRetriesAFailedTunnelOnlyAfterADelay(t *testing.T) {
 	other := startRedis(t)
 	f := &fakeForward{locals: map[string]string{"10.0.1.5:6379": other.Addr()}, fail: errors.New("ssm refused")}
 	c := newClients(ConnConfig{LocalPort: 1, Forward: f.forward})
 	cleanup(t, c.shutdown)
 	ctx := context.Background()
-	if _, err := c.dialNode(ctx, "tcp", "10.0.1.5:6379"); err == nil || !strings.Contains(err.Error(), "ssm refused") {
-		t.Fatalf("dial = %v, want the forward error", err)
+	for range 3 {
+		if _, err := c.dialNode(ctx, "tcp", "10.0.1.5:6379"); err == nil || !strings.Contains(err.Error(), "ssm refused") {
+			t.Fatalf("dial = %v, want the forward error", err)
+		}
 	}
+	if _, _, failed := f.counts(); failed != 1 {
+		t.Fatalf("tunnel attempts = %d, want 1 until the retry delay passed", failed)
+	}
+	f.mu.Lock()
 	f.fail = nil
+	f.mu.Unlock()
+	c.tunnels.mu.Lock()
+	c.tunnels.retryDelay = 0
+	c.tunnels.mu.Unlock()
 	conn, err := c.dialNode(ctx, "tcp", "10.0.1.5:6379")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := conn.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDialNodeReopensATunnelThatEnded(t *testing.T) {
+	other := startRedis(t)
+	f := &fakeForward{locals: map[string]string{"10.0.1.5:6379": other.Addr()}}
+	c := newClients(ConnConfig{LocalPort: 1, Forward: f.forward})
+	cleanup(t, c.shutdown)
+	ctx := context.Background()
+	if _, err := c.tunnels.local(ctx, "10.0.1.5:6379"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	close(f.end)
+	f.mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	for _, stopped, _ := f.counts(); stopped != 1; _, stopped, _ = f.counts() {
+		if time.Now().After(deadline) {
+			t.Fatal("the ended tunnel was not stopped")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := c.tunnels.local(ctx, "10.0.1.5:6379"); err != nil {
+		t.Fatal(err)
+	}
+	if opened, _, _ := f.counts(); opened != 2 {
+		t.Fatalf("tunnels opened = %d, want a new one after the first ended", opened)
 	}
 }
 
@@ -190,5 +240,26 @@ func TestStandaloneCacheIsNotTakenForACluster(t *testing.T) {
 	}
 	if _, err := c.client(context.Background(), 3); err != nil {
 		t.Fatalf("a standalone cache has several databases: %v", err)
+	}
+}
+
+func TestClusterDetectionOnlyTakesAMissingCommandForStandalone(t *testing.T) {
+	ctx := context.Background()
+	for _, reply := range []string{"LOADING Redis is loading the dataset in memory", "NOPERM User reader has no permissions to run the 'info' command"} {
+		c, m := testCache(t)
+		m.SetError(reply)
+		if _, err := c.clients.clusterClient(ctx); err == nil {
+			t.Fatalf("%s: detection succeeded, want the error", reply)
+		}
+		// Not remembered: the next call detects again.
+		m.SetError("")
+		if cluster, err := c.clients.clusterClient(ctx); err != nil || cluster != nil {
+			t.Fatalf("%s, then a reply: clusterClient = %v, %v; want standalone", reply, cluster, err)
+		}
+	}
+	c, m := testCache(t)
+	m.SetError("ERR unknown command 'info', with args beginning with: 'cluster'")
+	if cluster, err := c.clients.clusterClient(ctx); err != nil || cluster != nil {
+		t.Fatalf("without INFO: clusterClient = %v, %v; want standalone", cluster, err)
 	}
 }

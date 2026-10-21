@@ -21,6 +21,16 @@ func ProcessAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
+// GroupAlive reports whether a process of the group pid leads runs: a group outlives its leader
+// (aws) while a process it spawned (session-manager-plugin) runs, and its id is not reused meanwhile.
+func GroupAlive(pid int) bool {
+	if pid <= 1 {
+		return false
+	}
+	err := syscall.Kill(-pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
 // StartInOwnGroup makes cmd start in a process group of its own, so TerminateGroup also reaches
 // the processes it spawns (session-manager-plugin for aws).
 func StartInOwnGroup(cmd *exec.Cmd) {

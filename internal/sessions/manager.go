@@ -217,7 +217,7 @@ func (m *Manager) prepare(ctx context.Context, options *jumphost.Options, intera
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	prepareCtx, cancel := context.WithCancel(m.ctx)
+	prepareCtx, cancel := context.WithCancel(jumphost.WithLauncher(m.ctx, m.launch))
 	if interactive != nil {
 		prepareCtx = jumphost.WithInteractive(prepareCtx, interactive)
 	}
@@ -350,7 +350,7 @@ func (m *Manager) output(e *entry, line string) {
 	wasReady, connections := e.info.Ready, e.info.Connections
 	m.lines(e, line)
 	switch {
-	case strings.Contains(line, tunnelListening):
+	case strings.Contains(line, jumphost.TunnelListening):
 		e.info.Ready = true
 	case strings.Contains(line, "Connection accepted"):
 		e.info.Ready = true

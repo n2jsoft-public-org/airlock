@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/n2jsoft/airlock/internal/dbmcp"
@@ -281,8 +278,8 @@ func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine 
 // directSignInTimeout bounds the sign-in check of a session served without dashboard.
 const directSignInTimeout = 15 * time.Second
 
-// serveDirect signs the session in once, then prints its intro and keeps it open until ctx ends
-// or the user presses Ctrl+C; the caller releases it. A refused password or an unreachable server
+// serveDirect signs the session in once, then prints its intro and keeps it open until ctx ends;
+// the caller releases it. A refused password or an unreachable server
 // fails at once: without dashboard nobody would ask the password again, and the MCP server would
 // only fail on every call.
 func (r *Runner) serveDirect(ctx context.Context, session *Session) error {
@@ -293,9 +290,7 @@ func (r *Runner) serveDirect(ctx context.Context, session *Session) error {
 		fprintf(r.out, "> %s\n", line)
 	}
 	fprintf(r.out, "Ctrl+C to stop.\n")
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
+	<-ctx.Done() // Run ends ctx on Ctrl+C.
 	return nil
 }
 

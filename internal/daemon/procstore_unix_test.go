@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -68,5 +70,32 @@ func TestKillLeftoversSpareAwsVaultButStopAws(t *testing.T) {
 	}
 	if !platform.ProcessAlive(vault.Process.Pid) {
 		t.Fatal("aws-vault was killed")
+	}
+}
+
+func TestKillLeftoversStopsTheGroupOfAnEndedAws(t *testing.T) {
+	store := newProcStore(filepath.Join(t.TempDir(), "processes.json"))
+	// The group leader (aws) ends, a process it spawned (session-manager-plugin) keeps running.
+	leader := exec.Command("/bin/sh", "-c", "/bin/sleep 30 >/dev/null 2>&1 & echo $!")
+	leader.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := leader.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ignore(syscall.Kill(child, syscall.SIGKILL)) })
+	if err := store.add(leader.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	if killed := store.killLeftovers(); killed != 1 {
+		t.Fatalf("killed = %d, want the group of the ended aws", killed)
+	}
+	for deadline := time.Now().Add(5 * time.Second); platform.ProcessAlive(child); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the process left in the group was not stopped")
+		}
 	}
 }

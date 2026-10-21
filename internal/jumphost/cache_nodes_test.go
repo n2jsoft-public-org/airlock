@@ -28,21 +28,29 @@ func installFakeAWS(t *testing.T, script string) string {
 func TestCacheNodeForwardOpensOneSSMForwardPerNode(t *testing.T) {
 	argsFile := installFakeAWS(t, "echo 'Starting session'\necho 'Waiting for connections...'\nexec sleep 30\n")
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
-	forward := runner.cacheNodeForward("i-jump", []string{"--profile", "dev"}, "ELASTICACHE orders (dev/eu-west-3)",
+	var launched int
+	launch := func(args []string, output func(string)) (Process, error) {
+		launched++
+		return AWSLauncher(args, output)
+	}
+	forward := runner.cacheNodeForward(launch, "i-jump", []string{"--profile", "dev"}, "ELASTICACHE orders (dev/eu-west-3)",
 		"clustercfg.orders.example:6379", 16379)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// The endpoint is the session's own tunnel.
-	if local, stop, err := forward(ctx, "clustercfg.orders.example:6379"); err != nil || local != "localhost:16379" {
+	if local, stop, _, err := forward(ctx, "clustercfg.orders.example:6379"); err != nil || local != "localhost:16379" {
 		t.Fatalf("endpoint = %q, %v", local, err)
 	} else {
 		stop()
 	}
 
-	local, stop, err := forward(ctx, "10.0.1.5:6380")
+	local, stop, done, err := forward(ctx, "10.0.1.5:6380")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if launched != 1 {
+		t.Fatalf("launched = %d, want the node tunnel started with the given launcher", launched)
 	}
 	defer stop()
 	args, err := os.ReadFile(argsFile) // #nosec G304 -- the test's own file.
@@ -65,13 +73,34 @@ func TestCacheNodeForwardOpensOneSSMForwardPerNode(t *testing.T) {
 	if _, ok := runner.registry.ports[mustAtoi(t, localPort)]; ok {
 		t.Fatalf("local port %s is still reserved after stop", localPort)
 	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("done did not close once the tunnel was stopped")
+	}
+}
+
+func TestCacheNodeForwardReportsATunnelEndingAfterListening(t *testing.T) {
+	installFakeAWS(t, "echo 'Waiting for connections...'\nsleep 0.5\n")
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
+	forward := runner.cacheNodeForward(AWSLauncher, "i-jump", nil, "ELASTICACHE orders (dev/eu-west-3)", "clustercfg:6379", 16379)
+	_, stop, done, err := forward(context.Background(), "10.0.1.5:6379")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("done did not close once aws exited")
+	}
 }
 
 func TestCacheNodeForwardReportsATunnelEndingBeforeListening(t *testing.T) {
 	installFakeAWS(t, "echo 'An error occurred (TargetNotConnected)' >&2\nexit 254\n")
 	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard})
-	forward := runner.cacheNodeForward("i-jump", nil, "ELASTICACHE orders (dev/eu-west-3)", "clustercfg:6379", 16379)
-	_, _, err := forward(context.Background(), "10.0.1.5:6379")
+	forward := runner.cacheNodeForward(AWSLauncher, "i-jump", nil, "ELASTICACHE orders (dev/eu-west-3)", "clustercfg:6379", 16379)
+	_, _, _, err := forward(context.Background(), "10.0.1.5:6379")
 	if err == nil || !strings.Contains(err.Error(), "10.0.1.5:6379") || !strings.Contains(err.Error(), "TargetNotConnected") {
 		t.Fatalf("err = %v; want the node and the aws error", err)
 	}

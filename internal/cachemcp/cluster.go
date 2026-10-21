@@ -7,6 +7,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,33 +16,40 @@ import (
 )
 
 // Forward opens a tunnel to the cluster node at addr (host:port, as the cluster announces it) and
-// returns the local address the tunnel listens on, and how to close it.
-type Forward func(ctx context.Context, addr string) (local string, stop func(), err error)
+// returns the local address the tunnel listens on, how to close it, and a channel closed once it
+// ended on its own (nil when it never does).
+type Forward func(ctx context.Context, addr string) (local string, stop func(), done <-chan struct{}, err error)
 
 // tunnelOpenTimeout bounds the opening of a node tunnel, apart from the tool call that needs it:
 // a call ending first leaves the tunnel to the next one.
 const tunnelOpenTimeout = 30 * time.Second
 
+// tunnelRetryDelay is how long a node tunnel that failed to open answers with its error: the
+// cluster client redials every second, each time starting aws otherwise.
+const tunnelRetryDelay = 30 * time.Second
+
 var errTunnelsClosed = errors.New("the session ended")
 
 type tunnel struct {
-	ready chan struct{}
-	stop  func()
-	err   error
-	local string
+	failedAt time.Time
+	ready    chan struct{}
+	stop     func()
+	err      error
+	local    string
 }
 
 // tunnels maps the addresses cluster nodes announce to the local tunnels reaching them, opened on
-// first use and kept until close.
+// first use and kept until close or until they end.
 type tunnels struct {
-	forward Forward
-	byAddr  map[string]*tunnel
-	mu      sync.Mutex
-	closed  bool
+	forward    Forward
+	byAddr     map[string]*tunnel
+	retryDelay time.Duration
+	mu         sync.Mutex
+	closed     bool
 }
 
 func newTunnels(forward Forward) *tunnels {
-	return &tunnels{forward: forward, byAddr: map[string]*tunnel{}}
+	return &tunnels{forward: forward, byAddr: map[string]*tunnel{}, retryDelay: tunnelRetryDelay}
 }
 
 // local is the local address reaching addr, opening its tunnel on first use; tunnels to different
@@ -53,6 +61,9 @@ func (t *tunnels) local(ctx context.Context, addr string) (string, error) {
 		return "", errTunnelsClosed
 	}
 	tun, ok := t.byAddr[addr]
+	if ok && tun.err != nil && time.Since(tun.failedAt) >= t.retryDelay {
+		ok = false
+	}
 	if !ok {
 		tun = &tunnel{ready: make(chan struct{})}
 		t.byAddr[addr] = tun
@@ -70,19 +81,34 @@ func (t *tunnels) local(ctx context.Context, addr string) (string, error) {
 func (t *tunnels) open(addr string, tun *tunnel) {
 	ctx, cancel := context.WithTimeout(context.Background(), tunnelOpenTimeout)
 	defer cancel()
-	local, stop, err := t.forward(ctx, addr)
+	local, stop, done, err := t.forward(ctx, addr)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if err == nil && t.closed {
 		stop()
 		err = errTunnelsClosed
 	}
-	if err != nil {
-		// Forgotten, so the next dial tries again.
-		delete(t.byAddr, addr)
+	switch {
+	case err != nil:
+		// Kept so the dials of the next retryDelay fail at once; the first one after tries again.
+		tun.failedAt = time.Now()
+	case done != nil:
+		go t.forget(addr, tun, done)
 	}
 	tun.local, tun.stop, tun.err = local, stop, err
 	close(tun.ready)
+}
+
+// forget drops the tunnel tun to addr once it ended (its SSM session closed), so the next dial
+// opens another rather than reach a port nothing listens on.
+func (t *tunnels) forget(addr string, tun *tunnel, done <-chan struct{}) {
+	<-done
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.byAddr[addr] == tun {
+		delete(t.byAddr, addr)
+		tun.stop()
+	}
 }
 
 // close stops the open tunnels; the ones still opening stop once open.
@@ -156,16 +182,17 @@ func (c *clients) newCluster() *redis.ClusterClient {
 	return redis.NewClusterClient(options)
 }
 
-// clusterEnabled reads cluster_enabled in INFO cluster. A cache refusing INFO cluster (an ACL, an
-// old engine) is standalone; refused credentials and network errors come back.
+// clusterEnabled reads cluster_enabled in INFO cluster. An engine without INFO cluster is
+// standalone; any other error (an ACL refusing INFO, LOADING, too many clients) comes back, as
+// guessing standalone on a cluster would give partial results.
 func clusterEnabled(ctx context.Context, client *redis.Client) (bool, error) {
 	text, err := client.Info(ctx, "cluster").Result()
 	if err != nil {
-		// An empty prefix matches every reply of the server, not network errors.
-		if redis.HasErrorPrefix(err, "") && !errors.Is(mapError(err), ErrSignInRejected) {
+		if redis.HasErrorPrefix(err, "unknown command") || redis.HasErrorPrefix(err, "syntax error") ||
+			(redis.HasErrorPrefix(err, "") && strings.Contains(err.Error(), "not supported")) {
 			return false, nil
 		}
-		return false, err
+		return false, mapError(err)
 	}
 	return parseInfo(text)["cluster"]["cluster_enabled"] == "1", nil
 }
