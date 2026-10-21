@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -188,35 +189,46 @@ func (q *sqlQuerier) read(ctx context.Context, database string, maxRows int, que
 	return result, err
 }
 
+// readTx runs fn in a transaction always rolled back, read-only where the engine supports it,
+// after the dialect's setup statements and then setup: every read of the assistant goes through it.
+func (q *sqlQuerier) readTx(ctx context.Context, db *sql.DB, setup []string, fn func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: q.dialect.readOnlyTx})
+	if err != nil {
+		return q.connectionError(err)
+	}
+	defer func() { _ = tx.Rollback() }() //nolint:errcheck // the transaction only reads; ending it is all that matters.
+
+	for _, statement := range slices.Concat(q.dialect.txSetup, setup) {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return fn(tx)
+}
+
 func (q *sqlQuerier) readFrom(ctx context.Context, db *sql.DB, maxRows int, query string, args ...any) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: q.dialect.readOnlyTx})
-	if err != nil {
-		return Result{}, q.connectionError(err)
-	}
-	defer func() { _ = tx.Rollback() }() //nolint:errcheck // the transaction only reads; ending it is all that matters.
-
-	for _, statement := range q.dialect.txSetup {
-		if _, setupErr := tx.ExecContext(ctx, statement); setupErr != nil {
-			return Result{}, setupErr
+	var result Result
+	err := q.readTx(ctx, db, nil, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, query, args...)
+		if err != nil {
+			return err
 		}
-	}
-	rows, err := tx.QueryContext(ctx, query, args...)
+		var collectErr error
+		result, collectErr = collectRows(rows, maxRows)
+		if collectErr == nil && result.Truncated {
+			// Cancel before Close: some drivers (pgx) otherwise drain every remaining row on Close,
+			// streaming the rest of a capped result through the tunnel until the statement times out.
+			// The connection is left broken and discarded by the pool; the truncated result still stands.
+			cancel()
+		}
+		_ = rows.Close() //nolint:errcheck // a truncated result fails Close with the cancellation; collectErr has the real error.
+		return collectErr
+	})
 	if err != nil {
 		return Result{}, err
-	}
-	result, collectErr := collectRows(rows, maxRows)
-	if collectErr == nil && result.Truncated {
-		// Cancel before Close: some drivers (pgx) otherwise drain every remaining row on Close,
-		// streaming the rest of a capped result through the tunnel until the statement times out.
-		// The connection is left broken and discarded by the pool; the truncated result still stands.
-		cancel()
-	}
-	_ = rows.Close() //nolint:errcheck // a truncated result fails Close with the cancellation; collectErr has the real error.
-	if collectErr != nil {
-		return Result{}, collectErr
 	}
 	return result, nil
 }

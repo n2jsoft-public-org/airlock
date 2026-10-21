@@ -272,10 +272,12 @@ func TestRDSSecretSessionInfoNeverShowsThePassword(t *testing.T) {
 }
 
 func TestSessionMCPServerIsNilInterfaceWithoutServer(t *testing.T) {
+	awsapitest.Env(t, func(http.ResponseWriter, *http.Request) {}, "dev")
 	runner := testRunner(t)
 	session := &Session{}
-	var none *dbmcp.Handle
-	runner.attachMCP(session, none, "")
+	// dbmcp starts no server for redis: a nil *dbmcp.Handle, which serveMCP must not wrap.
+	handle, display := runner.startMCP(context.Background(), &Options{}, "cache", 6379, &ideTarget{Engine: "redis"}, awsConfig{Profile: "dev"}, false)
+	runner.attachMCP(session, handle, display)
 	if server := session.MCPServer(); server != nil {
 		t.Fatalf("MCPServer() = %#v, want a nil interface", server)
 	}

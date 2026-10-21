@@ -78,19 +78,11 @@ func (q *sqlQuerier) explainFrom(ctx context.Context, db *sql.DB, statement stri
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: q.dialect.readOnlyTx})
-	if err != nil {
-		return "", q.connectionError(err)
-	}
-	defer func() { _ = tx.Rollback() }() //nolint:errcheck // the transaction only reads; ending it is all that matters.
-
-	for _, setup := range slices.Concat(q.dialect.txSetup, setup) {
-		if _, err := tx.ExecContext(ctx, setup); err != nil {
-			return "", err
-		}
-	}
 	var document string
-	if err := tx.QueryRowContext(ctx, statement, args...).Scan(&document); err != nil {
+	err := q.readTx(ctx, db, setup, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, statement, args...).Scan(&document)
+	})
+	if err != nil {
 		return "", err
 	}
 	return document, nil

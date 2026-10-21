@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/directdb"
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/ideadatasource"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // resourceDirect is a database reached directly, without jumphost, declared with `airlock connection add`.
@@ -246,33 +248,23 @@ func (r *Runner) openDatabase(options *Options, db *directdb.Database, engine db
 
 // startDirectMCP serves the MCP server of a direct database and returns its display line ("not
 // started: …" on failure, which never fails the session).
-func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine dbmcp.Engine, name, password, account string, allowWrites bool) (handle *dbmcp.Handle, display string) {
-	projectDir, err := r.projectDirFor(options)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	handle, err = dbmcpStartDirect(r.mcpHost, &dbmcp.DirectConfig{
-		OnPasswordRejected: r.forgetKeychainFunc(account, password),
-		Address:            directAddress(db),
-		ProjectDir:         projectDir,
-		ServerPrefix:       r.mcpServerPrefix,
-		Name:               name,
-		DBName:             db.Database,
-		User:               db.User,
-		Password:           password,
-		LogDir:             r.mcpLogDir,
-		Engine:             engine,
-		AllowWrites:        allowWrites,
-		SkipRegistration:   options.SkipMCPRegistration,
+func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine dbmcp.Engine, name, password, account string, allowWrites bool) (server mcpserve.Session, display string) {
+	return serveMCP(context.Background(), r, options, nil, func(projectDir string, _ aws.Config) (*dbmcp.Handle, error) {
+		return dbmcpStartDirect(r.mcpHost, &dbmcp.DirectConfig{
+			OnPasswordRejected: r.forgetKeychainFunc(account, password),
+			Address:            directAddress(db),
+			ProjectDir:         projectDir,
+			ServerPrefix:       r.mcpServerPrefix,
+			Name:               name,
+			DBName:             db.Database,
+			User:               db.User,
+			Password:           password,
+			LogDir:             r.mcpLogDir,
+			Engine:             engine,
+			AllowWrites:        allowWrites,
+			SkipRegistration:   options.SkipMCPRegistration,
+		})
 	})
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
-		return nil, ""
-	}
-	display = handle.Display()
-	return handle, display
 }
 
 // directSignInTimeout bounds the sign-in check of a session served without dashboard.

@@ -84,25 +84,11 @@ func (r *Runner) prepareLogs(ctx context.Context, options *Options) (*Session, e
 
 // startLogsMCP serves the MCP server of a CloudWatch Logs session and returns its display line
 // ("not started: …" on failure, which leaves the session without use but open, as for the other types).
-func (r *Runner) startLogsMCP(ctx context.Context, options *Options, cfg awsConfig) (handle *mcpserve.Handle, display string) {
-	projectDir, err := r.projectDirFor(options)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	awsCfg, err := r.sdkConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	handle, err = logsmcpStart(r.mcpHost, &logsmcp.SessionConfig{
-		AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
-		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir, SkipRegistration: options.SkipMCPRegistration,
+func (r *Runner) startLogsMCP(ctx context.Context, options *Options, cfg awsConfig) (server mcpserve.Session, display string) {
+	return serveMCP(ctx, r, options, &cfg, func(projectDir string, awsCfg aws.Config) (*mcpserve.Handle, error) {
+		return logsmcpStart(r.mcpHost, &logsmcp.SessionConfig{
+			AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+			ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir, SkipRegistration: options.SkipMCPRegistration,
+		})
 	})
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
-		return nil, ""
-	}
-	display = handle.Display()
-	return handle, display
 }

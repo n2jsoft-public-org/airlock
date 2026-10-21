@@ -14,6 +14,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // How an ElastiCache cache signs clients in.
@@ -253,7 +254,7 @@ func cacheSignInApplies(target *ideTarget) bool {
 // engines without server, "not started: …" on failure or without sign-in. forward opens the
 // tunnels to the nodes of a cluster-mode cache.
 func (r *Runner) startCacheMCP(ctx context.Context, options *Options, cacheName string, localPort int, target *ideTarget, cfg awsConfig,
-	forward cachemcp.Forward, allowWrites bool) (handle *cachemcp.Handle, display string) {
+	forward cachemcp.Forward, allowWrites bool) (server mcpserve.Session, display string) {
 	if !CacheEngineSupported(target.Engine) {
 		return nil, ""
 	}
@@ -261,23 +262,13 @@ func (r *Runner) startCacheMCP(ctx context.Context, options *Options, cacheName 
 	if err != nil {
 		return nil, "not started: " + err.Error()
 	}
-	projectDir, err := r.projectDirFor(options)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	handle, err = cachemcpStart(r.mcpHost, &cachemcp.SessionConfig{
-		Credentials: creds, OnRejected: r.forgetKeychainFunc(target.KeychainAccount, target.DBPassword),
-		ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region, Target: cacheName,
-		Engine: target.Engine, Endpoint: target.CacheEndpoint, ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
-		LocalPort: localPort, TLS: target.CacheTLS, Forward: forward, AllowWrites: allowWrites,
-		SkipRegistration: options.SkipMCPRegistration,
+	return serveMCP(ctx, r, options, nil, func(projectDir string, _ aws.Config) (*cachemcp.Handle, error) {
+		return cachemcpStart(r.mcpHost, &cachemcp.SessionConfig{
+			Credentials: creds, OnRejected: r.forgetKeychainFunc(target.KeychainAccount, target.DBPassword),
+			ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region, Target: cacheName,
+			Engine: target.Engine, Endpoint: target.CacheEndpoint, ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
+			LocalPort: localPort, TLS: target.CacheTLS, Forward: forward, AllowWrites: allowWrites,
+			SkipRegistration: options.SkipMCPRegistration,
+		})
 	})
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
-		return nil, ""
-	}
-	display = handle.Display()
-	return handle, display
 }

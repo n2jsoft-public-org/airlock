@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -295,15 +294,12 @@ type Runner struct {
 	keychainOK   bool
 }
 
-// attachMCP records the MCP server of session and its display line; a server that did not start
-// (nil, typed or not) only leaves its display, so MCPServer stays a nil interface.
+// attachMCP records the MCP server of session (nil when none started, see serveMCP) and its
+// display line.
 func (r *Runner) attachMCP(session *Session, server mcpserve.Session, display string) {
 	if display != "" {
 		session.Details.MCP = display
 		session.Intro = append(session.Intro, "MCP "+display)
-	}
-	if v := reflect.ValueOf(server); server == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
-		return
 	}
 	session.mcp = server
 }
@@ -517,9 +513,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 		connectedServer = fmt.Sprintf("%s:%s", connectedServer, strings.TrimSpace(remotePort))
 	}
 
-	parameters, err := json.Marshal(ssmParameters)
+	commandArgs, err := ssmForwardArgs(jumphostID, ssmParameters)
 	if err != nil {
-		return nil, i18n.NewError("jumphost.runner.failed_to_serialize_ssm", err)
+		return nil, err
 	}
 
 	session := &Session{
@@ -534,14 +530,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 			Auth:            describeAuth(&target),
 			TokenCommand:    tokenCommand(&target, cfg),
 		},
-		AwsArgs: append([]string{}, cfg.Args...),
-		CommandArgs: []string{
-			"ssm", "start-session",
-			"--target", jumphostID,
-			"--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
-			"--parameters", string(parameters),
-		},
-		Intro: append([]string{sessionDisplayName}, sessionInfo...),
+		AwsArgs:     append([]string{}, cfg.Args...),
+		CommandArgs: commandArgs,
+		Intro:       append([]string{sessionDisplayName}, sessionInfo...),
 	}
 	if session.LocalPort, err = strconv.Atoi(localPort); err != nil {
 		return nil, i18n.NewError("jumphost.runner.invalid_local_port", localPort, err)
@@ -613,6 +604,19 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 
 	ready = true
 	return session, nil
+}
+
+// ssmForwardArgs are the aws arguments of an SSM port forward through jumphostID; parameters
+// holds host, portNumber and localPortNumber.
+func ssmForwardArgs(jumphostID string, parameters map[string][]string) ([]string, error) {
+	raw, err := json.Marshal(parameters)
+	if err != nil {
+		return nil, i18n.NewError("jumphost.runner.failed_to_serialize_ssm", err)
+	}
+	return []string{
+		"ssm", "start-session", "--target", jumphostID,
+		"--document-name", "AWS-StartPortForwardingSessionToRemoteHost", "--parameters", string(raw),
+	}, nil
 }
 
 // ListAWSProfiles returns available AWS CLI profiles.
@@ -1762,31 +1766,47 @@ func (r *Runner) sdkConfig(ctx context.Context, cfg awsConfig) (aws.Config, erro
 	return c, nil
 }
 
-// startKubeMCP serves the read-only MCP server of an EKS session and returns its display line:
-// empty when no server applies (no certificate authority), "not started: …" on failure.
-func (r *Runner) startKubeMCP(ctx context.Context, options *Options, clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (handle *mcpserve.Handle, display string) {
+// serveMCP starts the MCP server of a session with start, given the project directory and, when
+// cfg is set, its AWS SDK configuration. It returns the server, nil when none applies, and its
+// display line: empty without server, "not started: …" on failure (reported there rather than
+// through r.err, which is discarded in TUI mode).
+func serveMCP[H interface {
+	comparable
+	mcpserve.Session
+}](ctx context.Context, r *Runner, options *Options, cfg *awsConfig, start func(projectDir string, awsCfg aws.Config) (H, error)) (server mcpserve.Session, display string) {
 	projectDir, err := r.projectDirFor(options)
 	if err != nil {
 		return nil, fmt.Sprintf("not started: %v", err)
 	}
-	awsCfg, err := r.sdkConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
+	var awsCfg aws.Config
+	if cfg != nil {
+		if awsCfg, err = r.sdkConfig(ctx, *cfg); err != nil {
+			return nil, fmt.Sprintf("not started: %v", err)
+		}
 	}
-	handle, err = kubemcpStart(r.mcpHost, &kubemcp.SessionConfig{
-		AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
-		Target: clusterName, EndpointHost: endpointHost, ClusterCA: caData, LocalPort: localPort,
-		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
-		SkipRegistration: options.SkipMCPRegistration,
-	})
-	if err != nil {
+	handle, err := start(projectDir, awsCfg)
+	var none H
+	switch {
+	case err != nil:
 		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
+	case handle == none:
 		return nil, ""
+	default:
+		return handle, handle.Display()
 	}
-	display = handle.Display()
-	return handle, display
+}
+
+// startKubeMCP serves the read-only MCP server of an EKS session and returns its display line:
+// empty when no server applies (no certificate authority), "not started: …" on failure.
+func (r *Runner) startKubeMCP(ctx context.Context, options *Options, clusterName, endpointHost, caData string, localPort int, cfg awsConfig) (server mcpserve.Session, display string) {
+	return serveMCP(ctx, r, options, &cfg, func(projectDir string, awsCfg aws.Config) (*mcpserve.Handle, error) {
+		return kubemcpStart(r.mcpHost, &kubemcp.SessionConfig{
+			AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+			Target: clusterName, EndpointHost: endpointHost, ClusterCA: caData, LocalPort: localPort,
+			ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
+			SkipRegistration: options.SkipMCPRegistration,
+		})
+	})
 }
 
 // dbmcpStart starts a session's MCP server; a package variable so tests can force a failure.
@@ -1796,50 +1816,37 @@ var dbmcpStart = dbmcp.Start
 // it (empty when the engine is unsupported, so the session shows no MCP line at all). A failure
 // to start is reported through the returned display rather than r.err, which is discarded in TUI
 // mode.
-func (r *Runner) startMCP(ctx context.Context, options *Options, targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (handle *dbmcp.Handle, display string) {
-	projectDir, err := r.projectDirFor(options)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	awsCfg, err := r.sdkConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	handle, err = dbmcpStart(r.mcpHost, &dbmcp.SessionConfig{
-		AWS:                awsCfg,
-		ProjectDir:         projectDir,
-		Profile:            cfg.Profile,
-		Region:             cfg.Region,
-		Target:             targetName,
-		AWSEngine:          target.Engine,
-		RDSHost:            target.RDSHost,
-		RDSPort:            target.RDSPort,
-		DBName:             target.Database,
-		InstanceARN:        target.InstanceARN,
-		MasterSecretARN:    target.MasterSecretARN,
-		DBUser:             target.DBUser,
-		DBPassword:         target.DBPassword,
-		DBSecretARN:        target.DBSecretARN,
-		OnPasswordRejected: r.forgetKeychainFunc(target.KeychainAccount, target.DBPassword),
-		IAMAuth:            target.IAMAuth,
-		LocalPort:          localPort,
-		AllowWrites:        allowWrites,
-		LogDir:             r.mcpLogDir,
-		ServerPrefix:       r.mcpServerPrefix,
-		ReadOnlySecretTag:  r.readOnlySecretTag,
-		SkipRegistration:   options.SkipMCPRegistration,
+func (r *Runner) startMCP(ctx context.Context, options *Options, targetName string, localPort int, target *ideTarget, cfg awsConfig, allowWrites bool) (server mcpserve.Session, display string) {
+	return serveMCP(ctx, r, options, &cfg, func(projectDir string, awsCfg aws.Config) (*dbmcp.Handle, error) {
+		handle, err := dbmcpStart(r.mcpHost, &dbmcp.SessionConfig{
+			AWS:                awsCfg,
+			ProjectDir:         projectDir,
+			Profile:            cfg.Profile,
+			Region:             cfg.Region,
+			Target:             targetName,
+			AWSEngine:          target.Engine,
+			RDSHost:            target.RDSHost,
+			RDSPort:            target.RDSPort,
+			DBName:             target.Database,
+			InstanceARN:        target.InstanceARN,
+			MasterSecretARN:    target.MasterSecretARN,
+			DBUser:             target.DBUser,
+			DBPassword:         target.DBPassword,
+			DBSecretARN:        target.DBSecretARN,
+			OnPasswordRejected: r.forgetKeychainFunc(target.KeychainAccount, target.DBPassword),
+			IAMAuth:            target.IAMAuth,
+			LocalPort:          localPort,
+			AllowWrites:        allowWrites,
+			LogDir:             r.mcpLogDir,
+			ServerPrefix:       r.mcpServerPrefix,
+			ReadOnlySecretTag:  r.readOnlySecretTag,
+			SkipRegistration:   options.SkipMCPRegistration,
+		})
+		if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
+			return nil, errors.New("set the tag of the read-only SQL Server secrets with `airlock config set readOnlySecretTag Key=Value` (or enable writes)")
+		}
+		return handle, err
 	})
-	if errors.Is(err, dbmcp.ErrReadOnlySecretTagUnset) {
-		return nil, "not started: set the tag of the read-only SQL Server secrets with `airlock config set readOnlySecretTag Key=Value` (or enable writes)"
-	}
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
-		return nil, ""
-	}
-	display = handle.Display()
-	return handle, display
 }
 
 func relativePaths(base string, paths []string) string {

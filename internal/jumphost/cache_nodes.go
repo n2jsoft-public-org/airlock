@@ -2,7 +2,6 @@ package jumphost
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"strconv"
 	"strings"
@@ -31,15 +30,12 @@ func (r *Runner) cacheNodeForward(launch Launcher, jumphostID string, awsArgs []
 			return "", nil, nil, err
 		}
 		release := func() { r.registry.release(nodeLabel) }
-		parameters, err := json.Marshal(map[string][]string{"host": {host}, "portNumber": {port}, "localPortNumber": {strconv.Itoa(nodePort)}})
+		args, err := ssmForwardArgs(jumphostID, map[string][]string{"host": {host}, "portNumber": {port}, "localPortNumber": {strconv.Itoa(nodePort)}})
 		if err != nil {
 			release()
 			return "", nil, nil, err
 		}
-		args := append([]string{
-			"ssm", "start-session", "--target", jumphostID,
-			"--document-name", "AWS-StartPortForwardingSessionToRemoteHost", "--parameters", string(parameters),
-		}, awsArgs...)
+		args = append(args, awsArgs...)
 		stop, done, err := startNodeTunnel(ctx, launch, args)
 		if err != nil {
 			release()

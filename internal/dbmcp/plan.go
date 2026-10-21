@@ -210,28 +210,23 @@ func (q *sqlQuerier) planFrom(ctx context.Context, db *sql.DB, mode, batch strin
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return PlanResult{}, nil, q.connectionError(err)
-	}
-	defer func() { _ = tx.Rollback() }() //nolint:errcheck // the transaction only reads; ending it is all that matters.
-
 	on, off := planSettings(mode)
-	for _, statement := range append(append([]string(nil), q.dialect.txSetup...), on...) {
-		if _, err = tx.ExecContext(ctx, statement); err != nil {
-			return PlanResult{}, nil, err
+	var result PlanResult
+	var plans []string
+	err := q.readTx(ctx, db, on, func(tx *sql.Tx) (err error) {
+		if result, plans, err = readPlan(ctx, tx, mode, batch, args); err != nil {
+			return err
 		}
-	}
-
-	result, plans, err := readPlan(ctx, tx, mode, batch, args)
+		// The settings are per connection: turn them off before it goes back to the pool.
+		for _, statement := range off {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return PlanResult{}, nil, err
-	}
-	// The settings are per connection: turn them off before it goes back to the pool.
-	for _, statement := range off {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return PlanResult{}, nil, err
-		}
 	}
 	return result, plans, nil
 }

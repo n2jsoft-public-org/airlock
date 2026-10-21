@@ -81,26 +81,12 @@ func (r *Runner) prepareDynamoDB(ctx context.Context, options *Options) (*Sessio
 
 // startDynamoMCP serves the MCP server of a DynamoDB session and returns its display line ("not
 // started: …" on failure, which leaves the session without use but open, as for the other types).
-func (r *Runner) startDynamoMCP(ctx context.Context, options *Options, cfg awsConfig) (handle *mcpserve.Handle, display string) {
-	projectDir, err := r.projectDirFor(options)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	awsCfg, err := r.sdkConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	handle, err = dynamomcpStart(r.mcpHost, &dynamomcp.SessionConfig{
-		AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
-		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
-		SkipRegistration: options.SkipMCPRegistration, AllowWrites: options.MCPAllowWrites,
+func (r *Runner) startDynamoMCP(ctx context.Context, options *Options, cfg awsConfig) (server mcpserve.Session, display string) {
+	return serveMCP(ctx, r, options, &cfg, func(projectDir string, awsCfg aws.Config) (*mcpserve.Handle, error) {
+		return dynamomcpStart(r.mcpHost, &dynamomcp.SessionConfig{
+			AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
+			ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
+			SkipRegistration: options.SkipMCPRegistration, AllowWrites: options.MCPAllowWrites,
+		})
 	})
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
-		return nil, ""
-	}
-	display = handle.Display()
-	return handle, display
 }

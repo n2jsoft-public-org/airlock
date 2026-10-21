@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft/airlock/internal/cachemcp"
 	"github.com/n2jsoft/airlock/internal/dbmcp"
 	"github.com/n2jsoft/airlock/internal/dockerdb"
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 // resourceDockerCache is the session type of a Redis or Valkey container: its MCP server serves
@@ -45,25 +47,15 @@ func (r *Runner) openDockerCache(options *Options, c *dockerdb.Container, passwo
 
 // startDockerCacheMCP serves the MCP server of a Docker cache and returns its display line ("not
 // started: …" on failure, which never fails the session).
-func (r *Runner) startDockerCacheMCP(options *Options, c *dockerdb.Container, creds cachemcp.CredentialProvider) (handle *cachemcp.Handle, display string) {
-	projectDir, err := r.projectDirFor(options)
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	handle, err = cachemcpStart(r.mcpHost, &cachemcp.SessionConfig{
-		Credentials: creds, ProjectDir: projectDir, Target: "docker " + c.Name, Engine: string(c.Engine),
-		Via:          "a local Docker container reached directly at " + c.Address() + ".",
-		ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir, Host: c.Host, LocalPort: c.Port,
-		AllowWrites: options.MCPAllowWrites, SkipRegistration: options.SkipMCPRegistration,
+func (r *Runner) startDockerCacheMCP(options *Options, c *dockerdb.Container, creds cachemcp.CredentialProvider) (server mcpserve.Session, display string) {
+	return serveMCP(context.Background(), r, options, nil, func(projectDir string, _ aws.Config) (*cachemcp.Handle, error) {
+		return cachemcpStart(r.mcpHost, &cachemcp.SessionConfig{
+			Credentials: creds, ProjectDir: projectDir, Target: "docker " + c.Name, Engine: string(c.Engine),
+			Via:          "a local Docker container reached directly at " + c.Address() + ".",
+			ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir, Host: c.Host, LocalPort: c.Port,
+			AllowWrites: options.MCPAllowWrites, SkipRegistration: options.SkipMCPRegistration,
+		})
 	})
-	if err != nil {
-		return nil, fmt.Sprintf("not started: %v", err)
-	}
-	if handle == nil {
-		return nil, ""
-	}
-	display = handle.Display()
-	return handle, display
 }
 
 // dockerCacheSignIn checks a Docker cache with PING: its only candidate is the session's own
