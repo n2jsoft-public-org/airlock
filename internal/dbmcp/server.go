@@ -119,7 +119,7 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 		Description: fmt.Sprintf("Run a single read-only %s SELECT or WITH statement and return its rows.", cfg.Engine.Dialect()),
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryInput) (*mcp.CallToolResult, any, error) {
-		result, err := q.Query(ctx, in.Database, in.SQL, clampRows(in.MaxRows))
+		result, err := q.Query(ctx, in.Database, in.SQL, mcpserve.Limit(in.MaxRows, defaultMaxRows, maxRowsLimit))
 		return mcpserve.ToolResult(result, err)
 	})
 
@@ -150,17 +150,6 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 	}
 
 	return server
-}
-
-func clampRows(requested int) int {
-	switch {
-	case requested <= 0:
-		return defaultMaxRows
-	case requested > maxRowsLimit:
-		return maxRowsLimit
-	default:
-		return requested
-	}
 }
 
 func instructions(cfg *ServerConfig) string {

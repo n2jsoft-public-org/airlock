@@ -84,7 +84,7 @@ func newDirectList(styles Styles, dbs []directdb.Database, err error, active map
 
 // SetSize fits the list and its confirmation line in width x height.
 func (p *directList) SetSize(width, height int) {
-	p.list.SetSize(width, maxInt(height-directListChrome, 3))
+	p.list.SetSize(width, max(height-directListChrome, 3))
 }
 
 // typing reports whether printable keys belong to the list filter.

@@ -50,10 +50,10 @@ type wizardFrame struct {
 func (s Styles) frameBodySize(width, height int, errorMsg string, notices []string) (bodyWidth, bodyHeight int) {
 	bodyWidth, bodyHeight = wizardBodySize(width, height)
 	if errorMsg != "" {
-		bodyHeight = maxInt(bodyHeight-len(s.errorLines(errorMsg, bodyWidth))+1, 1)
+		bodyHeight = max(bodyHeight-len(s.errorLines(errorMsg, bodyWidth))+1, 1)
 	}
 	if len(notices) > 1 {
-		bodyHeight = maxInt(bodyHeight-min(len(notices), maxNoticeLines)+1, 1)
+		bodyHeight = max(bodyHeight-min(len(notices), maxNoticeLines)+1, 1)
 	}
 	return bodyWidth, bodyHeight
 }
@@ -62,7 +62,7 @@ func (s Styles) frameBodySize(width, height int, errorMsg string, notices []stri
 // given size, with a one-line error.
 func wizardBodySize(width, height int) (bodyWidth, bodyHeight int) {
 	width, height = frameSize(width, height)
-	return maxInt(width-wizardChromeWidth, 20), maxInt(height-wizardChromeHeight, 3)
+	return max(width-wizardChromeWidth, 20), max(height-wizardChromeHeight, 3)
 }
 
 func frameSize(width, height int) (frameWidth, frameHeight int) {
@@ -86,7 +86,7 @@ func (s Styles) renderWizardFrame(f wizardFrame, width, height int) string {
 	if tagline := s.Faint.Render("  " + f.tagline); f.tagline != "" && lipgloss.Width(left+tagline)+lipgloss.Width(right)+2 <= inner {
 		left += tagline
 	}
-	right = truncate(right, maxInt(0, inner-lipgloss.Width(left)-2))
+	right = truncate(right, max(0, inner-lipgloss.Width(left)-2))
 
 	heading := s.Text.Bold(true).Render(f.heading)
 	if f.hint != "" {
@@ -140,10 +140,10 @@ const maxErrorLines = 4
 
 // errorLines wraps msg under a "✗" marker in at most maxErrorLines lines of width cells.
 func (s Styles) errorLines(msg string, width int) []string {
-	wrapped := wrapText(msg, maxInt(width-2, 1))
+	wrapped := wrapText(msg, max(width-2, 1))
 	if len(wrapped) > maxErrorLines {
 		wrapped = wrapped[:maxErrorLines]
-		wrapped[maxErrorLines-1] = ansi.Truncate(wrapped[maxErrorLines-1], maxInt(width-3, 0), "") + "…"
+		wrapped[maxErrorLines-1] = ansi.Truncate(wrapped[maxErrorLines-1], max(width-3, 0), "") + "…"
 	}
 	lines := make([]string, 0, len(wrapped))
 	for idx, line := range wrapped {
@@ -223,7 +223,7 @@ func (d cardDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		return
 	}
 
-	width := maxInt(m.Width(), 10)
+	width := max(m.Width(), 10)
 	selected := index == m.Index()
 
 	marker := "  "

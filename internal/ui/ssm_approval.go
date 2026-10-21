@@ -152,7 +152,7 @@ func (m ssmModel) renderApprovalDialog(width int) string {
 	a := *shown
 	a.Agent, a.Target, a.Profile, a.Region, a.Reason = printable(a.Agent), printable(a.Target), printable(a.Profile), printable(a.Region), printable(a.Reason)
 	dialogWidth := min(width-4, 76)
-	inner := maxInt(dialogWidth-8, 20)
+	inner := max(dialogWidth-8, 20)
 	target := m.badge(a.Type) + " " + m.styles.Text.Bold(true).Render(a.Target)
 	if badge := m.styles.EnvBadge(sessions.ApprovalEnvironmentOf(m.environments, &a)); badge != "" {
 		target += " " + badge

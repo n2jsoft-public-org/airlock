@@ -165,7 +165,7 @@ func (m ssmModel) renderSignInDialog(width int) string {
 	}
 	dialogWidth := min(width-4, 90)
 	// Modal border (2) and padding (6) around the rows.
-	inner := maxInt(dialogWidth-8, 20)
+	inner := max(dialogWidth-8, 20)
 
 	rows := []string{
 		m.styles.Text.Bold(true).Render(i18n.T("ui.ssm_signin.choose_database_credentials")),

@@ -265,13 +265,7 @@ func names(m map[string]string) map[string]string {
 }
 
 func limit(n int) *int32 {
-	switch {
-	case n <= 0:
-		n = defaultLimit
-	case n > maxLimit:
-		n = maxLimit
-	}
-	return aws.Int32(int32(n)) // #nosec G115 -- capped at maxLimit above.
+	return aws.Int32(int32(mcpserve.Limit(n, defaultLimit, maxLimit))) // #nosec G115 -- at most maxLimit.
 }
 
 func (t *tables) Query(ctx context.Context, in *queryInput) (pageOutput, error) {

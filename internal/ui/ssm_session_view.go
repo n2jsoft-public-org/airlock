@@ -33,13 +33,13 @@ type ssmLayout struct {
 }
 
 func (m ssmModel) layout() ssmLayout {
-	width := maxInt(m.width-2, 20)
+	width := max(m.width-2, 20)
 	l := ssmLayout{compact: m.width < compactBreakpoint, mainWidth: width}
 	if !l.compact {
 		l.sidebarWidth = sidebarWidth
 		l.mainWidth = width - sidebarWidth - 1
 	}
-	l.bodyHeight = maxInt(m.height-lipgloss.Height(m.renderHeader(width))-lipgloss.Height(m.renderFooter(width)), 10)
+	l.bodyHeight = max(m.height-lipgloss.Height(m.renderHeader(width))-lipgloss.Height(m.renderFooter(width)), 10)
 	return l
 }
 
@@ -49,7 +49,7 @@ func (m ssmModel) logPanelHeight(l ssmLayout) int {
 	if l.compact {
 		used += lipgloss.Height(m.renderPills(l.mainWidth))
 	}
-	return maxInt(l.bodyHeight-used, minLogHeight+3)
+	return max(l.bodyHeight-used, minLogHeight+3)
 }
 
 func (m *ssmModel) refreshViewport() {
@@ -58,8 +58,8 @@ func (m *ssmModel) refreshViewport() {
 	}
 	l := m.layout()
 	// Border (2) and padding (2) around the log lines; border (2) and title (1) above/below.
-	m.viewport.SetWidth(maxInt(1, l.mainWidth-4))
-	m.viewport.SetHeight(maxInt(minLogHeight, m.logPanelHeight(l)-3))
+	m.viewport.SetWidth(max(1, l.mainWidth-4))
+	m.viewport.SetHeight(max(minLogHeight, m.logPanelHeight(l)-3))
 
 	if s := m.selectedSession(); s != nil {
 		if m.queriesShown(s) {
@@ -84,7 +84,7 @@ func (m ssmModel) render() string {
 	case ssmModeWizard:
 		return m.wizard.render()
 	case ssmModePreparing:
-		keys := m.styles.KeyHints([][2]string{{"esc", i18n.T("ui.hint.cancel")}, {"ctrl+c", i18n.T("ui.hint.quit")}}, maxInt(m.width-4, 20))
+		keys := m.styles.KeyHints([][2]string{{"esc", i18n.T("ui.hint.cancel")}, {"ctrl+c", i18n.T("ui.hint.quit")}}, max(m.width-4, 20))
 		return m.styles.Container.Render(m.styles.Title.Render("airlock") + "\n\n" + m.loadingUI.Body(m.styles) + "\n\n" + keys)
 	default:
 	}
@@ -93,7 +93,7 @@ func (m ssmModel) render() string {
 		return ""
 	}
 
-	width := maxInt(m.width-2, 20)
+	width := max(m.width-2, 20)
 	l := m.layout()
 
 	var body string
@@ -142,7 +142,7 @@ func (m ssmModel) renderSidebar(l ssmLayout) string {
 
 	// Show a window of cards that keeps the selected one visible.
 	const cardHeight = 4
-	capacity := maxInt(1, (innerHeight-len(lines)-2)/cardHeight)
+	capacity := max(1, (innerHeight-len(lines)-2)/cardHeight)
 	first := 0
 	if m.selected >= capacity {
 		first = m.selected - capacity + 1
@@ -180,7 +180,7 @@ func (m ssmModel) renderCard(s *sessions.Session, selected bool, width int) []st
 	badges := m.badges(s)
 	status := style.Render(icon + " " + label)
 	// A long address (a direct server) gives way to the status rather than wrapping the card.
-	address := truncate(s.Address(), maxInt(0, contentWidth-lipgloss.Width(status)-1))
+	address := truncate(s.Address(), max(0, contentWidth-lipgloss.Width(status)-1))
 	rows := []string{
 		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.Target, contentWidth-lipgloss.Width(badges)-1)),
 		spread(status, m.styles.Text.Render(address), contentWidth),
@@ -342,7 +342,7 @@ func (m ssmModel) renderLogs(width, height int) string {
 }
 
 func (m ssmModel) renderLogLines(s *sessions.Session, width int) string {
-	textWidth := maxInt(10, width-logTimeWidth)
+	textWidth := max(10, width-logTimeWidth)
 	indent := strings.Repeat(" ", logTimeWidth)
 
 	var out []string
@@ -426,7 +426,7 @@ func (m ssmModel) renderDialog(width int) string {
 	}
 	buttons := yes.Render(confirm) + "  " + no.Render(i18n.T("ui.ssm_session_view.cancel"))
 
-	dialogWidth := min(width-4, maxInt(lipgloss.Width(buttons), 56))
+	dialogWidth := min(width-4, max(lipgloss.Width(buttons), 56))
 	content := m.styles.Text.Bold(true).Render(title) + "\n\n" +
 		lipgloss.NewStyle().Width(dialogWidth-8).Render(body) + "\n\n" +
 		buttons
@@ -591,7 +591,7 @@ func (m ssmModel) badges(s *sessions.Session) string {
 }
 
 func (m ssmModel) field(label, value string, width int) string {
-	return m.styles.FieldLabel.Render(label) + truncate(value, maxInt(1, width-m.styles.FieldLabel.GetWidth()))
+	return m.styles.FieldLabel.Render(label) + truncate(value, max(1, width-m.styles.FieldLabel.GetWidth()))
 }
 
 func (m ssmModel) spinner() string {
@@ -612,9 +612,9 @@ func (m ssmModel) countSessions(match func(*sessions.Session) bool) int {
 func spread(left, right string, width int) string {
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
-		left = truncate(left, maxInt(0, width-lipgloss.Width(right)-1))
-		right = truncate(right, maxInt(0, width-lipgloss.Width(left)-1))
-		gap = maxInt(1, width-lipgloss.Width(left)-lipgloss.Width(right))
+		left = truncate(left, max(0, width-lipgloss.Width(right)-1))
+		right = truncate(right, max(0, width-lipgloss.Width(left)-1))
+		gap = max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
 	}
 	return left + strings.Repeat(" ", gap) + right
 }

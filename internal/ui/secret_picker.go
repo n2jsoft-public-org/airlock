@@ -129,15 +129,15 @@ func filterSecrets(secrets []jumphost.SecretSummary, query string) []jumphost.Se
 // View renders the modal centered in a width x height area.
 func (p secretPicker) View(styles Styles, width, height int) string {
 	panelWidth := min(width, secretPickerMaxWidth)
-	inner := maxInt(panelWidth-8, 20)
-	rows := min(secretPickerMaxRows, maxInt(height-10, 1))
+	inner := max(panelWidth-8, 20)
+	rows := min(secretPickerMaxRows, max(height-10, 1))
 
 	title := spread(
 		styles.Text.Bold(true).Render(i18n.T("ui.secret_picker.pick_password_secret")),
 		styles.Faint.Render(fmt.Sprintf("%d/%d · %s", len(p.matches), len(p.all), p.region)),
 		inner,
 	)
-	p.input.SetWidth(maxInt(inner-lipgloss.Width(p.input.Prompt)-1, 5))
+	p.input.SetWidth(max(inner-lipgloss.Width(p.input.Prompt)-1, 5))
 
 	lines := []string{title, "", inputView(p.input), styles.Rule.Render(strings.Repeat("─", inner))}
 	lines = append(lines, p.renderRows(styles, inner, rows)...)
@@ -157,7 +157,7 @@ func (p secretPicker) renderRows(styles Styles, width, rows int) []string {
 	case len(p.matches) == 0:
 		out = []string{styles.Muted.Render(i18n.T("ui.secret_picker.no_secret_matches"))}
 	default:
-		first := min(max(p.cursor-rows/2, 0), maxInt(len(p.matches)-rows, 0))
+		first := min(max(p.cursor-rows/2, 0), max(len(p.matches)-rows, 0))
 		last := min(first+rows, len(p.matches))
 		for idx := first; idx < last; idx++ {
 			out = append(out, p.renderRow(styles, p.matches[idx], idx == p.cursor, width))

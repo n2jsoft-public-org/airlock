@@ -62,7 +62,7 @@ func newDockerList(styles Styles, containers []dockerdb.Container, err error, ac
 	return dockerList{list: newWizardList(styles, items), err: err, loaded: loaded}
 }
 
-func (p *dockerList) SetSize(width, height int) { p.list.SetSize(width, maxInt(height, 3)) }
+func (p *dockerList) SetSize(width, height int) { p.list.SetSize(width, max(height, 3)) }
 
 func (p dockerList) typing() bool { return p.list.SettingFilter() }
 

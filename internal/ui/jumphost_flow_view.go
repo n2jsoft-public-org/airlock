@@ -561,7 +561,7 @@ func (m jumphostWizardModel) mcpWritesToggle() string {
 }
 
 func (m jumphostWizardModel) reviewRow(label, value string, width int) string {
-	return "  " + m.styles.FieldLabel.Render(label) + truncate(value, maxInt(1, width-2-m.styles.FieldLabel.GetWidth()))
+	return "  " + m.styles.FieldLabel.Render(label) + truncate(value, max(1, width-2-m.styles.FieldLabel.GetWidth()))
 }
 
 // reviewInput renders an editable field; the focused one gets the accent marker and its help line, if any.

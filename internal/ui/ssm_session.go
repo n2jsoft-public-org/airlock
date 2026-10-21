@@ -1082,13 +1082,6 @@ func (m *ssmModel) refreshSelected(s *sessions.Session) {
 	}
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // printSessionSummary tells what each session of list did, once the dashboard closed.
 func printSessionSummary(out io.Writer, list []sessions.Session) {
 	if out == nil || len(list) == 0 {

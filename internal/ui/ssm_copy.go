@@ -129,7 +129,7 @@ func (m ssmModel) renderCopyMenu(width int) string {
 	items := copyItems(s)
 	dialogWidth := min(width-4, 90)
 	// Modal border (2) and padding (6) around the rows.
-	inner := maxInt(dialogWidth-8, 20)
+	inner := max(dialogWidth-8, 20)
 	labelWidth := 0
 	for _, item := range items {
 		labelWidth = max(labelWidth, lipgloss.Width(item.label))

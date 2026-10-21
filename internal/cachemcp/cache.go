@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 )
@@ -266,7 +267,7 @@ func (c *cache) Scan(ctx context.Context, in *scanInput) (scanOutput, error) {
 // naming the primary being scanned: a cursor whose primary is gone (failover, resharding) fails
 // rather than skip or repeat a shard.
 func (c *cache) scan(ctx context.Context, nodes []*redis.Client, cluster bool, in *scanInput) (scanOutput, error) {
-	limit := int64(clamp(in.Limit, defaultScanLimit, maxScanLimit))
+	limit := int64(mcpserve.Limit(in.Limit, defaultScanLimit, maxScanLimit))
 	pattern := strings.TrimSpace(in.Pattern)
 	if pattern == "" {
 		pattern = "*"
@@ -369,7 +370,7 @@ func (c *cache) Get(ctx context.Context, in *getKeyInput) (keyValue, error) {
 		return keyValue{}, err
 	}
 	key := in.Key
-	limit := clamp(in.MaxItems, defaultMaxItems, maxItemsLimit)
+	limit := mcpserve.Limit(in.MaxItems, defaultMaxItems, maxItemsLimit)
 
 	kind, err := client.Type(ctx, key).Result()
 	if err != nil {
@@ -672,17 +673,5 @@ func jsonReply(reply any) any {
 		return v.Error()
 	default:
 		return v
-	}
-}
-
-// clamp is requested, else fallback when unset, at most limit.
-func clamp(requested, fallback, limit int) int {
-	switch {
-	case requested <= 0:
-		return fallback
-	case requested > limit:
-		return limit
-	default:
-		return requested
 	}
 }

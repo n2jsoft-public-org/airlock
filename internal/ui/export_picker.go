@@ -130,7 +130,7 @@ func (p exportPicker) View() tea.View {
 }
 
 func (p exportPicker) render() string {
-	width := maxInt(p.width, 30)
+	width := max(p.width, 30)
 	count := len(p.selected())
 	status := p.styles.Faint.Render(i18n.Format("ui.export_picker.selected", count, len(p.choices)))
 	lines := []string{spread(p.styles.Title.Render(p.title), status, width), ""}
@@ -148,9 +148,9 @@ func (p exportPicker) render() string {
 func (p exportPicker) renderRows(width int) []string {
 	rows := len(p.choices)
 	if p.height > 0 {
-		rows = min(rows, maxInt(p.height-6, 3))
+		rows = min(rows, max(p.height-6, 3))
 	}
-	first := min(max(p.cursor-rows/2, 0), maxInt(len(p.choices)-rows, 0))
+	first := min(max(p.cursor-rows/2, 0), max(len(p.choices)-rows, 0))
 	last := min(first+rows, len(p.choices))
 	nameWidth := 0
 	for idx := range p.choices {

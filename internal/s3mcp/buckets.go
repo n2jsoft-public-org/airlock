@@ -174,24 +174,13 @@ type listObjectsOutput struct {
 	Truncated bool           `json:"truncated,omitempty"`
 }
 
-func limitOf(n int) int32 {
-	switch {
-	case n <= 0:
-		return defaultLimit
-	case n > maxLimit:
-		return maxLimit
-	default:
-		return int32(n) //nolint:gosec // at most maxLimit.
-	}
-}
-
 func (b *buckets) Objects(ctx context.Context, in *listObjectsInput) (listObjectsOutput, error) {
 	empty := listObjectsOutput{Objects: []objectOutput{}}
 	at, err := b.at(ctx, in.Bucket)
 	if err != nil {
 		return empty, err
 	}
-	req := &s3.ListObjectsV2Input{Bucket: aws.String(in.Bucket), Prefix: optional(in.Prefix), MaxKeys: aws.Int32(limitOf(in.Limit))}
+	req := &s3.ListObjectsV2Input{Bucket: aws.String(in.Bucket), Prefix: optional(in.Prefix), MaxKeys: aws.Int32(int32(mcpserve.Limit(in.Limit, defaultLimit, maxLimit)))} //nolint:gosec // at most maxLimit.
 	if !in.Recursive {
 		req.Delimiter = aws.String("/")
 	}

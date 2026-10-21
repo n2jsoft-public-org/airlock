@@ -127,7 +127,7 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 	}
 	dialogWidth := min(width-4, 80)
 	// Modal border (2) and padding (6) around the rows.
-	inner := maxInt(dialogWidth-8, 20)
+	inner := max(dialogWidth-8, 20)
 	creds := m.password.creds
 
 	title := i18n.T("ui.password.title")
@@ -171,7 +171,7 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 // passwordLines renders password after indent, wrapped rather than truncated: a partial password
 // is useless.
 func (m ssmModel) passwordLines(password, indent string, width int) []string {
-	lines := strings.Split(lipgloss.NewStyle().Width(maxInt(width-len(indent), 10)).Render(password), "\n")
+	lines := strings.Split(lipgloss.NewStyle().Width(max(width-len(indent), 10)).Render(password), "\n")
 	for idx, line := range lines {
 		lines[idx] = indent + m.styles.Title.Render(strings.TrimRight(line, " "))
 	}

@@ -106,16 +106,16 @@ func (p regionPicker) choice() (string, bool) {
 func (p regionPicker) View(styles Styles, width, height int) string {
 	// Modal border (2) and padding (6) around the content.
 	panelWidth := min(width, regionPickerMaxWidth)
-	inner := maxInt(panelWidth-8, 20)
+	inner := max(panelWidth-8, 20)
 	// Modal border and padding (4), title, search, rule, footer and gaps (6).
-	rows := min(regionPickerMaxRows, maxInt(height-10, 1))
+	rows := min(regionPickerMaxRows, max(height-10, 1))
 
 	title := spread(
 		styles.Text.Bold(true).Render(i18n.T("ui.region_picker.switch_aws_region")),
 		styles.Faint.Render(fmt.Sprintf("%d/%d", len(p.matches), len(awsRegions))),
 		inner,
 	)
-	p.input.SetWidth(maxInt(inner-lipgloss.Width(p.input.Prompt)-1, 5))
+	p.input.SetWidth(max(inner-lipgloss.Width(p.input.Prompt)-1, 5))
 
 	lines := []string{title, "", inputView(p.input), styles.Rule.Render(strings.Repeat("─", inner))}
 	lines = append(lines, p.renderRows(styles, inner, rows)...)
@@ -138,7 +138,7 @@ func (p regionPicker) renderRows(styles Styles, width, rows int) []string {
 	}
 
 	// Keep the cursor inside a window of rows entries.
-	first := min(max(p.cursor-rows/2, 0), maxInt(len(p.matches)-rows, 0))
+	first := min(max(p.cursor-rows/2, 0), max(len(p.matches)-rows, 0))
 	last := min(first+rows, len(p.matches))
 
 	out := make([]string, 0, rows)

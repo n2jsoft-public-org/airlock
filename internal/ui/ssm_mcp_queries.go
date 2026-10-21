@@ -26,7 +26,7 @@ func (m ssmModel) renderQueryLines(s *sessions.Session, width int) string {
 		return lipgloss.NewStyle().Width(width).Render(text)
 	}
 
-	textWidth := maxInt(10, width-logTimeWidth)
+	textWidth := max(10, width-logTimeWidth)
 	indent := strings.Repeat(" ", logTimeWidth)
 	var out []string
 	if hidden := queries.Total - len(queries.Events); hidden > 0 {

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/n2jsoft/airlock/internal/mcpserve"
 )
 
 const (
@@ -123,7 +125,7 @@ func (c *apiCluster) List(ctx context.Context, in *listResourcesInput) (listReso
 	if !t.Namespaced && in.Namespace != "" {
 		return listResourcesOutput{}, fmt.Errorf("%s are not namespaced: leave namespace empty", t.Name)
 	}
-	query := url.Values{"limit": {strconv.Itoa(clamp(in.Limit, defaultListLimit, maxListLimit))}}
+	query := url.Values{"limit": {strconv.Itoa(mcpserve.Limit(in.Limit, defaultListLimit, maxListLimit))}}
 	setQuery(query, "labelSelector", in.LabelSelector)
 	setQuery(query, "fieldSelector", in.FieldSelector)
 	setQuery(query, "continue", in.Continue)
@@ -197,7 +199,7 @@ func (c *apiCluster) Logs(ctx context.Context, in *podLogsInput) (podLogsOutput,
 		return podLogsOutput{}, errors.New("namespace and pod are required")
 	}
 	query := url.Values{
-		"tailLines":  {strconv.Itoa(clamp(in.TailLines, defaultTailLines, maxTailLines))},
+		"tailLines":  {strconv.Itoa(mcpserve.Limit(in.TailLines, defaultTailLines, maxTailLines))},
 		"limitBytes": {strconv.Itoa(maxResultBytes)},
 	}
 	setQuery(query, "container", in.Container)
@@ -260,7 +262,7 @@ func (c *apiCluster) Events(ctx context.Context, in *listEventsInput) (events []
 		query.Set("continue", list.Metadata.Continue)
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Time > events[j].Time })
-	if limit := clamp(in.Limit, defaultListLimit, maxListLimit); len(events) > limit {
+	if limit := mcpserve.Limit(in.Limit, defaultListLimit, maxListLimit); len(events) > limit {
 		events = events[:limit]
 	}
 	events, _ = fitResult(events)
@@ -280,18 +282,6 @@ func eventTime(item map[string]any) string {
 // isSecrets is true for the core Secret type, whose values are never returned.
 func isSecrets(t *resourceType) bool {
 	return t.Group == "" && t.Name == "secrets"
-}
-
-// clamp is requested, else fallback when unset, at most limit.
-func clamp(requested, fallback, limit int) int {
-	switch {
-	case requested <= 0:
-		return fallback
-	case requested > limit:
-		return limit
-	default:
-		return requested
-	}
 }
 
 func setQuery(query url.Values, key, value string) {

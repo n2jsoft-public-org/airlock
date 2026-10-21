@@ -181,7 +181,7 @@ func (p *recentPicker) SetSize(width, height int) {
 	if p.settings {
 		chrome++
 	}
-	p.list.SetSize(width, maxInt(height-chrome, 3))
+	p.list.SetSize(width, max(height-chrome, 3))
 }
 
 // typing reports whether printable keys belong to the list filter.

@@ -59,14 +59,6 @@ func newLogs(a api) *logs {
 	return &logs{api: a, now: time.Now, poll: pollInterval, queryTimeout: queryTimeout}
 }
 
-// limitOf is n within 1..maxLimit, defaultLimit when unset.
-func limitOf(n int) int {
-	if n <= 0 {
-		return defaultLimit
-	}
-	return min(n, maxLimit)
-}
-
 // cut shortens s to maxValueBytes, reporting whether it did.
 func cut(s string) (string, bool) {
 	if len(s) <= maxValueBytes {
@@ -194,7 +186,7 @@ func (l *logs) Query(ctx context.Context, in *queryInput) (queryOutput, error) {
 	if err != nil {
 		return out, err
 	}
-	limit := limitOf(in.Limit)
+	limit := mcpserve.Limit(in.Limit, defaultLimit, maxLimit)
 	started, err := l.api.StartQuery(ctx, &cloudwatchlogs.StartQueryInput{
 		LogGroupIdentifiers: in.Groups, QueryString: aws.String(in.Query),
 		StartTime: aws.Int64(from.Unix()), EndTime: aws.Int64(to.Unix()), Limit: aws.Int32(int32(limit)), //nolint:gosec // limit ≤ maxLimit.
@@ -299,7 +291,7 @@ func (l *logs) Filter(ctx context.Context, in *filterInput) (filterOutput, error
 	if err != nil {
 		return out, err
 	}
-	limit := limitOf(in.Limit)
+	limit := mcpserve.Limit(in.Limit, defaultLimit, maxLimit)
 	req := &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupIdentifier: aws.String(in.Group), LogStreamNames: in.Streams,
 		StartTime: aws.Int64(from.UnixMilli()), EndTime: aws.Int64(to.UnixMilli()), Limit: aws.Int32(eventsPage),
