@@ -74,7 +74,8 @@ func TestProfilesWarnsOfAnExpiredSignInWithoutSigningIn(t *testing.T) {
 
 func TestProfilesWarnsOfAnMFAProfileWithoutACode(t *testing.T) {
 	fakeAWS(t, http.StatusOK, callerIdentityXML, http.StatusOK, instanceXML)
-	mfa := "\n[profile mfa]\nregion = eu-west-3\nsource_profile = dev\nrole_arn = arn:aws:iam::111111111111:role/app\nmfa_serial = arn:aws:iam::111111111111:mfa/dev\n"
+	mfa := "\n[profile mfa]\nregion = eu-west-3\nsource_profile = dev\nrole_arn = arn:aws:iam::111111111111:role/app\nmfa_serial = arn:aws:iam::111111111111:mfa/dev\n" +
+		"\n[profile prod]\nregion = eu-west-3\nsource_profile = mfa\nrole_arn = arn:aws:iam::111111111111:role/prod\n"
 	f, err := os.OpenFile(os.Getenv("AWS_CONFIG_FILE"), os.O_APPEND|os.O_WRONLY, 0) // #nosec G703 -- the test's own config file.
 	if err != nil {
 		t.Fatal(err)
@@ -86,9 +87,22 @@ func TestProfilesWarnsOfAnMFAProfileWithoutACode(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := jumphost.NewRunner(&jumphost.RunnerOptions{Out: io.Discard, Err: io.Discard})
-	results := Profiles(context.Background(), runner, []Profile{{Name: "mfa", Region: "eu-west-3"}}, true, AWSTimeout)
-	if len(results) != 1 || results[0].Status != Warning || !strings.Contains(results[0].Fix, "sso-login --profile mfa") {
-		t.Fatalf("results = %+v, want one warning telling how to type the MFA code", results)
+	// prod chains a role above mfa: its code is the one of mfa.
+	for _, profile := range []string{"mfa", "prod"} {
+		results := Profiles(context.Background(), runner, []Profile{{Name: profile, Region: "eu-west-3"}}, true, AWSTimeout)
+		if len(results) != 1 || results[0].Status != Warning || !strings.Contains(results[0].Fix, "sso-login --profile "+profile) {
+			t.Fatalf("%s: results = %+v, want one warning telling how to type the MFA code", profile, results)
+		}
+	}
+}
+
+func TestProfilesFailsWhenAWSRefusesTheConfiguration(t *testing.T) {
+	fakeAWS(t, http.StatusForbidden, `<ErrorResponse><Error><Type>Sender</Type><Code>InvalidClientTokenId</Code>`+
+		`<Message>The security token included in the request is invalid.</Message></Error></ErrorResponse>`, http.StatusOK, instanceXML)
+	results := checkDev(t, true)
+	if len(results) != 1 || results[0].Status != Failure || !strings.Contains(results[0].Message, "InvalidClientTokenId") ||
+		!strings.Contains(results[0].Fix, "check profile dev") {
+		t.Fatalf("results = %+v, want a configuration failure", results)
 	}
 }
 

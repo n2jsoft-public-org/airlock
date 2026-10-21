@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,8 +23,12 @@ const (
 	mfaCacheFile = "b26e45a5efba11b34b676c5657f44efc9db2add0.json"
 )
 
-// fakeSTS answers AssumeRole with credentials expiring after lifetime, recording the token codes.
+const mfaRole = "arn:aws:iam::123456789012:role/admin"
+
+// fakeSTS answers AssumeRole with credentials expiring after lifetime, recording the token codes of
+// the MFA role and, for every role, the access key that signed the call.
 type fakeSTS struct {
+	signers  map[string]string // role name → access key id of the caller
 	codes    []string
 	calls    atomic.Int32
 	lifetime time.Duration
@@ -36,23 +41,38 @@ func (f *fakeSTS) handle(t *testing.T) http.HandlerFunc {
 			return
 		}
 		f.calls.Add(1)
-		if got := r.FormValue("SerialNumber"); got != mfaSerial {
-			t.Errorf("SerialNumber = %q", got)
+		role := r.FormValue("RoleArn")
+		serial := r.FormValue("SerialNumber")
+		if (role == mfaRole) != (serial == mfaSerial) {
+			t.Errorf("role %s: SerialNumber = %q", role, serial)
 		}
-		f.codes = append(f.codes, r.FormValue("TokenCode"))
+		if role == mfaRole {
+			f.codes = append(f.codes, r.FormValue("TokenCode"))
+		}
+		name := role[strings.LastIndex(role, "/")+1:]
+		_, signer, _ := strings.Cut(r.Header.Get("Authorization"), "Credential=")
+		signer, _, _ = strings.Cut(signer, "/")
+		f.signers[name] = signer
+		key := "ASIAMFA"
+		if role != mfaRole {
+			key = "ASIA" + strings.ToUpper(name)
+		}
 		awsapitest.RespondXML(t, w, 200, fmt.Sprintf(`<AssumeRoleResponse><AssumeRoleResult><Credentials>
-<AccessKeyId>ASIAMFA</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken>
-<Expiration>%s</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>`, time.Now().Add(f.lifetime).UTC().Format(time.RFC3339)))
+<AccessKeyId>%s</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken>
+<Expiration>%s</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>`, key, time.Now().Add(f.lifetime).UTC().Format(time.RFC3339)))
 	}
 }
 
-// mfaEnv serves a fake STS and writes an "mfa" profile assuming a role with MFA from "base".
+// mfaEnv serves a fake STS and writes an "mfa" profile assuming a role with MFA from "base", and
+// "prod" then "top" chaining roles above it.
 func mfaEnv(t *testing.T, lifetime time.Duration) *fakeSTS {
 	t.Helper()
-	sts := &fakeSTS{lifetime: lifetime}
+	sts := &fakeSTS{lifetime: lifetime, signers: map[string]string{}}
 	awsapitest.Env(t, sts.handle(t), "base")
 	profile := "[profile base]\nregion = eu-west-3\n\n[profile mfa]\nregion = eu-west-3\nsource_profile = base\n" +
-		"role_arn = arn:aws:iam::123456789012:role/admin\nmfa_serial = " + mfaSerial + "\n"
+		"role_arn = " + mfaRole + "\nmfa_serial = " + mfaSerial + "\n\n" +
+		"[profile prod]\nregion = eu-west-3\nsource_profile = mfa\nrole_arn = arn:aws:iam::123456789012:role/prod\n\n" +
+		"[profile top]\nregion = eu-west-3\nsource_profile = prod\nrole_arn = arn:aws:iam::123456789012:role/top\n"
 	// #nosec G703 -- the test's own temp file.
 	if err := os.WriteFile(os.Getenv("AWS_CONFIG_FILE"), []byte(profile), 0o600); err != nil {
 		t.Fatal(err)
@@ -119,7 +139,7 @@ func TestMFAProfileWithoutCodeFailsWithoutPrompting(t *testing.T) {
 }
 
 func TestMFACacheNearExpiryAsksAgain(t *testing.T) {
-	mfaEnv(t, 10*time.Minute) // inside the AWS CLI's 15-minute window.
+	mfaEnv(t, 18*time.Minute) // inside airlock's 20-minute window, outside the AWS CLI's 15.
 	ctx := context.Background()
 	if err := awsapi.SignInMFA(ctx, "mfa", func(string) (string, error) { return "123456", nil }); err != nil {
 		t.Fatal(err)
@@ -139,16 +159,79 @@ func TestLoginProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.WriteString("\n[profile child]\nsource_profile = base\nrole_arn = arn:aws:iam::1:role/r\n"); err != nil {
+	if _, err := f.WriteString("\n[profile child]\nsource_profile = base\nrole_arn = arn:aws:iam::1:role/r\n" +
+		"\n[profile grandchild]\nsource_profile = child\nrole_arn = arn:aws:iam::1:role/g\n"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for profile, want := range map[string]string{"mfa": "mfa", "child": "base", "base": "base"} {
+	for profile, want := range map[string]string{"mfa": "mfa", "top": "mfa", "child": "base", "grandchild": "base", "base": "base"} {
 		if got := awsapi.LoginProfile(ctx, profile); got != want {
 			t.Errorf("LoginProfile(%s) = %q, want %q", profile, got, want)
 		}
+	}
+}
+
+func TestChainedRolesAboveAnMFARoleUseItsCache(t *testing.T) {
+	sts := mfaEnv(t, time.Hour)
+	ctx := context.Background()
+	if !awsapi.MFAProfile(ctx, "top") || awsapi.MFAProfile(ctx, "base") {
+		t.Fatal("MFAProfile must follow source_profile to the MFA role")
+	}
+	cfg, err := awsapi.NewConfigs().Get(ctx, "top", "eu-west-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cfg.Credentials.Retrieve(ctx); !errors.Is(err, awsapi.ErrMFACodeRequired) {
+		t.Fatalf("before sign-in: err = %v, want ErrMFACodeRequired", err)
+	}
+
+	// The sign-in of the chain's top asks the code of the MFA role, cached as botocore names it.
+	asked := 0
+	if err = awsapi.SignInMFA(ctx, "top", func(string) (string, error) { asked++; return "123456", nil }); err != nil {
+		t.Fatal(err)
+	}
+	// #nosec G703 -- the test's own temp dir.
+	if _, err = os.Stat(filepath.Join(os.Getenv("HOME"), ".aws", "cli", "cache", mfaCacheFile)); asked != 1 || err != nil {
+		t.Fatalf("asked %d times, cache file: %v", asked, err)
+	}
+
+	cfg, err = awsapi.NewConfigs().Get(ctx, "top", "eu-west-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds, err := cfg.Credentials.Retrieve(ctx)
+	if err != nil || creds.AccessKeyID != "ASIATOP" {
+		t.Fatalf("creds = %+v, err = %v", creds, err)
+	}
+	if len(sts.codes) != 1 || sts.signers["prod"] != "ASIAMFA" || sts.signers["top"] != "ASIAPROD" {
+		t.Errorf("codes = %v, callers = %v: want prod assumed with the cached MFA role, top with prod", sts.codes, sts.signers)
+	}
+}
+
+func TestMFACacheReadsTheAWSCLIExpirationFormat(t *testing.T) {
+	sts := mfaEnv(t, time.Hour)
+	ctx := context.Background()
+	// botocore writes datetimes with strftime("%Y-%m-%dT%H:%M:%S%Z").
+	expires := time.Now().Add(time.Hour).UTC().Format("2006-01-02T15:04:05") + "UTC"
+	dir := filepath.Join(os.Getenv("HOME"), ".aws", "cli", "cache")
+	if err := os.MkdirAll(dir, 0o700); err != nil { // #nosec G703 -- the test's own temp dir.
+		t.Fatal(err)
+	}
+	file := `{"Credentials": {"AccessKeyId": "ASIACLI", "SecretAccessKey": "s", "SessionToken": "t", "Expiration": "` + expires + `"}}`
+	if err := os.WriteFile(filepath.Join(dir, mfaCacheFile), []byte(file), 0o600); err != nil { // #nosec G703 -- same.
+		t.Fatal(err)
+	}
+	cfg, err := awsapi.NewConfigs().Get(ctx, "mfa", "eu-west-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds, err := cfg.Credentials.Retrieve(ctx); err != nil || creds.AccessKeyID != "ASIACLI" {
+		t.Fatalf("creds = %+v, err = %v", creds, err)
+	}
+	if n := sts.calls.Load(); n != 0 {
+		t.Errorf("AssumeRole calls = %d, want none", n)
 	}
 }

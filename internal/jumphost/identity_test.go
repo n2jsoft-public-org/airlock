@@ -193,6 +193,36 @@ func TestCheckIdentityReportsConfigErrors(t *testing.T) {
 	}
 }
 
+func TestEnsureIdentityNeverSignsInWhenAWSRefusesTheConfiguration(t *testing.T) {
+	refusals := map[string]string{
+		"role":     "AccessDenied",         // AssumeRole: wrong role_arn, trust policy or MFA device.
+		"dev":      "InvalidClientTokenId", // unknown access key.
+		"badparam": "ValidationError",
+	}
+	awsapitest.Env(t, func(w http.ResponseWriter, r *http.Request) {
+		code := refusals["dev"]
+		if awsapitest.Operation(r) == "AssumeRole" {
+			code = refusals[strings.TrimPrefix(r.FormValue("RoleArn"), "arn:aws:iam::111111111111:role/")]
+		}
+		awsapitest.RespondXML(t, w, http.StatusForbidden, `<ErrorResponse><Error><Type>Sender</Type><Code>`+code+`</Code>`+
+			`<Message>refused</Message></Error></ErrorResponse>`)
+	}, "dev")
+	appendAWSConfig(t, "[profile role]\nregion = eu-west-3\nrole_arn = arn:aws:iam::111111111111:role/role\nsource_profile = dev\n\n"+
+		"[profile badparam]\nregion = eu-west-3\nrole_arn = arn:aws:iam::111111111111:role/badparam\nsource_profile = dev\n")
+	var logins atomic.Int32
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, Interactive: countingInteractive(&logins)})
+	for profile, code := range refusals {
+		err := runner.ensureIdentity(context.Background(), awsConfig{Profile: profile, Region: "eu-west-3"}, true)
+		if err == nil || errors.Is(err, ErrSignInRequired) || !strings.Contains(err.Error(), "AWS refused the credentials of profile "+profile) ||
+			!strings.Contains(err.Error(), code) {
+			t.Errorf("%s: err = %v, want AWS refusing the configuration with %s", profile, err, code)
+		}
+	}
+	if logins.Load() != 0 {
+		t.Fatal("a configuration AWS refuses must never trigger a sign-in")
+	}
+}
+
 func TestMFAProfilesSignInWithACodeOnTheTerminal(t *testing.T) {
 	installExpiredSTS(t).Store(true) // STS answers: only the missing MFA code fails.
 	appendAWSConfig(t, "[profile mfa]\nregion = eu-west-3\nrole_arn = arn:aws:iam::111111111111:role/app\nsource_profile = dev\n"+

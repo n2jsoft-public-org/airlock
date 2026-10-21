@@ -1060,6 +1060,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	// internal/jumphost/identity.go
 	"jumphost.identity.aws_credentials_of_profile": "%w : les identifiants AWS du profil %s sont absents ou expirés",
 	"jumphost.identity.aws_unreachable":            "AWS est injoignable pour vérifier les identifiants du profil %s : %w",
+	"jumphost.identity.aws_refused":                "AWS refuse les identifiants du profil %s, et se reconnecter n'y changerait rien : vérifiez son role_arn, la politique d'approbation du rôle, son mfa_serial et ses clés d'accès : %w",
 	// internal/jumphost/keychain.go
 	"jumphost.keychain.failed_to_forget_password":   "%w : échec de l'oubli du mot de passe : %w",
 	"jumphost.keychain.failed_to_forget_previous":   "échec de l'oubli du mot de passe précédent : %w",

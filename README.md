@@ -366,10 +366,18 @@ the profile sets `duration_seconds`), every airlock process uses them without as
 daemon, the MCP servers, `airlock eks-token` run by kubectl, and the `aws ssm start-session` of the
 tunnels. A code typed for the AWS CLI serves airlock too, and the other way round.
 
-Like the AWS CLI, airlock asks again 15 minutes before the session ends. Where no terminal is at
-hand (an MCP server, kubectl), an expired session fails with an error telling you to pick the
-profile in airlock, or to run `airlock sso-login --profile <profile>`. `mfa_serial` on a profile
-without `role_arn` is ignored, as the AWS CLI does.
+A profile chaining a role above an MFA profile (`source_profile = prod-admin`, its own `role_arn`)
+uses the same cached credentials: picking it asks for the code of `prod-admin`.
+
+airlock asks again 20 minutes before the session ends, 5 minutes before the AWS CLI does, so a
+tunnel's `aws ssm start-session` never needs a code. Where no terminal is at hand (an MCP server,
+kubectl), an expired session fails with an error telling you to pick the profile in airlock, or to
+run `airlock sso-login --profile <profile>`. `mfa_serial` on a profile without `role_arn` is
+ignored, as the AWS CLI does.
+
+When AWS refuses the role or the keys themselves (`AccessDenied` on AssumeRole: a wrong `role_arn`,
+trust policy or MFA device; `InvalidClientTokenId`: unknown access keys), airlock does not ask for
+a code or sign in again: it reports the error, and `airlock doctor` fails, until the profile is fixed.
 
 ### Database sign-in
 

@@ -50,14 +50,3 @@ func TestProfileRegion(t *testing.T) {
 		}
 	}
 }
-
-func TestSourceProfile(t *testing.T) {
-	t.Setenv("AWS_CONFIG_FILE", writeShared(t, "config",
-		"[profile corp]\nregion = eu-west-3\n\n[profile app]\nrole_arn = arn:aws:iam::111111111111:role/app\nsource_profile = corp\n\n[profile solo]\n"))
-	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", writeShared(t, "credentials", "[corp]\naws_access_key_id = x\naws_secret_access_key = y\n"))
-	for profile, want := range map[string]string{"app": "corp", "solo": "", "unknown": ""} {
-		if got := awsapi.SourceProfile(t.Context(), profile); got != want {
-			t.Errorf("SourceProfile(%q) = %q, want %q", profile, got, want)
-		}
-	}
-}

@@ -74,16 +74,6 @@ func ProfileRegion(ctx context.Context, profile string) string {
 	return strings.TrimSpace(shared.Region)
 }
 
-// SourceProfile returns the source_profile of profile in the shared files; "" when there is none
-// or the profile is unknown.
-func SourceProfile(ctx context.Context, profile string) string {
-	shared, err := SharedProfile(ctx, profile)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(shared.SourceProfileName)
-}
-
 // SharedProfile reads profile from the shared files. The files are named explicitly:
 // LoadSharedConfigProfile ignores AWS_CONFIG_FILE otherwise.
 func SharedProfile(ctx context.Context, profile string) (config.SharedConfig, error) {

@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/n2jsoft/airlock/internal/i18n"
 )
 
@@ -24,29 +25,55 @@ type TokenCode func(serial string) (string, error)
 // ErrMFACodeRequired reports role credentials that only a terminal can renew, by typing an MFA code.
 var ErrMFACodeRequired = errors.New("MFA code required")
 
-// mfaExpiryWindow is how early cached role credentials count as expired: the AWS CLI's own window,
-// so a tunnel's `aws ssm start-session` never asks for a code that airlock thought it did not need.
-const mfaExpiryWindow = 15 * time.Minute
+// mfaExpiryWindow is how early cached role credentials count as expired: 5 minutes more than the
+// AWS CLI's 15, so a tunnel's `aws ssm start-session` started from them never asks for a code.
+const mfaExpiryWindow = 20 * time.Minute
 
-// MFAProfile reports whether profile assumes a role with an MFA code (role_arn and mfa_serial). The
-// SDK, like the AWS CLI, ignores mfa_serial on a profile without role_arn.
+// MFAProfile reports whether profile, or a profile it takes its role credentials from through
+// source_profile, assumes a role with an MFA code (role_arn and mfa_serial). The SDK, like the AWS
+// CLI, ignores mfa_serial on a profile without role_arn.
 func MFAProfile(ctx context.Context, profile string) bool {
 	shared, err := SharedProfile(ctx, profile)
-	return err == nil && shared.RoleARN != "" && shared.MFASerial != ""
-}
-
-// LoginProfile is the profile to sign in so that profile works again: the profile itself when it
-// asks for an MFA code or has no source_profile, else its source_profile.
-func LoginProfile(ctx context.Context, profile string) string {
-	if parent := SourceProfile(ctx, profile); parent != "" && !MFAProfile(ctx, profile) {
-		return parent
+	if err != nil {
+		return false
 	}
-	return profile
+	hop, _ := mfaHop(&shared)
+	return hop != nil
 }
 
-// SignInMFA assumes the role of profile with a code read by code, always asking for a new one, and
-// caches the credentials where every airlock process and the AWS CLI find them.
+// LoginProfile is the profile to sign in so that profile works again: the one of its source_profile
+// chain that asks for an MFA code, else the end of the chain (profile itself without source_profile).
+func LoginProfile(ctx context.Context, profile string) string {
+	shared, err := SharedProfile(ctx, profile)
+	if err != nil {
+		return profile
+	}
+	if hop, _ := mfaHop(&shared); hop != nil {
+		return hop.Profile
+	}
+	last := &shared
+	for last.Source != nil {
+		last = last.Source
+	}
+	return last.Profile
+}
+
+// mfaHop returns the profile of the source_profile chain of shared that assumes a role with an MFA
+// code, and the profiles assuming a role above it, shared first; nil when none asks for a code.
+func mfaHop(shared *config.SharedConfig) (hop *config.SharedConfig, above []*config.SharedConfig) {
+	for s := shared; s != nil && s.RoleARN != ""; s = s.Source {
+		if s.MFASerial != "" {
+			return s, above
+		}
+		above = append(above, s)
+	}
+	return nil, nil
+}
+
+// SignInMFA assumes the MFA role of profile (LoginProfile) with a code read by code, always asking
+// for a new one, and caches the credentials where every airlock process and the AWS CLI find them.
 func SignInMFA(ctx context.Context, profile string, code TokenCode) error {
+	profile = LoginProfile(ctx, profile)
 	cfg, err := load(ctx, profile, "", code, config.WithDefaultRegion("us-east-1")) // STS is global.
 	if err != nil {
 		return err
@@ -84,16 +111,53 @@ func load(ctx context.Context, profile, region string, code TokenCode, opts ...f
 	return config.LoadDefaultConfig(ctx, opts...)
 }
 
-// withCachedRole makes the credentials of an MFA profile read the shared role cache first, so the
-// code typed in one process serves all of them until the role session expires.
-func withCachedRole(cfg *aws.Config) {
-	path := mfaCachePath(cfg)
-	if path == "" {
-		return
+// withCachedRole makes the credentials of a profile asking for an MFA code, itself or down its
+// source_profile chain, read the shared role cache first, so the code typed in one process serves
+// all of them until the role session expires.
+func withCachedRole(ctx context.Context, cfg *aws.Config) error {
+	shared, ok := sharedConfigOf(cfg)
+	if !ok {
+		return nil
 	}
-	cfg.Credentials = aws.NewCredentialsCache(&cachedRole{path: path, assume: cfg.Credentials}, func(o *aws.CredentialsCacheOptions) {
-		o.ExpiryWindow = mfaExpiryWindow
-	})
+	hop, above := mfaHop(&shared)
+	if hop == nil {
+		return nil
+	}
+	if len(above) == 0 {
+		cfg.Credentials = aws.NewCredentialsCache(&cachedRole{path: mfaCachePath(cfg), assume: cfg.Credentials}, func(o *aws.CredentialsCacheOptions) {
+			o.ExpiryWindow = mfaExpiryWindow
+		})
+		return nil
+	}
+	// The SDK's chain would assume the MFA role without the cache: assume the roles above it from
+	// the cached MFA role credentials instead, as the AWS CLI does.
+	hopCfg, err := load(ctx, hop.Profile, cfg.Region, nil)
+	if err != nil {
+		return err
+	}
+	if err := withCachedRole(ctx, &hopCfg); err != nil {
+		return err
+	}
+	creds := hopCfg.Credentials
+	for i := len(above) - 1; i >= 0; i-- {
+		creds = assumeRole(cfg, above[i], creds)
+	}
+	cfg.Credentials = creds
+	return nil
+}
+
+// assumeRole assumes the role of profile with source credentials, as the SDK's chain would.
+func assumeRole(cfg *aws.Config, profile *config.SharedConfig, source aws.CredentialsProvider) aws.CredentialsProvider {
+	client := sts.NewFromConfig(*cfg, func(o *sts.Options) { o.Credentials = source })
+	return aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(client, profile.RoleARN, func(o *stscreds.AssumeRoleOptions) {
+		o.RoleSessionName = profile.RoleSessionName
+		if profile.RoleDurationSeconds != nil && *profile.RoleDurationSeconds > 15*time.Minute {
+			o.Duration = *profile.RoleDurationSeconds
+		}
+		if profile.ExternalID != "" {
+			o.ExternalID = aws.String(profile.ExternalID)
+		}
+	}))
 }
 
 // cachedRole returns the cached role credentials, else assumes the role (asking for a code).
@@ -183,6 +247,9 @@ func readCachedRole(path string) (aws.Credentials, bool) {
 		return aws.Credentials{}, false
 	}
 	expires, err := time.Parse(time.RFC3339, file.Credentials.Expiration)
+	if err != nil { // botocore writes strftime("%Y-%m-%dT%H:%M:%S%Z"): 2026-10-21T10:00:00UTC.
+		expires, err = time.Parse("2006-01-02T15:04:05MST", file.Credentials.Expiration)
+	}
 	if err != nil || file.Credentials.AccessKeyID == "" || time.Until(expires) <= mfaExpiryWindow {
 		return aws.Credentials{}, false
 	}

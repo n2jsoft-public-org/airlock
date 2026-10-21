@@ -68,7 +68,9 @@ func (c *Configs) Get(ctx context.Context, profile, region string) (aws.Config, 
 	if err != nil {
 		return aws.Config{}, err
 	}
-	withCachedRole(&cfg)
+	if err := withCachedRole(ctx, &cfg); err != nil {
+		return aws.Config{}, err
+	}
 	c.cache[key] = entry{cfg: cfg, files: stamp}
 	return cfg, nil
 }

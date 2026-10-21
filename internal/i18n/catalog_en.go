@@ -1060,6 +1060,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	// internal/jumphost/identity.go
 	"jumphost.identity.aws_credentials_of_profile": "%w: the AWS credentials of profile %s are missing or expired",
 	"jumphost.identity.aws_unreachable":            "AWS could not be reached to check the credentials of profile %s: %w",
+	"jumphost.identity.aws_refused":                "AWS refused the credentials of profile %s, and signing in again would not fix it: check its role_arn, the trust policy of the role, its mfa_serial and its access keys: %w",
 	// internal/jumphost/keychain.go
 	"jumphost.keychain.failed_to_forget_password":   "%w: failed to forget the password: %w",
 	"jumphost.keychain.failed_to_forget_previous":   "failed to forget the previous password: %w",
