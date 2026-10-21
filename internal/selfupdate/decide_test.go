@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/n2jsoft/airlock/internal/version"
@@ -23,5 +24,22 @@ func TestDecide(t *testing.T) {
 		if got := Decide(tt.current, latest); got != tt.want {
 			t.Errorf("Decide(%q, %q) = %q, want %q", tt.current, latest, got, tt.want)
 		}
+	}
+}
+
+func TestChangesAreTheReleasesAfterCurrentUpToLatest(t *testing.T) {
+	releases := []Release{
+		{Tag: "v1.5.0"}, {Tag: "v1.4.0"}, {Tag: "v1.3.10", Draft: true}, {Tag: "nightly"},
+		{Tag: "v1.3.9"}, {Tag: "v1.3.10-rc"}, {Tag: "v1.3.2"}, {Tag: "v1.3.11"},
+	}
+	var got []string
+	for _, r := range Changes(releases, "v1.3.2", "v1.4.0") {
+		got = append(got, r.Tag)
+	}
+	if want := []string{"v1.4.0", "v1.3.11", "v1.3.10-rc", "v1.3.9"}; !slices.Equal(got, want) {
+		t.Fatalf("Changes = %v, want %v", got, want)
+	}
+	if got := Changes(releases, "dev", "v1.4.0"); got != nil {
+		t.Fatalf("Changes of a dev build = %v, want none", got)
 	}
 }

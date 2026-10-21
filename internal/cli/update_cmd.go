@@ -9,6 +9,7 @@ import (
 	"github.com/n2jsoft/airlock/internal/appdir"
 	"github.com/n2jsoft/airlock/internal/i18n"
 	"github.com/n2jsoft/airlock/internal/selfupdate"
+	"github.com/n2jsoft/airlock/internal/ui"
 	"github.com/n2jsoft/airlock/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -96,15 +97,32 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 	if err != nil {
 		return err
 	}
-	result, err := updater.Check(ctx)
+	out := ui.NewUpdateOutput(cmd.InOrStdin(), cmd.OutOrStdout())
+	var result selfupdate.Result
+	var changes []ui.ReleaseNotes
+	install := !check && force
+	err = out.Step(i18n.T("cli.update.step.check"), func() (string, error) {
+		if result, err = updater.Check(ctx); err != nil {
+			return "", err
+		}
+		install = install || (!check && result.Status == selfupdate.StatusAvailable)
+		changes = releaseChanges(ctx, updater.Client, &result)
+		if install {
+			return i18n.Format("cli.update.latest_release", result.Latest, result.Current), nil
+		}
+		return updateStatusMessage(&result), nil
+	})
 	if err != nil {
 		return err
 	}
-	if check || (result.Status != selfupdate.StatusAvailable && !force) {
-		outf(cmd, "%s\n", updateStatusMessage(&result))
+	if !install {
+		out.Changes(i18n.T("cli.update.whats_new"), changes)
 		return nil
 	}
-	if err := updater.Install(ctx, &result, target); err != nil {
+	err = out.Step(i18n.Format("cli.update.step.install", result.Latest), func() (string, error) {
+		return i18n.Format("cli.update.installed", result.Latest, target), updater.Install(ctx, &result, target)
+	})
+	if err != nil {
 		return err
 	}
 	// The notice stops at once: the cache now describes the installed build.
@@ -115,11 +133,29 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 		}
 	}
 	reactToInstalledRelease(ctx, updater.Client, result.Release)
-	outf(cmd, i18n.T("cli.update.updated_airlock"), result.Current, result.Latest)
+	out.Changes(i18n.T("cli.update.whats_new"), changes)
+	out.Done(i18n.Format("cli.update.updated_airlock", result.Current, result.Latest))
 	if env.daemonRunning != nil && env.daemonRunning(ctx) {
-		outf(cmd, "%s", i18n.T("cli.update.restart_daemon_to_use"))
+		out.Note(i18n.T("cli.update.restart_daemon_to_use"))
 	}
 	return nil
+}
+
+// releaseChanges is the notes of the releases an update from r.Current to r.Latest brings, newest
+// first. It is best effort: without them the update goes on.
+func releaseChanges(ctx context.Context, client *selfupdate.Client, r *selfupdate.Result) []ui.ReleaseNotes {
+	if r.Status != selfupdate.StatusAvailable {
+		return nil
+	}
+	releases, err := client.Releases(ctx)
+	if err != nil {
+		return nil
+	}
+	var notes []ui.ReleaseNotes
+	for _, release := range selfupdate.Changes(releases, r.Current, r.Latest) {
+		notes = append(notes, ui.ReleaseNotes{Tag: release.Tag, Body: release.Body})
+	}
+	return notes
 }
 
 // reactToInstalledRelease adds InstallReaction to release, so its reactions tell who installed it.

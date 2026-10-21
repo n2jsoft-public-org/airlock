@@ -83,7 +83,9 @@ type Release struct {
 	// Assets maps each asset name to its content.
 	Assets map[string][]byte
 	Tag    string
-	ID     int64
+	// Body is the release notes.
+	Body string
+	ID   int64
 	// RefuseReactions answers 403 to reactions, as GitHub does for a read-only token.
 	RefuseReactions bool
 }
@@ -111,7 +113,9 @@ const (
 // release yet.
 type Server struct {
 	*httptest.Server
-	Release   *Release
+	Release *Release
+	// History is the releases before Release the releases list serves, newest first.
+	History   []Release
 	requests  []string
 	reactions []string
 	mu        sync.Mutex
@@ -158,7 +162,15 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		for name := range s.Release.Assets {
 			assets = append(assets, map[string]string{"name": name, "url": s.URL + "/assets/" + name})
 		}
-		writeJSON(w, map[string]any{"id": s.Release.ID, "tag_name": s.Release.Tag, "assets": assets})
+		writeJSON(w, map[string]any{"id": s.Release.ID, "tag_name": s.Release.Tag, "body": s.Release.Body, "assets": assets})
+	case r.URL.Path == repo+"/releases":
+		var list []map[string]any
+		if s.Release != nil {
+			for _, release := range append([]Release{*s.Release}, s.History...) {
+				list = append(list, map[string]any{"id": release.ID, "tag_name": release.Tag, "body": release.Body})
+			}
+		}
+		writeJSON(w, list)
 	case r.Method == http.MethodPost && s.Release != nil && r.URL.Path == fmt.Sprintf("%s/releases/%d/reactions", repo, s.Release.ID):
 		s.react(w, r)
 	case strings.HasPrefix(r.URL.Path, "/assets/") && s.Release != nil && r.Header.Get("Accept") == "application/octet-stream":

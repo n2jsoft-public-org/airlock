@@ -1,6 +1,8 @@
 package selfupdate
 
 import (
+	"slices"
+
 	"golang.org/x/mod/semver"
 
 	"github.com/n2jsoft/airlock/internal/version"
@@ -34,4 +36,21 @@ func Decide(current, latest string) Status {
 	default:
 		return StatusNewer
 	}
+}
+
+// Changes returns the published releases after current up to latest, newest first: what updating
+// current to latest brings. A build without a semantic version gets none.
+func Changes(releases []Release, current, latest string) []Release {
+	if !semver.IsValid(current) {
+		return nil
+	}
+	var changes []Release
+	for i := range releases {
+		r := &releases[i]
+		if !r.Draft && semver.IsValid(r.Tag) && semver.Compare(r.Tag, current) > 0 && semver.Compare(r.Tag, latest) <= 0 {
+			changes = append(changes, *r)
+		}
+	}
+	slices.SortFunc(changes, func(a, b Release) int { return semver.Compare(b.Tag, a.Tag) })
+	return changes
 }

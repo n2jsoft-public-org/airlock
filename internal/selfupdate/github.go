@@ -26,8 +26,10 @@ const InstallReaction = "rocket"
 // Release is a GitHub release.
 type Release struct {
 	Tag    string  `json:"tag_name"`
+	Body   string  `json:"body"`
 	Assets []Asset `json:"assets"`
 	ID     int64   `json:"id"`
+	Draft  bool    `json:"draft"`
 }
 
 // Asset is a file attached to a release; URL is its API address.
@@ -165,6 +167,20 @@ func (c *Client) LatestRelease(ctx context.Context) (Release, error) {
 		return Release{}, fmt.Errorf("cannot read the latest release: %w", err)
 	}
 	return release, nil
+}
+
+// Releases returns the latest releases of the repository, newest first.
+// ponytail: one page of 100 releases; a build older than these gets the changes of these only.
+func (c *Client) Releases(ctx context.Context) ([]Release, error) {
+	body, err := c.get(ctx, c.repoURL("/releases?per_page=100"), "application/vnd.github+json")
+	if err != nil {
+		return nil, err
+	}
+	var releases []Release
+	if err = json.Unmarshal(body, &releases); err != nil {
+		return nil, fmt.Errorf("cannot read the releases: %w", err)
+	}
+	return releases, nil
 }
 
 // Download returns the content of a release asset.
