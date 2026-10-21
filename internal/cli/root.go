@@ -70,7 +70,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", i18n.T("cli.root.flag.mode"))
 	registerCompletions(cmd)
 
-	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newDoctorCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newSkillsCmd(), newMCPProxyCmd(), newEKSTokenCmd(), newRDSTokenCmd(), newSSOLoginCmd(), newForwardCmd(), newExecCmd(), newUpCmd(), newDownCmd())
+	cmd.AddCommand(newConfigCmd(), newConnectionCmd(), newVersionCmd(), newDoctorCmd(), newUpdateCmd(), newUninstallCmd(), newDaemonCmd(), newSkillsCmd(), newMCPProxyCmd(), newEKSTokenCmd(), newRDSTokenCmd(), newSSOLoginCmd(), newForwardCmd(), newExecCmd(), newUpCmd(), newDownCmd(), newSetupCmd())
 	localizeCobra(cmd)
 
 	return cmd
@@ -160,6 +160,12 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	interactive := isInteractiveInput(cmd.InOrStdin())
 	// Without arguments, the dashboard opens right away on the wizard: one screen from start to end.
 	wizard := len(args) == 0 && strings.TrimSpace(options.ResourceType) == "" && interactive
+	// The first launch asks the main settings before the dashboard reads them.
+	if path, pathErr := appdir.ConfigFile(); pathErr == nil && firstRunNeeded(path, wizard) {
+		if err := runFirstRun(cmd, path, true); err != nil {
+			return err
+		}
+	}
 	cfg, sources, err := resolveConfig(cmd)
 	// The wizard owns the terminal: it shows the notices itself. They are taken, and the diff
 	// cleared, before the refresh starts: a clear saved after the refresh would undo it.
