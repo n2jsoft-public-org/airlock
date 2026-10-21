@@ -25,6 +25,14 @@ var forbiddenKeywords = map[string]bool{
 	"REVERT": true, "WAITFOR": true,
 }
 
+// sideEffectFunctions may not be called in a read-only query: their effect outlives the query
+// (session advisory locks, MySQL named locks, sequence values) or reaches other sessions. They are
+// checked like forbiddenKeywords, and in quoted identifiers too ("pg_terminate_backend"(pid)).
+var sideEffectFunctions = map[string]bool{
+	"PG_ADVISORY_LOCK": true, "PG_ADVISORY_LOCK_SHARED": true, "PG_TRY_ADVISORY_LOCK": true, "PG_TRY_ADVISORY_LOCK_SHARED": true,
+	"PG_TERMINATE_BACKEND": true, "PG_CANCEL_BACKEND": true, "GET_LOCK": true, "NEXTVAL": true, "SETVAL": true,
+}
+
 // CheckReadOnly rejects anything but a single SELECT/WITH statement (plus EXPLAIN on PostgreSQL, and
 // SHOW, DESCRIBE and EXPLAIN on MySQL). It is a guardrail against mistakes; the database grants
 // remain the security boundary.
@@ -48,7 +56,10 @@ func CheckReadOnly(engine Engine, query string) error {
 	}
 
 	words := keywords(code)
-	first := words[0]
+	first := ""
+	if len(words) > 0 {
+		first = words[0]
+	}
 	allowed := first == "SELECT" || first == "WITH" || (engine == EnginePostgres && first == "EXPLAIN") ||
 		(engine.mysqlFamily() && (first == "SHOW" || first == "DESCRIBE" || first == "DESC" || first == "EXPLAIN"))
 	if !allowed {
@@ -58,9 +69,16 @@ func CheckReadOnly(engine Engine, query string) error {
 		// SHOW only reads, and names statements: SHOW CREATE TABLE, SHOW GRANTS.
 		return nil
 	}
-	for _, word := range words {
+	for idx, word := range words {
 		if forbiddenKeywords[word] {
 			return fmt.Errorf("keyword %s is not allowed in a read-only query", word)
+		}
+		if sideEffectFunctions[word] {
+			return fmt.Errorf("function %s is not allowed in a read-only query", word)
+		}
+		// NEXT VALUE FOR draws a sequence value on SQL Server and MariaDB; FETCH NEXT stays allowed.
+		if word == "NEXT" && idx+2 < len(words) && words[idx+1] == "VALUE" && words[idx+2] == "FOR" {
+			return errors.New("NEXT VALUE FOR is not allowed in a read-only query")
 		}
 	}
 	return nil
@@ -125,6 +143,8 @@ func stripLiterals(engine Engine, query string) (string, error) {
 				return "", errors.New("unterminated comment")
 			}
 			out.WriteRune(' ')
+		case c == '"' && engine == EnginePostgres && i >= 2 && runes[i-1] == '&' && (runes[i-2] == 'U' || runes[i-2] == 'u'):
+			return "", errors.New(`identifiers with Unicode escapes (U&"...") are not allowed`)
 		case c == '\'' || c == '"' || (c == '[' && engine == EngineSQLServer) || (c == '`' && mysqlFamily):
 			closing := c
 			if c == '[' {
@@ -143,8 +163,13 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			if end < 0 {
 				return "", errors.New("unterminated quoted text")
 			}
+			identifier := c == '[' || c == '`' || (c == '"' && !mysqlFamily)
+			if name := strings.ToUpper(string(runes[i+1 : end])); identifier && sideEffectFunctions[name] {
+				out.WriteString(" " + name + " ")
+			} else {
+				out.WriteRune(' ')
+			}
 			i = end + 1
-			out.WriteRune(' ')
 		case c == '$' && engine == EnginePostgres:
 			// "$" is legal inside a PostgreSQL identifier (e.g. price$usd), so it only opens a
 			// dollar-quoted string when it is not itself continuing an identifier or a previous quote.
@@ -245,9 +270,72 @@ func indexRunes(runes []rune, from int, needle []rune) int {
 	return -1
 }
 
-// keywords returns the upper-cased words of code, in order.
+// keywords returns the upper-cased words of code, in order. A number ends a word: T-SQL reads
+// 1DELETE as 1 then DELETE, MySQL 1e0INTO as 1e0 then INTO. Engines differ on how much of a number
+// they read (1E, 1.E5, 0x1F), so the word after each possible end of a number is returned.
 func keywords(code string) []string {
-	return strings.FieldsFunc(strings.ToUpper(code), func(r rune) bool {
-		return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
+	runes := []rune(strings.ToUpper(code))
+	var words []string
+	word := func(from int) int {
+		end := from
+		for end < len(runes) && isWordRune(runes[end]) {
+			end++
+		}
+		if end > from {
+			words = append(words, string(runes[from:end]))
+		}
+		return end
+	}
+	for i := 0; i < len(runes); {
+		switch {
+		case unicode.IsDigit(runes[i]) || (runes[i] == '.' && i+1 < len(runes) && unicode.IsDigit(runes[i+1])):
+			ends := numberEnds(runes, i)
+			for _, end := range ends[:len(ends)-1] {
+				word(end)
+			}
+			i = ends[len(ends)-1]
+		case isWordRune(runes[i]):
+			i = word(i)
+		default:
+			i++
+		}
+	}
+	return words
+}
+
+// numberEnds returns where the number starting at i may end, the longest reading last: after its
+// integer digits, its fraction and its exponent, or after the digits of a 0x or 0b literal.
+func numberEnds(runes []rune, i int) []int {
+	digits := func(j int, isDigit func(rune) bool) int {
+		for j < len(runes) && isDigit(runes[j]) {
+			j++
+		}
+		return j
+	}
+	if runes[i] == '0' && i+1 < len(runes) && (runes[i+1] == 'X' || runes[i+1] == 'B') {
+		isDigit := func(r rune) bool { return r == '0' || r == '1' }
+		if runes[i+1] == 'X' {
+			isDigit = func(r rune) bool { return unicode.IsDigit(r) || (r >= 'A' && r <= 'F') }
+		}
+		return []int{i + 1, digits(i+2, isDigit)}
+	}
+	end := digits(i, unicode.IsDigit)
+	ends := []int{end}
+	if end < len(runes) && runes[end] == '.' {
+		end = digits(end+1, unicode.IsDigit)
+		ends = append(ends, end)
+	}
+	if end < len(runes) && runes[end] == 'E' {
+		end++
+		if end < len(runes) && (runes[end] == '+' || runes[end] == '-') {
+			end++
+		}
+		ends = append(ends, digits(end, unicode.IsDigit))
+	}
+	return ends
+}
+
+// isWordRune reports whether r continues a word: a letter, digit or underscore.
+func isWordRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }

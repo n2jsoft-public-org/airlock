@@ -93,7 +93,7 @@ func NewServer(cfg *ServerConfig, c *cache, record func(*mcpserve.ToolEvent)) *m
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "command", Description: "Run one read command (GET, HGET, LRANGE, ZRANGE, TTL, XRANGE, MEMORY USAGE, SLOWLOG GET…). Other commands are refused.",
+		Name: "command", Description: "Run one read command (GET, HGET, LRANGE, ZRANGE, TTL, XRANGE, MEMORY USAGE, SLOWLOG GET…). Other commands are refused, and so are reads of more than 1000 items: give LRANGE and ZRANGE a range such as 0 99, XRANGE a COUNT, ZRANGEBYSCORE a LIMIT; use get_key to read a whole key.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commandInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)

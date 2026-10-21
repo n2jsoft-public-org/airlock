@@ -24,6 +24,11 @@ func TestCheckReadAllowsReadCommands(t *testing.T) {
 	for _, args := range [][]string{
 		{"GET", "user:1"}, {"hget", "user:1", "name"}, {"LRANGE", "q", "0", "9"}, {"ZSCORE", "z", "m"}, {"XINFO", "STREAM", "s"},
 		{"OBJECT", "ENCODING", "k"}, {"memory", "usage", "k"}, {"SLOWLOG", "GET", "10"}, {"CLIENT", "LIST"}, {"PING"}, {"DBSIZE"},
+		{"SRANDMEMBER", "s"}, {"SRANDMEMBER", "s", "1000"}, {"HRANDFIELD", "h", "5", "WITHVALUES"}, {"LRANGE", "q", "-100", "-1"},
+		{"LRANGE", "q", "0", "999"}, {"ZRANGE", "z", "0", "9", "REV", "WITHSCORES"}, {"ZREVRANGE", "z", "0", "9"},
+		{"ZRANGE", "z", "-inf", "+inf", "BYSCORE", "LIMIT", "0", "10"}, {"ZRANGEBYSCORE", "z", "0", "5", "WITHSCORES", "LIMIT", "100", "10"},
+		{"XRANGE", "s", "-", "+", "COUNT", "10"}, {"xrevrange", "s", "+", "-", "count", "10"}, {"LPOS", "q", "x"}, {"LPOS", "q", "x", "COUNT", "5"},
+		{"XINFO", "STREAM", "s", "FULL", "COUNT", "10"},
 	} {
 		if err := CheckRead(args); err != nil {
 			t.Errorf("CheckRead(%v) = %v, want allowed", args, err)
@@ -34,7 +39,14 @@ func TestCheckReadAllowsReadCommands(t *testing.T) {
 func TestCheckReadRefusesEverythingElse(t *testing.T) {
 	for _, args := range [][]string{
 		{"SET", "k", "v"}, {"DEL", "k"}, {"KEYS", "*"}, {"FLUSHALL"}, {"EVAL", "return 1", "0"}, {"CONFIG", "GET", "*"},
-		{"SLOWLOG", "RESET"}, {"CLIENT", "KILL", "ID", "1"}, {"OBJECT", "HELP"}, {"HGETALL", "h"},
+		{"SLOWLOG", "RESET"}, {"CLIENT", "KILL", "ID", "1"}, {"OBJECT", "HELP"}, {"HGETALL", "h"}, {"HKEYS", "h"},
+		// Reads that are not bounded by maxItemsLimit.
+		{"SRANDMEMBER", "s", "-1000000000"}, {"SRANDMEMBER", "s", "1001"}, {"HRANDFIELD", "h", "-1000000000", "WITHVALUES"},
+		{"LRANGE", "q", "0", "-1"}, {"LRANGE", "q", "0", "1000"}, {"LRANGE", "q", "-1001", "-1"}, {"LRANGE", "q", "a", "b"},
+		{"ZRANGE", "z", "0", "-1"}, {"ZREVRANGE", "z", "0", "-1"}, {"ZRANGE", "z", "-inf", "+inf", "BYSCORE"},
+		{"ZRANGE", "z", "-", "+", "BYLEX", "LIMIT", "0", "-1"}, {"ZRANGEBYSCORE", "z", "-inf", "+inf"},
+		{"ZRANGEBYSCORE", "z", "-inf", "+inf", "LIMIT", "0", "10", "LIMIT", "0", "-1"}, {"XRANGE", "s", "-", "+"},
+		{"XREVRANGE", "s", "+", "-", "COUNT", "100000"}, {"LPOS", "q", "x", "COUNT", "0"}, {"XINFO", "STREAM", "s", "FULL", "COUNT", "0"},
 	} {
 		if err := CheckRead(args); !errors.Is(err, ErrReadOnlyGuard) {
 			t.Errorf("CheckRead(%v) = %v, want ErrReadOnlyGuard", args, err)

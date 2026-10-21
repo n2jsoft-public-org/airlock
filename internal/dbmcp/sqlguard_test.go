@@ -37,6 +37,10 @@ func TestCheckReadOnlyAccepts(t *testing.T) {
 		{"describe", EngineMariaDB, "DESCRIBE orders"},
 		{"desc", EngineMySQL, "desc orders"},
 		{"explain mysql", EngineMySQL, "EXPLAIN FORMAT=JSON SELECT * FROM orders"},
+		{"numeric literals", EngineSQLServer, "SELECT 1, 1.5, .5, 1E5, 1.5e-3, $1, 0x1F, col2, t1.c3 FROM t1 WHERE a = 1e0"},
+		{"fetch next", EngineSQLServer, "SELECT * FROM t ORDER BY id OFFSET 10 ROWS FETCH NEXT 10 ROWS ONLY"},
+		{"transaction advisory lock", EnginePostgres, "SELECT pg_try_advisory_xact_lock(1)"},
+		{"lock function name in a string", EnginePostgres, "SELECT pid FROM pg_stat_activity WHERE query LIKE '%pg_terminate_backend%'"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +94,26 @@ func TestCheckReadOnlyRejects(t *testing.T) {
 		{"double dash without space is a subtraction", EngineMySQL, "SELECT 1--1; DELETE FROM users", "single statement"},
 		{"backslash escape does not end a string", EngineMySQL, "SELECT '\\'' ; DELETE FROM users; SELECT ''", "single statement"},
 		{"hash is no comment on postgres", EnginePostgres, "SELECT 1 # 2; DELETE FROM users", "single statement"},
+		{"number glued to a keyword", EngineSQLServer, "SELECT 1DELETE FROM dbo.t SELECT 1COMMIT", "DELETE"},
+		{"number glued to commit", EngineSQLServer, "SELECT 1 SELECT 1COMMIT", "COMMIT"},
+		{"number glued to drop", EngineSQLServer, "SELECT 1DROP TABLE dbo.t", "DROP"},
+		{"exponent glued to a keyword", EngineSQLServer, "SELECT 1E0DELETE FROM dbo.t", "DELETE"},
+		{"fraction and exponent glued to a keyword", EngineSQLServer, "SELECT 1.e5DELETE FROM dbo.t", "DELETE"},
+		{"bare exponent glued to a keyword", EngineSQLServer, "SELECT 1EXEC sp_who", "EXEC"},
+		{"fraction glued to a keyword", EngineSQLServer, "SELECT 1.EXEC sp_who", "EXEC"},
+		{"money glued to a keyword", EngineSQLServer, "SELECT $1DELETE FROM dbo.t", "DELETE"},
+		{"binary literal glued to a keyword", EngineSQLServer, "SELECT 0x1FUPDATETEXT", "UPDATETEXT"},
+		{"number glued to into outfile", EngineMySQL, "SELECT * FROM users WHERE 1=1e0INTO OUTFILE '/tmp/u'", "INTO"},
+		{"bare number", EngineSQLServer, "1", "only SELECT or WITH"},
+		{"session advisory lock", EnginePostgres, "SELECT pg_advisory_lock(1)", "PG_ADVISORY_LOCK"},
+		{"session try advisory lock", EnginePostgres, "SELECT pg_catalog.pg_try_advisory_lock_shared(1)", "PG_TRY_ADVISORY_LOCK_SHARED"},
+		{"terminate backend", EnginePostgres, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity", "PG_TERMINATE_BACKEND"},
+		{"quoted cancel backend", EnginePostgres, `SELECT "pg_cancel_backend"(pid) FROM pg_stat_activity`, "PG_CANCEL_BACKEND"},
+		{"unicode escape identifier", EnginePostgres, `SELECT U&"pg_terminate_backen\0064"(1)`, "Unicode escapes"},
+		{"mysql named lock", EngineMySQL, "SELECT GET_LOCK('x', 10)", "GET_LOCK"},
+		{"backtick named lock", EngineMySQL, "SELECT `get_lock`('x', 10)", "GET_LOCK"},
+		{"sequence value", EngineSQLServer, "SELECT NEXT VALUE FOR dbo.seq", "NEXT VALUE FOR"},
+		{"sequence value with a comment", EngineMariaDB, "SELECT NEXT /* x */ VALUE FOR seq", "NEXT VALUE FOR"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

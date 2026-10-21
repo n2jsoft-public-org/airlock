@@ -195,7 +195,8 @@ func TestCommandCutsLongReplies(t *testing.T) {
 	if !ok || len(s) != maxStringBytes || !out.Truncated {
 		t.Fatalf("GET big = %d bytes, truncated=%v", len(s), out.Truncated)
 	}
-	out, _, err = c.Command(t.Context(), &commandInput{Args: []string{"LRANGE", "items", "0", "-1"}}, false)
+	// The read guard refuses ranges over maxItemsLimit: execute still caps them.
+	out, _, err = c.Command(t.Context(), &commandInput{Args: []string{"LRANGE", "items", "0", "-1"}}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +296,7 @@ func TestCommandKeepsRepliesUnderTheResultBudget(t *testing.T) {
 		seed(t, errOf(m.Push("l", value)))
 		m.HSet("h", "field"+strconv.Itoa(i), value)
 	}
-	for _, args := range [][]string{{"LRANGE", "l", "0", "-1"}, {"HMGET", "h", "field1", "field2"}} {
+	for _, args := range [][]string{{"LRANGE", "l", "0", "99"}, {"HMGET", "h", "field1", "field2"}} {
 		out, _, err := c.Command(t.Context(), &commandInput{Args: args}, false)
 		if err != nil {
 			t.Fatal(err)

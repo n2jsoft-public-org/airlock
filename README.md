@@ -869,7 +869,7 @@ names, types and keys are, every value reads `<redacted>`. `--mcp-allow-writes` 
 | `info` | Show `INFO` sections (server, memory, keyspace, stats, replication by default) and the number of keys |
 | `scan_keys` | Find keys with `SCAN` (never `KEYS`), with their type and TTL (max 1000 per call) |
 | `get_key` | Read a key of any type (string, hash, list, set, sorted set, stream), with TTL and memory usage |
-| `command` | Run one read command (`GET`, `HGET`, `LRANGE`, `ZRANGE`, `TTL`, `XRANGE`, `SLOWLOG GET`…) |
+| `command` | Run one read command (`GET`, `HGET`, `LRANGE`, `ZRANGE`, `TTL`, `XRANGE`, `SLOWLOG GET`…). Reads that may return more than 1000 items are refused: `LRANGE` and `ZRANGE` need a range such as `0 99`, `XRANGE` a `COUNT`, `ZRANGEBYSCORE` a `LIMIT`, `SRANDMEMBER` and `HRANDFIELD` a count from 1 to 1000; `get_key` reads whole keys. |
 | `execute` | Run one command that modifies data. **Only with `--mcp-allow-writes`.** `FLUSHALL`, `FLUSHDB`, `KEYS`, `CONFIG`, scripts, blocking, Pub/Sub, replication and connection-state commands stay refused. |
 
 Replies of `get_key`, `command` and `execute` are capped: strings and the items of collections are

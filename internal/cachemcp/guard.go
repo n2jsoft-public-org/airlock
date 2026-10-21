@@ -17,7 +17,7 @@ var ErrReadOnlyGuard = errors.New("refused by the read-only guard: use info, sca
 var (
 	readCommands = setOf(
 		"GET", "MGET", "GETRANGE", "STRLEN", "EXISTS", "TYPE", "TTL", "PTTL", "EXPIRETIME",
-		"HGET", "HMGET", "HLEN", "HEXISTS", "HKEYS", "HSTRLEN", "HRANDFIELD",
+		"HGET", "HMGET", "HLEN", "HEXISTS", "HSTRLEN", "HRANDFIELD",
 		"LLEN", "LINDEX", "LRANGE", "LPOS",
 		"SCARD", "SISMEMBER", "SMISMEMBER", "SRANDMEMBER",
 		"ZCARD", "ZSCORE", "ZMSCORE", "ZRANK", "ZREVRANK", "ZCOUNT", "ZRANGE", "ZRANGEBYSCORE", "ZREVRANGE",
@@ -83,9 +83,83 @@ func CheckRead(args []string) error {
 		return fmt.Errorf("%w (%s %s is not a read command)", ErrReadOnlyGuard, name, sub)
 	}
 	if readCommands[name] {
-		return nil
+		return checkBounded(name, args)
 	}
 	return fmt.Errorf("%w (%s is not a read command)", ErrReadOnlyGuard, name)
+}
+
+// checkBounded refuses the read commands of args that could read more than maxItemsLimit items:
+// the server would build the whole reply before capReply cuts it. A negative SRANDMEMBER or
+// HRANDFIELD count returns that many items with repetitions, a 0 -1 range the whole key, and
+// XRANGE without COUNT or ZRANGEBYSCORE without LIMIT every match. get_key reads whole keys.
+func checkBounded(name string, args []string) error {
+	switch name {
+	case "SRANDMEMBER", "HRANDFIELD":
+		if len(args) > 2 {
+			return boundedCount(name, "count", args[2])
+		}
+	case "LRANGE", "ZREVRANGE":
+		return boundedRange(name, args)
+	case "ZRANGE":
+		if !hasArg(args[min(len(args), 4):], "BYSCORE") && !hasArg(args[min(len(args), 4):], "BYLEX") {
+			return boundedRange(name, args)
+		}
+		return boundedOption(name, args, 4, "LIMIT", 2, true)
+	case "ZRANGEBYSCORE":
+		return boundedOption(name, args, 4, "LIMIT", 2, true)
+	case "XRANGE", "XREVRANGE":
+		return boundedOption(name, args, 4, "COUNT", 1, true)
+	case "LPOS", "XINFO":
+		return boundedOption(name, args, 3, "COUNT", 1, false)
+	}
+	return nil
+}
+
+// boundedCount refuses a count outside 1..maxItemsLimit: COUNT 0 reads every match on LPOS and
+// XINFO STREAM FULL.
+func boundedCount(name, what, value string) error {
+	if count, err := strconv.ParseInt(value, 10, 64); err != nil || count < 1 || count > maxItemsLimit {
+		return fmt.Errorf("%w (%s %s must be between 1 and %d)", ErrReadOnlyGuard, name, what, maxItemsLimit)
+	}
+	return nil
+}
+
+// boundedRange refuses an index range (args[2], args[3]) that may hold more than maxItemsLimit
+// items: both ends must be on the same side of the key (0 99, -100 -1).
+func boundedRange(name string, args []string) error {
+	if len(args) < 4 {
+		return nil
+	}
+	start, startErr := strconv.ParseInt(args[2], 10, 64)
+	stop, stopErr := strconv.ParseInt(args[3], 10, 64)
+	if startErr != nil || stopErr != nil || (start < 0) != (stop < 0) || stop-start >= maxItemsLimit {
+		return fmt.Errorf("%w (%s needs a range of at most %d items with both ends on the same side, e.g. 0 99 or -100 -1)",
+			ErrReadOnlyGuard, name, maxItemsLimit)
+	}
+	return nil
+}
+
+// boundedOption checks every option opt in args[from:]: its count, the offset-th argument after
+// it (LIMIT offset count, COUNT count), must be bounded, and with required it must be given.
+func boundedOption(name string, args []string, from int, opt string, offset int, required bool) error {
+	found := false
+	for idx := from; idx < len(args); idx++ {
+		if !strings.EqualFold(strings.TrimSpace(args[idx]), opt) {
+			continue
+		}
+		found = true
+		value := ""
+		if idx+offset < len(args) {
+			value = args[idx+offset]
+		}
+		if err := boundedCount(name, opt, value); err != nil {
+			return err
+		}
+	}
+	if required && !found {
+		return fmt.Errorf("%w (%s needs %s with a count of at most %d)", ErrReadOnlyGuard, name, opt, maxItemsLimit)
+	}
+	return nil
 }
 
 // CheckWrite accepts every command but the denylist.
