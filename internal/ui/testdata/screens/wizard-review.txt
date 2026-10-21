@@ -1,5 +1,5 @@
 
-  ◆ airlock  SSM port forwarding                                       profile dev   region eu-west-3 · Europe (Paris)
+  ◆ airlock  private resource access                                   profile dev   region eu-west-3 · Europe (Paris)
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ✓ Type  ›  ✓ Target  ›  ● Connect
 

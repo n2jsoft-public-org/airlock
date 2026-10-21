@@ -1,5 +1,5 @@
 
-  ◆ airlock  SSM port forwarding
+  ◆ airlock  private resource access
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ✓ Type  ›  ● Target  ›  ○ Connect
 

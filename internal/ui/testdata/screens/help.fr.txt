@@ -1,4 +1,4 @@
- ◆ airlock  Redirection de port SSM                                                                        ● 1 prête(s)
+ ◆ airlock  Accès aux ressources privées                                                                   ● 1 prête(s)
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 

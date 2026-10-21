@@ -1,5 +1,5 @@
 
-  ◆ airlock  Redirection de port SSM                                    profil dev   région eu-west-3 · Europe (Paris)
+  ◆ airlock  Accès aux ressources privées                               profil dev   région eu-west-3 · Europe (Paris)
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ✓ Type  ›  ✓ Cible  ›  ● Connexion
 

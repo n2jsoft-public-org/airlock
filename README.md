@@ -2,10 +2,11 @@
 
 # 🔐 airlock
 
-**Reach private AWS databases, clusters and caches from your laptop, with no VPN, no SSH keys and no open ports.**
+**One access point to your private resources, for you and your AI assistants.**
 
-Guided SSM port forwarding to **RDS**, **EKS** and **ElastiCache** through a jumphost, with
-IntelliJ data sources and a guarded **MCP server** so AI assistants can query tunneled databases.
+Databases, **EKS** clusters, caches, **DynamoDB** tables, **S3** buckets and **CloudWatch Logs**,
+reached through an SSM jumphost, directly, in Docker or through the AWS API. Your tools connect on
+`localhost`, with IntelliJ data sources; your AI assistants get guarded, audited **MCP** tools.
 
 ![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-SSM%20Session%20Manager-FF9900?logo=amazonwebservices&logoColor=white)
@@ -147,6 +148,14 @@ go install github.com/n2jsoft/airlock/cmd/airlock@latest
 `airlock doctor` checks all of these for you: see [Troubleshooting](#-troubleshooting).
 
 ## 🛰 How it works
+
+airlock reaches each resource the shortest way it can: through the AWS API for DynamoDB, S3 and
+CloudWatch Logs, straight at the host for [direct databases](#direct-databases), on the local
+Docker for [containers](#docker-databases-and-caches), and through an SSM jumphost for what sits in
+private subnets (RDS, EKS, ElastiCache). Then it serves each connection twice: on `localhost` for
+your tools, and as an [MCP server](#-ai-access-with-mcp) for your AI assistants.
+
+The jumphost route, with no VPN, no SSH keys and no open ports:
 
 ```mermaid
 flowchart LR

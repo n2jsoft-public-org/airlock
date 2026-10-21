@@ -1,11 +1,12 @@
 ---
 name: airlock
-description: Reach private AWS resources (RDS and other SQL databases, EKS clusters, ElastiCache and Docker caches, DynamoDB tables, S3 buckets, CloudWatch Logs) through the airlock MCP tools. Use when the user asks to query a database, inspect a Kubernetes cluster, read a cache key, a DynamoDB item, an S3 object or Lambda / ECS logs, or to investigate data or an incident in an AWS account.
+description: Reach private resources (RDS and other SQL databases, EKS clusters, ElastiCache and Docker caches, DynamoDB tables, S3 buckets, CloudWatch Logs) through the airlock MCP tools. Use when the user asks to query a database, inspect a Kubernetes cluster, read a cache key, a DynamoDB item, an S3 object or Lambda / ECS logs, or to investigate data or an incident in an AWS account.
 ---
 
 # airlock
 
-airlock opens connections to private AWS resources and serves MCP tools on them. Its tools come
+airlock opens connections to private resources (in AWS, on direct hosts or in the local Docker) and
+serves MCP tools on them. Its tools come
 in two shapes:
 
 - **Gateway** (the airlock daemon): `list_targets`, `list_sessions`, `open_session`,

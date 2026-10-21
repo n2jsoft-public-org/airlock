@@ -1,5 +1,5 @@
 
-  ◆ airlock  Redirection de port SSM                                      profil dev   région … en cours de résolution
+  ◆ airlock  Accès aux ressources privées                                 profil dev   région … en cours de résolution
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 

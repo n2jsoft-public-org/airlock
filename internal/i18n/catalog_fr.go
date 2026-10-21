@@ -259,8 +259,8 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	// internal/cli/mcp_proxy_cmd.go
 	"cli.mcp_proxy.short": "Relayer un serveur MCP d'airlock sur stdio (écrit dans la configuration de Claude Desktop)",
 	// internal/cli/root.go
-	"cli.root.short":                     "Se connecter à EKS, RDS ou ElastiCache via un jumphost SSM, ou à une base ou un cache direct ou Docker local",
-	"cli.root.long":                      "Se connecte à une ressource AWS privée (EKS, RDS, ElastiCache) par redirection de port SSM Session Manager, à une base directe déclarée avec `airlock connection add` (`airlock direct <nom>`), ou à une base ou un cache Docker local (`airlock docker <nom>`). Quand des valeurs manquent dans un shell interactif, un assistant les demande.",
+	"cli.root.short":                     "Accéder aux bases, clusters, caches et données AWS privés, pour vous et vos assistants IA",
+	"cli.root.long":                      "Se connecte à une ressource privée, pour vos outils sur localhost et vos assistants IA par MCP : une ressource AWS (EKS, RDS, ElastiCache) par redirection de port SSM Session Manager, une base directe déclarée avec `airlock connection add` (`airlock direct <nom>`), ou une base ou un cache Docker local (`airlock docker <nom>`). Quand des valeurs manquent dans un shell interactif, un assistant les demande.",
 	"cli.root.flag.profile":              "Profil AWS à utiliser (l'assistant le demande s'il est omis)",
 	"cli.root.flag.aws-profile":          "Alias de --profile",
 	"cli.root.flag.region":               "Région AWS à utiliser (par défaut AWS_REGION, puis la région du profil)",
@@ -508,7 +508,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"ui.jumphost_flow_start.making_sure_it_is":       "On vérifie qu'elle est toujours là...",
 	"ui.jumphost_flow_start.knocking_on_target_door": "On frappe à la porte de la cible...",
 	// internal/ui/jumphost_flow_view.go
-	"ui.jumphost_flow_view.ssm_port_forwarding":            "Redirection de port SSM",
+	"ui.jumphost_flow_view.ssm_port_forwarding":            "Accès aux ressources privées",
 	"ui.jumphost_flow_view.working_on_it":                  "En cours",
 	"ui.hint.cancel":                                       "annuler",
 	"ui.jumphost_flow_view.keys":                           "Touches",
@@ -858,7 +858,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"ui.ssm_session.ended_with_error":            "  terminée avec l'erreur : %v\n",
 	"ui.ssm_session.new_session_command":         "  commande pour une nouvelle session : %s\n",
 	// internal/ui/ssm_session_view.go
-	"ui.ssm_session_view.ssm_port_forwarding":            "  Redirection de port SSM",
+	"ui.ssm_session_view.ssm_port_forwarding":            "  Accès aux ressources privées",
 	"ui.ssm_session_view.ready":                          "● %d prête(s)",
 	"ui.ssm_session_view.pending":                        "%s %d en attente",
 	"ui.ssm_session_view.ended":                          "○ %d terminée(s)",

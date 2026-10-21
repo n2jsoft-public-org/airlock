@@ -1,7 +1,7 @@
 # Setting up a jumphost
 
-airlock tunnels to private resources through one small EC2 instance per AWS account and region: the
-jumphost. It needs no SSH, no key pair, no public IP and no inbound rule: the SSM Agent on it
+For resources in private subnets (RDS, EKS, ElastiCache), airlock goes through one small EC2 instance
+per AWS account and region: the jumphost. It needs no SSH, no key pair, no public IP and no inbound rule: the SSM Agent on it
 reaches out to AWS Systems Manager, and Session Manager relays the port forwarding through that
 connection.
 

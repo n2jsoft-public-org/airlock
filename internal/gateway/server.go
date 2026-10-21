@@ -22,7 +22,7 @@ import (
 // endpointPath is where the gateway answers.
 const endpointPath = "/mcp"
 
-const instructions = "airlock opens connections to private AWS resources (RDS, direct and local Docker databases and caches, EKS clusters, " +
+const instructions = "airlock opens connections to private resources (RDS, direct and local Docker databases and caches, EKS clusters, " +
 	"ElastiCache caches, DynamoDB tables, S3 buckets, CloudWatch Logs) and serves their tools. Call list_sessions to see what is open, list_targets to see what can " +
 	"be opened, and open_session to open a target: the user may have to approve it in the airlock dashboard. The " +
 	"db_, k8s_, cache_, dynamo_, s3_ and logs_ tools take the id of a session. Close the sessions you opened with close_session when done."

@@ -1,5 +1,5 @@
 
-  ◆ airlock  SSM port forwarding                                                      profile dev   region … resolving
+  ◆ airlock  private resource access                                                  profile dev   region … resolving
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ● Type  ›  ○ Target  ›  ○ Connect
 

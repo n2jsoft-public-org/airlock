@@ -1,5 +1,5 @@
 
-  ◆ airlock  SSM port forwarding                                                       server billing.db.internal:1433
+  ◆ airlock  private resource access                                                   server billing.db.internal:1433
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ✓ Type  ›  ✓ Target  ›  ● Connect
 

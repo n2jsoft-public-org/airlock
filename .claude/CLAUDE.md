@@ -1,6 +1,8 @@
 # AGENTS
 
-This repository hosts `airlock`, a CLI for SSM port forwarding to private AWS resources.
+This repository hosts `airlock`, a CLI that gives developers and their AI assistants access to private
+resources: databases, EKS clusters, caches and AWS data, served on `localhost` for tools and as guarded
+MCP servers for assistants. SSM port forwarding through a jumphost is one of the ways it reaches them.
 
 ## Scope and goals
 

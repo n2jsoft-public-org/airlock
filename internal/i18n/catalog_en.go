@@ -166,8 +166,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	// internal/cli/mcp_proxy_cmd.go
 	"cli.mcp_proxy.short": "Relay an airlock MCP server over stdio (written in the Claude Desktop configuration)",
 	// internal/cli/root.go
-	"cli.root.short":                     "Connect to EKS, RDS, or ElastiCache through an SSM jumphost, or to a direct or local Docker database or cache",
-	"cli.root.long":                      "Connects to a private AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, or to a direct database declared with `airlock connection add` (`airlock direct <name>`), or to a local Docker database or cache (`airlock docker <name>`). When values are omitted in an interactive shell, a wizard asks for them.",
+	"cli.root.short":                     "Reach private databases, clusters, caches and AWS data, for you and your AI assistants",
+	"cli.root.long":                      "Connects to a private resource, for your tools on localhost and your AI assistants over MCP: an AWS resource (EKS, RDS, ElastiCache) through SSM Session Manager port forwarding, a direct database declared with `airlock connection add` (`airlock direct <name>`), or a local Docker database or cache (`airlock docker <name>`). When values are omitted in an interactive shell, a wizard asks for them.",
 	"cli.root.flag.profile":              "AWS profile to use (the wizard asks when omitted)",
 	"cli.root.flag.aws-profile":          "Alias of --profile",
 	"cli.root.flag.region":               "AWS region to use (defaults to AWS_REGION, then the profile region)",
@@ -508,7 +508,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"ui.jumphost_flow_start.making_sure_it_is":       "Making sure it is still there...",
 	"ui.jumphost_flow_start.knocking_on_target_door": "Knocking on the target's door...",
 	// internal/ui/jumphost_flow_view.go
-	"ui.jumphost_flow_view.ssm_port_forwarding":            "SSM port forwarding",
+	"ui.jumphost_flow_view.ssm_port_forwarding":            "private resource access",
 	"ui.jumphost_flow_view.working_on_it":                  "Working on it",
 	"ui.hint.cancel":                                       "cancel",
 	"ui.jumphost_flow_view.keys":                           "Keys",
@@ -858,7 +858,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"ui.ssm_session.ended_with_error":            "  ended with error: %v\n",
 	"ui.ssm_session.new_session_command":         "  new session command: %s\n",
 	// internal/ui/ssm_session_view.go
-	"ui.ssm_session_view.ssm_port_forwarding":            "  SSM port forwarding",
+	"ui.ssm_session_view.ssm_port_forwarding":            "  private resource access",
 	"ui.ssm_session_view.ready":                          "● %d ready",
 	"ui.ssm_session_view.pending":                        "%s %d pending",
 	"ui.ssm_session_view.ended":                          "○ %d ended",

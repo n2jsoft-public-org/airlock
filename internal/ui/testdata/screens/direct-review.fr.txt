@@ -1,5 +1,5 @@
 
-  ◆ airlock  Redirection de port SSM                                                  serveur billing.db.internal:1433
+  ◆ airlock  Accès aux ressources privées                                             serveur billing.db.internal:1433
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ✓ Type  ›  ✓ Cible  ›  ● Connexion
 
