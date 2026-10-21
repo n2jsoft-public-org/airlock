@@ -5,6 +5,7 @@ package uninstall
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -48,9 +49,19 @@ func TestDeleteAfterExitOf(t *testing.T) {
 	if err := running.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if err := deleteAfterExitOf(running.Process.Pid, exe, dir); err != nil {
-		t.Fatal(err)
+	// Started here rather than by deleteAfterExitOf, which releases it: a timeout then tells a slow
+	// start (still running) from an early death (exit code).
+	started := time.Now()
+	cmd, startErr := startDeleteCommand(running.Process.Pid, exe, dir)
+	if startErr != nil {
+		t.Fatal(startErr)
 	}
+	exited := make(chan string, 1)
+	go func() {
+		err := cmd.Wait()
+		exited <- fmt.Sprintf("PowerShell exited after %s with exit code %#x (%v)",
+			time.Since(started).Round(time.Millisecond), uint32(cmd.ProcessState.ExitCode()), err) // #nosec G115 -- Windows exit codes are DWORDs.
+	}()
 	if _, err := os.Stat(exe); err != nil {
 		t.Fatalf("the binary went before its process exited: %v", err)
 	}
@@ -65,8 +76,13 @@ func TestDeleteAfterExitOf(t *testing.T) {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+	status := fmt.Sprintf("PowerShell still running after %s", time.Since(started).Round(time.Millisecond))
+	select {
+	case status = <-exited:
+	default:
+	}
 	log, err := os.ReadFile(transcript) // #nosec G304 -- a file of the test's temp dir.
-	t.Fatalf("%s is still there after 30s; transcript (%v):\n%s", dir, err, log)
+	t.Fatalf("%s is still there after 30s; %s; transcript (%v):\n%s", dir, status, err, log)
 }
 
 func TestOtherInstancesIgnoresThisProcess(t *testing.T) {

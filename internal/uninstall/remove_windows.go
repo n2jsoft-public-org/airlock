@@ -119,11 +119,27 @@ func removeBinary(path string, removeDir bool) error {
 // deleteAfterExitOf starts the hidden PowerShell that deletes path, then dir once empty, after the
 // process pid exits.
 func deleteAfterExitOf(pid int, path, dir string) error {
-	cmd := deleteCommand(pid, path, dir)
-	if err := cmd.Start(); err != nil {
+	cmd, err := startDeleteCommand(pid, path, dir)
+	if err != nil {
 		return fmt.Errorf("cannot remove %s: %w", path, err)
 	}
 	return cmd.Process.Release()
+}
+
+// startDeleteCommand starts deleteCommand with a handle to the process pid: while PowerShell holds
+// one, Windows cannot give pid to another process, which Wait-Process would then wait for.
+func startDeleteCommand(pid int, path, dir string) (*exec.Cmd, error) {
+	process, err := windows.OpenProcess(windows.SYNCHRONIZE, true, uint32(pid)) // #nosec G115 -- a Windows pid is a DWORD.
+	if err != nil {
+		return nil, err
+	}
+	defer windows.CloseHandle(process) //nolint:errcheck // PowerShell has its own copy.
+	cmd := deleteCommand(pid, path, dir)
+	cmd.SysProcAttr.AdditionalInheritedHandles = []syscall.Handle{syscall.Handle(process)}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd, nil
 }
 
 // deleteCommand is the hidden PowerShell of deleteAfterExitOf, not started.
