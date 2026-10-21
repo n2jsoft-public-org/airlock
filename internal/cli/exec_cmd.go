@@ -41,17 +41,23 @@ func (e *ExitCodeError) Error() string { return "exit status " + strconv.Itoa(e.
 // newExecCmd runs a command with a session open and its connection settings in the environment.
 func newExecCmd() *cobra.Command {
 	options := jumphost.Options{}
+	var stack bool
 	cmd := &cobra.Command{
 		Use:   "exec <rds|eks|elasticache|direct|docker> <name> [local-port] -- <command> [args...]",
 		Short: i18n.T("cli.exec.short"),
 		Long:  i18n.T("cli.exec.long"),
 		Example: `  airlock exec rds my-db -- npm run migrate
   airlock exec eks my-cluster -- kubectl get pods
-  airlock exec direct legacy-billing -- ./report.sh`,
+  airlock exec direct legacy-billing -- ./report.sh
+  airlock exec --stack dev -- npm test`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if stack {
+				return runExecStack(cmd, args)
+			}
 			return runExec(cmd, args, new(options))
 		},
 	}
+	cmd.Flags().BoolVar(&stack, "stack", false, i18n.T("cli.exec.flag.stack"))
 	cmd.Flags().StringVarP(&options.AwsProfile, "profile", "p", "", i18n.T("cli.root.flag.profile"))
 	cmd.Flags().StringVar(&options.AwsProfile, "aws-profile", "", i18n.T("cli.root.flag.aws-profile"))
 	cmd.Flags().StringVar(&options.AwsRegion, "region", "", i18n.T("cli.root.flag.region"))
@@ -67,6 +73,8 @@ func completeExecArgs(cmd *cobra.Command, args []string, toComplete string) ([]s
 	switch {
 	case cmd.ArgsLenAtDash() >= 0:
 		return nil, cobra.ShellCompDirectiveDefault
+	case cmd.Flags().Changed("stack"):
+		return completeStacks(cmd, args, toComplete)
 	case len(args) == 0:
 		types, directive := completeArgs(cmd, args, toComplete)
 		return slices.DeleteFunc(types, func(t string) bool {
@@ -89,19 +97,120 @@ func runExec(cmd *cobra.Command, args []string, options *jumphost.Options) error
 	if !slices.Contains(execResourceTypes, options.ResourceType) {
 		return i18n.NewError("cli.exec.unsupported_type", target[0])
 	}
-	options.SkipMCP, options.SkipIDEDataSource = true, true
+	return execWith(cmd, command, []jumphost.Options{*options}, func(*jumphost.Options) []string { return target })
+}
+
+// runExecStack opens every target of a stack of the project's .airlock.json that a program
+// connects to, then runs the command after -- with the settings of each (see stackExecVars).
+func runExecStack(cmd *cobra.Command, args []string) error {
+	dash := cmd.ArgsLenAtDash()
+	if dash < 0 || dash == len(args) {
+		return errors.New(i18n.T("cli.exec.stack_command_required"))
+	}
+	if dash > 1 {
+		return errors.New(i18n.T("cli.exec.stack_one_name"))
+	}
+	for _, flag := range directRefusedFlags {
+		if cmd.Flags().Changed(flag) {
+			return i18n.NewError("cli.exec.stack_refused_flag", flag)
+		}
+	}
+	file, err := loadStackFile()
+	if err != nil {
+		return err
+	}
+	name, list, err := file.Stack(firstArg(args[:dash]))
+	if err != nil {
+		return err
+	}
+	targets := slices.DeleteFunc(stackOptions(list), func(options jumphost.Options) bool { //nolint:gocritic // a few targets.
+		skip := jumphost.APIOnly(options.ResourceType)
+		if skip {
+			cmd.PrintErr(i18n.Format("cli.exec.stack_skipped", options.ResourceType+" "+options.Name))
+		}
+		return skip
+	})
+	if len(targets) == 0 {
+		return i18n.NewError("cli.exec.stack_no_tunnel", name)
+	}
+	// The stack's port and credentials are those the flags would give.
+	return execWith(cmd, args[dash:], targets, func(options *jumphost.Options) []string {
+		target := []string{options.ResourceType, options.Name}
+		if options.LocalPortNumber > 0 {
+			target = append(target, strconv.Itoa(options.LocalPortNumber))
+		}
+		return target
+	})
+}
+
+// execWith opens targets one after the other without dashboard, MCP server nor IDE data source,
+// runs command with their connection settings in its environment, then closes them. args gives
+// the type, name and local port of a target, as typed before --.
+func execWith(cmd *cobra.Command, command []string, targets []jumphost.Options, args func(*jumphost.Options) []string) error {
 	cfg, sources, err := loadConfig(cmd)
 	if err != nil {
 		return err
 	}
 	// Without a terminal nobody signs in nor types a password: the keychain or --db-secret must do.
 	interactive := isInteractiveInput(cmd.InOrStdin())
-	options.Unattended = !interactive
 	runner, runnerOptions := execRunner(cmd, &cfg, sources.org.Org)
 
 	// Until the command runs, Ctrl+C and the like stop the opening and close what it started.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	opened := make([]*sessions.Standalone, 0, len(targets))
+	defer func() {
+		for _, s := range opened {
+			s.Close()
+		}
+	}()
+	vars := make([][]string, len(targets))
+	for idx := range targets {
+		options := &targets[idx]
+		options.SkipMCP, options.SkipIDEDataSource, options.Unattended = true, true, !interactive
+		s, openErr := openExecTarget(ctx, cmd, runner, &runnerOptions, args(options), options, interactive)
+		if openErr != nil && len(targets) > 1 {
+			return i18n.NewError("cli.up.target_failed", options.ResourceType+" "+options.Name, openErr)
+		}
+		if openErr != nil {
+			return openErr
+		}
+		opened = append(opened, s)
+		kubeconfig := s.Session.Details.Kubeconfig
+		if options.ResourceType == "eks" && kubeconfig == "" {
+			return i18n.NewError("cli.exec.no_kubeconfig", s.Session.Target)
+		}
+		vars[idx] = execVars(&s.Client, kubeconfig)
+	}
+	if len(targets) > 1 {
+		if vars, err = stackExecVars(targets, vars); err != nil {
+			return err
+		}
+	}
+	var env []string
+	for idx, s := range opened {
+		names := make([]string, len(vars[idx]))
+		for i, v := range vars[idx] {
+			names[i], _, _ = strings.Cut(v, "=")
+		}
+		env = append(env, vars[idx]...)
+		cmd.PrintErr(i18n.Format("cli.exec.ready", s.Session.Target, s.Client.Address.String(), strings.Join(names, " ")))
+	}
+
+	code, err := runCommand(command, append(os.Environ(), env...), cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr(), interactive)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return &ExitCodeError{Code: code}
+	}
+	return nil
+}
+
+// openExecTarget checks the target of options, typed as target, completes it with its saved
+// choices and opens it standalone.
+func openExecTarget(ctx context.Context, cmd *cobra.Command, runner *jumphost.Runner, runnerOptions *jumphost.RunnerOptions, target []string, options *jumphost.Options, interactive bool) (*sessions.Standalone, error) {
+	var err error
 	switch options.ResourceType {
 	case directResourceType:
 		options.Name, err = checkDirectTarget(cmd, target, runnerOptions.Databases)
@@ -111,38 +220,78 @@ func runExec(cmd *cobra.Command, args []string, options *jumphost.Options) error
 		err = execAWSTarget(ctx, cmd.Flags(), runner, target, options, interactive)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-
 	opened, err := sessions.OpenStandalone(ctx, runner, sessions.AWSLauncher, options, execReadyTimeout)
 	switch {
 	case err != nil && options.ResourceType == directResourceType:
-		return directRunError(options.Name, err)
+		return nil, directRunError(options.Name, err)
 	case err != nil && options.ResourceType == dockerResourceType:
-		return dockerRunError(err)
-	case err != nil:
-		return err
+		return nil, dockerRunError(err)
 	}
-	defer opened.Close()
-	kubeconfig := opened.Session.Details.Kubeconfig
-	if options.ResourceType == "eks" && kubeconfig == "" {
-		return i18n.NewError("cli.exec.no_kubeconfig", opened.Session.Target)
-	}
-	vars := execVars(&opened.Client, kubeconfig)
-	names := make([]string, len(vars))
-	for idx, v := range vars {
-		names[idx], _, _ = strings.Cut(v, "=")
-	}
-	cmd.PrintErr(i18n.Format("cli.exec.ready", opened.Session.Target, opened.Client.Address.String(), strings.Join(names, " ")))
+	return opened, err
+}
 
-	code, err := runCommand(command, append(os.Environ(), vars...), cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr(), interactive)
-	if err != nil {
-		return err
+// stackExecVars are the settings of the command airlock exec --stack runs, per target: each
+// variable of the target's vars under the prefix of its name in upper case, other characters
+// than letters and digits becoming _ (orders-db: ORDERS_DB_DATABASE_URL); when two targets get
+// the same prefix, under their type and name (RDS_ORDERS_, ELASTICACHE_ORDERS_). A variable set
+// by one target only is also set without prefix, as airlock exec sets it for one target.
+func stackExecVars(targets []jumphost.Options, vars [][]string) ([][]string, error) {
+	prefixes := make([]string, len(targets))
+	count := map[string]int{}
+	for idx := range targets {
+		prefixes[idx] = envPrefix(targets[idx].Name)
+		count[prefixes[idx]]++
 	}
-	if code != 0 {
-		return &ExitCodeError{Code: code}
+	seen := map[string]bool{}
+	for idx := range targets {
+		if count[prefixes[idx]] > 1 {
+			prefixes[idx] = envPrefix(targets[idx].ResourceType + "_" + targets[idx].Name)
+		}
+		if seen[prefixes[idx]] {
+			return nil, i18n.NewError("cli.exec.stack_prefix_clash", strings.TrimSuffix(prefixes[idx], "_"))
+		}
+		seen[prefixes[idx]] = true
 	}
-	return nil
+	setBy := map[string]int{}
+	for _, list := range vars {
+		for _, v := range list {
+			key, _, _ := strings.Cut(v, "=")
+			setBy[key]++
+		}
+	}
+	out := make([][]string, len(vars))
+	for idx, list := range vars {
+		for _, v := range list {
+			out[idx] = append(out[idx], prefixes[idx]+v)
+		}
+		for _, v := range list {
+			if key, _, _ := strings.Cut(v, "="); setBy[key] == 1 {
+				out[idx] = append(out[idx], v)
+			}
+		}
+	}
+	return out, nil
+}
+
+// envPrefix is name as the prefix of environment variables: upper case, other characters than
+// letters and digits becoming _, a leading digit preceded by _, then _.
+func envPrefix(name string) string {
+	prefix := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r - 'a' + 'A'
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		default:
+			return '_'
+		}
+	}, name)
+	if prefix == "" || prefix[0] >= '0' && prefix[0] <= '9' {
+		prefix = "_" + prefix
+	}
+	return prefix + "_"
 }
 
 // splitExecArgs splits args at -- into the target (type, name, local port) and the command.
@@ -224,7 +373,8 @@ func execAWSTarget(ctx context.Context, flags *pflag.FlagSet, runner *jumphost.R
 	if port := conn.Prefs.LocalPort; options.LocalPortNumber == 0 && port > 0 && runner.CheckLocalPort(port) == nil {
 		options.LocalPortNumber = port
 	}
-	if flags.Changed("db-user") || flags.Changed("db-secret") {
+	// The user or secret given, by a flag or the stack file, beats the saved ones.
+	if flags.Changed("db-user") || flags.Changed("db-secret") || options.DBUser != "" || options.DBSecretARN != "" {
 		return nil
 	}
 	options.DBUser, options.SignIn = conn.Prefs.DBUser, conn.Prefs.SignIn

@@ -94,6 +94,9 @@ type Options struct {
 	// SkipMCPRegistration serves the MCP server without writing it in the AI client files: the
 	// gateway relays it.
 	SkipMCPRegistration bool `json:"skipMCPRegistration,omitempty"`
+	// Stack names the .airlock.json stack whose airlock up opened the session: airlock down closes
+	// only those.
+	Stack string `json:"stack,omitempty"`
 }
 
 // ErrSignInRequired reports AWS credentials that only an interactive sign-in can renew.

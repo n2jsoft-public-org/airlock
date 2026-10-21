@@ -1110,7 +1110,7 @@ func printSessionSummary(out io.Writer, list []sessions.Session) {
 			server = "n/a"
 		}
 
-		printf("- %s -> %s\n", s.Label, sessionAddress(s))
+		printf("- %s -> %s\n", s.Label, s.Address())
 		printf(i18n.T("ui.ssm_session.duration_server_connected"), duration, server)
 		if s.Err != "" && !s.StopRequested {
 			printf(i18n.T("ui.ssm_session.ended_with_error"), shownErr(s.LocalErr, s.Err))

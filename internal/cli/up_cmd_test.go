@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,12 +60,12 @@ func TestOpenStackReusesRunningSessionsAndGoesOnAfterAFailure(t *testing.T) {
 		{ResourceType: "forward", Name: "search.internal:443", LocalPortNumber: 9200},
 	}
 	var out bytes.Buffer
-	first, failed, err := openStack(t.Context(), &out, service, targets, nil)
+	ids, failed, err := openStack(t.Context(), &out, service, targets, nil)
 	if err != nil || !failed {
 		t.Fatalf("openStack() = %v, failed %v", err, failed)
 	}
-	if first != 3 {
-		t.Fatalf("first = %d, want the reused EKS session", first)
+	if !slices.Equal(ids, []sessions.ID{0, 3, 4, 11}) {
+		t.Fatalf("ids = %v, want the failure, the reused sessions and the new one", ids)
 	}
 	if len(service.opened) != 2 || service.opened[0].Name != "broken-db" || service.opened[1].LocalPortNumber != 9200 {
 		t.Fatalf("opened = %+v", service.opened)
@@ -84,7 +85,52 @@ func TestOpenStackFailsWhenNothingOpens(t *testing.T) {
 	}
 }
 
-func TestCloseStackStopsTheRunningSessionsOfTheStack(t *testing.T) {
+func TestCloseStackStopsOnlyTheSessionsUpOpenedForTheStack(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "")
+	owned := func(s sessions.Session, key string) sessions.Session {
+		s.Options.Stack = key
+		return s
+	}
+	service := &stackService{snapshot: sessions.Snapshot{Sessions: []sessions.Session{
+		owned(runningSession(1, "default", "eu-west-3", "rds", "orders-db"), "/repo/.airlock.json#dev"),
+		runningSession(2, "default", "eu-west-3", "eks", "platform"),
+		owned(runningSession(3, "default", "eu-west-3", "rds", "orders-db"), "/repo/.airlock.json#staging"),
+		owned(runningSession(4, "default", "eu-west-3", "rds", "dropped-from-file"), "/repo/.airlock.json#dev"),
+		owned(sessions.Session{ID: 5, ResourceType: "rds", Target: "ended", State: sessions.StateEnded}, "/repo/.airlock.json#dev"),
+	}}}
+	var out bytes.Buffer
+	err := closeStack(t.Context(), &out, service, "/repo/.airlock.json#dev", []jumphost.Options{
+		{ResourceType: "rds", Name: "orders-db"}, {ResourceType: "eks", Name: "platform"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(service.stopped, []sessions.ID{1, 4}) {
+		t.Fatalf("stopped = %v, want the dev sessions up opened", service.stopped)
+	}
+	if !strings.Contains(out.String(), "eks platform: kept") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := closeStack(t.Context(), &out, &stackService{}, "/repo/.airlock.json#dev", nil, false); err != nil || !strings.Contains(out.String(), "airlock up opened nothing") {
+		t.Fatalf("closeStack() = %v\n%s", err, out.String())
+	}
+}
+
+func TestPrintAddressesOfTheOpenedTargets(t *testing.T) {
+	list := []sessions.Session{
+		{ID: 1, ResourceType: "rds", Target: "orders-db", LocalPort: 5432},
+		{ID: 2, ResourceType: "direct", Target: "legacy", Details: jumphost.SessionDetails{ConnectedServer: "db.internal:1433"}},
+	}
+	var out bytes.Buffer
+	printAddresses(&out, list, []sessions.ID{2, 0, 1})
+	if want := "direct legacy → db.internal:1433\nrds orders-db → localhost:5432\n"; out.String() != want {
+		t.Fatalf("printAddresses() =\n%s", out.String())
+	}
+}
+
+func TestCloseStackWithAllStopsTheRunningSessionsOfTheStack(t *testing.T) {
 	t.Setenv("AWS_PROFILE", "")
 	service := &stackService{snapshot: sessions.Snapshot{Sessions: []sessions.Session{
 		runningSession(1, "default", "eu-west-3", "rds", "orders-db"),
@@ -92,9 +138,9 @@ func TestCloseStackStopsTheRunningSessionsOfTheStack(t *testing.T) {
 		{ID: 3, ResourceType: sessions.DockerCacheResourceType, Target: "redis", State: sessions.StateRunning},
 	}}}
 	var out bytes.Buffer
-	err := closeStack(t.Context(), &out, service, []jumphost.Options{
+	err := closeStack(t.Context(), &out, service, "", []jumphost.Options{
 		{ResourceType: "rds", Name: "orders-db"}, {ResourceType: "eks", Name: "platform"}, {ResourceType: "docker", Name: "redis"},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,3 +135,70 @@ func TestCompleteExecArgsOffersTheTypesThenFiles(t *testing.T) {
 		t.Fatalf("types = %q", names)
 	}
 }
+
+func TestStackExecVarsPrefixEachTargetAndKeepUniqueOnesBare(t *testing.T) {
+	targets := []jumphost.Options{
+		{ResourceType: "rds", Name: "orders-db"},
+		{ResourceType: "elasticache", Name: "sessions"},
+		{ResourceType: "eks", Name: "9platform"},
+	}
+	vars := [][]string{
+		{"AIRLOCK_PORT=5432", "DATABASE_URL=postgres://a"},
+		{"AIRLOCK_PORT=6379", "REDIS_URL=redis://b"},
+		{"AIRLOCK_PORT=9444", "KUBECONFIG=/k"},
+	}
+	got, err := stackExecVars(targets, vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"ORDERS_DB_AIRLOCK_PORT=5432", "ORDERS_DB_DATABASE_URL=postgres://a", "DATABASE_URL=postgres://a"},
+		{"SESSIONS_AIRLOCK_PORT=6379", "SESSIONS_REDIS_URL=redis://b", "REDIS_URL=redis://b"},
+		{"_9PLATFORM_AIRLOCK_PORT=9444", "_9PLATFORM_KUBECONFIG=/k", "KUBECONFIG=/k"},
+	}
+	for idx := range want {
+		if !slices.Equal(got[idx], want[idx]) {
+			t.Errorf("vars of %s = %q, want %q", targets[idx].Name, got[idx], want[idx])
+		}
+	}
+}
+
+func TestStackExecVarsUseTheTypeWhenNamesClash(t *testing.T) {
+	targets := []jumphost.Options{{ResourceType: "rds", Name: "orders"}, {ResourceType: "elasticache", Name: "orders"}}
+	got, err := stackExecVars(targets, [][]string{{"AIRLOCK_PORT=1"}, {"AIRLOCK_PORT=2"}})
+	if err != nil || !slices.Equal(got[0], []string{"RDS_ORDERS_AIRLOCK_PORT=1"}) || !slices.Equal(got[1], []string{"ELASTICACHE_ORDERS_AIRLOCK_PORT=2"}) {
+		t.Fatalf("stackExecVars() = %q, %v", got, err)
+	}
+	clash := []jumphost.Options{{ResourceType: "rds", Name: "a.b"}, {ResourceType: "rds", Name: "a-b"}}
+	if _, err := stackExecVars(clash, [][]string{nil, nil}); err == nil || !strings.Contains(err.Error(), "RDS_A_B") {
+		t.Fatalf("clashing prefixes: %v", err)
+	}
+}
+
+func TestExecStackChecksItsArgumentsBeforeOpening(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(dir+"/.git", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	data := `{"stacks":{"dev":[{"type":"dynamodb","name":"orders"}]}}`
+	if err := os.WriteFile(dir+"/.airlock.json", []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	for args, want := range map[string]string{
+		"--stack dev":                     "give the command to run after --",
+		"--stack a b -- true":             "at most one stack name",
+		"--stack --profile p -- true":     "--profile does not apply with --stack",
+		"--stack qa -- true":              "qa",
+		"--stack dev -- true":             "stack dev has no target airlock exec connects to",
+		"--stack --db-secret s dev -- ls": "--db-secret does not apply",
+	} {
+		cmd := newExecCmd()
+		cmd.SetArgs(strings.Fields(args))
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("exec %s: error = %v, want %q", args, err, want)
+		}
+	}
+}

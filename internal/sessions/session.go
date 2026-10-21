@@ -5,6 +5,7 @@ package sessions
 
 import (
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,6 +156,14 @@ type Session struct {
 	// dialog can read.
 	HasSignIn      bool `json:"hasSignIn,omitempty"`
 	HasCredentials bool `json:"hasCredentials,omitempty"`
+}
+
+// Address is where tools reach s: the tunnel's local port, or the server of a direct database.
+func (s *Session) Address() string {
+	if s.NoTunnel() {
+		return s.Details.ConnectedServer
+	}
+	return "localhost:" + strconv.Itoa(s.LocalPort)
 }
 
 // Active reports whether the session has not ended.

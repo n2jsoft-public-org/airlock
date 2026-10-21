@@ -180,7 +180,7 @@ func (m ssmModel) renderCard(s *sessions.Session, selected bool, width int) []st
 	badges := m.badges(s)
 	status := style.Render(icon + " " + label)
 	// A long address (a direct server) gives way to the status rather than wrapping the card.
-	address := truncate(sessionAddress(s), maxInt(0, contentWidth-lipgloss.Width(status)-1))
+	address := truncate(s.Address(), maxInt(0, contentWidth-lipgloss.Width(status)-1))
 	rows := []string{
 		badges + " " + m.styles.Text.Bold(true).Render(truncate(s.Target, contentWidth-lipgloss.Width(badges)-1)),
 		spread(status, m.styles.Text.Render(address), contentWidth),
@@ -413,7 +413,7 @@ func (m ssmModel) renderDialog(width int) string {
 			return ""
 		}
 		title = i18n.T("ui.ssm_session_view.stop_this_session")
-		body = m.badge(s.ResourceType) + " " + s.Target + m.styles.Muted.Render(i18n.Format("ui.session.on_address", sessionAddress(s)))
+		body = m.badge(s.ResourceType) + " " + s.Target + m.styles.Muted.Render(i18n.Format("ui.session.on_address", s.Address()))
 		if cmd := strings.TrimSpace(s.Details.RestartCommand); cmd != "" {
 			body += "\n\n" + m.styles.Faint.Render(i18n.T("ui.ssm_session_view.reconnect_later_with")) + "\n" + m.styles.Muted.Render(cmd)
 		}
@@ -650,14 +650,6 @@ func formatUptime(s *sessions.Session) string {
 	default:
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
-}
-
-// address is where tools reach s: the tunnel's local port, or the server of a direct database.
-func sessionAddress(s *sessions.Session) string {
-	if s.NoTunnel() {
-		return s.Details.ConnectedServer
-	}
-	return fmt.Sprintf("localhost:%d", s.LocalPort)
 }
 
 // origin says how s is reached: its AWS profile and region, or "direct".

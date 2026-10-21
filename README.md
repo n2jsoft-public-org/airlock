@@ -653,7 +653,9 @@ daemon mode, exactly as `airlock <type> <name>` would open each one.
 airlock up            # the default stack (or the only one)
 airlock up staging
 airlock up --list     # the stacks and their targets
-airlock down staging  # daemon mode: close the sessions of the stack
+airlock up --detach   # daemon mode: open them, print their addresses, return
+airlock down staging  # daemon mode: close the sessions up opened for the stack
+airlock exec --stack dev -- npm test   # run a command with the whole stack open
 ```
 
 airlock reads the file of the working directory, else of the nearest parent: the search stops at
@@ -684,8 +686,24 @@ targets, or an object whose `profile` and `region` apply to the targets that giv
   dashboard when one failed.
 - **Production is confirmed.** `airlock up` lists the targets with their environment first, and
   asks before opening production ones. It needs a terminal.
-- **`airlock down`** closes the running daemon sessions of the stack's targets, whoever opened
-  them. In CLI mode the sessions belong to the dashboard of `airlock up`: quit it.
+- **`airlock up --detach`** (daemon mode) opens the targets in the daemon, starting it when
+  needed, prints `<type> <name> → <address>` for each on stdout, and returns without the
+  dashboard. A failed target makes it exit with status 1 once the others are open.
+- **`airlock down`** closes the daemon sessions `airlock up` opened for that stack of that file
+  (each session records it), even targets since removed from the file. A session of one of its
+  targets opened otherwise (by hand, by another stack, or reused by `up`) is kept and named;
+  `airlock down --all` closes every running session of the stack's targets, whoever opened them.
+  In CLI mode the sessions belong to the dashboard of `airlock up`: quit it.
+- **`airlock exec --stack [stack] -- <command>`** opens every target of the stack that has a
+  tunnel or a direct address (`dynamodb`, `s3` and `logs` are skipped), runs the command and closes
+  them, as `airlock exec` does for one target. The variables of each target get the prefix of its
+  name in upper case, characters other than letters and digits becoming `_` (`orders-db`:
+  `ORDERS_DB_DATABASE_URL`, `ORDERS_DB_PGHOST`, `ORDERS_DB_AIRLOCK_PORT`); when two names give the
+  same prefix, it is the type and the name (`RDS_ORDERS_`, `ELASTICACHE_ORDERS_`), and a leading
+  digit gets a `_`. A variable only one target sets is also set without prefix, so a stack with
+  one database still gets `DATABASE_URL`; one several targets set (`AIRLOCK_HOST`, two
+  `DATABASE_URL`) only exists prefixed. `--profile`, `--region`, `--db-user` and `--db-secret` are
+  refused: the file gives them per target.
 
 The file comes from a repository: airlock reads it as untrusted input. It can only name targets you
 could already open with your own credentials and settings; nothing in it is run, written to an MCP
