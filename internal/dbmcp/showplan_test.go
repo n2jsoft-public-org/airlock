@@ -1,7 +1,6 @@
 package dbmcp
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -9,11 +8,7 @@ import (
 
 func readShowplan(t *testing.T, name string) StatementPlan {
 	t.Helper()
-	document, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	statements, err := summarizeShowplan(string(document))
+	statements, err := summarizeShowplan(readFile(t, "testdata/"+name))
 	if err != nil {
 		t.Fatal(err)
 	}

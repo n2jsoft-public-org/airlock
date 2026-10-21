@@ -78,8 +78,8 @@ func TestApprovalFirstAnswerWinsAndWaitsForTheOpening(t *testing.T) {
 		t.Fatalf("second answer err = %v", err)
 	}
 	select {
-	case <-resolved:
-		t.Fatal("the approving answer must wait for the opening")
+	case err := <-resolved:
+		t.Fatalf("the approving answer must wait for the opening (err = %v)", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 	got.grant.Done()

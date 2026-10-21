@@ -49,7 +49,7 @@ func TestTerminateGroupStopsStartedCommand(t *testing.T) {
 	TerminateGroup(cmd)
 
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck // a terminated process exits with an error.
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill() //nolint:errcheck // best effort before failing.
 		t.Fatal("command still runs after TerminateGroup")
@@ -73,8 +73,8 @@ func TestLockFileExcludesOtherHolders(t *testing.T) {
 	go func() { acquired <- LockFile(second) }()
 
 	select {
-	case <-acquired:
-		t.Fatal("second LockFile returned while the first lock was held")
+	case err := <-acquired:
+		t.Fatalf("second LockFile returned (err = %v) while the first lock was held", err)
 	case <-time.After(200 * time.Millisecond):
 	}
 

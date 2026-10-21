@@ -142,16 +142,15 @@ func forgetInvalidDirectPassword(cmd *cobra.Command, store *connections.Database
 
 // dbFlags are the definition flags of `db add` and `db edit`.
 type dbFlags struct {
-	engine     string
-	host       string
-	database   string
-	user       string
-	tls        string
-	name       string
-	port       int
-	production bool
-
+	engine      string
+	host        string
+	database    string
+	user        string
+	tls         string
+	name        string
 	environment string
+	port        int
+	production  bool
 }
 
 func (f *dbFlags) register(cmd *cobra.Command) {

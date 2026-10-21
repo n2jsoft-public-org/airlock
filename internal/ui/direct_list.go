@@ -34,10 +34,10 @@ const directListChrome = 1
 
 // directItem is one direct database of the list.
 type directItem struct {
-	db        directdb.Database
-	connected bool
+	db directdb.Database
 	// env is the environment the database is filed under.
-	env environment.Env
+	env       environment.Env
+	connected bool
 }
 
 // environment is the environment of the database.

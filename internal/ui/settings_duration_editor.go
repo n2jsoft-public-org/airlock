@@ -17,8 +17,8 @@ type durationEditor struct {
 	validate func(string) error
 	// err is why validate refuses the typed value.
 	err   string
-	view  SettingView
 	input textinput.Model
+	view  SettingView
 	// cursor indexes the presets; len(Options) is "other…".
 	cursor int
 	// typing is true while the "other…" field has the keys.

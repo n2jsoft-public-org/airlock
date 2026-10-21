@@ -60,7 +60,7 @@ func TestRefusedDaemonLeavesTheRunningDaemonsLog(t *testing.T) {
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case <-done: //nolint:errcheck // canceled: how the daemon stops is not what this test checks.
 		case <-time.After(10 * time.Second):
 			t.Error("the daemon did not stop")
 		}

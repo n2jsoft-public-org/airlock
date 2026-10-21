@@ -186,24 +186,24 @@ func TestMySQLPlanRunsInRolledBackReadOnlyTransaction(t *testing.T) {
 		dialect    *dialect
 		mode       string
 		fixture    string
-		oldVersion bool // MySQL before 8.3, which has no explain_json_format_version
 		statements []string
+		oldVersion bool // MySQL before 8.3, which has no explain_json_format_version
 	}{
-		{&mysqlDialect, PlanActual, "mysql_actual.json", false, []string{
+		{&mysqlDialect, PlanActual, "mysql_actual.json", []string{
 			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 2", "EXPLAIN ANALYZE FORMAT=JSON " + args, "ROLLBACK",
-		}},
-		{&mysqlDialect, PlanActual, "mysql_actual.txt", true, []string{
+		}, false},
+		{&mysqlDialect, PlanActual, "mysql_actual.txt", []string{
 			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 2", "ROLLBACK",
 			"BEGIN READ ONLY", "EXPLAIN ANALYZE " + args, "ROLLBACK",
-		}},
-		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", false, []string{
+		}, true},
+		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", []string{
 			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 1", "EXPLAIN FORMAT=JSON " + args, "ROLLBACK",
-		}},
-		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", true, []string{
+		}, false},
+		{&mysqlDialect, PlanEstimated, "mysql_estimated.json", []string{
 			"BEGIN READ ONLY", "SET SESSION explain_json_format_version = 1", "ROLLBACK",
 			"BEGIN READ ONLY", "EXPLAIN FORMAT=JSON " + args, "ROLLBACK",
-		}},
-		{&mariaDBDialect, PlanActual, "mariadb_actual.json", false, []string{"BEGIN READ ONLY", "ANALYZE FORMAT=JSON " + args, "ROLLBACK"}},
+		}, true},
+		{&mariaDBDialect, PlanActual, "mariadb_actual.json", []string{"BEGIN READ ONLY", "ANALYZE FORMAT=JSON " + args, "ROLLBACK"}, false},
 	} {
 		q, db, _ := newTestQuerier(tc.dialect, staticCreds{fallback: "shop"})
 		// The plan answers its statement only: the fake picks any answer whose prefix matches.
@@ -213,7 +213,7 @@ func TestMySQLPlanRunsInRolledBackReadOnlyTransaction(t *testing.T) {
 			db.answers["SET SESSION explain_json_format_version"] = fakeAnswer{err: &mysql.MySQLError{Number: mysqlUnknownVariable}}
 		}
 
-		result, err := q.Plan(context.Background(), PlanRequest{
+		result, err := q.Plan(context.Background(), &PlanRequest{
 			SQL: "SELECT * FROM orders WHERE customer_id = ? AND status = ?", Values: []any{42.0, "open"}, Mode: tc.mode,
 		})
 		if err != nil {
@@ -236,7 +236,7 @@ func TestMySQLPlanExplainsOldVersionsAndRejectsOtherEnginesOptions(t *testing.T)
 		{SQL: "SELECT ?", Parameters: "@p0 int", Values: []any{1.0}},
 		{SQL: "SELECT 1", IncludeXML: true},
 	} {
-		if _, err := q.Plan(context.Background(), req); err == nil {
+		if _, err := q.Plan(context.Background(), &req); err == nil {
 			t.Errorf("%+v: expected an error", req)
 		}
 	}
@@ -246,14 +246,14 @@ func TestMySQLPlanExplainsOldVersionsAndRejectsOtherEnginesOptions(t *testing.T)
 
 	// Before 8.3, EXPLAIN ANALYZE has no JSON output; before 8.0.18, there is no EXPLAIN ANALYZE.
 	db.answers["SET SESSION explain_json_format_version"] = fakeAnswer{err: &mysql.MySQLError{Number: mysqlUnknownVariable}}
-	if _, err := q.Plan(context.Background(), PlanRequest{SQL: "SELECT 1", IncludeJSON: true}); err == nil || !strings.Contains(err.Error(), "8.3") {
+	if _, err := q.Plan(context.Background(), &PlanRequest{SQL: "SELECT 1", IncludeJSON: true}); err == nil || !strings.Contains(err.Error(), "8.3") {
 		t.Fatalf("err = %v, want the version needed", err)
 	}
 	if got := db.statements(); slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "EXPLAIN") }) {
 		t.Fatalf("the statement was explained anyway: %q", got)
 	}
 	db.answers["EXPLAIN ANALYZE"] = fakeAnswer{err: &mysql.MySQLError{Number: mysqlParseError, Message: "You have an error in your SQL syntax"}}
-	if _, err := q.Plan(context.Background(), PlanRequest{SQL: "SELECT 1"}); err == nil || !strings.Contains(err.Error(), "8.0.18") {
+	if _, err := q.Plan(context.Background(), &PlanRequest{SQL: "SELECT 1"}); err == nil || !strings.Contains(err.Error(), "8.0.18") {
 		t.Fatalf("err = %v, want the version needed", err)
 	}
 }

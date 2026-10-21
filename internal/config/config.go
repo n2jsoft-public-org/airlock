@@ -52,6 +52,8 @@ type Config struct {
 	// OrganizationConfig is the source of the organization config: an absolute path or an
 	// https:// URL; empty means none.
 	OrganizationConfig string
+	// DisabledModules are the Modules airlock neither lists nor opens, in Modules order.
+	DisabledModules []string
 	// MCPGatewayPort is the 127.0.0.1 port of the gateway.
 	MCPGatewayPort int
 	// AgentIdleTimeout closes an agent-opened session after this long without a relayed call.
@@ -64,8 +66,6 @@ type Config struct {
 	AgentWrites bool
 	// RandomLocalPort binds SSM tunnels to a free port chosen by the OS instead of the target's port.
 	RandomLocalPort bool
-	// DisabledModules are the Modules airlock neither lists nor opens, in Modules order.
-	DisabledModules []string
 }
 
 // Modules are the target families modules.<name>.enabled can turn off.
@@ -166,11 +166,11 @@ type file struct {
 	ProductionProfiles *string
 	// legacy lists the flat keys of an earlier layout the file still sets, in file order; their
 	// values are already in the fields above.
-	legacy []legacyKey
+	legacy  []legacyKey
+	unknown []string
 	// lenient makes decoding record unknown keys in unknown instead of failing; the organization
 	// file may come from a newer airlock.
 	lenient bool
-	unknown []string
 }
 
 // Load reads configPath over the settings of org, a nil one setting nothing, over the defaults;

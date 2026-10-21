@@ -45,7 +45,7 @@ func TestProcessNameAndTerminatePID(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck // a terminated process exits with an error.
 	case <-time.After(5 * time.Second):
 		t.Fatal("process still running")
 	}

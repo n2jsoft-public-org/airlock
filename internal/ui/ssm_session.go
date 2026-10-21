@@ -108,16 +108,13 @@ type ssmModel struct {
 	updateNotice string
 	// organizationNotice is passed to the wizard, like updateNotice.
 	organizationNotice []string
-	// organizationNoticeShown reports that a wizard showed organizationNotice in full.
-	organizationNoticeShown bool
 	// openDirect is the direct database the startup wizard opens on (DashboardOptions.OpenDirect).
 	openDirect string
 	// docker finds the database containers (DashboardOptions.Docker); dockerAtStart and
 	// openDocker open the startup wizard on them (DashboardOptions.DockerAtStart, OpenDocker).
-	docker        jumphost.DockerContainers
-	dockerAtStart bool
-	openDocker    string
-	projectDir    string
+	docker     jumphost.DockerContainers
+	openDocker string
+	projectDir string
 	// connLost, when not empty, says why the daemon is out of reach; r calls reconnect.
 	connLost string
 	// exitNotice is printed once the dashboard left the screen.
@@ -133,8 +130,6 @@ type ssmModel struct {
 	approvals []sessions.Approval
 	// environments names the AWS profiles' environments (environments setting).
 	environments environment.Set
-	// writesLocked is passed to every wizard (DashboardOptions.WritesLocked).
-	writesLocked bool
 	viewport     viewport.Model
 	loadingUI    loadingState
 	// password is the password dialog (ssmModePassword).
@@ -156,6 +151,11 @@ type ssmModel struct {
 	// signInCursor is the candidate the sign-in dialog chooses on enter.
 	signInCursor int
 	approvalID   sessions.ApprovalID
+	// organizationNoticeShown reports that a wizard showed organizationNotice in full.
+	organizationNoticeShown bool
+	dockerAtStart           bool
+	// writesLocked is passed to every wizard (DashboardOptions.WritesLocked).
+	writesLocked bool
 	confirmYes   bool
 	quitting     bool
 	// showQueries shows the MCP queries of the selected session instead of its logs.
@@ -191,17 +191,17 @@ type DashboardOptions struct {
 	// database (`airlock direct <name>`).
 	OpenDirect string
 	// Docker finds the database containers of the local Docker; nil hides the Docker database card.
-	Docker jumphost.DockerContainers
-	// DockerAtStart opens the startup wizard on the Docker list (`airlock docker`), on the review
-	// of OpenDocker when it is set (`airlock docker <container>`).
-	DockerAtStart bool
-	OpenDocker    string
+	Docker     jumphost.DockerContainers
+	OpenDocker string
 	// ProjectDir is set on every opening's Options.ProjectDir.
 	ProjectDir string
 	// Notice, when not empty, is shown from the start (a daemon view: why the MCP gateway is off).
 	Notice string
 	// Environments names the environments of the AWS profiles and direct databases.
 	Environments environment.Set
+	// DockerAtStart opens the startup wizard on the Docker list (`airlock docker`), on the review
+	// of OpenDocker when it is set (`airlock docker <container>`).
+	DockerAtStart bool
 	// Detach marks a daemon view: q detaches (Task 13).
 	Detach bool
 	// WritesLocked shows the MCP write toggles off and read-only: the organization locks writes.

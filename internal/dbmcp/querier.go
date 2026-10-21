@@ -75,7 +75,7 @@ type Querier interface {
 	Describe(ctx context.Context, database, schema, table string) (TableDescription, error)
 	Query(ctx context.Context, database, query string, maxRows int) (Result, error)
 	Exec(ctx context.Context, database, statement string) (int64, error)
-	Plan(ctx context.Context, req PlanRequest) (PlanResult, error)
+	Plan(ctx context.Context, req *PlanRequest) (PlanResult, error)
 	Close() error
 }
 

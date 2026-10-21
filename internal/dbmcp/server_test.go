@@ -14,9 +14,9 @@ import (
 // fakeQuerier records tool calls and returns canned values.
 type fakeQuerier struct {
 	queryErr    error
-	rows        [][]any
 	lastSQL     string
 	lastDB      string
+	rows        [][]any
 	lastMaxRows int
 }
 
@@ -48,7 +48,7 @@ func (f *fakeQuerier) Exec(_ context.Context, _, statement string) (int64, error
 	return 7, nil
 }
 
-func (f *fakeQuerier) Plan(_ context.Context, req PlanRequest) (PlanResult, error) {
+func (f *fakeQuerier) Plan(_ context.Context, req *PlanRequest) (PlanResult, error) {
 	f.lastDB, f.lastSQL = req.Database, req.SQL
 	return PlanResult{Mode: req.Mode, Statements: []StatementPlan{{Statement: req.SQL, Operators: []string{"Index Seek"}}}}, nil
 }

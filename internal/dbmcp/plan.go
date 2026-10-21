@@ -31,9 +31,9 @@ type PlanRequest struct {
 	// Parameters declares the parameters SQL uses, as sp_executesql does: "@p0 int, @p1 nvarchar(6)".
 	// SQL Server only: PostgreSQL infers the types of $1, $2…
 	Parameters string
+	Mode       string
 	// Values holds one value per parameter, in order: string, number, bool or nil.
 	Values []any
-	Mode   string
 	// IncludeXML returns the raw showplans (SQL Server), IncludeJSON the raw EXPLAIN output (PostgreSQL,
 	// MySQL and MariaDB JSON plans).
 	IncludeXML  bool
@@ -65,7 +65,7 @@ func planSettings(mode string) (on, off []string) {
 }
 
 // Plan returns the execution plan of a read-only statement.
-func (q *sqlQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, error) {
+func (q *sqlQuerier) Plan(ctx context.Context, req *PlanRequest) (PlanResult, error) {
 	mode := req.Mode
 	if mode == "" {
 		mode = PlanActual
@@ -77,10 +77,10 @@ func (q *sqlQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, err
 		return PlanResult{}, err
 	}
 	if q.dialect.engine == EnginePostgres {
-		return q.postgresPlan(ctx, &req, mode)
+		return q.postgresPlan(ctx, req, mode)
 	}
 	if q.dialect.engine.mysqlFamily() {
-		return q.mysqlPlan(ctx, &req, mode)
+		return q.mysqlPlan(ctx, req, mode)
 	}
 	if req.IncludeJSON {
 		return PlanResult{}, errors.New("include_json is for PostgreSQL and MySQL: use include_xml for the raw SQL Server showplan")
@@ -116,7 +116,7 @@ func (q *sqlQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, err
 // planBatch returns the batch to run and its arguments. A parameterized statement runs through
 // sp_executesql, as applications send it, so the plan is compiled for the declared parameter types
 // and sniffed values. The statement, declaration and values are all passed as bound arguments.
-func planBatch(statement, parameters string, values []any, mode string) (string, []any, error) {
+func planBatch(statement, parameters string, values []any, mode string) (batch string, args []any, err error) {
 	names, err := parameterNames(parameters)
 	if err != nil {
 		return "", nil, err
@@ -134,7 +134,7 @@ func planBatch(statement, parameters string, values []any, mode string) (string,
 
 	var b strings.Builder
 	b.WriteString("EXEC sp_executesql @airlock_stmt, @airlock_params")
-	args := []any{sql.Named("airlock_stmt", statement), sql.Named("airlock_params", parameters)}
+	args = []any{sql.Named("airlock_stmt", statement), sql.Named("airlock_params", parameters)}
 	for i, name := range names {
 		value, err := parameterValue(values[i])
 		if err != nil {
@@ -218,7 +218,7 @@ func (q *sqlQuerier) planFrom(ctx context.Context, db *sql.DB, mode, batch strin
 
 	on, off := planSettings(mode)
 	for _, statement := range append(append([]string(nil), q.dialect.txSetup...), on...) {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
+		if _, err = tx.ExecContext(ctx, statement); err != nil {
 			return PlanResult{}, nil, err
 		}
 	}

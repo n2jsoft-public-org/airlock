@@ -34,8 +34,8 @@ func snapshotByName(t *testing.T, store ui.SettingsStore) (snapshot ui.SettingsS
 		t.Fatal(err)
 	}
 	byName = map[string]ui.SettingView{}
-	for _, view := range snapshot.Settings {
-		byName[view.Name] = view
+	for i := range snapshot.Settings {
+		byName[snapshot.Settings[i].Name] = snapshot.Settings[i]
 	}
 	return snapshot, byName
 }

@@ -92,7 +92,7 @@ func TestPostgresPlanRunsExplainInRolledBackReadOnlyTransaction(t *testing.T) {
 	document := readFile(t, "testdata/explain_actual.json")
 	db.answer("EXPLAIN", []string{"QUERY PLAN"}, []driver.Value{document})
 
-	result, err := q.Plan(context.Background(), PlanRequest{
+	result, err := q.Plan(context.Background(), &PlanRequest{
 		SQL: "SELECT * FROM orders WHERE customer_id = $1 AND status = $2", Values: []any{42.0, "open"}, IncludeJSON: true,
 	})
 	if err != nil {
@@ -118,7 +118,7 @@ func TestPostgresEstimatedPlanSkipsAnalyze(t *testing.T) {
 	q, db, _ := newTestQuerier(&postgresDialect, staticCreds{fallback: "app"})
 	db.answer("EXPLAIN", []string{"QUERY PLAN"}, []driver.Value{readFile(t, "testdata/explain_estimated.json")})
 
-	result, err := q.Plan(context.Background(), PlanRequest{SQL: "SELECT 1", Mode: PlanEstimated})
+	result, err := q.Plan(context.Background(), &PlanRequest{SQL: "SELECT 1", Mode: PlanEstimated})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestPostgresPlanRejectsSQLServerOptionsBeforeTheDatabase(t *testing.T) {
 		{SQL: "SELECT 1", IncludeXML: true},
 		{SQL: "SELECT $1", Values: []any{map[string]any{}}},
 	} {
-		if _, err := q.Plan(context.Background(), req); err == nil {
+		if _, err := q.Plan(context.Background(), &req); err == nil {
 			t.Errorf("%+v: expected an error", req)
 		}
 	}

@@ -135,20 +135,20 @@ type Session struct {
 	// Cleanup describes what ending the session removed (IDE data source, MCP entries).
 	Cleanup string `json:"cleanup,omitempty"`
 	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
-	OpenedBy    string `json:"openedBy,omitempty"`
+	OpenedBy string `json:"openedBy,omitempty"`
+	// Environment is a direct database's environment; Production stays for the dashboards of earlier versions.
+	Environment string `json:"environment,omitempty"`
 	SignIn      SignIn `json:"signIn"`
 	ID          ID     `json:"id"`
 	LocalPort   int    `json:"localPort"`
 	Connections int    `json:"connections"`
 	// Reconnects counts the automatic reconnections in a row.
-	Reconnects int   `json:"reconnects"`
-	State      State `json:"state"`
-	// Environment is a direct database's environment; Production stays for the dashboards of earlier versions.
-	Environment   string `json:"environment,omitempty"`
-	Production    bool   `json:"production,omitempty"`
-	Ready         bool   `json:"ready"`
-	StopRequested bool   `json:"stopRequested,omitempty"`
-	Reconnecting  bool   `json:"reconnecting,omitempty"`
+	Reconnects    int   `json:"reconnects"`
+	State         State `json:"state"`
+	Production    bool  `json:"production,omitempty"`
+	Ready         bool  `json:"ready"`
+	StopRequested bool  `json:"stopRequested,omitempty"`
+	Reconnecting  bool  `json:"reconnecting,omitempty"`
 	// AWSSignInExpired reports a running session whose AWS sign-in expired: the tunnel stays open,
 	// but the tools signing in with AWS through it fail until SignInAWS.
 	AWSSignInExpired bool `json:"awsSignInExpired,omitempty"`

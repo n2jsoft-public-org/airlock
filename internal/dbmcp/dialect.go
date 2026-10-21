@@ -24,10 +24,10 @@ type dialect struct {
 	primaryKeySQL  string
 	foreignKeysSQL string
 	indexesSQL     string
-	// txSetup runs at the start of every read transaction.
-	txSetup []string
 	// connParams are the session variables set on every new connection (MySQL family).
 	connParams map[string]string
+	// txSetup runs at the start of every read transaction.
+	txSetup    []string
 	readOnlyTx bool
 }
 

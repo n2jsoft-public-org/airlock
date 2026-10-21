@@ -77,7 +77,10 @@ type Options struct {
 	// empty uses RunnerOptions.ProjectDir, else the working directory.
 	ProjectDir string `json:"projectDir,omitempty"`
 	// OpenedBy names the AI agent that opened the session through the MCP gateway; empty for the user.
-	OpenedBy        string `json:"openedBy,omitempty"`
+	OpenedBy string `json:"openedBy,omitempty"`
+	// Stack names the .airlock.json stack whose airlock up opened the session: airlock down closes
+	// only those.
+	Stack           string `json:"stack,omitempty"`
 	LocalPortNumber int
 	// SkipIDEDataSource disables registering the connection in ./.idea/dataSources.xml.
 	SkipIDEDataSource bool
@@ -94,9 +97,6 @@ type Options struct {
 	// SkipMCPRegistration serves the MCP server without writing it in the AI client files: the
 	// gateway relays it.
 	SkipMCPRegistration bool `json:"skipMCPRegistration,omitempty"`
-	// Stack names the .airlock.json stack whose airlock up opened the session: airlock down closes
-	// only those.
-	Stack string `json:"stack,omitempty"`
 }
 
 // ErrSignInRequired reports AWS credentials that only an interactive sign-in can renew.
@@ -158,10 +158,6 @@ type RunnerOptions struct {
 	JumphostTag awstag.Tag
 	// ReadOnlySecretTag marks the read-only secrets of SQL Server instances; zero disables them.
 	ReadOnlySecretTag awstag.Tag
-	// RandomLocalPort binds tunnels to a free port chosen by the OS instead of the target's port.
-	RandomLocalPort bool
-	// DisabledModules are the modules (ModuleOf) whose targets are neither searched nor opened.
-	DisabledModules []string
 	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
 	MCPLogDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
@@ -177,6 +173,10 @@ type RunnerOptions struct {
 	MCPServerPrefix string
 	// KubeconfigDir receives the kubeconfig of each EKS session; empty disables them.
 	KubeconfigDir string
+	// DisabledModules are the modules (ModuleOf) whose targets are neither searched nor opened.
+	DisabledModules []string
+	// RandomLocalPort binds tunnels to a free port chosen by the OS instead of the target's port.
+	RandomLocalPort bool
 	// WritesLocked keeps every MCP server read-only, whatever the options or the saved choices ask
 	// (the organization locks agent.writes off).
 	WritesLocked bool
@@ -218,15 +218,15 @@ type Session struct {
 	Region       string
 	AwsArgs      []string
 	CommandArgs  []string
-	// Intro describes the connection (display name, connection hints, IDE data source).
-	Intro       []string
-	LocalPort   int
-	releaseOnce sync.Once
 	// client returns the Client of the session; nil for a tunnel without credentials (EKS).
 	client func(ctx context.Context, c *SignInCandidate) (Client, error)
 	// Environment is the environment of a direct database's definition, and Production whether it
 	// is the production environment (AWS sessions are matched by profile in the dashboard).
 	Environment string
+	// Intro describes the connection (display name, connection hints, IDE data source).
+	Intro       []string
+	LocalPort   int
+	releaseOnce sync.Once
 	Production  bool
 }
 
@@ -282,16 +282,16 @@ type Runner struct {
 	jumphostTag       awstag.Tag
 	readOnlySecretTag awstag.Tag
 	mcpServerPrefix   string
-	randomLocalPort   bool
-	disabledModules   []string
 	// kubeconfigDir receives the kubeconfig of EKS sessions; empty disables them.
-	kubeconfigDir string
+	kubeconfigDir   string
+	disabledModules []string
+	accountsMu      sync.Mutex
+	// loginMu serializes the SSO sign-ins of expired identities.
+	loginMu         sync.Mutex
+	keychainOnce    sync.Once
+	randomLocalPort bool
 	// writesLocked forces MCPAllowWrites off and keeps the saved one as it is.
 	writesLocked bool
-	accountsMu   sync.Mutex
-	// loginMu serializes the SSO sign-ins of expired identities.
-	loginMu      sync.Mutex
-	keychainOnce sync.Once
 	keychainOK   bool
 }
 

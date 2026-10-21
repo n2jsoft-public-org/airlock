@@ -46,6 +46,23 @@ jobs:
         if: runner.os == 'Windows'
         run: go test ./internal/selfupdate/... ./internal/uninstall/...
 
+  # make lint: the whole repository, with .golangci.yml.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+
   # Installs the latest release with the installers of the branch, as a developer without Go would.
   install:
     strategy:
@@ -131,7 +148,7 @@ jobs:
 
   # One required check for every job above, so adding a job only means adding it to `needs`.
   pr-ruleset:
-    needs: [test, install]
+    needs: [test, lint, install]
     # Without !cancelled() a failed need skips this job, and a skipped check reports success.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest

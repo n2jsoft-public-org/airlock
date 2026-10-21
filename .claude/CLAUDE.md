@@ -34,7 +34,7 @@ This repository hosts `airlock`, a CLI for SSM port forwarding to private AWS re
 
 - Use `make fmt`, `make vet`, `make lint`, and `make test` before submitting changes.
 - Keep `go.mod` and `go.sum` tidy.
-- golangci-lint has pre-existing findings; new code must not add any (`--new-from-rev`).
+- `make lint` must pass.
 - Do not commit generated binaries.
 
 ## Releases and versioning

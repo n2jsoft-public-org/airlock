@@ -41,10 +41,10 @@ const (
 // Change is what an import does to one key: its effective value before and after, each flagged
 // when it is airlock's default rather than a value of the file.
 type Change struct {
+	Kind ChangeKind
+	Old  string
+	New  string
 	Key
-	Kind       ChangeKind
-	Old        string
-	New        string
 	OldDefault bool
 	NewDefault bool
 	// Locked: the key is locked after the change; WasLocked, set by DiffOrganizations, before it.
@@ -55,9 +55,9 @@ type Change struct {
 // Plan is an import ready to be applied to Path. Changes lists, in Keys order, every key of the
 // string, and with replace every key of the file it removes.
 type Plan struct {
-	result  file
 	Path    string
 	Changes []Change
+	result  file
 }
 
 // HasChanges reports whether applying the plan modifies the file.

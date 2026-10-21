@@ -23,7 +23,7 @@ func startProxy(t *testing.T, endpoint Endpoint) *mcp.ClientSession {
 	t.Cleanup(func() {
 		_ = session.Close() //nolint:errcheck // the proxy returns once its side is closed.
 		cancel()
-		<-done
+		<-done //nolint:errcheck // canceled: the proxy returns an error, as expected.
 	})
 	return session
 }

@@ -102,13 +102,13 @@ var deprecatedProductionProfiles = Key{Name: legacyProductionProfiles}
 
 // Setting is the effective value of one key; an empty Value means none.
 type Setting struct {
-	Key
 	Value  string
 	Source Source
-	// Locked keys take the organization's value whatever the file sets.
-	Locked bool
 	// Ignored is the value the file sets for a Locked key, "" if none.
 	Ignored string
+	Key
+	// Locked keys take the organization's value whatever the file sets.
+	Locked bool
 	// Shadows reports an unlocked key the file sets to a value other than the organization's.
 	Shadows bool
 }

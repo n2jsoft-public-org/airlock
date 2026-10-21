@@ -49,8 +49,8 @@ type queryPlanInput struct {
 	SQL         string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement, which may use parameters: $1, $2… on PostgreSQL, ? on MySQL, the declared ones on SQL Server"`
 	Database    string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
 	Parameters  string `json:"parameters,omitempty" jsonschema:"SQL Server only: parameter declaration, as sp_executesql takes it and applications send it, e.g. @p0 int, @p2 nvarchar(6); PostgreSQL infers the types of $1, $2… (cast in the statement where it cannot), MySQL converts the values of ?"`
-	Values      []any  `json:"values,omitempty" jsonschema:"one value per parameter, in order: string, number, boolean or null"`
 	Mode        string `json:"mode,omitempty" jsonschema:"actual (default) runs the statement in a transaction rolled back (EXPLAIN ANALYZE on MySQL 8.0.18 or later, as JSON from 8.3); estimated only plans it (on SQL Server, without parameters)"`
+	Values      []any  `json:"values,omitempty" jsonschema:"one value per parameter, in order: string, number, boolean or null"`
 	IncludeXML  bool   `json:"include_xml,omitempty" jsonschema:"SQL Server only: also return the raw showplan XML, to save as a .sqlplan file for SSMS"`
 	IncludeJSON bool   `json:"include_json,omitempty" jsonschema:"PostgreSQL and MySQL: also return the raw EXPLAIN JSON output, for plan visualizers (MySQL's actual plans only from 8.3: before, they are a text tree)"`
 }
@@ -131,7 +131,7 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 			"MariaDB access types, keys, filtered rows and timings.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryPlanInput) (*mcp.CallToolResult, any, error) {
-		result, err := q.Plan(ctx, PlanRequest{
+		result, err := q.Plan(ctx, &PlanRequest{
 			Database: in.Database, SQL: in.SQL, Parameters: in.Parameters, Values: in.Values,
 			Mode: in.Mode, IncludeXML: in.IncludeXML, IncludeJSON: in.IncludeJSON,
 		})

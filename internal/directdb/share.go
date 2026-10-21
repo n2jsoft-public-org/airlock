@@ -37,10 +37,10 @@ type FieldChange struct {
 
 // ImportChange is what an import does to one database of the string.
 type ImportChange struct {
-	Kind ChangeKind
-	// Fields lists the changed fields of a ChangeUpdated database; nil otherwise.
-	Fields   []FieldChange
+	Kind     ChangeKind
 	Database Database
+	// Fields lists the changed fields of a ChangeUpdated database; nil otherwise.
+	Fields []FieldChange
 }
 
 // ConnectionChanged reports whether the import changes how a database already defined is reached:

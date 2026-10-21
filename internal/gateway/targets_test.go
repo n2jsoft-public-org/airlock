@@ -68,9 +68,9 @@ func savedRDS(name, profile string) jumphost.SavedConnection {
 }
 
 // newToolset serves the gateway tools over m; events collects the audit events.
-func newToolset(t *testing.T, m *sessions.Manager, settings Settings, d *fakeDiscovery, dbs fakeDatabases) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {
+func newToolset(t *testing.T, m *sessions.Manager, settings *Settings, d *fakeDiscovery, dbs fakeDatabases) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {
 	t.Helper()
-	return newToolsetWith(t, m, &settings, d, dbs, nil)
+	return newToolsetWith(t, m, settings, d, dbs, nil)
 }
 
 // newToolsetWith is newToolset with the Docker containers of containers (nil: none).
@@ -124,7 +124,7 @@ func TestListTargetsSaved(t *testing.T) {
 		// A forward serves no tool: list_targets leaves it out.
 		{Ref: jumphost.TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "forward", Name: "search.internal:443"}, Prefs: jumphost.ConnectionPrefs{Profile: "dev"}},
 	}}
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "prod!=prod")}, d,
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "prod!=prod")}, d,
 		fakeDatabases{"billing": {Name: "billing", Environment: "prod"}})
 	text, isError := callTool(t, cs, "list_targets", nil)
 	if isError {
@@ -155,7 +155,7 @@ func TestListTargetsSaved(t *testing.T) {
 func TestListTargetsRefusesUnknownType(t *testing.T) {
 	m, _ := newTestManager(t, sessionstest.NewRunner())
 	d := &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev")}}
-	cs, _ := newToolset(t, m, Settings{}, d, fakeDatabases{})
+	cs, _ := newToolset(t, m, &Settings{}, d, fakeDatabases{})
 	text, isError := callTool(t, cs, "list_targets", map[string]any{"type": "kafka"})
 	if !isError || !strings.Contains(text, "unknown type") {
 		t.Fatalf("isError = %v, text = %q", isError, text)
@@ -165,7 +165,7 @@ func TestListTargetsRefusesUnknownType(t *testing.T) {
 func TestListTargetsSearchIsUnattended(t *testing.T) {
 	m, _ := newTestManager(t, sessionstest.NewRunner())
 	d := &fakeDiscovery{found: []jumphost.ResourceSummary{{Name: "orders-db", Type: "rds"}, {Name: "platform", Type: "eks"}}}
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, d, nil)
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll}, d, nil)
 	text, isError := callTool(t, cs, "list_targets", map[string]any{"profile": "dev", "type": "rds"})
 	if isError {
 		t.Fatal(text)
@@ -190,7 +190,7 @@ func TestListSessions(t *testing.T) {
 	q := &fakeQuerier{}
 	openDirect(t, m, runner, "billing", dbmcpServer(q), false, "claude-code")
 	openDirect(t, m, runner, "plain", nil, false, "")
-	cs, _ := newToolset(t, m, Settings{}, &fakeDiscovery{}, nil)
+	cs, _ := newToolset(t, m, &Settings{}, &fakeDiscovery{}, nil)
 	text, isError := callTool(t, cs, "list_sessions", nil)
 	if isError {
 		t.Fatal(text)
@@ -241,7 +241,7 @@ func TestAgentJSONKeepsProductionAndHasNoEnvironment(t *testing.T) {
 	m, _ := newTestManager(t, runner)
 	openDirect(t, m, runner, "billing", nil, false, "")
 	d := &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-live"), {Ref: jumphost.DirectTargetRef("billing")}}}
-	cs, _ := newToolset(t, m, Settings{Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}, d,
+	cs, _ := newToolset(t, m, &Settings{Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}, d,
 		fakeDatabases{"billing": {Name: "billing", Environment: "staging"}})
 	for tool, key := range map[string]string{"list_targets": "targets", "list_sessions": "sessions"} {
 		text, isError := callTool(t, cs, tool, nil)

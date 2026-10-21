@@ -22,9 +22,9 @@ import (
 )
 
 // relayServer is a gateway server with the relayed tools only, applying settings, and a client of it.
-func relayServer(t *testing.T, m *sessions.Manager, settings Settings) (*relay, *mcp.ClientSession) {
+func relayServer(t *testing.T, m *sessions.Manager, settings *Settings) (*relay, *mcp.ClientSession) {
 	t.Helper()
-	r := newRelay(t.Context(), m, time.Now, func() Settings { return settings })
+	r := newRelay(t.Context(), m, time.Now, func() Settings { return *settings })
 	t.Cleanup(r.closeAll)
 	server := mcp.NewServer(&mcp.Implementation{Name: "airlock", Version: serverVersion}, nil)
 	if err := r.add(t.Context(), server); err != nil {
@@ -35,7 +35,7 @@ func relayServer(t *testing.T, m *sessions.Manager, settings Settings) (*relay, 
 
 func TestRelayedToolsMirrorTheSessionTools(t *testing.T) {
 	m, _ := newTestManager(t, sessionstest.NewRunner())
-	_, cs := relayServer(t, m, Settings{})
+	_, cs := relayServer(t, m, &Settings{})
 	res, err := cs.ListTools(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestRelayCallsTheSessionServer(t *testing.T) {
 	m, _ := newTestManager(t, runner)
 	q := &fakeQuerier{}
 	id := openDirect(t, m, runner, "billing", dbmcp.NewServer(&dbmcp.ServerConfig{Name: "airlock-billing", Target: "billing"}, q), false, "")
-	r, cs := relayServer(t, m, Settings{AgentWrites: true})
+	r, cs := relayServer(t, m, &Settings{AgentWrites: true})
 
 	text, isError := callTool(t, cs, "db_query", map[string]any{"session": int(id), "sql": "select 1"})
 	if isError || !strings.Contains(text, `"row_count":1`) {
@@ -105,7 +105,7 @@ func TestRelayRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := openDirect(t, m, runner, "plain", nil, false, "")
-	_, cs := relayServer(t, m, Settings{})
+	_, cs := relayServer(t, m, &Settings{})
 
 	cases := []struct {
 		args map[string]any
@@ -138,7 +138,7 @@ func TestRelayExecuteFollowsAgentWrites(t *testing.T) {
 	id := openDirect(t, m, runner, "billing", dbmcp.NewServer(&dbmcp.ServerConfig{Name: "airlock-billing", Target: "billing", AllowWrites: true}, q), true, "")
 	args := map[string]any{"session": int(id), "sql": "delete from t"}
 
-	r, off := relayServer(t, m, Settings{})
+	r, off := relayServer(t, m, &Settings{})
 	var audited []mcpserve.ToolEvent
 	r.audit("airlock", func(e *mcpserve.ToolEvent) { audited = append(audited, *e) })
 	if text, isError := callTool(t, off, "db_execute", args); !isError || !strings.Contains(text, "agent writes are off") {
@@ -152,7 +152,7 @@ func TestRelayExecuteFollowsAgentWrites(t *testing.T) {
 		audited[0].SQL != "delete from t" || !strings.HasPrefix(audited[0].Decision, "refused: agent writes are off") {
 		t.Fatalf("audited = %+v", audited)
 	}
-	_, on := relayServer(t, m, Settings{AgentWrites: true})
+	_, on := relayServer(t, m, &Settings{AgentWrites: true})
 	if text, isError := callTool(t, on, "db_execute", args); isError {
 		t.Fatalf("execute with agentWrites true = %q", text)
 	}
@@ -222,14 +222,14 @@ func TestRelayDestructiveDynamoToolsFollowWrites(t *testing.T) {
 			t.Fatal(err)
 		}
 		args := map[string]any{"session": int(id), "table": "t", "item": map[string]any{"pk": "1"}}
-		_, off := relayServer(t, m, Settings{})
+		_, off := relayServer(t, m, &Settings{})
 		for _, tool := range []string{"dynamo_put_item", "dynamo_update_item", "dynamo_delete_item"} {
 			if text, isError := callTool(t, off, tool, args); !isError || !strings.Contains(text, "agent writes are off") {
 				t.Fatalf("%s with agentWrites false = %q (error %v)", tool, text, isError)
 			}
 		}
 		if !writes {
-			_, on := relayServer(t, m, Settings{AgentWrites: true})
+			_, on := relayServer(t, m, &Settings{AgentWrites: true})
 			if text, isError := callTool(t, on, "dynamo_put_item", args); !isError || !strings.Contains(text, "read-only") {
 				t.Fatalf("put_item on a read-only session = %q (error %v)", text, isError)
 			}
@@ -253,7 +253,7 @@ func TestRelayedDynamoItemKeepsBigIntegersExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, cs := relayServer(t, m, Settings{})
+	_, cs := relayServer(t, m, &Settings{})
 	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "dynamo_get_item", Arguments: map[string]any{"session": int(id), "table": "t", "key": map[string]any{"pk": 1}}})
 	if err != nil {
 		t.Fatal(err)
@@ -308,7 +308,7 @@ func TestRelayedS3ImageReachesTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, cs := relayServer(t, m, Settings{})
+	_, cs := relayServer(t, m, &Settings{})
 	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "s3_get_object", Arguments: map[string]any{"session": int(id), "bucket": "b", "key": "a.png"}})
 	if err != nil || res.IsError || len(res.Content) != 2 {
 		t.Fatalf("res = %+v, %v", res, err)

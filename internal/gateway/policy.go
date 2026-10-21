@@ -24,12 +24,12 @@ const (
 type Settings struct {
 	AutoConnect  AutoConnect
 	Environments environment.Set
+	// DisabledModules are the modules (jumphost.ModuleOf) agents neither list nor open.
+	DisabledModules []string
 	// IdleTimeout closes an agent-opened session without relayed call for that long.
 	IdleTimeout time.Duration
 	// AgentWrites lets agents ask for MCP writes, always prompted.
 	AgentWrites bool
-	// DisabledModules are the modules (jumphost.ModuleOf) agents neither list nor open.
-	DisabledModules []string
 }
 
 // disabled reports whether the targets of resourceType belong to a disabled module.

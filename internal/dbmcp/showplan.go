@@ -13,13 +13,9 @@ import (
 // StatementPlan summarizes the plan of one statement: what an assistant needs to analyze it,
 // without the bulk of the showplan XML.
 type StatementPlan struct {
-	Statement     string  `json:"statement"`
-	EstimatedCost float64 `json:"estimated_cost"`
-	EstimatedRows float64 `json:"estimated_rows"`
+	Statement string `json:"statement"`
 	// Optimization is the optimization level and why the optimizer stopped, e.g. "FULL, GoodEnoughPlanFound".
-	Optimization        string `json:"optimization,omitempty"`
-	DegreeOfParallelism int    `json:"degree_of_parallelism,omitempty"`
-	CompileTimeMs       int    `json:"compile_time_ms,omitempty"`
+	Optimization string `json:"optimization,omitempty"`
 	// CPUTimeMs and ElapsedTimeMs are measured (actual plans only).
 	CPUTimeMs     *int `json:"cpu_time_ms,omitempty"`
 	ElapsedTimeMs *int `json:"elapsed_time_ms,omitempty"`
@@ -36,7 +32,11 @@ type StatementPlan struct {
 	MissingIndexes []string `json:"missing_indexes,omitempty"`
 	Waits          []string `json:"waits,omitempty"`
 	// Operators is the operator tree, one indented line per operator.
-	Operators []string `json:"operators"`
+	Operators           []string `json:"operators"`
+	EstimatedCost       float64  `json:"estimated_cost"`
+	EstimatedRows       float64  `json:"estimated_rows"`
+	DegreeOfParallelism int      `json:"degree_of_parallelism,omitempty"`
+	CompileTimeMs       int      `json:"compile_time_ms,omitempty"`
 }
 
 // planNode is one operator (RelOp) of a showplan.
@@ -62,11 +62,11 @@ type showplanReader struct {
 	seekOp      string
 	seekColumns []string
 	seekValues  []string
-	// Missing index group being read.
-	missing       strings.Builder
-	missingImpact string
 	// warnings receives the children of the Warnings element being read.
-	warnings      *[]string
+	warnings *[]string
+	// Missing index group being read.
+	missingImpact string
+	missing       strings.Builder
 	warningsDepth int
 }
 

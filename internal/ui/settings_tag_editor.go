@@ -15,8 +15,8 @@ type tagEditor struct {
 	validate func(string) error
 	// err is why the typed tag is refused.
 	err        string
-	view       SettingView
 	key, value textinput.Model
+	view       SettingView
 	valueFocus bool
 }
 

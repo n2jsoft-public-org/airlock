@@ -71,7 +71,7 @@ func (q *recordingQuerier) Exec(ctx context.Context, database, statement string)
 	return affected, err
 }
 
-func (q *recordingQuerier) Plan(ctx context.Context, req PlanRequest) (PlanResult, error) {
+func (q *recordingQuerier) Plan(ctx context.Context, req *PlanRequest) (PlanResult, error) {
 	e, done := q.start("query_plan")
 	e.Database, e.SQL = req.Database, req.SQL
 	result, err := q.inner.Plan(ctx, req)

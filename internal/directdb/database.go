@@ -52,9 +52,9 @@ type Database struct {
 	Database string  `json:"database,omitempty"`
 	User     string  `json:"user"`
 	TLS      TLSMode `json:"tls,omitempty"`
-	Port     int     `json:"port,omitempty"`
 	// Environment names the database's environment in the environments setting; "" for none.
 	Environment string `json:"environment,omitempty"`
+	Port        int    `json:"port,omitempty"`
 }
 
 // UnmarshalJSON reads a definition, refusing unknown keys; the production flag of an earlier

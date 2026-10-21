@@ -66,11 +66,11 @@ func dockerConnectionKey(c *dockerdb.Container) string {
 type recentItem struct {
 	age string
 	// db is the definition of a direct entry, when its store could be read.
-	db        directdb.Database
+	db directdb.Database
+	// env is the environment of the entry's profile, or of its direct database.
+	env       environment.Env
 	conn      jumphost.SavedConnection
 	connected bool
-	// env is the environment of the entry's profile, or of its direct database.
-	env environment.Env
 }
 
 // environment is the environment of the entry.

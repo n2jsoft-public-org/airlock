@@ -105,8 +105,6 @@ type peer struct {
 	// answered, when set, is called with the method of each request once its response was written
 	// or could not be (the other side is gone).
 	answered func(method string)
-	// localize renders the errors of its answers in the user's language: the daemon's side only.
-	localize bool
 	pending  map[uint64]chan message
 	serving  map[uint64]context.CancelFunc
 	finished chan struct{}
@@ -116,6 +114,8 @@ type peer struct {
 	writeMu  sync.Mutex
 	mu       sync.Mutex
 	once     sync.Once
+	// localize renders the errors of its answers in the user's language: the daemon's side only.
+	localize bool
 }
 
 func newPeer(conn net.Conn, handle handler, onEvent func(name string, data json.RawMessage)) *peer {

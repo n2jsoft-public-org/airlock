@@ -144,7 +144,7 @@ func TestInteractiveReachesOnlyTheClientThatOpened(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancelOther()
-	<-otherDone
+	<-otherDone //nolint:errcheck // canceled: the opening fails, as expected.
 	mu.Lock()
 	defer mu.Unlock()
 	if len(calls) != 1 || calls[0] != "asker airlock sso-login" {

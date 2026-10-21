@@ -74,9 +74,9 @@ type SettingView struct {
 	Section string
 	// Label is the short name shown for the key.
 	Label string
-	Kind  SettingKind
 	// Options are the values offered for a choice or a duration.
 	Options []SettingOption
+	Kind    SettingKind
 	// Optional keys may be left empty: clearing one sets it to "".
 	Optional bool
 	// FromFile reports that the file sets the key; otherwise its default applies.

@@ -214,13 +214,13 @@ func TestWizardCarriesKeychainWarning(t *testing.T) {
 
 func TestWizardLeavesSignInUnchosenWhenPasswordAndSecretNotOffered(t *testing.T) {
 	cases := []struct {
-		target jumphost.ResourceSummary
 		name   string
+		target jumphost.ResourceSummary
 		base   jumphost.Options
 	}{
-		{jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true}, "no mcp with iam", jumphost.Options{SkipMCP: true}},
-		{jumphost.ResourceSummary{Name: "archive", Engine: "oracle-ee", IAMAuth: true}, "oracle with iam", jumphost.Options{}},
-		{jumphost.ResourceSummary{Name: "archive", Engine: "postgres"}, "no mcp", jumphost.Options{SkipMCP: true}},
+		{"no mcp with iam", jumphost.ResourceSummary{Name: "archive", Engine: "postgres", IAMAuth: true}, jumphost.Options{SkipMCP: true}},
+		{"oracle with iam", jumphost.ResourceSummary{Name: "archive", Engine: "oracle-ee", IAMAuth: true}, jumphost.Options{}},
+		{"no mcp", jumphost.ResourceSummary{Name: "archive", Engine: "postgres"}, jumphost.Options{SkipMCP: true}},
 	}
 	for _, c := range cases {
 		runner := newPrefsRunner()

@@ -98,7 +98,7 @@ func TestPlanRejectedByGuardNeverReachesDatabase(t *testing.T) {
 		{SQL: "SELECT @p0", Parameters: "@p0 int OUTPUT", Values: []any{1.0}},
 		{SQL: "SELECT 1", IncludeJSON: true},
 	} {
-		if _, err := q.Plan(context.Background(), req); err == nil {
+		if _, err := q.Plan(context.Background(), &req); err == nil {
 			t.Errorf("%+v: expected an error", req)
 		}
 	}

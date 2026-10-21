@@ -150,7 +150,8 @@ func (r *Runner) ListCacheIAMUsers(ctx context.Context, options *Options) ([]str
 // iamUsersOf picks the IAM users of the user groups attached to cacheName.
 func iamUsersOf(groups []ectypes.UserGroup, users []ectypes.User, cacheName string) []string {
 	members := map[string]bool{}
-	for _, group := range groups {
+	for i := range groups {
+		group := &groups[i]
 		if slices.Contains(group.ReplicationGroups, cacheName) || slices.Contains(group.ServerlessCaches, cacheName) {
 			for _, id := range group.UserIds {
 				members[id] = true

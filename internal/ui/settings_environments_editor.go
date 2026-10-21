@@ -36,11 +36,11 @@ type environmentsEditor struct {
 	err string
 	// initial is the value the editor opened on: esc asks before dropping a change of it.
 	initial string
-	view    SettingView
 	envs    []envEntry
 	// profiles are the names of the local AWS profiles, for the matches of the form.
 	profiles []string
 	input    textinput.Model
+	view     SettingView
 	// cursor is the row of the list; len(envs) is "+ add an environment".
 	cursor int
 	// row is the row of the form: name, production, the patterns, then "+ add a pattern".

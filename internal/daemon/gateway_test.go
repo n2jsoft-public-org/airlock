@@ -133,7 +133,7 @@ func TestGatewayActivityKeepsTheDaemonUp(t *testing.T) {
 	default:
 	}
 	select {
-	case <-errs:
+	case <-errs: //nolint:errcheck // the test checks that the daemon stops, not how.
 	case <-time.After(5 * time.Second):
 		t.Fatal("the daemon must stop once the gateway is idle too")
 	}

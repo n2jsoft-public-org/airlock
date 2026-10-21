@@ -15,8 +15,8 @@ type textEditor struct {
 	validate func(string) error
 	// err is why validate refuses the typed value.
 	err   string
-	view  SettingView
 	input textinput.Model
+	view  SettingView
 }
 
 // newTextEditor opens on the effective value; an Optional setting may be saved empty.

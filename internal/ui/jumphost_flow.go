@@ -171,9 +171,6 @@ type jumphostWizardModel struct {
 
 	// openDirectError is shown on the review openDirect opens: why it asks the password again.
 	openDirectError string
-	// dockerAtStart opens the Docker list once the history is loaded (`airlock docker`), and the
-	// review of openDocker when set; openDockerError shows on that review.
-	dockerAtStart   bool
 	openDocker      string
 	openDockerError string
 
@@ -213,10 +210,10 @@ type jumphostWizardModel struct {
 	// settingsEditor is the Settings screen (jumphostStepSettings).
 	settingsEditor settingsEditor
 	secretPicker   secretPicker
-	loadingUI      loadingState
 
 	// directForm adds or edits a direct database (jumphostStepDirectForm).
 	directForm directForm
+	loadingUI  loadingState
 	step       jumphostStep
 	flow       jumphostFlow
 
@@ -232,7 +229,10 @@ type jumphostWizardModel struct {
 	reviewFocus int
 	width       int
 	height      int
-	askProfile  bool
+	// dockerAtStart opens the Docker list once the history is loaded (`airlock docker`), and the
+	// review of openDocker when set; openDockerError shows on that review.
+	dockerAtStart bool
+	askProfile    bool
 
 	// hasHistory reports saved connections, which make the start screen the root of every flow.
 	hasHistory bool
@@ -301,9 +301,9 @@ type jumphostListItem struct {
 	cacheAuth string
 	// resourceType is set on search results, which mix types.
 	resourceType string
-	iamAuth      bool
 	// env is the environment of the profile under the environments setting.
-	env environment.Env
+	env     environment.Env
+	iamAuth bool
 }
 
 // environment is the environment of the profile.

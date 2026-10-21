@@ -17,10 +17,10 @@ const clientsProjectColumn = 12
 // clientsEditor edits mcp.clients as a grid: Auto-detect, then one row per client with its
 // project and user files. The grid is the parsed selection, so every accepted value round-trips.
 type clientsEditor struct {
-	view SettingView
 	// detected are the clients found in the project directory; nil when it is unknown.
 	detected []aiclient.Client
 	sel      aiclient.Selection
+	view     SettingView
 	// row 0 is Auto-detect, row n the client aiclient.Clients[n-1]; user is the column.
 	row  int
 	user bool

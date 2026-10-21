@@ -26,7 +26,7 @@ func TestOpenSessionAuto(t *testing.T) {
 	runner := sessionstest.NewRunner()
 	runner.Direct("billing")
 	m, _ := newTestManager(t, runner)
-	cs, events := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
+	cs, events := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
 	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "direct", "name": "billing", "reason": "check invoices"})
 	if isError {
 		t.Fatal(text)
@@ -56,7 +56,7 @@ func TestOpenSessionRefusals(t *testing.T) {
 	runner.Direct("billing")
 	m, _ := newTestManager(t, runner)
 	d := &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev"), savedRDS("orders-db", "prod")}}
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectNone}, d, fakeDatabases{"billing": {Name: "billing"}})
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectNone}, d, fakeDatabases{"billing": {Name: "billing"}})
 	cases := []struct {
 		args map[string]any
 		want string
@@ -91,7 +91,7 @@ func TestOpenSessionApprovedInADashboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs, audit := newToolset(t, m, Settings{AutoConnect: AutoConnectNone}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing", Environment: "prod"}})
+	cs, audit := newToolset(t, m, &Settings{AutoConnect: AutoConnectNone}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing", Environment: "prod"}})
 	type result struct {
 		text    string
 		isError bool
@@ -134,7 +134,7 @@ func TestOpenSessionDenied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs, _ := newToolset(t, m, Settings{}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
+	cs, _ := newToolset(t, m, &Settings{}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
 	go func() {
 		ev := sessionstest.Wait(t, events, func(ev sessions.Event) bool { return ev.Kind == sessions.EventApprovalRequested })
 		if rerr := m.ResolveApproval(context.Background(), ev.Approval.ID, false, nil); rerr != nil {
@@ -151,7 +151,7 @@ func TestOpenSessionNeedingSSOWithoutView(t *testing.T) {
 	runner := sessionstest.NewRunner()
 	runner.Errors["orders-db"] = jumphost.ErrSignInRequired
 	m, _ := newTestManager(t, runner)
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev")}}, nil)
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "dev")}}, nil)
 	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"})
 	if !isError || !strings.Contains(text, "sign in to profile dev again from airlock") {
 		t.Fatalf("sso = %q", text)
@@ -168,7 +168,7 @@ func TestOpenSessionUsesTheKeychainPassword(t *testing.T) {
 	conn := savedRDS("orders-db", "dev")
 	conn.Prefs.SignIn, conn.Prefs.DBUser, conn.Prefs.PasswordInKeychain = jumphost.SignInPassword, "app_ro", true
 	d := &fakeDiscovery{saved: []jumphost.SavedConnection{conn}, passwords: map[string]string{"orders-db|app_ro": "s3cret"}}
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, d, nil)
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll}, d, nil)
 	go func() { launcher.Next(t).Print("Waiting for connections...") }()
 	if text, isError := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"}); isError {
 		t.Fatal(text)
@@ -194,7 +194,7 @@ func TestOpenSessionWithoutKeychainPassword(t *testing.T) {
 		m, _ := newTestManager(t, runner)
 		conn := savedRDS("orders-db", "dev")
 		conn.Prefs.SignIn, conn.Prefs.DBUser, conn.Prefs.PasswordInKeychain = jumphost.SignInPassword, "app_ro", tc.keychain
-		cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{saved: []jumphost.SavedConnection{conn}}, nil)
+		cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{saved: []jumphost.SavedConnection{conn}}, nil)
 		if text, isError := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"}); !isError || !strings.Contains(text, tc.want) {
 			t.Errorf("keychain %v: missing password = %q, want %q", tc.keychain, text, tc.want)
 		}
@@ -209,7 +209,7 @@ func TestCloseSession(t *testing.T) {
 	m, _ := newTestManager(t, runner)
 	mine := openDirect(t, m, runner, "mine", nil, false, "")
 	agents := openDirect(t, m, runner, "agents", nil, false, "claude-code")
-	cs, _ := newToolset(t, m, Settings{}, &fakeDiscovery{}, nil)
+	cs, _ := newToolset(t, m, &Settings{}, &fakeDiscovery{}, nil)
 	if text, isError := callTool(t, cs, "close_session", map[string]any{"session": int(mine)}); !isError || !strings.Contains(text, "opened by the user") {
 		t.Fatalf("closing a user session = %q", text)
 	}
@@ -242,7 +242,7 @@ func TestOpenSessionCleansTheAgentText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs, audit := newToolset(t, m, Settings{}, &fakeDiscovery{}, nil)
+	cs, audit := newToolset(t, m, &Settings{}, &fakeDiscovery{}, nil)
 	go func() {
 		ev := sessionstest.Wait(t, events, func(ev sessions.Event) bool { return ev.Kind == sessions.EventApprovalRequested })
 		a := ev.Approval
@@ -274,7 +274,7 @@ func TestOpenSessionNonProdPromptsForAProductionProfile(t *testing.T) {
 	runner := sessionstest.NewRunner()
 	m, _ := newTestManager(t, runner)
 	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "prod!=prod*")}
-	cs, _ := newToolset(t, m, settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "prod-eu")}}, nil)
+	cs, _ := newToolset(t, m, &settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "prod-eu")}}, nil)
 	args := map[string]any{"type": "rds", "name": "orders-db"}
 	if text, isError := callTool(t, cs, "open_session", args); !isError || !strings.Contains(text, "no airlock dashboard is open") {
 		t.Fatalf("without a view = %q", text)
@@ -307,7 +307,7 @@ func TestOpenSessionWritesOnARunningReadOnlySession(t *testing.T) {
 	m, _ := newTestManager(t, runner)
 	id := openDirect(t, m, runner, "billing", dbmcp.NewServer(&dbmcp.ServerConfig{Name: "airlock-billing", Target: "billing"}, &fakeQuerier{}), false, "")
 	m.ViewsChanged(1)
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll, AgentWrites: true}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll, AgentWrites: true}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
 	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "direct", "name": "billing", "writes": true})
 	if want := fmt.Sprintf("session %d runs billing read-only", id); !isError || !strings.Contains(text, want) {
 		t.Fatalf("writes on a read-only session = %q, want %q", text, want)
@@ -329,7 +329,7 @@ func TestOpenSessionApprovedThenRefusedReleasesTheView(t *testing.T) {
 	}
 	conn := savedRDS("orders-db", "dev")
 	conn.Prefs.SignIn, conn.Prefs.DBUser = jumphost.SignInPassword, "app_ro"
-	cs, audit := newToolset(t, m, Settings{}, &fakeDiscovery{saved: []jumphost.SavedConnection{conn}}, nil)
+	cs, audit := newToolset(t, m, &Settings{}, &fakeDiscovery{saved: []jumphost.SavedConnection{conn}}, nil)
 	resolved := make(chan error, 1)
 	go func() {
 		ev := sessionstest.Wait(t, events, func(ev sessions.Event) bool { return ev.Kind == sessions.EventApprovalRequested })
@@ -368,7 +368,7 @@ func TestOpenSessionFailsWhenTheSignInFails(t *testing.T) {
 	runner := sessionstest.NewRunner()
 	runner.Direct("billing").SignIn = failingSignIn{err: fmt.Errorf("billing.internal:5432 is not reachable (VPN or firewall?)")}
 	m, _ := newTestManager(t, runner)
-	cs, _ := newToolset(t, m, Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
+	cs, _ := newToolset(t, m, &Settings{AutoConnect: AutoConnectAll}, &fakeDiscovery{}, fakeDatabases{"billing": {Name: "billing"}})
 	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "direct", "name": "billing"})
 	if !isError || !strings.Contains(text, "not reachable (VPN or firewall?)") {
 		t.Fatalf("isError = %v, text = %q", isError, text)
@@ -398,7 +398,7 @@ func TestOpenSessionNonProdPromptsForALegacyProductionDatabase(t *testing.T) {
 	runner.Direct("orders")
 	m, _ := newTestManager(t, runner)
 	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}
-	cs, _ := newToolset(t, m, settings, &fakeDiscovery{}, fakeDatabases{
+	cs, _ := newToolset(t, m, &settings, &fakeDiscovery{}, fakeDatabases{
 		"billing": {Name: "billing", Environment: "prod"},
 		"orders":  {Name: "orders", Environment: "staging"},
 	})
@@ -415,7 +415,7 @@ func TestOpenSessionNonProdPromptsForAProfileOfAProductionNamedLive(t *testing.T
 	runner := sessionstest.NewRunner()
 	m, _ := newTestManager(t, runner)
 	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}
-	cs, _ := newToolset(t, m, settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-live")}}, nil)
+	cs, _ := newToolset(t, m, &settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-live")}}, nil)
 	text, isError := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"})
 	if !isError || !strings.Contains(text, "no airlock dashboard is open") {
 		t.Fatalf("shop-live = %q, want production (live) to need a dashboard", text)
@@ -430,7 +430,7 @@ func TestOpenSessionNonProdOpensAStagingProfileAlone(t *testing.T) {
 	runner.AWS("orders-db", "rds")
 	m, _ := newTestManager(t, runner)
 	settings := Settings{AutoConnect: AutoConnectNonProd, Environments: mustEnvironments(t, "live!=*-live; staging=*stg*")}
-	cs, _ := newToolset(t, m, settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-stg")}}, nil)
+	cs, _ := newToolset(t, m, &settings, &fakeDiscovery{saved: []jumphost.SavedConnection{savedRDS("orders-db", "shop-stg")}}, nil)
 	// The fake AWS session never reports running, so the call may time out waiting for it: what
 	// matters is that it went ahead without a dashboard.
 	text, _ := callTool(t, cs, "open_session", map[string]any{"type": "rds", "name": "orders-db"})

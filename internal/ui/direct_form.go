@@ -80,11 +80,11 @@ type directForm struct {
 	host        textinput.Model
 	port        textinput.Model
 	dbName      textinput.Model
+	environment string
+	envs        environment.Set
 	user        textinput.Model
 	focus       int
 	errField    int
-	environment string
-	envs        environment.Set
 }
 
 // newDirectForm opens the form on previous, or on a new PostgreSQL database when nil.
