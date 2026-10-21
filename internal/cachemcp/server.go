@@ -150,7 +150,8 @@ func instructions(cfg *ServerConfig) string {
 	return fmt.Sprintf(
 		"%s cache %s %s %s "+
 			"Use info for the cache state, scan_keys to find keys (KEYS is never allowed), get_key to read a key of any type "+
-			"and command for other read commands.",
+			"and command for other read commands. A value that is not valid UTF-8 comes back as {\"base64\": \"<bytes in base64>\"}, "+
+			"a hash or stream field name as \"base64:<bytes in base64>\".",
 		cfg.Engine, cfg.Target, via, access,
 	)
 }

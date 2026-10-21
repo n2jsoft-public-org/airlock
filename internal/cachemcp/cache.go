@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -26,6 +28,8 @@ const (
 	scanRounds = 50
 	// maxDB is the highest database index the tools accept, which bounds the clients kept per db.
 	maxDB = 1023
+	// infoConcurrency is how many cluster primaries info reads at once.
+	infoConcurrency = 8
 )
 
 // defaultInfoSections are read when the assistant names none.
@@ -73,6 +77,7 @@ type getKeyInput struct {
 }
 
 type keyValue struct {
+	// Value holds strings as jsonString returns them, field names as jsonKey does.
 	Value any    `json:"value"`
 	Key   string `json:"key"`
 	Type  string `json:"type"`
@@ -90,12 +95,14 @@ type commandInput struct {
 
 type commandOutput struct {
 	Reply any `json:"reply"`
+	// Note tells, in cluster mode, which primaries answered a command without key.
+	Note string `json:"note,omitempty"`
 	// Truncated reports that a string or an array of the reply was cut.
 	Truncated bool `json:"truncated"`
 }
 
 type scoredMember struct {
-	Member string  `json:"member"`
+	Member any     `json:"member"`
 	Score  float64 `json:"score"`
 }
 
@@ -164,35 +171,66 @@ func (c *cache) Info(ctx context.Context, in *infoInput) (infoOutput, error) {
 			}
 		}
 	}
-	out := infoOutput{Sections: map[string]map[string]string{}}
-	for _, node := range nodes {
+	return c.info(ctx, nodes, cluster, sections)
+}
+
+// info reads sections and the number of keys of nodes, infoConcurrency nodes at once: one after
+// the other, the primaries of a cluster of a dozen shards would exceed callTimeout.
+func (c *cache) info(ctx context.Context, nodes []*redis.Client, cluster bool, sections []string) (infoOutput, error) {
+	results := make([]infoOutput, len(nodes))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(infoConcurrency)
+	for idx, node := range nodes {
 		prefix := ""
 		if cluster {
 			prefix = node.Options().Addr + " "
 		}
-		// One section per INFO: Redis 6 accepts a single section argument.
-		for _, section := range sections {
-			text, infoErr := node.Info(ctx, section).Result()
-			if infoErr != nil {
-				if errors.Is(mapError(infoErr), ErrSignInRejected) {
-					return infoOutput{}, c.fail(infoErr)
-				}
-				if out.Errors == nil {
-					out.Errors = map[string]string{}
-				}
-				out.Errors[prefix+section] = infoErr.Error()
-				continue
-			}
-			for name, values := range parseInfo(text) {
-				out.Sections[prefix+name] = values
-			}
-		}
-		keys, err := node.DBSize(ctx).Result()
-		if err != nil {
-			return infoOutput{}, c.fail(err)
-		}
-		out.Keys += keys
+		group.Go(func() (err error) {
+			results[idx], err = nodeInfo(groupCtx, node, prefix, sections)
+			return err
+		})
 	}
+	if err := group.Wait(); err != nil {
+		return infoOutput{}, c.fail(err)
+	}
+	out := infoOutput{Sections: map[string]map[string]string{}}
+	for _, result := range results {
+		maps.Copy(out.Sections, result.Sections)
+		if len(result.Errors) > 0 && out.Errors == nil {
+			out.Errors = map[string]string{}
+		}
+		maps.Copy(out.Errors, result.Errors)
+		out.Keys += result.Keys
+	}
+	return out, nil
+}
+
+// nodeInfo reads sections and DBSIZE of node, naming the sections prefix and their name. A
+// section the node refuses goes to Errors; refused credentials and a failed DBSIZE come back.
+func nodeInfo(ctx context.Context, node *redis.Client, prefix string, sections []string) (infoOutput, error) {
+	out := infoOutput{Sections: map[string]map[string]string{}}
+	// One section per INFO: Redis 6 accepts a single section argument.
+	for _, section := range sections {
+		text, err := node.Info(ctx, section).Result()
+		if err != nil {
+			if errors.Is(mapError(err), ErrSignInRejected) {
+				return infoOutput{}, err
+			}
+			if out.Errors == nil {
+				out.Errors = map[string]string{}
+			}
+			out.Errors[prefix+section] = err.Error()
+			continue
+		}
+		for name, values := range parseInfo(text) {
+			out.Sections[prefix+name] = values
+		}
+	}
+	keys, err := node.DBSize(ctx).Result()
+	if err != nil {
+		return infoOutput{}, err
+	}
+	out.Keys = keys
 	return out, nil
 }
 
@@ -380,7 +418,10 @@ func (c *cache) readString(ctx context.Context, client redis.Cmdable, out *keyVa
 	if err != nil {
 		return err
 	}
-	out.Value, out.Length, out.Truncated = value, length, length > maxStringBytes
+	if length > maxStringBytes {
+		value = trimCutRune(value)
+	}
+	out.Value, out.Length, out.Truncated = jsonString(value), length, length > maxStringBytes
 	return nil
 }
 
@@ -389,7 +430,7 @@ func (c *cache) readHash(ctx context.Context, client redis.Cmdable, out *keyValu
 	if err != nil {
 		return err
 	}
-	fields := map[string]string{}
+	fields := map[string]any{}
 	budget := newReplyBudget()
 	var cursor uint64
 	cut, full := false, false
@@ -399,12 +440,13 @@ func (c *cache) readHash(ctx context.Context, client redis.Cmdable, out *keyValu
 			return err
 		}
 		for idx := 0; idx+1 < len(pairs) && len(fields) < limit; idx += 2 {
-			value, valueCut := cutString(pairs[idx+1])
-			if !budget.fits(pairs[idx], value) {
+			text, valueCut := cutString(pairs[idx+1])
+			field, value := jsonKey(pairs[idx]), jsonString(text)
+			if !budget.fits(field, value) {
 				full = true
 				break
 			}
-			fields[pairs[idx]], cut = value, cut || valueCut
+			fields[field], cut = value, cut || valueCut
 		}
 		if next == 0 || len(fields) >= limit {
 			break
@@ -434,7 +476,7 @@ func (c *cache) readSet(ctx context.Context, client redis.Cmdable, out *keyValue
 	if err != nil {
 		return err
 	}
-	members := make([]string, 0)
+	members := make([]any, 0)
 	budget := newReplyBudget()
 	var cursor uint64
 	cut, full := false, false
@@ -447,7 +489,8 @@ func (c *cache) readSet(ctx context.Context, client redis.Cmdable, out *keyValue
 			if len(members) >= limit {
 				break
 			}
-			value, valueCut := cutString(member)
+			text, valueCut := cutString(member)
+			value := jsonString(text)
 			if !budget.fits(value) {
 				full = true
 				break
@@ -477,7 +520,7 @@ func (c *cache) readSortedSet(ctx context.Context, client redis.Cmdable, out *ke
 	cut := false
 	for _, z := range scored {
 		member, memberCut := cutString(fmt.Sprint(z.Member))
-		entry := scoredMember{Member: member, Score: z.Score}
+		entry := scoredMember{Member: jsonString(member), Score: z.Score}
 		if !budget.fits(entry) {
 			cut = true
 			break
@@ -505,10 +548,10 @@ func (c *cache) readStream(ctx context.Context, client redis.Cmdable, out *keyVa
 		for field, value := range message.Values {
 			if text, ok := value.(string); ok {
 				var fieldCut bool
-				value, fieldCut = cutString(text)
-				cut = cut || fieldCut
+				text, fieldCut = cutString(text)
+				value, cut = jsonString(text), cut || fieldCut
 			}
-			entry.Fields[field] = value
+			entry.Fields[jsonKey(field)] = value
 		}
 		if !budget.fits(entry) {
 			cut = true
@@ -534,11 +577,67 @@ func (c *cache) Command(ctx context.Context, in *commandInput, write bool) (comm
 	if err != nil {
 		return commandOutput{}, 0, err
 	}
-	args := make([]any, len(in.Args))
-	for idx, arg := range in.Args {
-		args[idx] = arg
+	if cluster, ok := client.(*redis.ClusterClient); ok && keyless(in.Args) {
+		nodes, nodesErr := primaries(ctx, cluster)
+		if nodesErr != nil {
+			return commandOutput{}, 0, c.fail(nodesErr)
+		}
+		return c.keylessCommand(ctx, nodes, in.Args)
 	}
-	reply, err := client.Do(ctx, args...).Result()
+	reply, err := client.Do(ctx, commandArgs(in.Args)...).Result()
+	return c.commandReply(reply, err)
+}
+
+// keylessCommands name no key: a cluster client would send them to any node. MEMORY does but for
+// MEMORY USAGE.
+// ponytail: a fixed list, the keyless read commands and the common admin ones; a keyless command
+// missing here goes to a node go-redis picks, without a note.
+var keylessCommands = setOf("DBSIZE", "PING", "TIME", "ECHO", "SLOWLOG", "CLIENT", "LATENCY", "INFO",
+	"RANDOMKEY", "LASTSAVE", "ROLE", "COMMAND", "LOLWUT")
+
+// keyless reports whether the command of args names no key.
+func keyless(args []string) bool {
+	name, sub, err := commandName(args)
+	return err == nil && (keylessCommands[name] || (name == "MEMORY" && sub != "USAGE"))
+}
+
+// keylessCommand runs a command without key on the primaries of a cluster, sorted by address:
+// DBSIZE on every one, adding up their answers, any other on the first one only. Its note says so.
+func (c *cache) keylessCommand(ctx context.Context, nodes []*redis.Client, args []string) (commandOutput, int64, error) {
+	if len(nodes) == 0 {
+		return commandOutput{}, 0, errors.New("the cluster announces no primary")
+	}
+	if name, _, _ := commandName(args); name == "DBSIZE" { //nolint:errcheck // keyless checked args.
+		var total int64
+		for _, node := range nodes {
+			keys, err := node.DBSize(ctx).Result()
+			if err != nil {
+				return commandOutput{}, 0, c.fail(err)
+			}
+			total += keys
+		}
+		note := fmt.Sprintf("cluster mode: the sum of DBSIZE over the %d primaries", len(nodes))
+		return commandOutput{Reply: total, Note: note}, 1, nil
+	}
+	out, count, err := c.commandReply(nodes[0].Do(ctx, commandArgs(args)...).Result())
+	if err == nil {
+		out.Note = fmt.Sprintf("cluster mode: only the primary %s answered (1 of %d): a command without key runs on one node, "+
+			"so its answer covers that node only", nodes[0].Options().Addr, len(nodes))
+	}
+	return out, count, err
+}
+
+// commandArgs is args as go-redis takes them.
+func commandArgs(args []string) []any {
+	out := make([]any, len(args))
+	for idx, arg := range args {
+		out[idx] = arg
+	}
+	return out
+}
+
+// commandReply is the capped reply of a command and the number of items it holds.
+func (c *cache) commandReply(reply any, err error) (commandOutput, int64, error) {
 	if errors.Is(err, redis.Nil) {
 		return commandOutput{Reply: nil}, 0, nil
 	}
@@ -553,7 +652,8 @@ func (c *cache) Command(ctx context.Context, in *commandInput, write bool) (comm
 	return commandOutput{Reply: value, Truncated: truncated}, count, nil
 }
 
-// jsonReply converts a RESP reply to JSON values: maps get string keys.
+// jsonReply converts a RESP reply to JSON values: maps get string keys (see jsonKey); capReply
+// encodes the strings.
 func jsonReply(reply any) any {
 	switch v := reply.(type) {
 	case []any:
@@ -565,7 +665,7 @@ func jsonReply(reply any) any {
 	case map[any]any:
 		out := make(map[string]any, len(v))
 		for key, item := range v {
-			out[fmt.Sprint(key)] = jsonReply(item)
+			out[jsonKey(fmt.Sprint(key))] = jsonReply(item)
 		}
 		return out
 	case error:

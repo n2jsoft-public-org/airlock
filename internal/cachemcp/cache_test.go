@@ -2,6 +2,7 @@ package cachemcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alicebob/miniredis/v2"
 )
@@ -249,15 +251,15 @@ func TestGetKeepsCollectionsUnderTheResultBudget(t *testing.T) {
 func onlyItem(t *testing.T, value any) string {
 	t.Helper()
 	switch v := value.(type) {
-	case map[string]string:
-		return v["f"]
-	case []string:
+	case map[string]any:
+		return fmt.Sprint(v["f"])
+	case []any:
 		if len(v) == 1 {
-			return v[0]
+			return fmt.Sprint(v[0])
 		}
 	case []scoredMember:
 		if len(v) == 1 {
-			return v[0].Member
+			return fmt.Sprint(v[0].Member)
 		}
 	case []streamEntry:
 		if len(v) == 1 {
@@ -308,5 +310,110 @@ func TestCommandKeepsRepliesUnderTheResultBudget(t *testing.T) {
 		if args[0] == "HMGET" && out.Truncated {
 			t.Errorf("HMGET of two fields truncated")
 		}
+	}
+}
+
+// binary is not valid UTF-8: JSON would turn its bytes into U+FFFD.
+const binary = "\xff\x00\xfe bin"
+
+// decoded is the bytes of a value or map key a tool returned, failing unless it is base64-encoded.
+func decoded(t *testing.T, value any) string {
+	t.Helper()
+	var encoded string
+	switch v := value.(type) {
+	case map[string]string:
+		encoded = v["base64"]
+	case map[string]any: // decoded from JSON
+		encoded = fmt.Sprint(v["base64"])
+	case string:
+		if after, found := strings.CutPrefix(v, base64Prefix); found {
+			encoded = after
+		}
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || encoded == "" {
+		t.Fatalf("value %#v is not base64-encoded: %v", value, err)
+	}
+	return string(raw)
+}
+
+// viaJSON is v once encoded as JSON and decoded back, as the MCP client gets it.
+func viaJSON(t *testing.T, v any) any {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestBinaryValuesComeBackInBase64(t *testing.T) {
+	c, m := testCache(t)
+	seed(t, m.Set("s", binary))
+	m.HSet("h", binary, binary, "text", "plain")
+	seed(t, errOf(m.Push("l", binary)))
+	seed(t, errOf(m.SAdd("set", binary)))
+	seed(t, errOf(m.ZAdd("z", 1, binary)))
+	seed(t, errOf(m.XAdd("x", "1-1", []string{binary, binary})))
+	ctx := context.Background()
+
+	get := func(key string) any {
+		out, err := c.Get(ctx, &getKeyInput{Key: key})
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		return out.Value
+	}
+	if got := decoded(t, get("s")); got != binary {
+		t.Errorf("string = %q", got)
+	}
+	hash, ok := get("h").(map[string]any)
+	if !ok || hash["text"] != "plain" || decoded(t, hash[jsonKey(binary)]) != binary || decoded(t, jsonKey(binary)) != binary {
+		t.Errorf("hash = %#v", hash)
+	}
+	for _, key := range []string{"l", "set"} {
+		if items, ok := get(key).([]any); !ok || len(items) != 1 || decoded(t, items[0]) != binary {
+			t.Errorf("%s = %#v", key, items)
+		}
+	}
+	if members, ok := get("z").([]scoredMember); !ok || len(members) != 1 || decoded(t, members[0].Member) != binary {
+		t.Errorf("zset = %#v", members)
+	}
+	if entries, ok := get("x").([]streamEntry); !ok || len(entries) != 1 || decoded(t, entries[0].Fields[jsonKey(binary)]) != binary {
+		t.Errorf("stream = %#v", entries)
+	}
+
+	out, _, err := c.Command(ctx, &commandInput{Args: []string{"GET", "s"}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The client reads the marker as a JSON object.
+	if reply, ok := viaJSON(t, out).(map[string]any); !ok || decoded(t, reply["reply"]) != binary {
+		t.Errorf("GET = %#v", out.Reply)
+	}
+	out, _, err = c.Command(ctx, &commandInput{Args: []string{"HMGET", "h", binary, "text"}}, false)
+	if items, ok := out.Reply.([]any); !ok || err != nil || len(items) != 2 || decoded(t, items[0]) != binary || items[1] != "plain" {
+		t.Errorf("HMGET = %#v, %v", out.Reply, err)
+	}
+}
+
+func TestLongTextIsCutOnACharacter(t *testing.T) {
+	c, m := testCache(t)
+	// "é" is 2 bytes: maxStringBytes falls inside one.
+	seed(t, m.Set("s", "a"+strings.Repeat("é", maxStringBytes)))
+	out, err := c.Get(context.Background(), &getKeyInput{Key: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, ok := out.Value.(string); !ok || !utf8.ValidString(text) || len(text) != maxStringBytes-1 || !out.Truncated {
+		t.Fatalf("value = %T of %d bytes, truncated %v; want text cut before the split character", out.Value, len(fmt.Sprint(out.Value)), out.Truncated)
+	}
+	reply, _, err := c.Command(t.Context(), &commandInput{Args: []string{"GET", "s"}}, false)
+	if text, ok := reply.Reply.(string); err != nil || !ok || len(text) != maxStringBytes-1 {
+		t.Fatalf("GET = %T, %v", reply.Reply, err)
 	}
 }

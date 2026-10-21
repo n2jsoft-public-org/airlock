@@ -888,7 +888,9 @@ names, types and keys are, every value reads `<redacted>`. `--mcp-allow-writes` 
 
 Replies of `get_key`, `command` and `execute` are capped: strings and the items of collections are
 cut at 64 KiB, arrays at 1000 items, and items stop being added once a reply reaches 256 KiB, with
-a `truncated` flag.
+a `truncated` flag. A value that is not valid UTF-8 (serialized or compressed data) comes back
+base64-encoded as `{"base64": "…"}`, and a hash or stream field name as `"base64:…"`, rather than
+with its bytes replaced.
 
 The server signs in the way the cache asks, detected from the ElastiCache API:
 
@@ -913,10 +915,13 @@ and keeps it until the session ends. A serverless cache announces its own endpoi
 session's tunnel. Then:
 
 - `get_key`, `command` and `execute` go to the shard of the key; commands over keys of several
-  slots answer `CROSSSLOT`, and commands without key (`DBSIZE`, `SLOWLOG GET`…) run on one node;
+  slots answer `CROSSSLOT`. `DBSIZE` adds up the keys of every primary; other commands without key
+  (`SLOWLOG GET`, `CLIENT LIST`, `MEMORY STATS`…) run on the first primary by address, and the
+  reply's `note` names it;
 - `scan_keys` scans the primaries one after the other; its cursor names the node being scanned, and
   fails when that node is no longer a primary (failover, resharding): start the scan again;
-- `info` reads the sections of every primary, named `<node address> <section>`, and adds up their keys;
+- `info` reads the sections of every primary (8 at a time), named `<node address> <section>`, and
+  adds up their keys;
 - only database 0 exists.
 
 The read-only guard does not change: `CLUSTER`, `READONLY` and `ASKING` stay refused, airlock's

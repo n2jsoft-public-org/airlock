@@ -3,6 +3,7 @@ package cachemcp
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -340,5 +341,58 @@ func TestToolResultsWarnWhenTheClusterModeIsUnknown(t *testing.T) {
 	text, isError := callTool(t, session, "get_key", map[string]any{"key": "k"})
 	if isError || !strings.Contains(text, `"value":"v"`) || !strings.Contains(text, "Warning: "+unknownModeWarning) {
 		t.Fatalf("get_key = %s, %v; want the value and the warning", text, isError)
+	}
+}
+
+// twoNodes are two fake primaries of a cluster, sorted by address, with keys a, b, c on the first
+// and d on the second.
+func twoNodes(t *testing.T) []*redis.Client {
+	t.Helper()
+	var nodes []*redis.Client
+	for _, keys := range [][]string{{"a", "b", "c"}, {"d"}} {
+		m := startRedis(t)
+		for _, key := range keys {
+			seed(t, m.Set(key, "v"))
+		}
+		client := redis.NewClient(&redis.Options{Addr: m.Addr(), Protocol: 2, DisableIdentity: true})
+		cleanup(t, client.Close)
+		nodes = append(nodes, client)
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Options().Addr < nodes[j].Options().Addr })
+	return nodes
+}
+
+func TestInfoReadsEveryPrimary(t *testing.T) {
+	nodes := twoNodes(t)
+	out, err := (&cache{}).info(t.Context(), nodes, true, []string{"clients", "server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		addr := node.Options().Addr
+		if out.Sections[addr+" clients"]["connected_clients"] == "" || out.Errors[addr+" server"] == "" {
+			t.Errorf("%s missing from %+v", addr, out)
+		}
+	}
+	if out.Keys != 4 {
+		t.Fatalf("keys = %d, want the 4 keys of both nodes", out.Keys)
+	}
+}
+
+func TestKeylessCommandsSayWhichPrimariesAnswered(t *testing.T) {
+	nodes := twoNodes(t)
+	c := &cache{}
+	out, _, err := c.keylessCommand(t.Context(), nodes, []string{"dbsize"})
+	if err != nil || out.Reply != int64(4) || !strings.Contains(out.Note, "2 primaries") {
+		t.Fatalf("DBSIZE = %+v, %v; want the sum over both primaries", out, err)
+	}
+	out, _, err = c.keylessCommand(t.Context(), nodes, []string{"PING"})
+	if err != nil || out.Reply != "PONG" || !strings.Contains(out.Note, nodes[0].Options().Addr+" answered (1 of 2)") {
+		t.Fatalf("PING = %+v, %v; want the first primary named", out, err)
+	}
+	for args, want := range map[string]bool{"DBSIZE": true, "slowlog get": true, "MEMORY STATS": true, "MEMORY USAGE k": false, "GET k": false} {
+		if got := keyless(strings.Fields(args)); got != want {
+			t.Errorf("keyless(%s) = %v, want %v", args, got, want)
+		}
 	}
 }
