@@ -51,7 +51,7 @@ nfpms:
       - airlock
     vendor: N2JSoft
     homepage: https://github.com/n2jsoft-public-org/airlock
-    maintainer: N2JSoft <https://github.com/n2jsoft-public-org/airlock>
+    maintainer: Maxime Charles <maxime.charles@n2f.com>
     description: One access point to your private resources, for you and your AI assistants.
     license: Apache-2.0
     formats:
@@ -104,6 +104,9 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     commit_msg_template: "airlock {{ .Tag }}"
+    commit_author:
+      name: Maxime Charles
+      email: maxime.charles@n2f.com
     generate_completions_from_executable:
       args:
         - completion
@@ -133,6 +136,9 @@ scoops:
       name: scoop-bucket
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     commit_msg_template: "airlock {{ .Tag }}"
+    commit_author:
+      name: Maxime Charles
+      email: maxime.charles@n2f.com
 
 # Opens a pull request to microsoft/winget-pkgs from the publishing account's fork.
 winget:
@@ -151,6 +157,9 @@ winget:
       - ssm
       - mcp
       - cli
+    commit_author:
+      name: Maxime Charles
+      email: maxime.charles@n2f.com
     repository:
       owner: n2jsoft-public-org
       name: winget-pkgs
