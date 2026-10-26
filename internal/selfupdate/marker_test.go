@@ -59,15 +59,34 @@ func TestMarkerPathsAreCaseInsensitiveOnWindowsOnly(t *testing.T) {
 	}
 }
 
-func TestMarkerDesignatesTheRunningBinary(t *testing.T) {
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+func TestScriptInstalledNeedsAScriptMarkerOfTheBinary(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "airlock-real")
+	writeBinary(t, binary, "airlock", 0o755)
+	link := filepath.Join(dir, "airlock")
+	if err := os.Symlink(binary, link); err != nil {
+		t.Skipf("cannot create a symlink: %v", err)
 	}
-	if !(InstallMarker{Method: MethodScript, Path: exe}).DesignatesRunning() {
-		t.Fatal("a marker of os.Executable must designate the running binary")
+	marker := filepath.Join(dir, "install.json")
+	if ScriptInstalled(marker, binary) {
+		t.Fatal("without install.json airlock is not a script install")
 	}
-	if (InstallMarker{Method: MethodScript, Path: filepath.Join(t.TempDir(), "airlock")}).DesignatesRunning() {
-		t.Fatal("a marker of another binary must not designate the running one")
+	for _, tt := range []struct {
+		m    InstallMarker
+		exe  string
+		want bool
+	}{
+		{InstallMarker{Method: MethodScript, Path: binary}, binary, true},
+		{InstallMarker{Method: MethodScript, Path: link}, binary, true},
+		{InstallMarker{Method: MethodScript, Path: binary}, link, true},
+		{InstallMarker{Method: "brew", Path: binary}, binary, false},
+		{InstallMarker{Method: MethodScript, Path: filepath.Join(dir, "other")}, binary, false},
+	} {
+		if err := WriteMarker(marker, tt.m); err != nil {
+			t.Fatal(err)
+		}
+		if got := ScriptInstalled(marker, tt.exe); got != tt.want {
+			t.Errorf("ScriptInstalled(%+v, %q) = %v, want %v", tt.m, tt.exe, got, tt.want)
+		}
 	}
 }

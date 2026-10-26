@@ -69,9 +69,9 @@ func TestStatusOfPlainChecks(t *testing.T) {
 		got  Result
 		want Status
 	}{
-		{"version", Version("v1.0.0", "", nil), OK},
-		{"version available", Version("v1.0.0", "v1.1.0", nil), Warning},
-		{"version unchecked", Version("v1.0.0", "", errors.New("offline")), Warning},
+		{"version", Version("v1.0.0", "", "airlock update", nil), OK},
+		{"version available", Version("v1.0.0", "v1.1.0", "airlock update", nil), Warning},
+		{"version unchecked", Version("v1.0.0", "", "", errors.New("offline")), Warning},
 		{"config", Config("c.json", nil, nil), OK},
 		{"config invalid", Config("c.json", errors.New("bad"), nil), Failure},
 		{"config deprecated", Config("c.json", nil, []string{"mcpClients → mcp.clients"}), Warning},

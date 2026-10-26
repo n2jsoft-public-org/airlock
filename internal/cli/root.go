@@ -149,6 +149,11 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 		}
 	}
 	latestRelease, staleCheck := updateNotice(updates, time.Now())
+	// Without a command to give, an install nobody can tell how to update shows no notice.
+	updateCommand := ""
+	if latestRelease != "" {
+		updateCommand = updates.updateCommand()
+	}
 	if staleCheck {
 		go func() {
 			// Best effort: a failure only means the notice waits for a later launch.
@@ -197,8 +202,8 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 	if wizardOrg != nil {
 		dashboard.OrganizationNotice, dashboard.OrganizationNoticeShown = wizardOrg.banner(), wizardOrg.markShown
 	}
-	if latestRelease != "" {
-		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease)
+	if updateCommand != "" {
+		dashboard.UpdateNotice = wizardUpdateNotice(latestRelease, updateCommand)
 	}
 
 	if wizard {
@@ -208,8 +213,8 @@ func executeJumphost(cmd *cobra.Command, args []string, options *jumphost.Option
 		return ui.RunJumphostSessions(cmd.Context(), manager, discovery, 0, *options, cmd.OutOrStdout(), dashboard)
 	}
 
-	if latestRelease != "" {
-		cmd.PrintErrln(stderrUpdateNotice(latestRelease))
+	if updateCommand != "" {
+		cmd.PrintErrln(stderrUpdateNotice(latestRelease, updateCommand))
 	}
 
 	if len(args) > 0 {

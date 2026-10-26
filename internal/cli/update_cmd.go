@@ -78,7 +78,12 @@ func newUpdateCmdWith(env *updateEnv) *cobra.Command {
 		Short: i18n.T("cli.update.short"),
 		Long:  i18n.T("cli.update.long"),
 		Args:  cobra.NoArgs,
+		// Package managers update the airlock they installed: the command is for script installs.
+		Hidden: !scriptInstalled(env.executable, env.markerFile),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !scriptInstalled(env.executable, env.markerFile) {
+				return notScriptInstalled(env.executable, true)
+			}
 			return runUpdate(cmd, env, check, force)
 		},
 	}

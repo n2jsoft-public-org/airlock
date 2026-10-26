@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -98,10 +100,31 @@ func TestRefreshUpdateCheckWritesNothingWhenGitHubIsUnreachable(t *testing.T) {
 }
 
 func TestUpdateNoticeTexts(t *testing.T) {
-	if got := wizardUpdateNotice(testLatest); got != "update available: "+testLatest+" · run airlock update" {
+	if got := wizardUpdateNotice(testLatest, "brew upgrade airlock"); got != "update available: "+testLatest+" · run brew upgrade airlock" {
 		t.Errorf("wizard notice = %q", got)
 	}
-	if got := stderrUpdateNotice(testLatest); got != "A new airlock is available ("+testLatest+"): run airlock update" {
+	if got := stderrUpdateNotice(testLatest, "airlock update"); got != "A new airlock is available ("+testLatest+"): run airlock update" {
 		t.Errorf("stderr notice = %q", got)
+	}
+}
+
+func TestUpdateCommandFollowsTheInstall(t *testing.T) {
+	env, target := testUpdateEnv(t, testUpdateServer(t), testCurrent)
+	if got := env.updateCommand(); got != "airlock update" {
+		t.Fatalf("script install: updateCommand = %q", got)
+	}
+	markerPath, err := env.markerFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(markerPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := env.updateCommand(); got != "" {
+		t.Fatalf("unknown install: updateCommand = %q, want none", got)
+	}
+	t.Setenv("GOBIN", filepath.Dir(target))
+	if got := env.updateCommand(); got != "go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest" {
+		t.Fatalf("go install: updateCommand = %q", got)
 	}
 }

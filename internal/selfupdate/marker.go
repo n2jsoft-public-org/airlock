@@ -38,22 +38,25 @@ func WriteMarker(path string, m InstallMarker) error {
 	return writeJSON(path, m)
 }
 
-// DesignatesRunning tells whether m is the marker of the running airlock binary.
-func (m InstallMarker) DesignatesRunning() bool {
-	exe, err := os.Executable()
-	return err == nil && m.designates(exe, runtime.GOOS)
+// ScriptInstalled tells whether the marker at markerPath says an install script installed the
+// airlock binary at exe: only then may airlock update and airlock uninstall replace or remove it.
+func ScriptInstalled(markerPath, exe string) bool {
+	m, err := ReadMarker(markerPath)
+	return err == nil && m.Method == MethodScript && m.designates(exe, runtime.GOOS)
 }
 
 // designates tells whether m.Path is exe, symlinks resolved; paths are case-insensitive on Windows.
 func (m InstallMarker) designates(exe, goos string) bool {
-	if m.Path == "" {
-		return false
-	}
-	path, self := resolvedPath(m.Path), resolvedPath(exe)
+	return m.Path != "" && samePath(m.Path, exe, goos)
+}
+
+// samePath tells whether a and b are the same file, symlinks resolved; case-insensitive on Windows.
+func samePath(a, b, goos string) bool {
+	a, b = resolvedPath(a), resolvedPath(b)
 	if goos == "windows" {
-		return strings.EqualFold(path, self)
+		return strings.EqualFold(a, b)
 	}
-	return path == self
+	return a == b
 }
 
 // resolvedPath is path with its symlinks resolved, or only cleaned when it cannot be resolved.
