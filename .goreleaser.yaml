@@ -104,9 +104,8 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     commit_msg_template: "airlock {{ .Tag }}"
+    # cobra adds `completion <shell>` itself.
     generate_completions_from_executable:
-      args:
-        - completion
       shell_parameter_format: cobra
       shells:
         - bash
@@ -116,9 +115,10 @@ homebrew_casks:
       RDS, EKS and ElastiCache tunnels need the AWS CLI v2 and its Session Manager plugin:
         brew install awscli && brew install --cask session-manager-plugin
       Update airlock with `brew upgrade airlock`: `airlock update` is for script installs.
-    # The binaries are not notarized: without this, macOS refuses to run them.
+    # The binaries are not notarized: without this, macOS refuses to run them. Before the
+    # binary is linked: generating the completions runs it.
     hooks:
-      post:
+      pre:
         install_steps: |
           on_macos do
             run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/airlock"]
