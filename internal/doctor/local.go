@@ -18,13 +18,15 @@ import (
 const toolTimeout = 5 * time.Second
 
 // Version reports the running version: a newer release (latest, "" when none) or a failed check
-// is a warning.
-func Version(current, latest string, checkErr error) Result {
+// is a warning. updateCommand installs latest; "" when it is unknown.
+func Version(current, latest, updateCommand string, checkErr error) Result {
 	switch {
 	case checkErr != nil:
 		return warning("version", "", i18n.Format("doctor.version.unchecked", current, checkErr), i18n.T("doctor.version.unchecked_fix"))
+	case latest != "" && updateCommand == "":
+		return warning("version", "", i18n.Format("doctor.version.available", current, latest), i18n.T("doctor.version.available_fix_manual"))
 	case latest != "":
-		return warning("version", "", i18n.Format("doctor.version.available", current, latest), i18n.T("doctor.version.available_fix"))
+		return warning("version", "", i18n.Format("doctor.version.available", current, latest), i18n.Format("doctor.version.available_fix", updateCommand))
 	default:
 		return ok("version", "", i18n.Format("doctor.version.ok", current))
 	}

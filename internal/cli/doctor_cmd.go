@@ -93,7 +93,7 @@ func doctorSections(ctx context.Context, profile, region string) []ui.DoctorSect
 	return []ui.DoctorSection{
 		{Title: i18n.T("cli.doctor.section.install"), Run: func() []doctor.Result {
 			latest, checkErr := latestRelease(ctx, current)
-			return append([]doctor.Result{doctor.Version(current, latest, checkErr), doctor.OtherBinaries(self, os.Getenv("PATH"))},
+			return append([]doctor.Result{doctor.Version(current, latest, defaultUpdateEnv().updateCommand(), checkErr), doctor.OtherBinaries(self, os.Getenv("PATH"))},
 				doctor.TunnelTools(ctx, tunnels)...)
 		}},
 		{Title: i18n.T("cli.doctor.section.config"), Run: func() []doctor.Result {

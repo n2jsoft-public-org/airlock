@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,6 +49,9 @@ func testUpdateEnv(t *testing.T, srv *selfupdatetest.Server, current string) (en
 	dir := t.TempDir()
 	target = filepath.Join(dir, selfupdate.BinaryName(runtime.GOOS))
 	writeTestFile(t, target, "old airlock")
+	if err := selfupdate.WriteMarker(filepath.Join(dir, "install.json"), selfupdate.InstallMarker{Method: selfupdate.MethodScript, Path: target}); err != nil {
+		t.Fatal(err)
+	}
 	return &updateEnv{
 		token:      func(context.Context) (string, error) { return selfupdatetest.Token, nil },
 		repository: func() (string, error) { return selfupdatetest.Repository, nil },
@@ -106,17 +108,30 @@ func TestUpdateInstallsANewerRelease(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckWritesNoMarker(t *testing.T) {
-	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
-	if _, err := runUpdateCmd(t, env, "--check"); err != nil {
-		t.Fatal(err)
+func TestUpdateIsOnlyForScriptInstalls(t *testing.T) {
+	env, target := testUpdateEnv(t, testUpdateServer(t), testCurrent)
+	if newUpdateCmdWith(env).Hidden {
+		t.Fatal("airlock update is hidden for a script install")
 	}
 	markerPath, err := env.markerFile()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = selfupdate.ReadMarker(markerPath); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("install marker after --check: %v, want none", err)
+	if err = os.Remove(markerPath); err != nil {
+		t.Fatal(err)
+	}
+	if !newUpdateCmdWith(env).Hidden {
+		t.Error("airlock update is listed without install.json")
+	}
+	if _, err = runUpdateCmd(t, env); err == nil || !strings.Contains(err.Error(), "install script") {
+		t.Errorf("update of an unknown install: %v, want the install docs", err)
+	}
+	t.Setenv("GOBIN", filepath.Dir(target))
+	if _, err = runUpdateCmd(t, env, "--check"); err == nil || !strings.Contains(err.Error(), "go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest") {
+		t.Errorf("update of a go install: %v, want go install", err)
+	}
+	if got := readTarget(t, target); got != "old airlock" {
+		t.Fatalf("binary = %q, want it unchanged", got)
 	}
 }
 
