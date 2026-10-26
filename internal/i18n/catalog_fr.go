@@ -193,7 +193,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	// internal/doctor
 	"doctor.version.ok":                 "airlock %s",
 	"doctor.version.available":          "airlock %s : %s est disponible",
-	"doctor.version.available_fix":      "lancez airlock update",
+	"doctor.version.available_fix":      "lancez %s",
 	"doctor.version.unchecked":          "airlock %s : la dernière version n'a pas pu être vérifiée : %v",
 	"doctor.version.unchecked_fix":      "vérifiez votre réseau et votre accès GitHub (gh auth login), ou définissez AIRLOCK_NO_UPDATE_CHECK=1 pour ne pas vérifier",
 	"doctor.path.ok":                    "aucun autre airlock dans le PATH que %s",
@@ -274,6 +274,12 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.root.flag.mcp-server-prefix":    "Préfixe des noms des serveurs MCP (config \"mcp.serverPrefix\", par défaut airlock)",
 	"cli.root.flag.mcp-clients":          "Clients IA où enregistrer les serveurs MCP : auto, none, ou ex. claude:user,codex (config \"mcp.clients\", par défaut auto)",
 	"cli.root.flag.mode":                 "cli : les sessions se ferment avec airlock ; daemon : un daemon d'arrière-plan les garde (config \"mode\", par défaut cli)",
+	// internal/cli/install_method.go, internal/doctor/local.go
+	"cli.install.update_with":             "airlock a été installé avec %s : mettez-le à jour avec %s",
+	"cli.install.uninstall_with":          "airlock a été installé avec %s : désinstallez-le avec %s",
+	"cli.install.update_not_script":       "airlock update ne met à jour qu'un airlock installé par le script d'installation : mettez à jour celui-ci comme vous l'avez installé, ou réinstallez-le avec le script d'installation (https://github.com/n2jsoft-public-org/airlock/blob/main/docs/install.md)",
+	"cli.install.uninstall_not_script":    "airlock uninstall ne supprime qu'un airlock installé par le script d'installation : supprimez celui-ci comme vous l'avez installé (https://github.com/n2jsoft-public-org/airlock/blob/main/docs/install.md)",
+	"doctor.version.available_fix_manual": "mettez à jour airlock comme vous l'avez installé : https://github.com/n2jsoft-public-org/airlock/blob/main/docs/install.md",
 	// internal/cli/uninstall_cmd.go
 	"cli.uninstall.short":      "Retirer airlock de cet ordinateur",
 	"cli.uninstall.long":       "Retire le binaire airlock et l'entrée PATH ajoutée par son installeur, après les avoir listés. --purge retire aussi les réglages, les connexions récentes, les journaux de requêtes MCP et les kubeconfigs, et les mots de passe de base enregistrés dans le trousseau de l'OS.",
@@ -466,8 +472,8 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.daemon_gateway.off_notice":            "Passerelle MCP arrêtée : %s — voir `airlock daemon status`",
 	"cli.mcp_proxy.long":                       "Relaie le serveur MCP d'airlock à <url> sur stdin et stdout, en se connectant avec le jeton de %s.",
 	"cli.mcp_proxy.token_not_set":              "%s n'est pas défini",
-	"cli.update_notice.wizard":                 "mise à jour disponible : %s · lancez airlock update",
-	"cli.update_notice.stderr":                 "Un nouvel airlock est disponible (%s) : lancez airlock update",
+	"cli.update_notice.wizard":                 "mise à jour disponible : %s · lancez %s",
+	"cli.update_notice.stderr":                 "Un nouvel airlock est disponible (%s) : lancez %s",
 	// internal/ui/jumphost_flow.go
 	"ui.jumphost_flow.local_port":                  "Port local",
 	"ui.jumphost_flow.database_user":               "Utilisateur de la base",

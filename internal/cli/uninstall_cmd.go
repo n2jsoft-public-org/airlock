@@ -23,6 +23,7 @@ import (
 // uninstallEnv is what airlock uninstall takes from the machine; tests replace it.
 type uninstallEnv struct {
 	executable func() (string, error)
+	markerFile func() (string, error)
 	home       func() (string, error)
 	getenv     func(string) string
 	dataDir    func() (string, error)
@@ -51,6 +52,7 @@ type runningDaemon struct {
 func defaultUninstallEnv() *uninstallEnv {
 	return &uninstallEnv{
 		executable:     selfupdate.Executable,
+		markerFile:     appdir.InstallMarkerFile,
 		home:           os.UserHomeDir,
 		getenv:         os.Getenv,
 		dataDir:        appdir.ConfigDir,
@@ -87,7 +89,12 @@ func newUninstallCmdWith(env *uninstallEnv) *cobra.Command {
 		Short: i18n.T("cli.uninstall.short"),
 		Long:  i18n.T("cli.uninstall.long"),
 		Args:  cobra.NoArgs,
+		// Package managers remove the airlock they installed: the command is for script installs.
+		Hidden: !scriptInstalled(env.executable, env.markerFile),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !scriptInstalled(env.executable, env.markerFile) {
+				return notScriptInstalled(env.executable, false)
+			}
 			return runUninstall(cmd, env, purge, yes)
 		},
 	}

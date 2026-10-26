@@ -49,10 +49,11 @@ func refreshUpdateCheck(ctx context.Context, env *updateEnv) error {
 	return selfupdate.SaveCache(path, result.CacheAt(time.Now()))
 }
 
-func wizardUpdateNotice(latest string) string {
-	return i18n.Format("cli.update_notice.wizard", latest)
+// wizardUpdateNotice and stderrUpdateNotice tell that latest is out and command installs it.
+func wizardUpdateNotice(latest, command string) string {
+	return i18n.Format("cli.update_notice.wizard", latest, command)
 }
 
-func stderrUpdateNotice(latest string) string {
-	return i18n.Format("cli.update_notice.stderr", latest)
+func stderrUpdateNotice(latest, command string) string {
+	return i18n.Format("cli.update_notice.stderr", latest, command)
 }

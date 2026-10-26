@@ -150,8 +150,27 @@ when run with `go run`.
 
 ## Updating
 
-`airlock update` installs the latest release in place of the running binary when it is newer than
-your build, after checking the download against the release's `checksums.txt`:
+`airlock update` is for an airlock the [installer](#installer) installed: it runs only when the
+installer's `install.json` names the running binary. Elsewhere it is hidden from `airlock --help`
+and, when called anyway, changes nothing and prints the command of the tool that installed airlock,
+guessed from the binary's path:
+
+| Installed with | Update with |
+|---|---|
+| Homebrew | `brew upgrade airlock` |
+| Scoop | `scoop update airlock` |
+| winget | `winget upgrade --id N2JSoft.Airlock` |
+| A `.deb` package | `sudo apt install --only-upgrade airlock` |
+| An `.rpm` package | `sudo dnf upgrade airlock` |
+| `go install` (`GOBIN` or `GOPATH/bin`) | `go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest` |
+
+An airlock installed some other way (a release copied by hand, `make install` outside `GOPATH/bin`)
+is updated the same way again, or reinstalled with the installer to get `airlock update`. An airlock
+installed by an older installer, before `install.json` existed, is in that case too: run the
+installer once more.
+
+For a script install, `airlock update` installs the latest release in place of the running binary
+when it is newer than your build, after checking the download against the release's `checksums.txt`:
 
 ```sh
 airlock update           # install the latest release when it is newer
@@ -169,13 +188,15 @@ installing anything.
 uses `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI (`gh auth login`) when it finds one,
 for a higher GitHub rate limit, and reads anonymously otherwise. A repository without any release
 yet leaves your build up to date. After an install, `airlock update` records the binary it replaced in the same
-`install.json` as the [installer](#installer). When airlock lives in a folder you cannot write, such as
-`/usr/local/bin`, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or
-reinstall with the [installer](#installer), which installs to a folder you own; on Windows, run
-it from an administrator terminal or reinstall with `install.ps1`.
+`install.json` as the [installer](#installer). When the installer put airlock in a folder you cannot
+write, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or reinstall
+in a folder you own; on Windows, run it from an administrator terminal or reinstall with
+`install.ps1`.
 
 Once a day, in the background, the connect command checks for a newer release; the next launch
-then shows `update available` in the wizard, or a line on stderr for a direct connection. Set
+then shows `update available` in the wizard, or a line on stderr for a direct connection, with the
+command above that updates your install (none when airlock cannot tell how it was installed).
+`airlock doctor` names the same command. Set
 `AIRLOCK_NO_UPDATE_CHECK` to any non-empty value (`AIRLOCK_NO_UPDATE_CHECK=1`) to turn the check off.
 
 ### Install tracking
@@ -194,8 +215,12 @@ gh api repos/n2jsoft-public-org/airlock/releases/<id>/reactions --jq '.[] | sele
 
 ## Uninstalling
 
-`airlock uninstall` removes airlock however it was installed (installer, `make install` or
-`go install`). It lists what it removes and what it keeps, then asks before changing anything:
+`airlock uninstall` removes an airlock the [installer](#installer) installed, under the same rule
+as [`airlock update`](#updating): for any other install it is hidden, changes nothing and prints the
+command of the tool that installed airlock (`brew uninstall airlock`, `scoop uninstall airlock`,
+`winget uninstall --id N2JSoft.Airlock`, `sudo apt remove airlock`, `sudo dnf remove airlock`, or
+deleting the binary for `go install`). It lists what it removes and what it keeps, then asks before
+changing anything:
 
 ```sh
 airlock uninstall           # remove the binary and the PATH entry its installer added

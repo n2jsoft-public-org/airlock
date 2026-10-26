@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/n2jsoft-public-org/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate"
 )
 
 // testInstall is airlock installed by install.sh into a fake home, with saved data.
@@ -32,16 +33,22 @@ func newTestInstall(t *testing.T) *testInstall {
 	writeTestFile(t, install.exe, "airlock")
 	writeTestFile(t, install.zshrc, "\n# Added by the airlock installer\nexport PATH=\""+filepath.Dir(install.exe)+":$PATH\"\n")
 	writeTestFile(t, filepath.Join(install.dataDir, "connections.json"), "{}")
+	if err := selfupdate.WriteMarker(install.markerFile(), selfupdate.InstallMarker{Method: selfupdate.MethodScript, Path: install.exe}); err != nil {
+		t.Fatal(err)
+	}
 	if err := install.keychain.Set("111/eu-west-3/rds/archive/app", "s3cret"); err != nil {
 		t.Fatal(err)
 	}
 	return install
 }
 
+func (i *testInstall) markerFile() string { return filepath.Join(i.dataDir, "install.json") }
+
 func (i *testInstall) env(interactive bool) *uninstallEnv {
 	return &uninstallEnv{
 		goos:           runtime.GOOS,
 		executable:     func() (string, error) { return i.exe, nil },
+		markerFile:     func() (string, error) { return i.markerFile(), nil },
 		home:           func() (string, error) { return i.home, nil },
 		getenv:         func(string) string { return "" },
 		dataDir:        func() (string, error) { return i.dataDir, nil },
@@ -222,4 +229,25 @@ func TestUninstallFailsWhenTheDaemonDoesNotStop(t *testing.T) {
 		t.Fatalf("err = %v, want the daemon named", err)
 	}
 	assertExists(t, install.exe, true)
+}
+
+func TestUninstallIsOnlyForScriptInstalls(t *testing.T) {
+	install := newTestInstall(t)
+	if err := os.Remove(install.markerFile()); err != nil {
+		t.Fatal(err)
+	}
+	env := install.env(false)
+	if !newUninstallCmdWith(env).Hidden {
+		t.Error("airlock uninstall is listed without install.json")
+	}
+	if _, err := runUninstallCmd(t, env, "", "--yes"); err == nil || !strings.Contains(err.Error(), "install script") {
+		t.Errorf("uninstall of an unknown install: %v, want the install docs", err)
+	}
+	t.Setenv("GOBIN", filepath.Dir(install.exe))
+	if _, err := runUninstallCmd(t, env, "", "--yes"); err == nil || !strings.Contains(err.Error(), "installed with go install") {
+		t.Errorf("uninstall of a go install: %v, want go install", err)
+	}
+	if _, err := os.Stat(install.exe); err != nil {
+		t.Fatalf("binary after a refused uninstall: %v", err)
+	}
 }

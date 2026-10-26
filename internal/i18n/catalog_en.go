@@ -181,6 +181,12 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.root.flag.mcp-server-prefix":    "Prefix of the MCP server names (config \"mcp.serverPrefix\", default airlock)",
 	"cli.root.flag.mcp-clients":          "AI clients the MCP servers are registered in: auto, none, or e.g. claude:user,codex (config \"mcp.clients\", default auto)",
 	"cli.root.flag.mode":                 "cli: sessions close with airlock; daemon: a background daemon keeps them (config \"mode\", default cli)",
+	// internal/cli/install_method.go, internal/doctor/local.go
+	"cli.install.update_with":             "airlock was installed with %s: update it with %s",
+	"cli.install.uninstall_with":          "airlock was installed with %s: uninstall it with %s",
+	"cli.install.update_not_script":       "airlock update only updates an airlock installed by the install script: update this one the way you installed it, or reinstall it with the install script (https://github.com/n2jsoft-public-org/airlock/blob/main/docs/install.md)",
+	"cli.install.uninstall_not_script":    "airlock uninstall only removes an airlock installed by the install script: remove this one the way you installed it (https://github.com/n2jsoft-public-org/airlock/blob/main/docs/install.md)",
+	"doctor.version.available_fix_manual": "update airlock the way you installed it: https://github.com/n2jsoft-public-org/airlock/blob/main/docs/install.md",
 	// internal/cli/uninstall_cmd.go
 	"cli.uninstall.short":      "Remove airlock from this computer",
 	"cli.uninstall.long":       "Removes the airlock binary and the PATH entry its installer added, after listing them. --purge also removes the settings, recent connections, MCP query logs and kubeconfigs, and the database passwords saved in the OS keychain.",
@@ -226,7 +232,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	// internal/doctor
 	"doctor.version.ok":                 "airlock %s",
 	"doctor.version.available":          "airlock %s: %s is available",
-	"doctor.version.available_fix":      "run airlock update",
+	"doctor.version.available_fix":      "run %s",
 	"doctor.version.unchecked":          "airlock %s: the latest release could not be checked: %v",
 	"doctor.version.unchecked_fix":      "check your network and your GitHub access (gh auth login), or set AIRLOCK_NO_UPDATE_CHECK=1 to skip the check",
 	"doctor.path.ok":                    "no other airlock on the PATH than %s",
@@ -466,8 +472,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.daemon_gateway.off_notice":            "MCP gateway off: %s — see `airlock daemon status`",
 	"cli.mcp_proxy.long":                       "Relays the airlock MCP server at <url> over stdin and stdout, signing in with the token in %s.",
 	"cli.mcp_proxy.token_not_set":              "%s is not set",
-	"cli.update_notice.wizard":                 "update available: %s · run airlock update",
-	"cli.update_notice.stderr":                 "A new airlock is available (%s): run airlock update",
+	"cli.update_notice.wizard":                 "update available: %s · run %s",
+	"cli.update_notice.stderr":                 "A new airlock is available (%s): run %s",
 	// internal/ui/jumphost_flow.go
 	"ui.jumphost_flow.local_port":                  "Local port",
 	"ui.jumphost_flow.database_user":               "Database user",
