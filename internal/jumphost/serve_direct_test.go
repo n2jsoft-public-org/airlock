@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/cachemcp"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/cachemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
 )
 
 // stubDirectSignIn makes the sign-in check of direct and Docker SQL sessions return err.

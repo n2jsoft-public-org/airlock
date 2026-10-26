@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/awstag"
-	"github.com/n2jsoft/airlock/internal/dbuser"
+	"github.com/n2jsoft-public-org/airlock/internal/awstag"
+	"github.com/n2jsoft-public-org/airlock/internal/dbuser"
 )
 
 func writeConfig(t *testing.T, content string) string {

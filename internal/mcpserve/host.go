@@ -14,7 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
 )
 
 const (

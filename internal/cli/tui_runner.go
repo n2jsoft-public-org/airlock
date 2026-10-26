@@ -4,10 +4,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
-	"github.com/n2jsoft/airlock/internal/ui"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/ui"
 )
 
 // withOverrides applies the flags of this run over every configuration build gets: a flag keeps

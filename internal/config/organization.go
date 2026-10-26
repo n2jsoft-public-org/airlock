@@ -7,7 +7,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // Organization is the settings an organization pushes to its developers, and the keys it locks.

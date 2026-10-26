@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/sharecode"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/sharecode"
 )
 
 // sharePrefix starts every config string; its number is the format version: 2 carries the

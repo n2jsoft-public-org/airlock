@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
 )
 
 const testEKSEndpoint = "ABCD.gr7.eu-west-3.eks.amazonaws.com"

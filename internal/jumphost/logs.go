@@ -7,9 +7,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/logsmcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/logsmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // resourceLogs is the session type of the CloudWatch Logs of a profile and region: no jumphost, no

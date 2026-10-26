@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/n2jsoft/airlock/internal/dockerdb"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/dockerdb"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // fakeDockerContainers lists list, or fails with err; calls counts the listings.

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions/sessionstest"
 )
 
 // shortSocket returns a socket path short enough for macOS (t.TempDir paths are too long).

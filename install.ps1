@@ -9,8 +9,8 @@
     to the user PATH when it is missing, so `airlock` works in every new terminal.
 
     The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login)
-    when there is one, which a private repository needs, else anonymously. AIRLOCK_REPO reads
-    another repository (default n2jsoft/airlock).
+    when there is one, else anonymously. AIRLOCK_REPO reads another repository (default
+    n2jsoft-public-org/airlock).
 
     Once installed, install.json in airlock's config folder records that this script installed it.
 
@@ -41,7 +41,7 @@
     .\install.ps1
 
 .EXAMPLE
-    & ([scriptblock]::Create((gh api repos/n2jsoft/airlock/contents/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String)))
+    & ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.ps1)))
 
 .EXAMPLE
     .\install.ps1 -Uninstall
@@ -64,7 +64,7 @@ $ErrorActionPreference = 'Stop'
 # Windows PowerShell draws a progress bar that slows downloads down tenfold.
 $ProgressPreference = 'SilentlyContinue'
 
-$repo = if ($env:AIRLOCK_REPO) { $env:AIRLOCK_REPO } else { 'n2jsoft/airlock' }
+$repo = if ($env:AIRLOCK_REPO) { $env:AIRLOCK_REPO } else { 'n2jsoft-public-org/airlock' }
 $api = "https://api.github.com/repos/$repo"
 $binary = 'airlock.exe'
 $pathSeparator = [System.IO.Path]::PathSeparator

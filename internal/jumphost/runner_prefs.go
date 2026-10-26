@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // ResolveDefaultLocalPort computes the recommended local port for a selected target:

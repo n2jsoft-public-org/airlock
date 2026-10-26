@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // resourceForward is the type of the tunnels to any host:port the jumphost reaches (airlock

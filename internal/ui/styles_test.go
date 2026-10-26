@@ -8,8 +8,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // Review Focus 4: a light background gets the darker palette, the default stays dark.

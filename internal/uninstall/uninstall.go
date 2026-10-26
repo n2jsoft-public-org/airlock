@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 // Kind tells what an Item is.

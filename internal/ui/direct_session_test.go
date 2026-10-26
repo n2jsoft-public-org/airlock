@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // directTestSession is a running direct database session, as the service shows it.

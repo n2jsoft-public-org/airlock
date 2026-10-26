@@ -7,9 +7,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/n2jsoft/airlock/internal/dynamomcp"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/dynamomcp"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // resourceDynamoDB is the session type of the DynamoDB tables of a profile and region: no

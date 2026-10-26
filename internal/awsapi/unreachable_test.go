@@ -12,8 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
-	"github.com/n2jsoft/airlock/internal/awsapi"
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
 )
 
 type timeoutError struct{}

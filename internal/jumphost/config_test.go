@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/awstag"
-	"github.com/n2jsoft/airlock/internal/dbuser"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/awstag"
+	"github.com/n2jsoft-public-org/airlock/internal/dbuser"
 )
 
 func TestRunnerResolveDBUser(t *testing.T) {

@@ -6,10 +6,10 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // directChoicesLoadedMsg carries the choices remembered for the direct database name: MCP writes,

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 // ErrKeychain marks the keychain failures of SaveConnectionPrefs: the choices are saved, the

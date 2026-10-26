@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/cachemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/cachemcp"
 )
 
 const (

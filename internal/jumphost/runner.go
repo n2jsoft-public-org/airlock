@@ -17,13 +17,13 @@ import (
 	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/n2jsoft/airlock/internal/awsapi"
-	"github.com/n2jsoft/airlock/internal/awstag"
-	"github.com/n2jsoft/airlock/internal/dbuser"
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/keychain"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/awstag"
+	"github.com/n2jsoft-public-org/airlock/internal/dbuser"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 const (

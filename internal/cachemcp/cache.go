@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 )

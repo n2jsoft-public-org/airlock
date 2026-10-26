@@ -9,10 +9,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // fakeDirectStore is a DirectDatabaseStore in memory; listErr makes List fail, putErr Put.

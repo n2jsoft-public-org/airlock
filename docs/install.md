@@ -2,7 +2,6 @@
 
 ## Prerequisites
 
-- **GitHub access** to `n2jsoft/airlock` while the repository is private, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
 - **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)**, only for RDS, EKS and ElastiCache tunnels (used by `aws ssm start-session`).
   Profiles, discovery, sign-in, DynamoDB, S3 and CloudWatch Logs go through the AWS API and need neither.
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
@@ -15,25 +14,23 @@
 
 ## Installer
 
-No Go needed: the installer downloads the latest release for your machine. It needs
-no GitHub token, but uses one when it finds one. The repository is still private, so for now sign
-in to GitHub once with the [GitHub CLI](https://cli.github.com) (`brew install gh` or
-`winget install GitHub.cli`, then `gh auth login`).
+No Go needed: the installer downloads the latest release for your machine. It needs no GitHub
+account or token, but uses one when it finds one.
 
 macOS and Linux:
 
 ```sh
-gh api repos/n2jsoft/airlock/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+curl -fsSL https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.sh | sh
 ```
 
 Windows (PowerShell 7+):
 
 ```pwsh
-& ([scriptblock]::Create((gh api repos/n2jsoft/airlock/contents/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String)))
+& ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.ps1)))
 ```
 
 It reads the release with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI when there is
-one, which a private repository needs. Without one, it reads the latest tag from the redirect of
+one. Without one, it reads the latest tag from the redirect of
 `https://github.com/<repo>/releases/latest` and downloads from `github.com`, which counts against
 no API rate limit. It checks the archive against the release's `checksums.txt`, then installs
 `airlock` to a folder you own, so `airlock update` never needs `sudo` or an administrator terminal:
@@ -69,12 +66,12 @@ Like `airlock update`, the installer adds a 🚀 to the release it installs when
 
 ## Install a release by hand
 
-Every push to `main` publishes a [GitHub release](https://github.com/n2jsoft/airlock/releases)
+Every push to `main` publishes a [GitHub release](https://github.com/n2jsoft-public-org/airlock/releases)
 tagged with its [semantic version](https://semver.org/) (`vX.Y.Z`), with archives for macOS, Linux and Windows. With
 the GitHub CLI, for example on an Apple silicon Mac:
 
 ```sh
-gh release download -R n2jsoft/airlock -p '*darwin_arm64.tar.gz'
+gh release download -R n2jsoft-public-org/airlock -p '*darwin_arm64.tar.gz'
 tar -xzf airlock_*_darwin_arm64.tar.gz airlock && mkdir -p ~/.local/bin && mv airlock ~/.local/bin/
 ```
 
@@ -84,15 +81,7 @@ From a checkout, `make install` builds to `GOBIN` (or `GOPATH/bin`); on Windows,
 run `go install ./cmd/airlock`. Without a checkout:
 
 ```sh
-GOPRIVATE=github.com/n2jsoft \
-  go install github.com/n2jsoft/airlock/cmd/airlock@latest
-```
-
-On Windows (PowerShell):
-
-```pwsh
-$env:GOPRIVATE = 'github.com/n2jsoft'
-go install github.com/n2jsoft/airlock/cmd/airlock@latest
+go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest
 ```
 
 ## Shell completion
@@ -129,9 +118,8 @@ After the install, a **What's new** block lists the notes of every release betwe
 the new one, newest first. `--check` prints the same notes when an update is available, without
 installing anything.
 
-airlock is now open source: `airlock update` reads the releases of the public repository
-[n2jsoft-public-org/airlock](https://github.com/n2jsoft-public-org/airlock), even from a build of
-the former private repository, and prints the other ways to install it once the update is done. It
+`airlock update` reads the releases of
+[n2jsoft-public-org/airlock](https://github.com/n2jsoft-public-org/airlock). It
 uses `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI (`gh auth login`) when it finds one,
 for a higher GitHub rate limit, and reads anonymously otherwise. A repository without any release
 yet leaves your build up to date. After an install, `airlock update` records the binary it replaced in the same
@@ -154,8 +142,8 @@ reaction. Set `AIRLOCK_NO_TRACKING` to any
 non-empty value (`AIRLOCK_NO_TRACKING=1`) to skip it. To list who installed a release:
 
 ```sh
-gh api repos/n2jsoft/airlock/releases/tags/<tag> --jq .id   # the release id
-gh api repos/n2jsoft/airlock/releases/<id>/reactions --jq '.[] | select(.content == "rocket") | .user.login'
+gh api repos/n2jsoft-public-org/airlock/releases/tags/<tag> --jq .id   # the release id
+gh api repos/n2jsoft-public-org/airlock/releases/<id>/reactions --jq '.[] | select(.content == "rocket") | .user.login'
 ```
 
 ## Uninstalling

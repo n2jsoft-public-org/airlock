@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 const (

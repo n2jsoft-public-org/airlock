@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // AutoConnect is which agent openings skip the dashboard prompt (agent.autoConnect).

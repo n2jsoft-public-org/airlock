@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/awstag"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/keychain"
-	"github.com/n2jsoft/airlock/internal/kubemcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/awstag"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/kubemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 var acmeSecretTag = awstag.Tag{Key: "AccessRole", Value: "ro-access"}

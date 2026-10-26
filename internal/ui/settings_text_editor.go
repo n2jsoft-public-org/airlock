@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // textEditor edits a setting in a text field, checked with validate as you type: enter does not

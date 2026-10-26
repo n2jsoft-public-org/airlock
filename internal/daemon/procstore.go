@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/platform"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // procStore records the PIDs of the running aws processes, so the next daemon stops those a

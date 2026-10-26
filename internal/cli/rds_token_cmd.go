@@ -4,9 +4,9 @@ import (
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
-	"github.com/n2jsoft/airlock/internal/awsapi"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 	"github.com/spf13/cobra"
 )
 

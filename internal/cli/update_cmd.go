@@ -7,11 +7,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/appdir"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/selfupdate"
-	"github.com/n2jsoft/airlock/internal/ui"
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/appdir"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate"
+	"github.com/n2jsoft-public-org/airlock/internal/ui"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -148,8 +148,6 @@ func runUpdate(cmd *cobra.Command, env *updateEnv, check, force bool) error {
 	if env.daemonRunning != nil && env.daemonRunning(ctx) {
 		out.Note(i18n.T("cli.update.restart_daemon_to_use"))
 	}
-	// Bridge from the former private repository: remove with the move to the public module path.
-	out.Note(i18n.Format("cli.update.open_source", selfupdate.PublicURL))
 	return nil
 }
 

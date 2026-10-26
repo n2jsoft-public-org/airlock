@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 func TestTokenCommandsReportAnExpiredSignIn(t *testing.T) {

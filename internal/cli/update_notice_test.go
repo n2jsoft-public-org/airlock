@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/selfupdate"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate"
 )
 
 var noticeTime = time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
@@ -98,10 +98,10 @@ func TestRefreshUpdateCheckWritesNothingWhenGitHubIsUnreachable(t *testing.T) {
 }
 
 func TestUpdateNoticeTexts(t *testing.T) {
-	if got := wizardUpdateNotice(testLatest); got != "airlock is now open source: "+testLatest+" available · run airlock update" {
+	if got := wizardUpdateNotice(testLatest); got != "update available: "+testLatest+" · run airlock update" {
 		t.Errorf("wizard notice = %q", got)
 	}
-	if got := stderrUpdateNotice(testLatest); got != "airlock is now open source (https://github.com/n2jsoft-public-org/airlock): run airlock update to install "+testLatest {
+	if got := stderrUpdateNotice(testLatest); got != "A new airlock is available ("+testLatest+"): run airlock update" {
 		t.Errorf("stderr notice = %q", got)
 	}
 }

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/projectstack"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/projectstack"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 	"github.com/spf13/cobra"
 )
 

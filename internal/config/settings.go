@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // Key describes one setting of config.json.

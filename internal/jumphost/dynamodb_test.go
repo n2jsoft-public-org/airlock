@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/dynamomcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/dynamomcp"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // installDynamoAWS answers ListTables (one table at most), denied unless ok.

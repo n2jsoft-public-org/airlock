@@ -3,7 +3,7 @@ package dbmcp
 import (
 	"context"
 
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // recordingQuerier records every call made to its inner Querier, one event per MCP tool call.

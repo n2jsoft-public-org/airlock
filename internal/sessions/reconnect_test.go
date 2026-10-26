@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions/sessionstest"
 )
 
 // fakeTimers fires the scheduled functions when the test says so.

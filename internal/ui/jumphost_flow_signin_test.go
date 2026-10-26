@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // focusSignIn tabs from the port to the sign-in selector.

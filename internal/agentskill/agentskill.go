@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
 )
 
 // Name is the skill's name and directory.

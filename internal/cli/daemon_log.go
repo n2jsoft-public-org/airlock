@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/appdir"
+	"github.com/n2jsoft-public-org/airlock/internal/appdir"
 )
 
 func daemonLogPath() string {

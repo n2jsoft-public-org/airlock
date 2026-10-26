@@ -3,7 +3,7 @@ package jumphost
 import (
 	"context"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // InteractiveFunc runs a command needing the user's terminal (airlock sso-login), purpose saying why.

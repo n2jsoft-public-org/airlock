@@ -3,7 +3,7 @@ package sessions
 import (
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 func TestSessionErrorTextsBothLanguages(t *testing.T) {

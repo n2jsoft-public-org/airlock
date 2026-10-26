@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
 )
 
 // ClientEntry is the MCP server entry written into AI client configuration files.

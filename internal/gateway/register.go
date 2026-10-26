@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // TokenFileName is the file of airlock's config directory holding the gateway's bearer token.

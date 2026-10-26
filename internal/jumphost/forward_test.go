@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
 )
 
 func TestForwardTarget(t *testing.T) {

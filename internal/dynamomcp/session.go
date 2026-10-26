@@ -3,7 +3,7 @@ package dynamomcp
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // SessionConfig describes the DynamoDB tables of one session: an AWS profile and region.

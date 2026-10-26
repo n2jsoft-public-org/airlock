@@ -4,10 +4,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
-	"github.com/n2jsoft/airlock/internal/ui"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/ui"
 	"github.com/spf13/pflag"
 )
 

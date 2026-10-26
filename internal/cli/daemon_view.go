@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/daemon"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/ui"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/daemon"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )

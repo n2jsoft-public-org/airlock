@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/sharecode"
+	"github.com/n2jsoft-public-org/airlock/internal/sharecode"
 )
 
 func changeOf(t *testing.T, plan *Plan, key string) Change {

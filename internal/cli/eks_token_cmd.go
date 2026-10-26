@@ -5,11 +5,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/awsapi"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/kubeconfig"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/kubeconfig"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 	"github.com/spf13/cobra"
 )
 

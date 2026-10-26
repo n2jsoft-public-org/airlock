@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/cachemcp"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/cachemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // cacheNodeForward opens, for the MCP server of a cluster-mode cache, one more SSM port forward

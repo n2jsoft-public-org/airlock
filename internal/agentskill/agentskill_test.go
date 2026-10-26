@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
 )
 
 func fakeHome(t *testing.T, claudeConfigDir string) string {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
 )
 
 // legacyDirect is the account and region keying the choices of direct databases in the

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // disabledModulesRunner turns off the modules of its types.

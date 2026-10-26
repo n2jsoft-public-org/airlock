@@ -13,14 +13,14 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/n2jsoft/airlock/internal/cachemcp"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/dynamomcp"
-	"github.com/n2jsoft/airlock/internal/kubemcp"
-	"github.com/n2jsoft/airlock/internal/logsmcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
-	"github.com/n2jsoft/airlock/internal/s3mcp"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/cachemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/dynamomcp"
+	"github.com/n2jsoft-public-org/airlock/internal/kubemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/logsmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/s3mcp"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // kind is the family of relayed tools a session serves; it prefixes their names.

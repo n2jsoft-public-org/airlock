@@ -17,8 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
-	"github.com/n2jsoft/airlock/internal/awsapi"
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
 )
 
 const startURL = "https://example.awsapps.com/start"

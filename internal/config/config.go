@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
-	"github.com/n2jsoft/airlock/internal/awstag"
-	"github.com/n2jsoft/airlock/internal/dbuser"
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/orgconfig"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/awstag"
+	"github.com/n2jsoft-public-org/airlock/internal/dbuser"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/orgconfig"
 )
 
 // Config holds the settings merged from the built-in defaults, the config file and the flags.

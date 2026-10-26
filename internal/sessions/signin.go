@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // signInTimeout bounds finding the credentials and checking one of them.

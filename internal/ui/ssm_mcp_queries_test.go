@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 func queryEvent(tool, sql string) mcpserve.ToolEvent {

@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // queriesShown reports whether the bottom panel shows the MCP queries of s rather than its logs.
