@@ -40,9 +40,10 @@ reached through an SSM jumphost, directly, in Docker or through the AWS API. You
 
 ## 🚀 Quick start
 
-**1. Install.** No Go needed: the installer downloads the latest release for your machine. The
-repository is private, so sign in to GitHub once with the [GitHub CLI](https://cli.github.com)
-(`brew install gh` or `winget install GitHub.cli`, then `gh auth login`).
+**1. Install.** No Go needed: the installer downloads the latest release for your machine. It needs
+no GitHub token, but uses one when it finds one. The repository is still private, so for now sign
+in to GitHub once with the [GitHub CLI](https://cli.github.com) (`brew install gh` or
+`winget install GitHub.cli`, then `gh auth login`).
 
 macOS and Linux:
 

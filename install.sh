@@ -1,8 +1,8 @@
 #!/bin/sh
 # Installs the latest airlock release on macOS or Linux, without Go.
 #
-# The repository is private, so the release is read with GH_TOKEN, GITHUB_TOKEN or the token of
-# the GitHub CLI (gh auth login). From anywhere:
+# The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login)
+# when there is one, which a private repository needs, else anonymously. From anywhere:
 #
 #   gh api repos/n2jsoft/airlock/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
 #
@@ -11,7 +11,7 @@
 
 set -eu
 
-repo="n2jsoft/airlock"
+repo="${AIRLOCK_REPO:-n2jsoft/airlock}"
 api="https://api.github.com/repos/$repo"
 
 say() { printf '%s\n' "$*"; }
@@ -38,9 +38,10 @@ Options:
   --uninstall       remove airlock and the PATH entry added for it (runs airlock uninstall)
   --purge           with --uninstall, also remove settings, history, logs and saved passwords
 
-The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login).
-The installer adds a rocket reaction to the release it installs, so the release tells who installed
-it: set AIRLOCK_NO_TRACKING=1 to skip it.
+The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login)
+when there is one, else anonymously. AIRLOCK_REPO reads another repository (default n2jsoft/airlock).
+With a token, the installer adds a rocket reaction to the release it installs, so the release tells
+who installed it: set AIRLOCK_NO_TRACKING=1 to skip it.
 EOF
 }
 
@@ -116,13 +117,38 @@ detect_platform() {
 
 access_hint() {
 	if [ -z "$token" ]; then
-		say "no GitHub token found: run gh auth login, or set GH_TOKEN"
+		say "no GitHub token found: if $repo is private, run gh auth login, or set GH_TOKEN"
 	else
 		say "check that your GitHub account or token can read $repo"
 	fi
 }
 
-download_release() {
+# latest_tag prints the tag of the latest release from the redirect of github.com's releases/latest
+# page, which, unlike the API, needs no token and counts against no rate limit.
+latest_tag() {
+	location=$(curl -sS --proto '=https' --tlsv1.2 -o /dev/null -w '%{redirect_url}' \
+		"https://github.com/$repo/releases/latest") || die "cannot reach GitHub"
+	case "$location" in
+	*/releases/tag/?*) printf '%s' "${location##*/releases/tag/}" ;;
+	*) die "no release found in $repo, or no access: $(access_hint)" ;;
+	esac
+}
+
+# download_anonymously downloads the release archive and checksums.txt from github.com, without a
+# token.
+download_anonymously() {
+	tag="${version:-$(latest_tag)}"
+	asset="airlock_${tag}_${os}_${arch}.tar.gz"
+	for name in "$asset" checksums.txt; do
+		status=$(fetch "https://github.com/$repo/releases/download/$tag/$name" 'application/octet-stream' "$tmp/$name") ||
+			die "cannot download $name"
+		[ "$status" = 200 ] ||
+			die "no $name in release $tag of $repo (HTTP $status), or no access: $(access_hint)"
+	done
+}
+
+# download_with_token reads the release through the API, which a private repository needs.
+download_with_token() {
 	if [ -n "$version" ]; then
 		release_url="$api/releases/tags/$version"
 	else
@@ -152,6 +178,14 @@ download_release() {
 		status=$(fetch "$url" 'application/octet-stream' "$tmp/$name") || die "cannot download $name"
 		[ "$status" = 200 ] || die "GitHub answered HTTP $status for $name"
 	done
+}
+
+download_release() {
+	if [ -n "$token" ]; then
+		download_with_token
+	else
+		download_anonymously
+	fi
 
 	expected=$(awk -v n="$asset" '$2 == n {print $1}' "$tmp/checksums.txt")
 	[ -n "$expected" ] || die "checksums.txt does not list $asset"
@@ -169,6 +203,25 @@ install_binary() {
 	chmod 0755 "$install_dir/.airlock.new"
 	mv -f "$install_dir/.airlock.new" "$target"
 	say "Installed airlock $tag to $target"
+}
+
+config_dir() {
+	case "${XDG_CONFIG_HOME:-}" in
+	/*) printf '%s/airlock' "$XDG_CONFIG_HOME" ;;
+	*) printf '%s/.config/airlock' "$HOME" ;;
+	esac
+}
+
+# write_install_marker records in install.json that this script installed airlock, and where, so
+# airlock update and airlock uninstall know the install is theirs to manage.
+write_install_marker() {
+	path=$(cd "$install_dir" && pwd -P)/airlock
+	# JSON escapes backslashes and quotes.
+	path=$(printf '%s' "$path" | sed 's/[\\"]/\\&/g')
+	if ! { mkdir -p "$(config_dir)" &&
+		printf '{"method":"script","path":"%s"}' "$path" >"$(config_dir)/install.json"; }; then
+		warn "could not write $(config_dir)/install.json: airlock update may not recognise this install"
+	fi
 }
 
 # react_to_release adds a rocket to the installed release as the token's account, so the release
@@ -275,6 +328,7 @@ uninstall_airlock() {
 		else
 			"$target" uninstall --yes
 		fi
+		rm -f "$(config_dir)/install.json"
 		return
 	fi
 	if [ -e "$target" ]; then
@@ -283,6 +337,7 @@ uninstall_airlock() {
 	else
 		say "Nothing to remove: $target does not exist"
 	fi
+	rm -f "$(config_dir)/install.json"
 	for profile in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" \
 		"${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/airlock.fish"; do
 		remove_profile_block "$profile"
@@ -373,6 +428,7 @@ main() {
 
 	download_release
 	install_binary
+	write_install_marker
 	react_to_release
 	add_to_path
 	warn_other_copies

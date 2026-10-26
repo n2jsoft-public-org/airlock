@@ -8,11 +8,14 @@
     yours, so `airlock update` works later without an administrator terminal. Then adds the folder
     to the user PATH when it is missing, so `airlock` works in every new terminal.
 
-    The repository is private: the release is read with GH_TOKEN, GITHUB_TOKEN or the token of the
-    GitHub CLI (gh auth login).
+    The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login)
+    when there is one, which a private repository needs, else anonymously. AIRLOCK_REPO reads
+    another repository (default n2jsoft/airlock).
 
-    The installer adds a rocket reaction to the release it installs, so the release tells who
-    installed it: set AIRLOCK_NO_TRACKING=1 to skip it.
+    Once installed, install.json in airlock's config folder records that this script installed it.
+
+    With a token, the installer adds a rocket reaction to the release it installs, so the release
+    tells who installed it: set AIRLOCK_NO_TRACKING=1 to skip it.
 
 .PARAMETER InstallDir
     Install folder. Defaults to AIRLOCK_INSTALL_DIR, else %LOCALAPPDATA%\Programs\airlock.
@@ -28,8 +31,8 @@
     github.com .../blob/<ref>/<path> link. A failure only warns; the install stands.
 
 .PARAMETER Uninstall
-    Removes airlock.exe and the PATH entry added for it, through `airlock uninstall`. When that
-    empties the folder, the folder goes too.
+    Removes airlock.exe, install.json and the PATH entry added for it, through `airlock uninstall`.
+    When that empties the folder, the folder goes too.
 
 .PARAMETER Purge
     With -Uninstall, also removes the settings, history, logs and saved passwords.
@@ -61,7 +64,7 @@ $ErrorActionPreference = 'Stop'
 # Windows PowerShell draws a progress bar that slows downloads down tenfold.
 $ProgressPreference = 'SilentlyContinue'
 
-$repo = 'n2jsoft/airlock'
+$repo = if ($env:AIRLOCK_REPO) { $env:AIRLOCK_REPO } else { 'n2jsoft/airlock' }
 $api = "https://api.github.com/repos/$repo"
 $binary = 'airlock.exe'
 $pathSeparator = [System.IO.Path]::PathSeparator
@@ -101,7 +104,7 @@ function Get-AccessHint {
     if ($token) {
         return "check that your GitHub account or token can read $repo"
     }
-    return 'no GitHub token found: run gh auth login, or set GH_TOKEN'
+    return "no GitHub token found: if $repo is private, run gh auth login, or set GH_TOKEN"
 }
 
 function Get-StatusCode($errorRecord) {
@@ -147,15 +150,41 @@ function Get-Release {
     return Get-Content -Raw $file | ConvertFrom-Json
 }
 
-function Save-Asset($release, [string]$name) {
-    $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
-    if (-not $asset) {
-        throw "Release $($release.tag_name) has no $name."
+# Get-LatestTag reads the tag of the latest release from the redirect of github.com's
+# releases/latest page, which, unlike the API, needs no token and counts against no rate limit.
+function Get-LatestTag {
+    try {
+        $response = Invoke-WebRequest -Uri "https://github.com/$repo/releases/latest" -MaximumRedirection 0 `
+            -SkipHttpErrorCheck -ErrorAction SilentlyContinue -UseBasicParsing
+    } catch {
+        throw "Cannot reach GitHub: $($_.Exception.Message)"
+    }
+    $location = "$($response.Headers.Location)"
+    if ($location -notmatch '/releases/tag/(.+)$') {
+        throw "No release found in $repo, or no access: $(Get-AccessHint)."
+    }
+    return $Matches[1]
+}
+
+# Save-Asset downloads the asset name of the release: through the API with a token, which a
+# private repository needs, else from github.com.
+function Save-Asset($release, [string]$tag, [string]$name) {
+    if ($release) {
+        $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Release $tag has no $name."
+        }
+        $uri = $asset.url
+    } else {
+        $uri = "https://github.com/$repo/releases/download/$tag/$name"
     }
     $file = Join-Path $tmp $name
     try {
-        Invoke-GitHub $asset.url 'application/octet-stream' $file
+        Invoke-GitHub $uri 'application/octet-stream' $file
     } catch {
+        if (-not $release) {
+            throw "No $name in release $tag of $repo, or no access: $(Get-AccessHint)."
+        }
         throw "Cannot download ${name}: $($_.Exception.Message)"
     }
     return $file
@@ -177,6 +206,27 @@ function Add-InstallReaction($release) {
             -ContentType 'application/json' -Body '{"content":"rocket"}' -TimeoutSec 5 | Out-Null
     } catch {
         Write-Verbose "Cannot add the install reaction: $($_.Exception.Message)"
+    }
+}
+
+function Get-ConfigDir {
+    $root = $env:XDG_CONFIG_HOME
+    if (-not ($root -and [System.IO.Path]::IsPathFullyQualified($root))) {
+        $root = $env:APPDATA
+    }
+    return Join-Path $root 'airlock'
+}
+
+# Write-InstallMarker records in install.json that this script installed airlock, and where, so
+# airlock update and airlock uninstall know the install is theirs to manage.
+function Write-InstallMarker([string]$target) {
+    $dir = Get-ConfigDir
+    $marker = [ordered]@{ method = 'script'; path = (Resolve-Path -LiteralPath $target).ProviderPath }
+    try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $dir 'install.json'), ($marker | ConvertTo-Json -Compress))
+    } catch {
+        Write-Warning "Could not write $dir\install.json: airlock update may not recognise this install."
     }
 }
 
@@ -336,6 +386,7 @@ $target = Join-Path $InstallDir $binary
 if ($Uninstall) {
     if (Test-AirlockUninstall $target) {
         Invoke-AirlockUninstall $target
+        Remove-Item -Force (Join-Path (Get-ConfigDir) 'install.json') -ErrorAction SilentlyContinue
         return
     }
     # An airlock too old to uninstall itself, or none at all.
@@ -345,6 +396,7 @@ if ($Uninstall) {
     } else {
         Write-Host "Nothing to remove: $target does not exist"
     }
+    Remove-Item -Force (Join-Path (Get-ConfigDir) 'install.json') -ErrorAction SilentlyContinue
     Remove-Item -Force "$target.old*" -ErrorAction SilentlyContinue
     if ((Test-Path $InstallDir) -and -not (Get-ChildItem -Force $InstallDir)) {
         Remove-Item $InstallDir
@@ -361,10 +413,18 @@ $arch = Get-Architecture
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("airlock-install-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    $release = Get-Release
-    $assetName = "airlock_$($release.tag_name)_windows_$arch.zip"
-    $archive = Save-Asset $release $assetName
-    $checksums = Save-Asset $release 'checksums.txt'
+    $release = $null
+    if ($token) {
+        $release = Get-Release
+        $tag = $release.tag_name
+    } elseif ($Version) {
+        $tag = $Version
+    } else {
+        $tag = Get-LatestTag
+    }
+    $assetName = "airlock_${tag}_windows_$arch.zip"
+    $archive = Save-Asset $release $tag $assetName
+    $checksums = Save-Asset $release $tag 'checksums.txt'
     Assert-Checksum $archive $checksums $assetName
 
     $extracted = Join-Path $tmp 'extracted'
@@ -376,7 +436,8 @@ try {
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     Install-Binary $newExe $target
-    Write-Host "Installed airlock $($release.tag_name) to $target"
+    Write-Host "Installed airlock $tag to $target"
+    Write-InstallMarker $target
     Add-InstallReaction $release
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

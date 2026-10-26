@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **GitHub access** to `n2jsoft/airlock`, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
+- **GitHub access** to `n2jsoft/airlock` while the repository is private, through the GitHub CLI (`gh auth login`) or a token in `GH_TOKEN`, to install and update airlock
 - **AWS CLI v2** and the **[Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)**, only for RDS, EKS and ElastiCache tunnels (used by `aws ssm start-session`).
   Profiles, discovery, sign-in, DynamoDB, S3 and CloudWatch Logs go through the AWS API and need neither.
 - **AWS credentials and profiles** (`aws configure` or AWS SSO), with IAM permissions for the AWS API calls airlock makes, including `ssm:StartSession`.
@@ -15,9 +15,10 @@
 
 ## Installer
 
-No Go needed: the installer downloads the latest release for your machine. The
-repository is private, so sign in to GitHub once with the [GitHub CLI](https://cli.github.com)
-(`brew install gh` or `winget install GitHub.cli`, then `gh auth login`).
+No Go needed: the installer downloads the latest release for your machine. It needs
+no GitHub token, but uses one when it finds one. The repository is still private, so for now sign
+in to GitHub once with the [GitHub CLI](https://cli.github.com) (`brew install gh` or
+`winget install GitHub.cli`, then `gh auth login`).
 
 macOS and Linux:
 
@@ -31,9 +32,11 @@ Windows (PowerShell 7+):
 & ([scriptblock]::Create((gh api repos/n2jsoft/airlock/contents/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String)))
 ```
 
-It reads the release with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI, checks the
-archive against the release's `checksums.txt`, then installs `airlock` to a folder you own, so
-`airlock update` never needs `sudo` or an administrator terminal:
+It reads the release with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI when there is
+one, which a private repository needs. Without one, it reads the latest tag from the redirect of
+`https://github.com/<repo>/releases/latest` and downloads from `github.com`, which counts against
+no API rate limit. It checks the archive against the release's `checksums.txt`, then installs
+`airlock` to a folder you own, so `airlock update` never needs `sudo` or an administrator terminal:
 
 | | macOS and Linux (`install.sh`) | Windows (`install.ps1`) |
 |---|---|---|
@@ -43,6 +46,7 @@ archive against the release's `checksums.txt`, then installs `airlock` to a fold
 | Given release | `--version <tag>` or `AIRLOCK_VERSION` | `-Version <tag>` or `AIRLOCK_VERSION` |
 | Leave PATH alone | `--skip-path` | `-SkipPath` |
 | Organization config ([details](organization-config.md)) | `--organization-config <source>` | `-OrganizationConfig <source>` |
+| Other repository | `AIRLOCK_REPO=<owner>/<name>` | `AIRLOCK_REPO=<owner>/<name>` |
 | Uninstall ([details](#uninstalling)) | `--uninstall`, with `--purge` for your data | `-Uninstall`, with `-Purge` for your data |
 
 When piped, pass the options after `sh -s --`, for example `… | sh -s -- --dir /opt/bin`. In
@@ -51,11 +55,16 @@ checkout, run `./install.sh` or `.\install.ps1` directly; if PowerShell refuses 
 run `install.cmd` instead (from `cmd` or by double-clicking it): it starts the same script without
 changing your execution policy.
 
+Once installed, the installer writes `install.json` to airlock's config folder
+(`$XDG_CONFIG_HOME/airlock` or `~/.config/airlock`; `%AppData%\airlock` on Windows), such as
+`{"method":"script","path":"/home/me/.local/bin/airlock"}`: it tells `airlock update` and
+`airlock uninstall` that the installer put airlock there. `--uninstall` / `-Uninstall` removes it.
+
 The installer then warns about another `airlock` left on your PATH, such as one from an earlier
 `make install` or `go install` in `GOPATH/bin`, and about a missing AWS CLI or Session Manager
 plugin, which only RDS, EKS and ElastiCache tunnels need.
 
-Like `airlock update`, the installer adds a 🚀 to the release it installs: see
+Like `airlock update`, the installer adds a 🚀 to the release it installs when it has a token: see
 [Install tracking](#install-tracking).
 
 ## Install a release by hand
@@ -123,8 +132,8 @@ installing anything.
 airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI
 (`gh auth login`), and without a token anonymously, which needs a public repository: while the
 repository is private, a token is required. A repository without any release yet leaves your build
-up to date. After an install, `airlock update` records the binary it replaced in `install.json` in
-the config folder (`~/.config/airlock`, `%AppData%\airlock` on Windows). When airlock lives in a folder you cannot write, such as
+up to date. After an install, `airlock update` records the binary it replaced in the same
+`install.json` as the [installer](#installer). When airlock lives in a folder you cannot write, such as
 `/usr/local/bin`, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or
 reinstall with the [installer](#installer), which installs to a folder you own; on Windows, run
 it from an administrator terminal or reinstall with `install.ps1`.
@@ -138,7 +147,8 @@ then shows `update available` in the wizard, or a line on stderr for a direct co
 After installing a release, the installer and `airlock update` add a 🚀 reaction to that release on
 GitHub, with your GitHub account. The reactions of a release then tell who installed it, once per
 account. A reaction never holds an install back: when the token cannot write reactions or GitHub
-does not answer within 5 seconds, airlock carries on silently. Without a token, there is no reaction. Set `AIRLOCK_NO_TRACKING` to any
+does not answer within 5 seconds, airlock carries on silently. Without a token, there is no
+reaction. Set `AIRLOCK_NO_TRACKING` to any
 non-empty value (`AIRLOCK_NO_TRACKING=1`) to skip it. To list who installed a release:
 
 ```sh
