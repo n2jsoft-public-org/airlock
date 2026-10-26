@@ -64,6 +64,40 @@ plugin, which only RDS, EKS and ElastiCache tunnels need.
 Like `airlock update`, the installer adds a 🚀 to the release it installs when it has a token: see
 [Install tracking](#install-tracking).
 
+## Package managers
+
+Each release also goes to Homebrew, Scoop and winget, and ships Linux packages. A package manager
+updates and removes its own install: `airlock update` and `airlock uninstall` are for the
+[installer](#installer)'s.
+
+| | Install | Update | Uninstall |
+|---|---|---|---|
+| Homebrew (macOS, Linux) | `brew install --cask n2jsoft-public-org/tap/airlock` | `brew upgrade --cask airlock` | `brew uninstall --cask airlock` |
+| Scoop (Windows) | `scoop bucket add n2jsoft https://github.com/n2jsoft-public-org/scoop-bucket`, then `scoop install n2jsoft/airlock` | `scoop update airlock` | `scoop uninstall airlock` |
+| winget (Windows) | `winget install N2JSoft.Airlock` | `winget upgrade N2JSoft.Airlock` | `winget uninstall N2JSoft.Airlock` |
+| Go 1.27+ | `go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest` | the same command | delete `airlock` from `GOBIN` (or `GOPATH/bin`) |
+
+The Homebrew cask installs the shell completions, and removes the macOS quarantine flag from the
+binary, which is not notarized. Its caveats remind you of the AWS CLI and Session Manager plugin
+that RDS, EKS and ElastiCache tunnels need: `brew install awscli && brew install --cask
+session-manager-plugin`. winget lists a release once Microsoft merges its pull request to
+[winget-pkgs](https://github.com/microsoft/winget-pkgs), usually within a few days.
+
+### Linux packages
+
+Every release carries `.deb`, `.rpm` and `.apk` packages for amd64 and arm64, which install
+`/usr/bin/airlock`. With the GitHub CLI, for example on an amd64 machine:
+
+```sh
+gh release download -R n2jsoft-public-org/airlock -p '*_linux_amd64.deb'
+sudo apt install ./airlock_*_linux_amd64.deb                # Debian, Ubuntu
+```
+
+Download `*_linux_amd64.rpm` and run `sudo dnf install ./airlock_*_linux_amd64.rpm` on Fedora and
+RHEL, or `*_linux_amd64.apk` and `sudo apk add --allow-untrusted ./airlock_*_linux_amd64.apk` on
+Alpine (the packages are not signed). To update, install the package of the newer release the same
+way; to uninstall, `sudo apt remove airlock`, `sudo dnf remove airlock` or `sudo apk del airlock`.
+
 ## Install a release by hand
 
 Every push to `main` publishes a [GitHub release](https://github.com/n2jsoft-public-org/airlock/releases)
@@ -73,6 +107,18 @@ the GitHub CLI, for example on an Apple silicon Mac:
 ```sh
 gh release download -R n2jsoft-public-org/airlock -p '*darwin_arm64.tar.gz'
 tar -xzf airlock_*_darwin_arm64.tar.gz airlock && mkdir -p ~/.local/bin && mv airlock ~/.local/bin/
+```
+
+`checksums.txt` lists the SHA-256 of every file of the release, and `checksums.txt.sigstore.json`
+signs it with [cosign](https://docs.sigstore.dev/cosign/) from the release workflow. To check a
+download, with `<tag>` the release you downloaded:
+
+```sh
+gh release download -R n2jsoft-public-org/airlock <tag> -p 'checksums.txt*'
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity 'https://github.com/n2jsoft-public-org/airlock/.github/workflows/release.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+shasum -a 256 --check --ignore-missing checksums.txt
 ```
 
 ## Build from source (needs Go 1.27+)

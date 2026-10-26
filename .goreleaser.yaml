@@ -45,12 +45,120 @@ archives:
       - NOTICE
       - THIRD_PARTY_LICENSES
 
+# Linux packages, attached to the release next to the archives.
+nfpms:
+  - ids:
+      - airlock
+    vendor: N2JSoft
+    homepage: https://github.com/n2jsoft-public-org/airlock
+    maintainer: N2JSoft <https://github.com/n2jsoft-public-org/airlock>
+    description: One access point to your private resources, for you and your AI assistants.
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+      - apk
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/airlock/LICENSE
+      - src: NOTICE
+        dst: /usr/share/doc/airlock/NOTICE
+      - src: THIRD_PARTY_LICENSES
+        dst: /usr/share/doc/airlock/THIRD_PARTY_LICENSES
+
 checksum:
   name_template: checksums.txt
+
+# Keyless: GitHub's OIDC token identifies the release workflow (id-token: write).
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
 
 changelog:
   disable: true
 
-# CI publishes the release with gh (.github/workflows/release.yml).
+# semantic-release creates the release as a draft, named after its tag, with the notes
+# (.releaserc.yaml). GoReleaser attaches the files to that draft, then publishes it, before the
+# tap, the bucket and winget get the new version: they point to the release's files.
 release:
-  disable: true
+  use_existing_draft: true
+  mode: keep-existing
+  # A re-run of a failed release replaces what the first run uploaded.
+  replace_existing_artifacts: true
+
+# The publishers below need TAP_GITHUB_TOKEN or WINGET_GITHUB_TOKEN: the release workflow skips
+# each one whose token is missing.
+homebrew_casks:
+  - binaries:
+      - airlock
+    homepage: https://github.com/n2jsoft-public-org/airlock
+    description: One access point to your private resources, for you and your AI assistants
+    repository:
+      owner: n2jsoft-public-org
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    commit_msg_template: "airlock {{ .Tag }}"
+    generate_completions_from_executable:
+      args:
+        - completion
+      shell_parameter_format: cobra
+      shells:
+        - bash
+        - zsh
+        - fish
+    caveats: |
+      RDS, EKS and ElastiCache tunnels need the AWS CLI v2 and its Session Manager plugin:
+        brew install awscli && brew install --cask session-manager-plugin
+      Update airlock with `brew upgrade airlock`: `airlock update` is for script installs.
+    # The binaries are not notarized: without this, macOS refuses to run them.
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/airlock"]
+          end
+
+scoops:
+  - homepage: https://github.com/n2jsoft-public-org/airlock
+    description: One access point to your private resources, for you and your AI assistants.
+    license: Apache-2.0
+    repository:
+      owner: n2jsoft-public-org
+      name: scoop-bucket
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    commit_msg_template: "airlock {{ .Tag }}"
+
+# Opens a pull request to microsoft/winget-pkgs from the publishing account's fork.
+winget:
+  - publisher: N2JSoft
+    package_identifier: N2JSoft.Airlock
+    package_name: airlock
+    short_description: One access point to your private resources, for you and your AI assistants.
+    license: Apache-2.0
+    license_url: https://github.com/n2jsoft-public-org/airlock/blob/main/LICENSE
+    publisher_url: https://github.com/n2jsoft-public-org
+    publisher_support_url: https://github.com/n2jsoft-public-org/airlock/issues
+    homepage: https://github.com/n2jsoft-public-org/airlock
+    release_notes_url: https://github.com/n2jsoft-public-org/airlock/releases/tag/{{ .Tag }}
+    tags:
+      - aws
+      - ssm
+      - mcp
+      - cli
+    repository:
+      owner: n2jsoft-public-org
+      name: winget-pkgs
+      branch: "airlock-{{ .Version }}"
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master

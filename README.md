@@ -55,6 +55,20 @@ Windows (PowerShell 7+):
 & ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.ps1)))
 ```
 
+Or with a package manager:
+
+```sh
+brew install --cask n2jsoft-public-org/tap/airlock      # Homebrew (macOS, Linux)
+scoop bucket add n2jsoft https://github.com/n2jsoft-public-org/scoop-bucket
+scoop install n2jsoft/airlock                           # Scoop (Windows)
+winget install N2JSoft.Airlock                          # winget (Windows)
+go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest   # Go 1.27+
+```
+
+Debian, Ubuntu, Fedora, RHEL and Alpine packages (`.deb`, `.rpm`, `.apk`) are attached to every
+[release](https://github.com/n2jsoft-public-org/airlock/releases): see
+[Linux packages](docs/install.md#linux-packages).
+
 **2. Connect.** Open a new terminal, then:
 
 ```sh
@@ -62,7 +76,8 @@ airlock                      # launch the wizard
 airlock rds my-db 5432       # …or connect directly
 ```
 
-Then point your tools at `localhost:5432`. That's it. Later, `airlock update` keeps it current.
+Then point your tools at `localhost:5432`. That's it. Later, `airlock update` keeps an installer
+install current; a package manager updates its own install.
 Something not working? Run `airlock doctor` ([Troubleshooting](docs/troubleshooting.md)).
 
 Installer options, manual install, building from source, updating and uninstalling: see
