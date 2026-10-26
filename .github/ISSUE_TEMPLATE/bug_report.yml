@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in airlock does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A security vulnerability goes to [SECURITY.md](https://github.com/n2jsoft-public-org/airlock/blob/main/SECURITY.md), not here.
+        Remove account ids, hostnames, profile names and anything else private from what you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected and what you got instead.
+      placeholder: |
+        airlock rds my-db 5432
+        Expected the tunnel to open, got: …
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: airlock version
+      description: Output of `airlock version`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: airlock doctor
+      description: Output of `airlock doctor` (or `airlock doctor --json`).
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 26, Ubuntu 26.04, Windows 11…
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: The resource type (RDS, EKS, ElastiCache, DynamoDB, S3, CloudWatch Logs, direct or Docker database), the AI client for MCP issues, logs.
