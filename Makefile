@@ -9,7 +9,7 @@ ifeq ($(strip $(GOBIN)),)
 GOBIN := $(shell go env GOPATH)/bin
 endif
 
-.PHONY: help tidy fmt vet lint test build dist run install uninstall clean
+.PHONY: help tidy fmt vet lint test build dist licenses run install uninstall clean
 
 help:
 	@echo "Targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  make test   - Run tests"
 	@echo "  make build  - Build $(BINARY) binary"
 	@echo "  make dist   - Build $(BINARY) for every platform into dist/ (GoReleaser)"
+	@echo "  make licenses - Write the licenses of the Go modules in $(BINARY) to THIRD_PARTY_LICENSES"
 	@echo "  make run    - Run the CLI"
 	@echo "  make install   - Install $(BINARY) to $(GOBIN)"
 	@echo "  make uninstall - Remove $(BINARY) from $(GOBIN)"
@@ -46,6 +47,9 @@ build:
 
 dist:
 	goreleaser release --snapshot --clean
+
+licenses:
+	./scripts/licenses.sh > THIRD_PARTY_LICENSES
 
 run:
 	go run $(ENTRYPOINT)

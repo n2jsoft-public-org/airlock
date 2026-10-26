@@ -4,6 +4,11 @@ version: 2
 
 project_name: airlock
 
+# THIRD_PARTY_LICENSES lists the modules of this build: generated, not committed.
+before:
+  hooks:
+    - make licenses
+
 builds:
   - id: airlock
     main: ./cmd/airlock
@@ -36,6 +41,9 @@ archives:
           - zip
     files:
       - README.md
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_LICENSES
 
 checksum:
   name_template: checksums.txt

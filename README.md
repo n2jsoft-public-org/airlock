@@ -170,3 +170,9 @@ airlock doctor                       # check the installation, the config and th
 
 Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) to build airlock, run the checks
 and name your pull request.
+
+## 📄 License
+
+airlock is licensed under the [Apache License 2.0](LICENSE). Release archives also ship
+[NOTICE](NOTICE) and `THIRD_PARTY_LICENSES`, the licenses of the Go modules compiled into airlock
+(`make licenses` writes it).

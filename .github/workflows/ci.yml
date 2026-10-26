@@ -41,6 +41,11 @@ jobs:
           go vet ./...
           go test ./...
 
+      # The release archives need a license file for every module, and NOTICE every module NOTICE.
+      - name: Third-party licenses
+        if: runner.os != 'Windows'
+        run: make licenses
+
       # The other packages may be unix-only.
       - name: Test the self-update and uninstall packages
         if: runner.os == 'Windows'
