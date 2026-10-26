@@ -129,10 +129,12 @@ After the install, a **What's new** block lists the notes of every release betwe
 the new one, newest first. `--check` prints the same notes when an update is available, without
 installing anything.
 
-airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI
-(`gh auth login`), and without a token anonymously, which needs a public repository: while the
-repository is private, a token is required. A repository without any release yet leaves your build
-up to date. After an install, `airlock update` records the binary it replaced in the same
+airlock is now open source: `airlock update` reads the releases of the public repository
+[n2jsoft-public-org/airlock](https://github.com/n2jsoft-public-org/airlock), even from a build of
+the former private repository, and prints the other ways to install it once the update is done. It
+uses `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI (`gh auth login`) when it finds one,
+for a higher GitHub rate limit, and reads anonymously otherwise. A repository without any release
+yet leaves your build up to date. After an install, `airlock update` records the binary it replaced in the same
 `install.json` as the [installer](#installer). When airlock lives in a folder you cannot write, such as
 `/usr/local/bin`, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or
 reinstall with the [installer](#installer), which installs to a folder you own; on Windows, run

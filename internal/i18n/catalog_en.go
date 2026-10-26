@@ -193,7 +193,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.skills_install.flag.user": "Write in the user-level skill directories (~/.claude/skills, ~/.agents/skills) instead of the project",
 	// internal/cli/update_cmd.go
 	"cli.update.short":      "Update airlock to the latest release",
-	"cli.update.long":       "Checks the latest GitHub release of airlock and, when it is newer than this build, installs it in place of the running binary. GitHub access comes from GH_TOKEN, GITHUB_TOKEN or the GitHub CLI (gh auth login).",
+	"cli.update.long":       "Checks the latest release of airlock on GitHub (n2jsoft-public-org/airlock) and, when it is newer than this build, installs it in place of the running binary. It uses GH_TOKEN, GITHUB_TOKEN or the GitHub CLI token (gh auth login) when it finds one, and reads GitHub anonymously otherwise.",
 	"cli.update.flag.check": "Only report whether a newer release exists",
 	"cli.update.flag.force": "Install the latest release even when this build is newer, diverged or unversioned",
 	// internal/cli/forward_cmd.go
@@ -405,6 +405,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	// internal/cli/update_cmd.go
 	"cli.update.updated_airlock":           "Updated airlock %s → %s",
 	"cli.update.restart_daemon_to_use":     "restart the daemon to use the new version: airlock daemon restart",
+	"cli.update.open_source":               "airlock is now open source: %s. Homebrew, Scoop, winget and go install can also install it (see its README); run airlock uninstall before switching.",
 	"cli.update.step.check":                "Checking the latest release",
 	"cli.update.step.install":              "Downloading and installing airlock %s",
 	"cli.update.latest_release":            "latest release: %s (this build is %s)",
@@ -466,8 +467,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"cli.daemon_gateway.off_notice":            "MCP gateway off: %s — see `airlock daemon status`",
 	"cli.mcp_proxy.long":                       "Relays the airlock MCP server at <url> over stdin and stdout, signing in with the token in %s.",
 	"cli.mcp_proxy.token_not_set":              "%s is not set",
-	"cli.update_notice.wizard":                 "update available: %s · run airlock update",
-	"cli.update_notice.stderr":                 "A new airlock is available (%s): run airlock update",
+	"cli.update_notice.wizard":                 "airlock is now open source: %s available · run airlock update",
+	"cli.update_notice.stderr":                 "airlock is now open source (%s): run airlock update to install %s",
 	// internal/ui/jumphost_flow.go
 	"ui.jumphost_flow.local_port":                  "Local port",
 	"ui.jumphost_flow.database_user":               "Database user",

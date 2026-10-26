@@ -98,10 +98,10 @@ func TestRefreshUpdateCheckWritesNothingWhenGitHubIsUnreachable(t *testing.T) {
 }
 
 func TestUpdateNoticeTexts(t *testing.T) {
-	if got := wizardUpdateNotice(testLatest); got != "update available: "+testLatest+" · run airlock update" {
+	if got := wizardUpdateNotice(testLatest); got != "airlock is now open source: "+testLatest+" available · run airlock update" {
 		t.Errorf("wizard notice = %q", got)
 	}
-	if got := stderrUpdateNotice(testLatest); got != "A new airlock is available ("+testLatest+"): run airlock update" {
+	if got := stderrUpdateNotice(testLatest); got != "airlock is now open source (https://github.com/n2jsoft-public-org/airlock): run airlock update to install "+testLatest {
 		t.Errorf("stderr notice = %q", got)
 	}
 }

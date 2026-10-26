@@ -37,11 +37,15 @@ func testUpdateServer(t *testing.T) *selfupdatetest.Server {
 // testChanges is what updating testCurrent to testLatest brings, as airlock update prints it.
 const testChanges = "\nWhat's new\n\nv1.4.0\n  Features\n    • doctor: stream the checks live (#91)\n\nv1.3.5\n  Bug Fixes\n    • keep the tunnel open (#80)\n\n"
 
+// openSourceNote ends every install: it moves the users of the former private repository over.
+const openSourceNote = "! airlock is now open source: https://github.com/n2jsoft-public-org/airlock. " +
+	"Homebrew, Scoop, winget and go install can also install it (see its README); run airlock uninstall before switching.\n"
+
 // installOutput is what airlock update prints when it installs testLatest over current at target.
 func installOutput(current, target, changes string) string {
 	return "✓ latest release: " + testLatest + " (this build is " + current + ")\n" +
 		"✓ Installed airlock " + testLatest + " in " + target + "\n" + changes +
-		"✓ Updated airlock " + current + " → " + testLatest + "\n"
+		"✓ Updated airlock " + current + " → " + testLatest + "\n" + openSourceNote
 }
 
 // testUpdateEnv points airlock update at srv and at a fake installed binary, which it returns.
@@ -262,7 +266,7 @@ func TestUpdateAsksToRestartARunningDaemon(t *testing.T) {
 	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	env.daemonRunning = func(context.Context) bool { return true }
 	out, err := runUpdateCmd(t, env)
-	if err != nil || !strings.HasSuffix(out, "restart the daemon to use the new version: airlock daemon restart\n") {
+	if err != nil || !strings.HasSuffix(out, "restart the daemon to use the new version: airlock daemon restart\n"+openSourceNote) {
 		t.Fatalf("out = %q, err = %v; want the restart notice", out, err)
 	}
 

@@ -148,6 +148,8 @@ func runUpdate(cmd *cobra.Command, env *updateEnv, check, force bool) error {
 	if env.daemonRunning != nil && env.daemonRunning(ctx) {
 		out.Note(i18n.T("cli.update.restart_daemon_to_use"))
 	}
+	// Bridge from the former private repository: remove with the move to the public module path.
+	out.Note(i18n.Format("cli.update.open_source", selfupdate.PublicURL))
 	return nil
 }
 

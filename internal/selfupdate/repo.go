@@ -1,27 +1,13 @@
 package selfupdate
 
-import (
-	"fmt"
-	"runtime/debug"
-	"strings"
-)
+// PublicRepository is the repository airlock is released from. Builds of the former private
+// repository read their updates from it too, so airlock update moves their users over.
+const PublicRepository = "n2jsoft-public-org/airlock"
 
-// RepositoryFromModule returns the owner/repo of a github.com module path, such as
-// github.com/acme/airlock or github.com/acme/airlock/v2.
-func RepositoryFromModule(path string) (string, error) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 3 || parts[0] != "github.com" || parts[1] == "" || parts[2] == "" {
-		return "", fmt.Errorf("cannot tell where airlock is released from (module %s)", path)
-	}
-	return parts[1] + "/" + parts[2], nil
-}
+// PublicURL is the web address of PublicRepository.
+const PublicURL = "https://github.com/" + PublicRepository
 
-// Repository returns the owner/repo airlock is released from, read from the module path recorded
-// in the running binary.
+// Repository returns the owner/repo airlock is released from.
 func Repository() (string, error) {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return RepositoryFromModule("")
-	}
-	return RepositoryFromModule(info.Main.Path)
+	return PublicRepository, nil
 }

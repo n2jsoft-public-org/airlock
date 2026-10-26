@@ -54,5 +54,5 @@ func wizardUpdateNotice(latest string) string {
 }
 
 func stderrUpdateNotice(latest string) string {
-	return i18n.Format("cli.update_notice.stderr", latest)
+	return i18n.Format("cli.update_notice.stderr", selfupdate.PublicURL, latest)
 }
