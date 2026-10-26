@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/connections"
+	"github.com/n2jsoft-public-org/airlock/internal/connections"
 )
 
 // prefsNow dates the connections saved by newTestPrefsStore.

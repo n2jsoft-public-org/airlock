@@ -1,4 +1,4 @@
-module github.com/n2jsoft/airlock
+module github.com/n2jsoft-public-org/airlock
 
 go 1.27.1
 

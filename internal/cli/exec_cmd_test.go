@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 func TestExecVarsOfAPostgresTunnel(t *testing.T) {

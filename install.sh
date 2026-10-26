@@ -2,16 +2,16 @@
 # Installs the latest airlock release on macOS or Linux, without Go.
 #
 # The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login)
-# when there is one, which a private repository needs, else anonymously. From anywhere:
+# when there is one, else anonymously. From anywhere:
 #
-#   gh api repos/n2jsoft/airlock/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+#   curl -fsSL https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.sh | sh
 #
 # Options go after `sh -s --` when piped: see usage below. The archive is checked against the
 # release's checksums.txt before anything is written.
 
 set -eu
 
-repo="${AIRLOCK_REPO:-n2jsoft/airlock}"
+repo="${AIRLOCK_REPO:-n2jsoft-public-org/airlock}"
 api="https://api.github.com/repos/$repo"
 
 say() { printf '%s\n' "$*"; }
@@ -39,7 +39,7 @@ Options:
   --purge           with --uninstall, also remove settings, history, logs and saved passwords
 
 The release is read with GH_TOKEN, GITHUB_TOKEN or the token of the GitHub CLI (gh auth login)
-when there is one, else anonymously. AIRLOCK_REPO reads another repository (default n2jsoft/airlock).
+when there is one, else anonymously. AIRLOCK_REPO reads another repository (default n2jsoft-public-org/airlock).
 With a token, the installer adds a rocket reaction to the release it installs, so the release tells
 who installed it: set AIRLOCK_NO_TRACKING=1 to skip it.
 EOF

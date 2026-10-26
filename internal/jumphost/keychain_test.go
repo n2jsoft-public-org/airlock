@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 const archiveKeychainAccount = "111111111111/eu-west-3/rds/archive/app_user"

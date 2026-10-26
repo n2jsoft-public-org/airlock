@@ -1,6 +1,6 @@
 package sessions
 
-import "github.com/n2jsoft/airlock/internal/jumphost"
+import "github.com/n2jsoft-public-org/airlock/internal/jumphost"
 
 // The launcher lives in jumphost, which also starts the tunnels to cluster cache nodes with it.
 type (

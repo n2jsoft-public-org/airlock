@@ -9,8 +9,8 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // directKeychainRunner remembers choices in memory and keeps the password of mcp_ro on legacy-billing.

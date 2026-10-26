@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // bearerTransport adds an Authorization header to every request.

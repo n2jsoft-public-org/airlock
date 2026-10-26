@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
 )
 
 func testDatabase(name string) directdb.Database {

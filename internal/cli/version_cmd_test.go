@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 )
 
 func TestVersionPrintsTheBuildVersion(t *testing.T) {

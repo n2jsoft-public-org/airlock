@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/selfupdate"
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 )
 
 // noUpdateCheckEnv, set to any value, turns off the background release check and its notice.
@@ -54,5 +54,5 @@ func wizardUpdateNotice(latest string) string {
 }
 
 func stderrUpdateNotice(latest string) string {
-	return i18n.Format("cli.update_notice.stderr", selfupdate.PublicURL, latest)
+	return i18n.Format("cli.update_notice.stderr", latest)
 }

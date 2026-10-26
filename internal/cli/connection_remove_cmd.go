@@ -3,8 +3,8 @@ package cli
 import (
 	"errors"
 
-	"github.com/n2jsoft/airlock/internal/connections"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/connections"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 	"github.com/spf13/cobra"
 )
 

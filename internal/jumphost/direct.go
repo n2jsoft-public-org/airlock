@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/ideadatasource"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/ideadatasource"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // resourceDirect is a database reached directly, without jumphost, declared with `airlock connection add`.

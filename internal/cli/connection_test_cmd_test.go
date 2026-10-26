@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // stubDirectSignIn replaces the sign-in check, which needs a database, and records its calls as

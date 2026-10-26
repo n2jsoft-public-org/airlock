@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
 )
 
 // lockedBuffer is a bytes.Buffer the test reads while Run writes it.

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/connections"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/connections"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 // testDatabases points the config directory to a temporary one and the keychain to memory, and

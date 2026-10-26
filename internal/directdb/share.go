@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/sharecode"
+	"github.com/n2jsoft-public-org/airlock/internal/sharecode"
 )
 
 // sharePrefix starts every database string; its number is the format version.

@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 )
 
 const (

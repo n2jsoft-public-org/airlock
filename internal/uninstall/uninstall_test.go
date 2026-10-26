@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 // machine is a fake home: airlock installed by install.sh in ~/.local/bin, with its PATH block in

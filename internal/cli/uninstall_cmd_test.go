@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 // testInstall is airlock installed by install.sh into a fake home, with saved data.

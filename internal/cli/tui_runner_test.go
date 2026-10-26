@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 func TestWithOverridesKeepsTheFlagsOverTheFile(t *testing.T) {

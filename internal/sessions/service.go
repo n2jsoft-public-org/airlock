@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // ErrUnknownSession reports an ID no session has (closed meanwhile).

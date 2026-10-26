@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // suspendable is the part of a running tea.Program a handoff needs.

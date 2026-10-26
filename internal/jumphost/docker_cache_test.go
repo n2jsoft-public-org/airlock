@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/cachemcp"
-	"github.com/n2jsoft/airlock/internal/dockerdb"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/cachemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/dockerdb"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // stubCacheMCP records the config of the cache MCP servers instead of starting them.

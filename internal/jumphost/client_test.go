@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/dockerdb"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/dockerdb"
 )
 
 func TestDockerSessionClientCarriesItsPassword(t *testing.T) {

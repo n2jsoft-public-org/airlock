@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 func testDirectConfig(t *testing.T, engine Engine) *DirectConfig {

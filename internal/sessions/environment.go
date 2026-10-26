@@ -1,6 +1,6 @@
 package sessions
 
-import "github.com/n2jsoft/airlock/internal/environment"
+import "github.com/n2jsoft-public-org/airlock/internal/environment"
 
 // EnvironmentOf returns the environment of s: its direct database's, production for one an
 // earlier daemon only flagged (the flag always wins), else the environment of its AWS profile.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
 )
 
 // useFakeHome points the user-level client files into a temporary home, and returns it.

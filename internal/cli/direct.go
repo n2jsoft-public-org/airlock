@@ -4,12 +4,12 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/ui"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
 

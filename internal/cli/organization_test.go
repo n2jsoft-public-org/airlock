@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/keychain"
-	"github.com/n2jsoft/airlock/internal/orgconfig"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/orgconfig"
 )
 
 // refuseRequests is a transport failing every request.

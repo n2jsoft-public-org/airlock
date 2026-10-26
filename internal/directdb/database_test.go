@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
 )
 
 // testDatabase is a valid PostgreSQL definition named name, with every optional field left out.

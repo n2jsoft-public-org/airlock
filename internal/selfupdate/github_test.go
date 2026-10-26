@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/selfupdate/selfupdatetest"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate/selfupdatetest"
 )
 
 func testRelease(t *testing.T) *selfupdatetest.Release {

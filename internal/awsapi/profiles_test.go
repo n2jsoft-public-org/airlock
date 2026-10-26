@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
 )
 
 func writeShared(t *testing.T, name, content string) string {

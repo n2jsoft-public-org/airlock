@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
 )
 
 // IdentityCheckInterval is how often the AWS sign-ins of the running sessions are checked. A

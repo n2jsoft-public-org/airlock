@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/dockerdb"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/dockerdb"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // resourceDocker is a database running in a local Docker container, found live: nothing about

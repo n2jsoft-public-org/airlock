@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
 )
 
 // Engine is the database engine of a direct database.

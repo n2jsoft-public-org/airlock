@@ -7,8 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // clientsProjectColumn is the width of the project column: its box and the auto hint.

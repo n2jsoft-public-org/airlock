@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/dockerdb"
-	"github.com/n2jsoft/airlock/internal/keychain"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/dockerdb"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // fakeContainers is a DockerContainers over a map.

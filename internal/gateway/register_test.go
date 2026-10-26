@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // isolateClients keeps the client files and their locks in temporary directories; it returns the

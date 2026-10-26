@@ -3,7 +3,7 @@ package cachemcp
 import (
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // SessionConfig describes the cache of one session: an ElastiCache tunnel, or a local container.

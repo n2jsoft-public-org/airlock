@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // ModuleOf is the module (config.Modules) of the targets of resourceType; empty for an unknown type.

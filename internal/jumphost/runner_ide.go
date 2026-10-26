@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/ideadatasource"
+	"github.com/n2jsoft-public-org/airlock/internal/ideadatasource"
 )
 
 // registerIDEDataSource adds the forwarded connection to the IntelliJ project in the working directory.

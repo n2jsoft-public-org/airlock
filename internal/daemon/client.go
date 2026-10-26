@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // clientBuffer is how many events a view may lag behind before it gets EventResync.

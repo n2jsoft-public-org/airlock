@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/platform"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // ErrAlreadyRunning reports another daemon holding the lock.
