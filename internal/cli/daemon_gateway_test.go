@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/daemon"
-	"github.com/n2jsoft/airlock/internal/gateway"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/daemon"
+	"github.com/n2jsoft-public-org/airlock/internal/gateway"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions/sessionstest"
 )
 
 func TestGatewaySettingsFromConfig(t *testing.T) {

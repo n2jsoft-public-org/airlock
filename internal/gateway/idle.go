@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // defaultSweepEvery is how often the gateway looks for idle agent sessions.

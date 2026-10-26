@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/logsmcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/logsmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // installLogsAWS answers DescribeLogGroups (one group at most), denied unless ok.

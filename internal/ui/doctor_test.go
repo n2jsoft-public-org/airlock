@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/doctor"
+	"github.com/n2jsoft-public-org/airlock/internal/doctor"
 )
 
 func doctorTestSections() []DoctorSection {

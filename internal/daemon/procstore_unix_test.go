@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
 )
 
 // TestHelperSleep is the body of the processes startNamed runs: the test binary, copied under another name.

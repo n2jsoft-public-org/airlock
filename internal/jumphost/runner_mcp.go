@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/n2jsoft/airlock/internal/dbmcp"
-	"github.com/n2jsoft/airlock/internal/kubemcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/kubemcp"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // kubemcpStart starts an EKS session's MCP server; a package variable so tests can force a failure.

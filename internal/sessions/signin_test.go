@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions/sessionstest"
 )
 
 // fakeSignIn answers Candidates with candidates and Check with failures[c.Label].

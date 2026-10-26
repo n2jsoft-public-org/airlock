@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
 )
 
 // runAirlockWithInput is runAirlock with input as standard input.

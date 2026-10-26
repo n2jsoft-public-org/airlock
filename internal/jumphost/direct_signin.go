@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/n2jsoft/airlock/internal/dbmcp"
+	"github.com/n2jsoft-public-org/airlock/internal/dbmcp"
 )
 
 // checkDirectSignIn signs in to a direct database and runs SELECT 1; a package variable so tests

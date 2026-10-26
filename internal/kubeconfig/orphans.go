@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
 )
 
 // ownerSuffix names the file next to a kubeconfig holding the PID of the airlock that wrote it.

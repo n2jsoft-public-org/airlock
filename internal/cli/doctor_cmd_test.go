@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/awsapi/awsapitest"
-	"github.com/n2jsoft/airlock/internal/doctor"
-	"github.com/n2jsoft/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi/awsapitest"
+	"github.com/n2jsoft-public-org/airlock/internal/doctor"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
 )
 
 func TestDoctorPrintsJSONAndFailsWithoutTunnelTools(t *testing.T) {

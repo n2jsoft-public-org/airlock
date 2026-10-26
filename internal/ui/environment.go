@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"github.com/n2jsoft/airlock/internal/environment"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // sessionEnvironment is the environment of s under the environments setting of the dashboard.

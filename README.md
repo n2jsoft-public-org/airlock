@@ -41,20 +41,18 @@ reached through an SSM jumphost, directly, in Docker or through the AWS API. You
 ## 🚀 Quick start
 
 **1. Install.** No Go needed: the installer downloads the latest release for your machine. It needs
-no GitHub token, but uses one when it finds one. The repository is still private, so for now sign
-in to GitHub once with the [GitHub CLI](https://cli.github.com) (`brew install gh` or
-`winget install GitHub.cli`, then `gh auth login`).
+no GitHub account or token.
 
 macOS and Linux:
 
 ```sh
-gh api repos/n2jsoft/airlock/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+curl -fsSL https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.sh | sh
 ```
 
 Windows (PowerShell 7+):
 
 ```pwsh
-& ([scriptblock]::Create((gh api repos/n2jsoft/airlock/contents/install.ps1 -H 'Accept: application/vnd.github.raw' | Out-String)))
+& ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.ps1)))
 ```
 
 **2. Connect.** Open a new terminal, then:

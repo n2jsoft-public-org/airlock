@@ -9,7 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 func (r *Runner) prepareElastiCache(ctx context.Context, cfg awsConfig, options *Options) (preparedTarget, error) {

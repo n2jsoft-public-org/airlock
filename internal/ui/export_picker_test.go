@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
 )
 
 func newTestExportPicker() exportPicker {

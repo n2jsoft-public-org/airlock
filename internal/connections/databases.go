@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
 )
 
 // Databases is the direct databases of a Store: what the dashboard, the runner and the `connection`

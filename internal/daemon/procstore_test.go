@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
 )
 
 func TestKillLeftoversOnlyKillsAWSProcesses(t *testing.T) {

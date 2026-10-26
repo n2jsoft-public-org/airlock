@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
 )
 
 // TunnelListening is what session-manager-plugin prints once a port forward accepts connections.

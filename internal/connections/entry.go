@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/directdb"
-	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/directdb"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
 )
 
 // The AWS types of the targets reached through a jumphost.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/jumphost"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/jumphost"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // ServiceFactory returns a service over runner and launcher, cleaned up with t.

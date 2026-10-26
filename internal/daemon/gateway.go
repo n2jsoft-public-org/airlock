@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // GatewayEnv is what the daemon hands its MCP gateway.

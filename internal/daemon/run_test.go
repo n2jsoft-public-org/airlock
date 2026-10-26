@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/sessions"
-	"github.com/n2jsoft/airlock/internal/sessions/sessionstest"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions/sessionstest"
 )
 
 // assertPerm fails t unless path exists with the permission bits perm.

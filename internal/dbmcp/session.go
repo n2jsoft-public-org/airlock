@@ -4,8 +4,8 @@ import (
 	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/n2jsoft/airlock/internal/awstag"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/awstag"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // ErrReadOnlySecretTagUnset reports a read-only SQL Server session without a read-only secret tag

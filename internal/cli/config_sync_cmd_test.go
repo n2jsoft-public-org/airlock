@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/orgconfig"
+	"github.com/n2jsoft-public-org/airlock/internal/orgconfig"
 )
 
 const syncOrgBody = `{"settings":{"aws":{"jumphostTag":"Role=bastion","defaultRegion":"eu-west-3"}}}`

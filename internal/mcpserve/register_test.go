@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/aiclient"
+	"github.com/n2jsoft-public-org/airlock/internal/aiclient"
 )
 
 // useIsolatedLocks keeps config locks of the test in its own directory.

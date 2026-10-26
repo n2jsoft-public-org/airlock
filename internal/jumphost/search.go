@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 // searchableResourceTypes are the types SearchResources looks through, in display order.

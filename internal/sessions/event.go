@@ -1,6 +1,6 @@
 package sessions
 
-import "github.com/n2jsoft/airlock/internal/mcpserve"
+import "github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 
 // EventKind tells what an Event changes.
 type EventKind string

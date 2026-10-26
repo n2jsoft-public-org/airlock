@@ -3,7 +3,7 @@ package dbmcp
 import (
 	"fmt"
 
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 // DirectConfig describes a database reached directly, without tunnel, signed in with a password.

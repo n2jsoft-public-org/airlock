@@ -7,12 +7,12 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/n2jsoft/airlock/internal/appdir"
-	"github.com/n2jsoft/airlock/internal/awsapi"
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/orgconfig"
-	"github.com/n2jsoft/airlock/internal/ui"
+	"github.com/n2jsoft-public-org/airlock/internal/appdir"
+	"github.com/n2jsoft-public-org/airlock/internal/awsapi"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/orgconfig"
+	"github.com/n2jsoft-public-org/airlock/internal/ui"
 	"github.com/spf13/cobra"
 )
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/n2jsoft/airlock/internal/mcpserve"
+	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
 
 func connect(t *testing.T, c *cache, allowWrites bool) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/selfupdate/selfupdatetest"
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate/selfupdatetest"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 )
 
 const testLatest = "v1.4.0"

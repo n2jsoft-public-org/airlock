@@ -405,7 +405,6 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	// internal/cli/update_cmd.go
 	"cli.update.updated_airlock":           "airlock mis à jour %s → %s",
 	"cli.update.restart_daemon_to_use":     "redémarrez le daemon pour utiliser la nouvelle version : airlock daemon restart",
-	"cli.update.open_source":               "airlock est maintenant open source : %s. Homebrew, Scoop, winget et go install permettent aussi de l'installer (voir son README) ; lancez airlock uninstall avant de changer.",
 	"cli.update.step.check":                "Recherche de la dernière version",
 	"cli.update.step.install":              "Téléchargement et installation d'airlock %s",
 	"cli.update.latest_release":            "dernière version : %s (ce build est %s)",
@@ -467,8 +466,8 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"cli.daemon_gateway.off_notice":            "Passerelle MCP arrêtée : %s — voir `airlock daemon status`",
 	"cli.mcp_proxy.long":                       "Relaie le serveur MCP d'airlock à <url> sur stdin et stdout, en se connectant avec le jeton de %s.",
 	"cli.mcp_proxy.token_not_set":              "%s n'est pas défini",
-	"cli.update_notice.wizard":                 "airlock est maintenant open source : %s disponible · lancez airlock update",
-	"cli.update_notice.stderr":                 "airlock est maintenant open source (%s) : lancez airlock update pour installer %s",
+	"cli.update_notice.wizard":                 "mise à jour disponible : %s · lancez airlock update",
+	"cli.update_notice.stderr":                 "Un nouvel airlock est disponible (%s) : lancez airlock update",
 	// internal/ui/jumphost_flow.go
 	"ui.jumphost_flow.local_port":                  "Port local",
 	"ui.jumphost_flow.database_user":               "Utilisateur de la base",

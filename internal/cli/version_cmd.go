@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 	"github.com/spf13/cobra"
 )
 

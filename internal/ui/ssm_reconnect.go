@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/sessions"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 )
 
 // reconnectStatus is the status label of an ended session waiting for its reconnection, short

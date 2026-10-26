@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/n2jsoft/airlock/internal/environment"
+	"github.com/n2jsoft-public-org/airlock/internal/environment"
 )
 
 func TestEnvironmentOf(t *testing.T) {

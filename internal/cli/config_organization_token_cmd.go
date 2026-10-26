@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

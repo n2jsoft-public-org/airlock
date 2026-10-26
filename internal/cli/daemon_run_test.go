@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/daemon"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/platform"
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/daemon"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/platform"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 )
 
 // daemonTestEnv points the daemon's files to temporary directories; it returns the home and the

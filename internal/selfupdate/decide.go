@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/n2jsoft/airlock/internal/version"
+	"github.com/n2jsoft-public-org/airlock/internal/version"
 )
 
 // Status tells how the running build compares with the latest release.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/n2jsoft/airlock/internal/cli"
-	"github.com/n2jsoft/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/cli"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
 )
 
 func main() {

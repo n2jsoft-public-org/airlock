@@ -9,12 +9,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/n2jsoft/airlock/internal/appdir"
-	"github.com/n2jsoft/airlock/internal/config"
-	"github.com/n2jsoft/airlock/internal/i18n"
-	"github.com/n2jsoft/airlock/internal/keychain"
-	"github.com/n2jsoft/airlock/internal/orgconfig"
-	"github.com/n2jsoft/airlock/internal/selfupdate"
+	"github.com/n2jsoft-public-org/airlock/internal/appdir"
+	"github.com/n2jsoft-public-org/airlock/internal/config"
+	"github.com/n2jsoft-public-org/airlock/internal/i18n"
+	"github.com/n2jsoft-public-org/airlock/internal/keychain"
+	"github.com/n2jsoft-public-org/airlock/internal/orgconfig"
+	"github.com/n2jsoft-public-org/airlock/internal/selfupdate"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
