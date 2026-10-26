@@ -119,6 +119,9 @@ type Server struct {
 	requests  []string
 	reactions []string
 	mu        sync.Mutex
+	// Public serves requests without a token, as GitHub does for a public repository. A private one
+	// answers them 404.
+	Public bool
 }
 
 // NewServer starts a fake GitHub API serving release; it stops with the test.
@@ -149,7 +152,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.requests = append(s.requests, r.URL.Path)
 	s.mu.Unlock()
 
-	if r.Header.Get("Authorization") != "Bearer "+Token {
+	switch auth := r.Header.Get("Authorization"); {
+	case auth == "" && !s.Public:
+		http.NotFound(w, r)
+		return
+	case auth != "" && auth != "Bearer "+Token:
 		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 		return
 	}

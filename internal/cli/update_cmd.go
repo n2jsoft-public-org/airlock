@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"time"
@@ -27,32 +28,34 @@ type updateEnv struct {
 	repository func() (string, error)
 	executable func() (string, error)
 	cacheFile  func() (string, error)
+	markerFile func() (string, error)
 	// daemonRunning reports whether a daemon runs, which keeps the replaced binary until restarted; nil means none.
 	daemonRunning func(context.Context) bool
 	current       string
 	baseURL       string
 }
 
-func defaultUpdateEnv() updateEnv {
-	return updateEnv{
+func defaultUpdateEnv() *updateEnv {
+	return &updateEnv{
 		token:         selfupdate.Token,
 		repository:    selfupdate.Repository,
 		executable:    selfupdate.Executable,
 		cacheFile:     appdir.UpdateCheckFile,
+		markerFile:    appdir.InstallMarkerFile,
 		daemonRunning: func(ctx context.Context) bool { return findDaemon(ctx) != nil },
 		current:       version.String(),
 		baseURL:       selfupdate.DefaultBaseURL,
 	}
 }
 
-// updater resolves the repository and the token; it fails without GitHub access.
-func (e updateEnv) updater(ctx context.Context) (selfupdate.Updater, error) {
+// updater resolves the repository and the token; without a token it reads GitHub anonymously.
+func (e *updateEnv) updater(ctx context.Context) (selfupdate.Updater, error) {
 	repository, err := e.repository()
 	if err != nil {
 		return selfupdate.Updater{}, err
 	}
 	token, err := e.token(ctx)
-	if err != nil {
+	if err != nil && !errors.Is(err, selfupdate.ErrNoToken) {
 		return selfupdate.Updater{}, err
 	}
 	return selfupdate.Updater{
@@ -68,7 +71,7 @@ func newUpdateCmd() *cobra.Command {
 	return newUpdateCmdWith(defaultUpdateEnv())
 }
 
-func newUpdateCmdWith(env updateEnv) *cobra.Command {
+func newUpdateCmdWith(env *updateEnv) *cobra.Command {
 	var check, force bool
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -84,7 +87,7 @@ func newUpdateCmdWith(env updateEnv) *cobra.Command {
 	return cmd
 }
 
-func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
+func runUpdate(cmd *cobra.Command, env *updateEnv, check, force bool) error {
 	ctx := cmd.Context()
 	target, err := env.executable()
 	if err != nil {
@@ -105,7 +108,8 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 		if result, err = updater.Check(ctx); err != nil {
 			return "", err
 		}
-		install = install || (!check && result.Status == selfupdate.StatusAvailable)
+		// Without a release yet there is nothing to install, even with --force.
+		install = result.Latest != "" && (install || (!check && result.Status == selfupdate.StatusAvailable))
 		changes = releaseChanges(ctx, updater.Client, &result)
 		if install {
 			return i18n.Format("cli.update.latest_release", result.Latest, result.Current), nil
@@ -130,6 +134,12 @@ func runUpdate(cmd *cobra.Command, env updateEnv, check, force bool) error {
 		installed := selfupdate.Result{Current: result.Latest, Latest: result.Latest, Status: selfupdate.StatusUpToDate}
 		if saveErr := selfupdate.SaveCache(path, installed.CacheAt(time.Now())); saveErr != nil {
 			cmd.PrintErr(i18n.Format("cli.warning", saveErr))
+		}
+	}
+	if path, pathErr := env.markerFile(); pathErr == nil {
+		marker := selfupdate.InstallMarker{Method: selfupdate.MethodScript, Path: target}
+		if writeErr := selfupdate.WriteMarker(path, marker); writeErr != nil {
+			cmd.PrintErr(i18n.Format("cli.warning", writeErr))
 		}
 	}
 	reactToInstalledRelease(ctx, updater.Client, result.Release)
@@ -159,9 +169,10 @@ func releaseChanges(ctx context.Context, client *selfupdate.Client, r *selfupdat
 }
 
 // reactToInstalledRelease adds InstallReaction to release, so its reactions tell who installed it.
-// It is best effort: a token without write access or an unreachable GitHub changes nothing.
+// It is best effort: a token without write access or an unreachable GitHub changes nothing, and
+// without a token there is no account to react as.
 func reactToInstalledRelease(ctx context.Context, client *selfupdate.Client, release selfupdate.Release) {
-	if os.Getenv(noTrackingEnv) != "" {
+	if os.Getenv(noTrackingEnv) != "" || client.Token == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, reactionTimeout)

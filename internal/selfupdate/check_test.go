@@ -108,3 +108,12 @@ func TestInstallWithoutChecksums(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestCheckOfARepositoryWithoutRelease(t *testing.T) {
+	u, srv := testUpdater(t, "v1.3.2")
+	srv.Release = nil
+	result, err := u.Check(context.Background())
+	if want := (Result{Current: "v1.3.2", Status: StatusUpToDate}); err != nil || result.Current != want.Current || result.Status != want.Status || result.Latest != "" {
+		t.Fatalf("Check = %+v, %v, want %+v", result, err, want)
+	}
+}

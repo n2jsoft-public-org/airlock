@@ -120,8 +120,11 @@ After the install, a **What's new** block lists the notes of every release betwe
 the new one, newest first. `--check` prints the same notes when an update is available, without
 installing anything.
 
-The repository is private, so airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token
-of the GitHub CLI (`gh auth login`). When airlock lives in a folder you cannot write, such as
+airlock reads releases with `GH_TOKEN`, `GITHUB_TOKEN` or the token of the GitHub CLI
+(`gh auth login`), and without a token anonymously, which needs a public repository: while the
+repository is private, a token is required. A repository without any release yet leaves your build
+up to date. After an install, `airlock update` records the binary it replaced in `install.json` in
+the config folder (`~/.config/airlock`, `%AppData%\airlock` on Windows). When airlock lives in a folder you cannot write, such as
 `/usr/local/bin`, run `sudo GH_TOKEN="$(gh auth token)" airlock update` (sudo drops your token) or
 reinstall with the [installer](#installer), which installs to a folder you own; on Windows, run
 it from an administrator terminal or reinstall with `install.ps1`.
@@ -135,7 +138,7 @@ then shows `update available` in the wizard, or a line on stderr for a direct co
 After installing a release, the installer and `airlock update` add a 🚀 reaction to that release on
 GitHub, with your GitHub account. The reactions of a release then tell who installed it, once per
 account. A reaction never holds an install back: when the token cannot write reactions or GitHub
-does not answer within 5 seconds, airlock carries on silently. Set `AIRLOCK_NO_TRACKING` to any
+does not answer within 5 seconds, airlock carries on silently. Without a token, there is no reaction. Set `AIRLOCK_NO_TRACKING` to any
 non-empty value (`AIRLOCK_NO_TRACKING=1`) to skip it. To list who installed a release:
 
 ```sh

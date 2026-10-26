@@ -110,6 +110,16 @@ func UpdateCheckFile() (string, error) {
 	return filepath.Join(dir, "update-check.json"), nil
 }
 
+// InstallMarkerFile is the file under ConfigDir telling how airlock was installed and where
+// (selfupdate.InstallMarker).
+func InstallMarkerFile() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "install.json"), nil
+}
+
 // OrganizationCacheFile is the file under ConfigDir keeping the last organization config fetched
 // from a remote source.
 func OrganizationCacheFile() (string, error) {

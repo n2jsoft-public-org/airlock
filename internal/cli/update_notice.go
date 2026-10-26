@@ -18,7 +18,7 @@ const updateCheckTimeout = 10 * time.Second
 
 // updateNotice returns the newer release the last check found ("" when none) and whether that
 // check must be refreshed. It never calls GitHub.
-func updateNotice(env updateEnv, now time.Time) (latest string, stale bool) {
+func updateNotice(env *updateEnv, now time.Time) (latest string, stale bool) {
 	if os.Getenv(noUpdateCheckEnv) != "" || env.current == version.Unknown {
 		return "", false
 	}
@@ -31,7 +31,7 @@ func updateNotice(env updateEnv, now time.Time) (latest string, stale bool) {
 }
 
 // refreshUpdateCheck checks the latest release and saves the result for the next launch.
-func refreshUpdateCheck(ctx context.Context, env updateEnv) error {
+func refreshUpdateCheck(ctx context.Context, env *updateEnv) error {
 	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
 	defer cancel()
 	path, err := env.cacheFile()

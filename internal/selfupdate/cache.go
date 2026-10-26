@@ -52,9 +52,14 @@ func (c Cache) Stale(current string, now time.Time) bool {
 	return c.Current != current || now.Before(c.CheckedAt) || now.Sub(c.CheckedAt) >= CheckInterval
 }
 
-// SaveCache writes c to path through a temporary file, so two airlocks never leave it half written.
-func SaveCache(path string, c Cache) (err error) {
-	data, err := json.Marshal(c)
+// SaveCache writes c to path.
+func SaveCache(path string, c Cache) error {
+	return writeJSON(path, c)
+}
+
+// writeJSON writes v to path through a temporary file, so two airlocks never leave it half written.
+func writeJSON(path string, v any) (err error) {
+	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
@@ -62,7 +67,7 @@ func SaveCache(path string, c Cache) (err error) {
 	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create %s: %w", dir, err)
 	}
-	tmp, err := os.CreateTemp(dir, ".update-check-*.json")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}

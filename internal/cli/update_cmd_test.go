@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,22 +45,23 @@ func installOutput(current, target, changes string) string {
 }
 
 // testUpdateEnv points airlock update at srv and at a fake installed binary, which it returns.
-func testUpdateEnv(t *testing.T, srv *selfupdatetest.Server, current string) (env updateEnv, target string) {
+func testUpdateEnv(t *testing.T, srv *selfupdatetest.Server, current string) (env *updateEnv, target string) {
 	t.Helper()
 	dir := t.TempDir()
 	target = filepath.Join(dir, selfupdate.BinaryName(runtime.GOOS))
 	writeTestFile(t, target, "old airlock")
-	return updateEnv{
+	return &updateEnv{
 		token:      func(context.Context) (string, error) { return selfupdatetest.Token, nil },
 		repository: func() (string, error) { return selfupdatetest.Repository, nil },
 		executable: func() (string, error) { return target, nil },
 		cacheFile:  func() (string, error) { return filepath.Join(dir, "update-check.json"), nil },
+		markerFile: func() (string, error) { return filepath.Join(dir, "install.json"), nil },
 		current:    current,
 		baseURL:    srv.URL,
 	}, target
 }
 
-func runUpdateCmd(t *testing.T, env updateEnv, args ...string) (string, error) {
+func runUpdateCmd(t *testing.T, env *updateEnv, args ...string) (string, error) {
 	t.Helper()
 	cmd := newUpdateCmdWith(env)
 	var out, stderr strings.Builder
@@ -94,6 +96,27 @@ func TestUpdateInstallsANewerRelease(t *testing.T) {
 	}
 	if cache := selfupdate.LoadCache(cachePath); cache.Current != testLatest || cache.Status != selfupdate.StatusUpToDate {
 		t.Fatalf("cache after the update = %+v, want the new build up to date", cache)
+	}
+	markerPath, err := env.markerFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker, err := selfupdate.ReadMarker(markerPath); err != nil || marker != (selfupdate.InstallMarker{Method: selfupdate.MethodScript, Path: target}) {
+		t.Fatalf("install marker after the update = %+v, %v, want a script install of %s", marker, err, target)
+	}
+}
+
+func TestUpdateCheckWritesNoMarker(t *testing.T) {
+	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
+	if _, err := runUpdateCmd(t, env, "--check"); err != nil {
+		t.Fatal(err)
+	}
+	markerPath, err := env.markerFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = selfupdate.ReadMarker(markerPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("install marker after --check: %v, want none", err)
 	}
 }
 
@@ -194,11 +217,44 @@ func TestUpdateForceInstallsOverANewerBuild(t *testing.T) {
 	}
 }
 
-func TestUpdateWithoutToken(t *testing.T) {
+func TestUpdateWithoutTokenFromAPrivateRepository(t *testing.T) {
 	env, _ := testUpdateEnv(t, testUpdateServer(t), testCurrent)
 	env.token = func(context.Context) (string, error) { return "", selfupdate.ErrNoToken }
 	if _, err := runUpdateCmd(t, env); !errors.Is(err, selfupdate.ErrNoToken) {
 		t.Fatalf("error = %v, want ErrNoToken", err)
+	}
+}
+
+func TestUpdateWithoutTokenFromAPublicRepository(t *testing.T) {
+	t.Setenv(noTrackingEnv, "")
+	srv := testUpdateServer(t)
+	srv.Public = true
+	env, target := testUpdateEnv(t, srv, testCurrent)
+	env.token = func(context.Context) (string, error) { return "", selfupdate.ErrNoToken }
+	out, err := runUpdateCmd(t, env)
+	if want := installOutput(testCurrent, target, testChanges); err != nil || out != want {
+		t.Fatalf("out = %q, %v, want %q", out, err, want)
+	}
+	if got := readTarget(t, target); got != "new airlock" {
+		t.Fatalf("binary = %q", got)
+	}
+	if got := srv.Reactions(); len(got) != 0 {
+		t.Fatalf("reactions = %v without a token", got)
+	}
+}
+
+func TestUpdateOfARepositoryWithoutRelease(t *testing.T) {
+	for _, args := range [][]string{nil, {"--check"}, {"--force"}} {
+		srv := testUpdateServer(t)
+		srv.Release = nil
+		env, target := testUpdateEnv(t, srv, testCurrent)
+		out, err := runUpdateCmd(t, env, args...)
+		if want := "✓ airlock " + testCurrent + " is up to date\n"; err != nil || out != want {
+			t.Errorf("%v: out = %q, %v, want %q", args, out, err, want)
+		}
+		if got := readTarget(t, target); got != "old airlock" {
+			t.Errorf("%v: the binary changed: %q", args, got)
+		}
 	}
 }
 

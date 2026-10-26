@@ -10,7 +10,7 @@ import (
 
 var noticeTime = time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 
-func saveTestCache(t *testing.T, env updateEnv, c selfupdate.Cache) {
+func saveTestCache(t *testing.T, env *updateEnv, c selfupdate.Cache) {
 	t.Helper()
 	path, err := env.cacheFile()
 	if err != nil {
@@ -65,6 +65,18 @@ func TestRefreshUpdateCheckWritesTheCache(t *testing.T) {
 	latest, stale := updateNotice(env, time.Now())
 	if latest != testLatest || stale {
 		t.Fatalf("after a refresh: updateNotice = %q, %v", latest, stale)
+	}
+}
+
+func TestRefreshUpdateCheckOfARepositoryWithoutRelease(t *testing.T) {
+	srv := testUpdateServer(t)
+	srv.Release = nil
+	env, _ := testUpdateEnv(t, srv, testCurrent)
+	if err := refreshUpdateCheck(context.Background(), env); err != nil {
+		t.Fatal(err)
+	}
+	if latest, stale := updateNotice(env, time.Now()); latest != "" || stale {
+		t.Fatalf("without release: updateNotice = %q, %v, want no notice and a fresh check", latest, stale)
 	}
 }
 

@@ -38,7 +38,8 @@ type Asset struct {
 	URL  string `json:"url"`
 }
 
-// Client reads the releases of one GitHub repository (owner/repo) with a token.
+// Client reads the releases of one GitHub repository (owner/repo), with a token or, when Token is
+// empty, anonymously.
 type Client struct {
 	HTTP       *http.Client
 	BaseURL    string
@@ -67,9 +68,15 @@ func dropTokenOnOtherHost(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-var errNotFound = errors.New("not found")
+var (
+	errNotFound  = errors.New("not found")
+	errNoRelease = errors.New("has no release yet")
+)
 
 func (c *Client) accessError() error {
+	if c.Token == "" {
+		return fmt.Errorf("cannot read releases of %s: %w", c.Repository, ErrNoToken)
+	}
 	return fmt.Errorf("cannot read releases of %s: check the token can access it", c.Repository)
 }
 
@@ -89,7 +96,7 @@ func (c *Client) get(ctx context.Context, target, accept string) (body []byte, e
 		return nil, err
 	}
 	req.Header.Set("Accept", accept)
-	if c.sameHostAsAPI(req.URL) {
+	if c.Token != "" && c.sameHostAsAPI(req.URL) {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -157,7 +164,7 @@ func (c *Client) LatestRelease(ctx context.Context) (Release, error) {
 			}
 			return Release{}, repoErr
 		}
-		return Release{}, fmt.Errorf("%s has no release yet", c.Repository)
+		return Release{}, fmt.Errorf("%s %w", c.Repository, errNoRelease)
 	}
 	if err != nil {
 		return Release{}, err

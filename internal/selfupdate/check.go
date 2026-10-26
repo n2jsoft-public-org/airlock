@@ -2,6 +2,7 @@ package selfupdate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -22,9 +23,13 @@ type Result struct {
 	Release Release
 }
 
-// Check finds the latest release and tells how the running build compares with it.
+// Check finds the latest release and tells how the running build compares with it. A repository
+// without a release yet leaves the running build up to date, with no Latest.
 func (u Updater) Check(ctx context.Context) (Result, error) {
 	release, err := u.Client.LatestRelease(ctx)
+	if errors.Is(err, errNoRelease) {
+		return Result{Current: u.Current, Status: StatusUpToDate}, nil
+	}
 	if err != nil {
 		return Result{}, err
 	}

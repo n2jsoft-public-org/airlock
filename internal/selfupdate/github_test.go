@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,5 +143,39 @@ func TestDownloadFromAnotherHostSendsNoToken(t *testing.T) {
 	}
 	if foreignAuth != "" {
 		t.Fatalf("a foreign host received an Authorization header: %q", foreignAuth)
+	}
+}
+
+func TestLatestReleaseAnonymouslyFromAPublicRepository(t *testing.T) {
+	srv := selfupdatetest.NewServer(t, testRelease(t))
+	srv.Public = true
+	release, err := NewClient(srv.URL, selfupdatetest.Repository, "").LatestRelease(context.Background())
+	if err != nil || release.Tag != "v1.4.0" {
+		t.Fatalf("LatestRelease = %+v, %v", release, err)
+	}
+}
+
+func TestLatestReleaseAnonymouslyFromAPrivateRepository(t *testing.T) {
+	srv := selfupdatetest.NewServer(t, testRelease(t))
+	_, err := NewClient(srv.URL, selfupdatetest.Repository, "").LatestRelease(context.Background())
+	if !errors.Is(err, ErrNoToken) || err.Error() != "cannot read releases of acme/airlock: "+ErrNoToken.Error() {
+		t.Fatalf("error = %v, want ErrNoToken", err)
+	}
+}
+
+func TestAnonymousClientSendsNoAuthorization(t *testing.T) {
+	var auth []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		if _, err := w.Write([]byte(`{"tag_name":"v1.4.0"}`)); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer srv.Close()
+	if _, err := NewClient(srv.URL, "acme/airlock", "").LatestRelease(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(auth) != 1 || auth[0] != "" {
+		t.Fatalf("Authorization headers = %q, want none", auth)
 	}
 }
