@@ -1,5 +1,6 @@
-# The pull request gate. `pr-ruleset` is the required status check of the ruleset
-# "PR review settings and checks": rename that job and pull requests wait forever.
+# The pull request gate. `pr-ruleset` is the status check that the protection of `main` requires,
+# with one approving review, before a pull request merges: rename that job and pull requests wait
+# forever. Pull requests from forks run here too, once a maintainer approves their workflows.
 name: ci
 
 on:

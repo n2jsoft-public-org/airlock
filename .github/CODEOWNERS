@@ -1,0 +1,5 @@
+# Code owners are asked to review the pull requests that touch their paths. The last match wins.
+* @Oleexo @scadorel
+
+# Workflows and repository files: they run with the repository's tokens and publish releases.
+/.github/ @Oleexo

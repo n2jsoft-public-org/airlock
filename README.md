@@ -8,6 +8,8 @@ Databases, **EKS** clusters, caches, **DynamoDB** tables, **S3** buckets and **C
 reached through an SSM jumphost, directly, in Docker or through the AWS API. Your tools connect on
 `localhost`, with IntelliJ data sources; your AI assistants get guarded, audited **MCP** tools.
 
+[![Release](https://img.shields.io/github/v/release/n2jsoft-public-org/airlock)](https://github.com/n2jsoft-public-org/airlock/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-SSM%20Session%20Manager-FF9900?logo=amazonwebservices&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-ready-7C3AED)
@@ -17,11 +19,23 @@ reached through an SSM jumphost, directly, in Docker or through the AWS API. You
 [Quick start](#-quick-start) ·
 [How it works](#-how-it-works) ·
 [Documentation](#-documentation) ·
-[Contributing](CONTRIBUTING.md)
+[Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md)
 
 </div>
 
 ---
+
+airlock is a single command-line tool for teams whose databases, Kubernetes clusters and caches
+live in private networks on AWS. Instead of a VPN, SSH bastions or hand-written
+`aws ssm start-session` commands, you run `airlock`, pick a target, and get it on `localhost`,
+signed in with your own AWS profiles. The same connection becomes a set of MCP tools for AI assistants (Claude
+Code, VS Code, Codex, Cursor, Gemini CLI), read-only unless you allow writes, with every call shown
+live and logged.
+
+It is for developers and operators who work with AWS, and for anyone who wants their AI assistant
+to query a database without handing it a password. Without AWS, it still serves databases you reach
+directly or run in Docker.
 
 ## ✨ Features
 
@@ -68,8 +82,12 @@ Something not working? Run `airlock doctor` ([Troubleshooting](docs/troubleshoot
 Installer options, manual install, building from source, updating and uninstalling: see
 [Installing and updating](docs/install.md).
 
-**3. Configure, only if needed.** airlock needs no config file: it finds the jumphost of each AWS
-account by its tag, `Usage=jumphost` by default. If yours carries another tag, set it once:
+The first `airlock` in a terminal asks a few settings (language, production profiles, AI clients):
+see [First launch](docs/first-run.md). Each session also serves an MCP server to your AI assistants:
+see [AI access with MCP](docs/mcp.md).
+
+**3. Configure, only if needed.** Everything else has defaults: airlock finds the jumphost of each
+AWS account by its tag, `Usage=jumphost` by default. If yours carries another tag, set it once:
 
 ```sh
 airlock config set aws.jumphostTag Key=Value
@@ -153,6 +171,7 @@ airlock doctor                       # check the installation, the config and th
 
 | Page | What it covers |
 |---|---|
+| [First launch](docs/first-run.md) | The setup wizard of the first run, `airlock setup` |
 | [Installing and updating](docs/install.md) | Prerequisites, installer options, manual install, build from source, shell completion, `airlock update`, install tracking, `airlock uninstall` |
 | [Connecting](docs/connecting.md) | Commands and flags, the wizard, regions, MFA profiles, database sign-in and the OS keychain, EKS, forwarding any host, parallel sessions and their keys, helper commands |
 | [Running commands and project stacks](docs/exec-and-stacks.md) | `airlock exec`, `.airlock.json`, `airlock up` and `airlock down` |
@@ -167,11 +186,14 @@ airlock doctor                       # check the installation, the config and th
 
 ## 🛠 Contributing
 
-Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) to build airlock, run the checks
-and name your pull request.
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) to build airlock, run the checks,
+sign off your commits and name your pull request. Bugs and feature requests go to
+[issues](https://github.com/n2jsoft-public-org/airlock/issues), vulnerabilities to
+[SECURITY.md](SECURITY.md), never to a public issue. Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## 📄 License
 
-airlock is licensed under the [Apache License 2.0](LICENSE). Release archives also ship
+airlock is licensed under the [Apache License 2.0](LICENSE), copyright 2026 n2jsoft. Release archives also ship
 [NOTICE](NOTICE) and `THIRD_PARTY_LICENSES`, the licenses of the Go modules compiled into airlock
 (`make licenses` writes it).
