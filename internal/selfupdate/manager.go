@@ -4,6 +4,7 @@ import (
 	"go/build"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -25,23 +26,24 @@ func ManagerOf(exe string) (Manager, bool) {
 }
 
 func managerOf(exe, goos string, goBins []string, systemPackage func() string) (Manager, bool) {
-	path := strings.ToLower(strings.ReplaceAll(exe, `\`, "/"))
-	dir := filepath.Dir(exe)
+	// Slashes whatever the host, so the families of another OS are matched alike (and testable).
+	slashed := strings.ReplaceAll(exe, `\`, "/")
+	lower := strings.ToLower(slashed)
 	switch {
-	case strings.Contains(path, "/caskroom/") || strings.Contains(path, "/cellar/") || strings.Contains(path, "/home/linuxbrew/"):
+	case strings.Contains(lower, "/caskroom/") || strings.Contains(lower, "/cellar/") || strings.Contains(lower, "/home/linuxbrew/"):
 		return Manager{Name: "Homebrew", Update: "brew upgrade airlock", Uninstall: "brew uninstall airlock"}, true
-	case strings.Contains(path, "/scoop/apps/"):
+	case strings.Contains(lower, "/scoop/apps/"):
 		return Manager{Name: "Scoop", Update: "scoop update airlock", Uninstall: "scoop uninstall airlock"}, true
-	case strings.Contains(path, "/winget/packages/"):
+	case strings.Contains(lower, "/winget/packages/"):
 		return Manager{Name: "winget", Update: "winget upgrade --id N2JSoft.Airlock", Uninstall: "winget uninstall --id N2JSoft.Airlock"}, true
-	case slices.ContainsFunc(goBins, func(bin string) bool { return samePath(bin, dir, goos) }):
+	case slices.ContainsFunc(goBins, func(bin string) bool { return samePath(bin, filepath.Dir(exe), goos) }):
 		remove := "rm "
 		if goos == "windows" {
 			remove = "del "
 		}
 		return Manager{Name: "go install", Update: "go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest",
 			Uninstall: remove + `"` + exe + `"`}, true
-	case goos == "linux" && (dir == "/usr/bin" || dir == "/usr/local/bin"):
+	case goos == "linux" && (path.Dir(slashed) == "/usr/bin" || path.Dir(slashed) == "/usr/local/bin"):
 		switch systemPackage() {
 		case "deb":
 			return Manager{Name: "apt", Update: "sudo apt install --only-upgrade airlock", Uninstall: "sudo apt remove airlock"}, true
