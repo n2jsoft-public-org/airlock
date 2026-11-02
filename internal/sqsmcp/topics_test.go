@@ -1,9 +1,11 @@
 package sqsmcp
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 )
 
@@ -68,5 +70,16 @@ func TestGetSubscriptionReportsFilterAndRawDelivery(t *testing.T) {
 	if *f.subAttrs.SubscriptionArn != arn || out.FilterPolicy != `{"type":["paid"]}` || !out.RawMessageDelivery || out.Pending ||
 		out.TopicARN != ordersARN || out.Protocol != "sqs" || out.Attributes["Owner"] != "1" || len(out.Attributes) != 1 {
 		t.Fatalf("out = %+v", out)
+	}
+}
+
+func TestGetTopicSurvivesDeniedTagsAndPagesSubscriptions(t *testing.T) {
+	f := &fakeSNS{topics: []string{ordersARN}, attrs: map[string]string{}, tagsErr: errors.New("denied tags"), subsNext: "n2"}
+	out, err := newTopics(f).Get(t.Context(), &topicInput{Topic: ordersARN, SubscriptionsStart: "n1"})
+	if err != nil || out.Tags != nil || len(out.Warnings) != 1 || !strings.HasPrefix(out.Warnings[0], "tags: ") {
+		t.Fatalf("out = %+v, err = %v", out, err)
+	}
+	if aws.ToString(f.subsIn.NextToken) != "n1" || out.SubscriptionsNext != "n2" {
+		t.Fatalf("token in = %v, next = %q", f.subsIn.NextToken, out.SubscriptionsNext)
 	}
 }

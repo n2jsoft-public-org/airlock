@@ -66,9 +66,12 @@ type peekOutput struct {
 	MaxReceiveCount int             `json:"max_receive_count,omitempty"`
 }
 
-const peekNote = "Each message read counted as a receive. A message already at its maximum was moved to the dead-letter queue by this read " +
-	"and is not listed. On a standard queue this is a sample, not the whole queue, and a busy queue may return nothing. Do not read at_limit messages again: " +
-	"repost_message can reset them once the user agrees."
+const (
+	peekHead = "Each message read counted as a receive. "
+	peekTail = "On a standard queue this is a sample, not the whole queue, and a busy queue may return nothing. Do not read at_limit messages again: " +
+		"repost_message can reset them once the user agrees."
+	peekDLQ = "A message already at its maximum was moved to the dead-letter queue by this read and is not listed. "
+)
 
 // cut keeps at most maxBodyBytes of body, on a rune boundary, and marks the cut.
 func cut(body string) (string, bool) {
@@ -134,7 +137,11 @@ func (q *queues) Peek(ctx context.Context, in *peekInput) (peekOutput, error) {
 	if err != nil {
 		return peekOutput{}, mcpserve.AWSError(err)
 	}
-	out := peekOutput{Queue: name, MaxReceiveCount: limit, Note: peekNote, Messages: make([]peekedMessage, 0, len(got.Messages))}
+	note := peekHead + peekTail
+	if policy != nil {
+		note = peekHead + peekDLQ + peekTail
+	}
+	out := peekOutput{Queue: name, MaxReceiveCount: limit, Note: note, Messages: make([]peekedMessage, 0, len(got.Messages))}
 	for i := range got.Messages {
 		m := &got.Messages[i]
 		count, _ := strconv.Atoi(m.Attributes[string(types.MessageSystemAttributeNameApproximateReceiveCount)]) //nolint:errcheck // 0 stands for missing.
@@ -148,7 +155,8 @@ func (q *queues) Peek(ctx context.Context, in *peekInput) (peekOutput, error) {
 		if len(m.MessageAttributes) > 0 {
 			p.Attributes = make(map[string]string, len(m.MessageAttributes))
 			for k, v := range m.MessageAttributes {
-				p.Attributes[k] = attributeText(v)
+				text, cutText := cut(attributeText(v))
+				p.Attributes[k], p.Truncated = text, p.Truncated || cutText
 			}
 		}
 		if policy != nil {
@@ -186,11 +194,13 @@ func (q *queues) Repost(ctx context.Context, in *repostInput) (repostOutput, err
 	if err != nil {
 		return repostOutput{}, err
 	}
-	m, ok := q.cache.get(u, in.MessageID)
+	// take, not get: concurrent calls must not both send a copy.
+	m, ok := q.cache.take(u, in.MessageID)
 	if !ok {
 		return repostOutput{}, fmt.Errorf("message %s was not read by this session, or is no longer remembered: peek_messages it again", in.MessageID)
 	}
 	if !m.AtLimit {
+		q.cache.put(m)
 		return repostOutput{}, fmt.Errorf("message %s is not at its receive limit: only at_limit messages can be reposted", in.MessageID)
 	}
 	send := &sqs.SendMessageInput{QueueUrl: aws.String(u), MessageBody: aws.String(m.Body), MessageAttributes: m.Attributes}
@@ -199,19 +209,24 @@ func (q *queues) Repost(ctx context.Context, in *repostInput) (repostOutput, err
 			string(types.MessageSystemAttributeNameAWSTraceHeader): {DataType: aws.String("String"), StringValue: aws.String(m.TraceHeader)},
 		}
 	}
+	if m.GroupID != "" {
+		send.MessageGroupId = aws.String(m.GroupID)
+	}
 	if strings.HasSuffix(u, ".fifo") {
 		id := make([]byte, 16)
 		if _, err = rand.Read(id); err != nil {
+			q.cache.put(m)
 			return repostOutput{}, fmt.Errorf("generate deduplication id: %w", err)
 		}
-		send.MessageGroupId, send.MessageDeduplicationId = aws.String(m.GroupID), aws.String(hex.EncodeToString(id))
+		send.MessageDeduplicationId = aws.String(hex.EncodeToString(id))
 	}
-	sent, err := q.api.SendMessage(ctx, send)
+	// One attempt only: a retry after a lost response would send a second copy.
+	sent, err := q.api.SendMessage(ctx, send, func(o *sqs.Options) { o.RetryMaxAttempts = 1 })
 	if err != nil {
-		return repostOutput{}, mcpserve.AWSError(err)
+		q.cache.put(m)
+		return repostOutput{}, fmt.Errorf("the copy may have been sent: check the queue before trying again (%w)", mcpserve.AWSError(err))
 	}
-	// The copy exists: a second repost would duplicate it, so forget the original whatever the delete says.
-	q.cache.remove(u, in.MessageID)
+	// The copy exists and the message stays forgotten (taken above), whatever the delete says.
 	out := repostOutput{MessageID: aws.ToString(sent.MessageId), Note: repostNote}
 	if _, err := q.api.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(u), ReceiptHandle: aws.String(m.ReceiptHandle)}); err != nil {
 		out.DeleteError = mcpserve.AWSError(err).Error()

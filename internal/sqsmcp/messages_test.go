@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
@@ -257,5 +258,88 @@ func TestRepostTwiceIsRefused(t *testing.T) {
 	_, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"})
 	if err == nil || !strings.Contains(err.Error(), "peek_messages it again") || f.calls["SendMessage"] != 1 {
 		t.Fatalf("err = %v, sends = %d", err, f.calls["SendMessage"])
+	}
+}
+
+func TestRepostConcurrentCallsSendOnce(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, nil)
+	f.sendGate = make(chan struct{})
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := q.Repost(t.Context(), &repostInput{Queue: peekURL, MessageID: "a"})
+			errs <- err
+		}()
+	}
+	// The loser fails at once; the winner waits in SendMessage.
+	first := <-errs
+	close(f.sendGate)
+	second := <-errs
+	if (first == nil) == (second == nil) {
+		t.Fatalf("errs = %v, %v: want exactly one failure", first, second)
+	}
+	loser := first
+	if loser == nil {
+		loser = second
+	}
+	if !strings.Contains(loser.Error(), "peek_messages it again") || f.calls["SendMessage"] != 1 {
+		t.Fatalf("loser = %v, sends = %d", loser, f.calls["SendMessage"])
+	}
+}
+
+func TestRepostFailedSendKeepsTheMessageAndWarnsTheCopyMayExist(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, nil)
+	f.sendErr = errors.New("timeout")
+	_, err := q.Repost(t.Context(), &repostInput{Queue: peekURL, MessageID: "a"})
+	if err == nil || !strings.Contains(err.Error(), "may have been sent") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := q.cache.get(peekURL, "a"); !ok {
+		t.Fatal("the message must stay cached after a failed send")
+	}
+	var o sqs.Options
+	for _, fn := range f.sendOpts {
+		fn(&o)
+	}
+	if o.RetryMaxAttempts != 1 {
+		t.Fatalf("RetryMaxAttempts = %d, want 1", o.RetryMaxAttempts)
+	}
+}
+
+func TestRepostKeepsTheGroupOnAStandardQueueWithoutDeduplicationID(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, func(m *types.Message) { m.Attributes["MessageGroupId"] = "g1" })
+	if _, err := q.Repost(t.Context(), &repostInput{Queue: peekURL, MessageID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if aws.ToString(f.sendIn.MessageGroupId) != "g1" || f.sendIn.MessageDeduplicationId != nil {
+		t.Fatalf("group %v dedup %v", f.sendIn.MessageGroupId, f.sendIn.MessageDeduplicationId)
+	}
+}
+
+func TestPeekCutsLongAttributeValues(t *testing.T) {
+	m := msg("a", "x", 1)
+	m.MessageAttributes = map[string]types.MessageAttributeValue{"big": {StringValue: aws.String(strings.Repeat("y", maxBodyBytes+5))}}
+	f := &fakeSQS{queueURL: peekURL, messages: []types.Message{m}}
+	out, err := newQueues(f).Peek(t.Context(), &peekInput{Queue: "orders"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.Messages[0]
+	if !got.Truncated || !strings.HasSuffix(got.Attributes["big"], truncatedSuffix) || len(got.Attributes["big"]) > maxBodyBytes+len(truncatedSuffix) {
+		t.Fatalf("truncated %v, len %d", got.Truncated, len(got.Attributes["big"]))
+	}
+}
+
+func TestPeekNoteMentionsTheDeadLetterQueueOnlyWithARedrivePolicy(t *testing.T) {
+	const dlq = "moved to the dead-letter queue"
+	with := &fakeSQS{queueURL: peekURL, attrs: redriveAttrs(5)}
+	out, err := newQueues(with).Peek(t.Context(), &peekInput{Queue: "orders"})
+	if err != nil || !strings.Contains(out.Note, dlq) {
+		t.Fatalf("note = %q, err = %v", out.Note, err)
+	}
+	without := &fakeSQS{queueURL: peekURL}
+	out, err = newQueues(without).Peek(t.Context(), &peekInput{Queue: "orders"})
+	if err != nil || strings.Contains(out.Note, dlq) {
+		t.Fatalf("note = %q, err = %v", out.Note, err)
 	}
 }

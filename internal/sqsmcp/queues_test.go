@@ -1,7 +1,9 @@
 package sqsmcp
 
 import (
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -81,5 +83,20 @@ func TestGetParsesAttributesRedriveTagsAndSources(t *testing.T) {
 	}
 	if !slices.Equal(f.attrsIn.AttributeNames, []types.QueueAttributeName{types.QueueAttributeNameAll}) {
 		t.Fatalf("names = %v", f.attrsIn.AttributeNames)
+	}
+}
+
+func TestGetQueueSurvivesDeniedOptionalCalls(t *testing.T) {
+	f := &fakeSQS{
+		queueURL: "https://sqs.eu-west-3.amazonaws.com/1/orders",
+		attrs:    map[string]string{"ApproximateNumberOfMessages": "12", "SqsManagedSseEnabled": "true"},
+		tagsErr:  errors.New("denied tags"), sourceErr: errors.New("denied sources"),
+	}
+	out, err := newQueues(f).Get(t.Context(), &queueInput{Queue: "https://sqs.eu-west-3.amazonaws.com/1/orders"})
+	if err != nil || out.Visible != 12 || out.Tags != nil || out.SourceQueues != nil || !out.SQSManagedSSE {
+		t.Fatalf("out = %+v, err = %v", out, err)
+	}
+	if len(out.Warnings) != 2 || !strings.HasPrefix(out.Warnings[0], "tags: ") || !strings.HasPrefix(out.Warnings[1], "source queues: ") {
+		t.Fatalf("warnings = %v", out.Warnings)
 	}
 }

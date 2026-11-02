@@ -97,7 +97,8 @@ func (t *topics) arn(ctx context.Context, topic string) (string, error) {
 }
 
 type topicInput struct {
-	Topic string `json:"topic" jsonschema:"topic ARN or name"`
+	Topic              string `json:"topic" jsonschema:"topic ARN or name"`
+	SubscriptionsStart string `json:"subscriptions_start,omitempty" jsonschema:"subscriptions_next of a previous call, for the next page of subscriptions"`
 }
 
 type subscriptionSummary struct {
@@ -117,6 +118,7 @@ type topicOutput struct {
 	SubscriptionsNext string                `json:"subscriptions_next,omitempty"`
 	Attributes        map[string]string     `json:"attributes,omitempty"`
 	Tags              map[string]string     `json:"tags,omitempty"`
+	Warnings          []string              `json:"warnings,omitempty"`
 	Subscriptions     []subscriptionSummary `json:"subscriptions"`
 	FIFO              bool                  `json:"fifo"`
 }
@@ -130,21 +132,22 @@ func (t *topics) Get(ctx context.Context, in *topicInput) (topicOutput, error) {
 	if err != nil {
 		return topicOutput{}, mcpserve.AWSError(err)
 	}
-	subs, err := t.api.ListSubscriptionsByTopic(ctx, &sns.ListSubscriptionsByTopicInput{TopicArn: aws.String(arn)})
+	subs, err := t.api.ListSubscriptionsByTopic(ctx, &sns.ListSubscriptionsByTopicInput{TopicArn: aws.String(arn), NextToken: optional(in.SubscriptionsStart)})
 	if err != nil {
 		return topicOutput{}, mcpserve.AWSError(err)
 	}
+	var warnings []string
 	tags, err := t.api.ListTagsForResource(ctx, &sns.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
-	if err != nil {
-		return topicOutput{}, mcpserve.AWSError(err)
+	if err != nil { // best effort: a role without tag access still gets the topic.
+		warnings, tags = append(warnings, "tags: "+mcpserve.AWSError(err).Error()), &sns.ListTagsForResourceOutput{}
 	}
 	a := attrs.Attributes
 	res := topicOutput{
 		ARN: arn, Name: topicName(arn), FIFO: a["FifoTopic"] == "true",
 		DisplayName: a["DisplayName"], KMSKey: a["KmsMasterKeyId"], Policy: a["Policy"], DeliveryPolicy: a["DeliveryPolicy"],
 		Attributes:        rest(a, "TopicArn", "DisplayName", "FifoTopic", "KmsMasterKeyId", "Policy", "DeliveryPolicy"),
-		SubscriptionsNext: aws.ToString(subs.NextToken),
-		Subscriptions:     make([]subscriptionSummary, 0, len(subs.Subscriptions)),
+		SubscriptionsNext: aws.ToString(subs.NextToken), Warnings: warnings,
+		Subscriptions: make([]subscriptionSummary, 0, len(subs.Subscriptions)),
 	}
 	for _, s := range subs.Subscriptions {
 		sa := aws.ToString(s.SubscriptionArn)

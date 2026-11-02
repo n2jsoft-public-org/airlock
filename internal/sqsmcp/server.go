@@ -74,7 +74,8 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_queue", Annotations: readOnly,
 		Description: "Read the configuration of a queue by name or URL: message counts (visible, in flight, delayed), timeouts, " +
-			"retention, encryption, dead-letter redrive policy, access policy, tags and the queues using it as dead-letter queue.",
+			"retention, encryption, dead-letter redrive policy, access policy, tags and the queues using it as dead-letter queue. " +
+			"Tags and source queues are optional: a missing permission shows up in warnings.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queueInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
@@ -99,7 +100,8 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_topic", Annotations: readOnly,
 		Description: "Read a topic by name or ARN: FIFO, encryption, access and delivery policies, tags and its subscriptions " +
-			"(protocol, endpoint, pending confirmation; first page, continue with get_subscription for the details of one).",
+			"(protocol, endpoint, pending confirmation; first page, continue with subscriptions_start set to subscriptions_next, " +
+			"and use get_subscription for the details of one). Tags are optional: a missing permission shows up in warnings.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in topicInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
@@ -111,7 +113,8 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_subscription", Annotations: readOnly,
-		Description: "Read a subscription by ARN: topic, protocol, endpoint, filter policy and scope, raw message delivery, redrive policy.",
+		Description: "Read a subscription by ARN: topic, protocol, endpoint, filter policy and scope, raw message delivery, redrive policy. " +
+			"A subscription pending confirmation has no ARN yet (\"PendingConfirmation\") and cannot be read with it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in subscriptionInput) (*mcp.CallToolResult, any, error) {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()

@@ -137,6 +137,7 @@ type queueOutput struct {
 	RedriveAllowPolicy        string            `json:"redrive_allow_policy,omitempty"`
 	Policy                    string            `json:"policy,omitempty"`
 	Tags                      map[string]string `json:"tags,omitempty"`
+	Warnings                  []string          `json:"warnings,omitempty"`
 	RedrivePolicy             *redrive          `json:"redrive_policy,omitempty"`
 	SourceQueues              []string          `json:"source_queues,omitempty"`
 	Visible                   int64             `json:"visible"`
@@ -148,6 +149,7 @@ type queueOutput struct {
 	MaxMessageBytes           int               `json:"max_message_bytes"`
 	ReceiveWait               int               `json:"receive_wait_seconds"`
 	FIFO                      bool              `json:"fifo"`
+	SQSManagedSSE             bool              `json:"sqs_managed_sse"`
 	ContentBasedDeduplication bool              `json:"content_based_deduplication"`
 }
 
@@ -168,13 +170,15 @@ func (q *queues) Get(ctx context.Context, in *queueInput) (queueOutput, error) {
 	if err != nil {
 		return queueOutput{}, mcpserve.AWSError(err)
 	}
+	// Tags and source queues are best effort: a role without those permissions still gets the rest.
+	var warnings []string
 	tags, err := q.api.ListQueueTags(ctx, &sqs.ListQueueTagsInput{QueueUrl: aws.String(u)})
 	if err != nil {
-		return queueOutput{}, mcpserve.AWSError(err)
+		warnings, tags = append(warnings, "tags: "+mcpserve.AWSError(err).Error()), &sqs.ListQueueTagsOutput{}
 	}
 	sources, err := q.api.ListDeadLetterSourceQueues(ctx, &sqs.ListDeadLetterSourceQueuesInput{QueueUrl: aws.String(u)})
 	if err != nil {
-		return queueOutput{}, mcpserve.AWSError(err)
+		warnings, sources = append(warnings, "source queues: "+mcpserve.AWSError(err).Error()), &sqs.ListDeadLetterSourceQueuesOutput{}
 	}
 	a := attrs.Attributes
 	policy, err := parseRedrive(a[string(types.QueueAttributeNameRedrivePolicy)])
@@ -199,5 +203,7 @@ func (q *queues) Get(ctx context.Context, in *queueInput) (queueOutput, error) {
 		Policy:                    a[string(types.QueueAttributeNamePolicy)],
 		Tags:                      tags.Tags,
 		SourceQueues:              sources.QueueUrls,
+		Warnings:                  warnings,
+		SQSManagedSSE:             a[string(types.QueueAttributeNameSqsManagedSseEnabled)] == "true",
 	}, nil
 }

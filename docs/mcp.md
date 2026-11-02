@@ -213,7 +213,13 @@ really failing on it (it will not reach the dead-letter queue this time); on a F
 the end of its group. The original was visible since the read: a consumer may have received it, so
 it may survive as a duplicate, in the queue or its dead-letter queue. The result gives the new
 message ID and whether SQS accepted the delete, never a promise that the original is gone. The
-assistant is told to confirm with you first.
+assistant is told to confirm with you first. A message can be reposted once per read: a repeat is
+refused until it is peeked again, and a failed send keeps it (the copy may still exist, so check the
+queue before trying again).
+
+`get_queue` and `get_topic` treat tags (and, for queues, the source queues) as optional: without the
+permission they still answer and list the gap in `warnings`. `get_topic` returns the first page of
+subscriptions; pass its `subscriptions_next` as `subscriptions_start` for the next one.
 
 The profile needs `sqs:ListQueues` (to open the session), `sqs:GetQueueUrl`,
 `sqs:GetQueueAttributes`, `sqs:ListQueueTags`, `sqs:ListDeadLetterSourceQueues`, `sns:ListTopics`,
@@ -226,7 +232,7 @@ key). `--no-mcp` is refused.
 
 The server is registered as `<prefix>-<profile>-<instance>` for a database,
 `<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
-cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB, `<prefix>-<profile>-s3` for S3 `<prefix>-<profile>-logs-<region>` for CloudWatch Logs and `<prefix>-<profile>-sqs-<region>` for SQS and SNS (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
+cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB, `<prefix>-<profile>-s3` for S3, `<prefix>-<profile>-logs-<region>` for CloudWatch Logs and `<prefix>-<profile>-sqs-<region>` for SQS and SNS (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
 name never share one, in the configuration of the AI clients chosen by `mcp.clients` (or
 `--mcp-clients`):
 
@@ -351,7 +357,7 @@ and the secret ARN only. Read-only mode rests on the query guard, on a read-only
 
 **Write access.** `--mcp-allow-writes`, or the `MCP` toggle on the review step, adds the destructive
 `execute` tool (for DynamoDB, the `put_item`, `update_item` and `delete_item` tools; for S3,
-`put_object` and `delete_object`: see their tables). The server still signs in as the chosen user,
+`put_object` and `delete_object`; for SQS, `peek_messages` and `repost_message`: see their tables). The server still signs in as the chosen user,
 so pick a user that is allowed to write: its grants decide what can change. With **Auto**, SQL
 Server switches to the RDS master user secret (administrators only). `--no-mcp` disables the server
 entirely.

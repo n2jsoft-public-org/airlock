@@ -41,6 +41,19 @@ func (c *readCache) get(queueURL, messageID string) (*readMessage, bool) {
 	return m, ok
 }
 
+// take gets and forgets a message in one step, so two callers cannot both act on it.
+func (c *readCache) take(queueURL, messageID string) (*readMessage, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	k := cacheKey(queueURL, messageID)
+	m, ok := c.items[k]
+	if ok {
+		delete(c.items, k)
+		c.order = slices.DeleteFunc(c.order, func(o string) bool { return o == k })
+	}
+	return m, ok
+}
+
 // remove forgets a message, so it cannot be acted on again.
 func (c *readCache) remove(queueURL, messageID string) {
 	c.mu.Lock()
