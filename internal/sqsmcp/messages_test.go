@@ -2,6 +2,8 @@ package sqsmcp
 
 import (
 	"encoding/json"
+	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -128,5 +130,121 @@ func TestPeekRecordsNoBody(t *testing.T) {
 	raw, _ := json.Marshal(e) //nolint:errcheck // test.
 	if strings.Contains(string(raw), "SECRET") {
 		t.Fatalf("event carries content: %s", raw)
+	}
+}
+
+const fifoURL = "https://sqs.eu-west-3.amazonaws.com/1/orders.fifo"
+
+// atLimitQueue peeks one at-limit message "a" so it is cached; mutate may adjust the message first.
+func atLimitQueue(t *testing.T, url string, mutate func(*types.Message)) (*queues, *fakeSQS) {
+	t.Helper()
+	m := msg("a", strings.Repeat("x", maxBodyBytes+10), 5)
+	if mutate != nil {
+		mutate(&m)
+	}
+	f := &fakeSQS{queueURL: url, attrs: redriveAttrs(5), messages: []types.Message{m}}
+	q := newQueues(f)
+	if _, err := q.Peek(t.Context(), &peekInput{Queue: url}); err != nil {
+		t.Fatal(err)
+	}
+	return q, f
+}
+
+func TestRepostRefusesAMessageNotRead(t *testing.T) {
+	f := &fakeSQS{queueURL: peekURL}
+	_, err := newQueues(f).Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "zz"})
+	if err == nil || !strings.Contains(err.Error(), "peek_messages it again") || f.calls["SendMessage"] != 0 {
+		t.Fatalf("err = %v, sends = %d", err, f.calls["SendMessage"])
+	}
+}
+
+func TestRepostRefusesAMessageNotAtLimit(t *testing.T) {
+	f := &fakeSQS{queueURL: peekURL, attrs: redriveAttrs(5), messages: []types.Message{msg("a", "x", 1)}}
+	q := newQueues(f)
+	if _, err := q.Peek(t.Context(), &peekInput{Queue: "orders"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"})
+	if err == nil || !strings.Contains(err.Error(), "not at its receive limit") || f.calls["SendMessage"] != 0 {
+		t.Fatalf("err = %v, sends = %d", err, f.calls["SendMessage"])
+	}
+}
+
+func TestRepostSendsTheCachedCopyThenDeletes(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, func(m *types.Message) {
+		m.MessageAttributes = map[string]types.MessageAttributeValue{"blob": {DataType: aws.String("Binary"), BinaryValue: []byte{1, 2, 3}}}
+		m.Attributes["AWSTraceHeader"] = "Root=1-abc"
+	})
+	out, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := f.sendIn
+	if aws.ToString(in.MessageBody) != strings.Repeat("x", maxBodyBytes+10) || string(in.MessageAttributes["blob"].BinaryValue) != "\x01\x02\x03" {
+		t.Fatalf("send body/attributes wrong: len %d", len(aws.ToString(in.MessageBody)))
+	}
+	if tr := in.MessageSystemAttributes["AWSTraceHeader"]; aws.ToString(tr.StringValue) != "Root=1-abc" || aws.ToString(tr.DataType) != "String" {
+		t.Fatalf("trace = %+v", tr)
+	}
+	if aws.ToString(f.deleteIn.ReceiptHandle) != "rh-a" || aws.ToString(f.deleteIn.QueueUrl) != peekURL {
+		t.Fatalf("delete = %+v", f.deleteIn)
+	}
+	if !slices.Equal(f.order[len(f.order)-2:], []string{"SendMessage", "DeleteMessage"}) {
+		t.Fatalf("order = %v", f.order)
+	}
+	if !out.DeleteAccepted || out.MessageID != "a" || out.Note == "" {
+		t.Fatalf("out = %+v", out)
+	}
+}
+
+func TestRepostDoesNotDeleteWhenTheSendFails(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, nil)
+	f.sendErr = errors.New("boom")
+	if _, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"}); err == nil {
+		t.Fatal("no error")
+	}
+	if f.calls["DeleteMessage"] != 0 {
+		t.Fatal("DeleteMessage called after a failed send")
+	}
+}
+
+func TestRepostReportsAFailedDeleteWithoutFailing(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, nil)
+	f.deleteErr = errors.New("expired")
+	out, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"})
+	if err != nil || out.DeleteAccepted || out.DeleteError != "expired" || out.Note == "" {
+		t.Fatalf("out = %+v, err = %v", out, err)
+	}
+}
+
+func TestRepostOnFIFOUsesTheGroupAndANewDeduplicationID(t *testing.T) {
+	q, f := atLimitQueue(t, fifoURL, func(m *types.Message) {
+		m.Attributes["MessageGroupId"] = "g1"
+		m.Attributes["MessageDeduplicationId"] = "orig"
+	})
+	if _, err := q.Repost(t.Context(), &repostInput{Queue: fifoURL, MessageID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	in := f.sendIn
+	if aws.ToString(in.MessageGroupId) != "g1" || len(aws.ToString(in.MessageDeduplicationId)) != 32 || aws.ToString(in.MessageDeduplicationId) == "orig" {
+		t.Fatalf("group %q dedup %q", aws.ToString(in.MessageGroupId), aws.ToString(in.MessageDeduplicationId))
+	}
+}
+
+func TestRepostAfterEvictionAsksToPeekAgain(t *testing.T) {
+	f := &fakeSQS{queueURL: peekURL, attrs: redriveAttrs(5)}
+	q := newQueues(f)
+	for i := range 6 {
+		f.messages = nil
+		for j := range 10 {
+			f.messages = append(f.messages, msg("m"+strconv.Itoa(i*10+j), "x", 5))
+		}
+		if _, err := q.Peek(t.Context(), &peekInput{Queue: "orders"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "m0"})
+	if err == nil || !strings.Contains(err.Error(), "peek_messages it again") {
+		t.Fatalf("err = %v", err)
 	}
 }

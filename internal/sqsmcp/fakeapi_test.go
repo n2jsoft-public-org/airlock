@@ -12,6 +12,10 @@ import (
 // fakeSQS answers with its fields, records the last input of each operation and counts the calls.
 type fakeSQS struct {
 	err       error
+	sendErr   error
+	deleteErr error
+	sendIn    *sqs.SendMessageInput
+	deleteIn  *sqs.DeleteMessageInput
 	list      *sqs.ListQueuesInput
 	urlIn     *sqs.GetQueueUrlInput
 	attrsIn   *sqs.GetQueueAttributesInput
@@ -22,6 +26,7 @@ type fakeSQS struct {
 	queueURL  string
 	nextToken string
 	urls      []string
+	order     []string
 	sources   []string
 	messages  []types.Message
 }
@@ -71,14 +76,18 @@ func (f *fakeSQS) ReceiveMessage(_ context.Context, in *sqs.ReceiveMessageInput,
 	return &sqs.ReceiveMessageOutput{Messages: f.messages}, f.err
 }
 
-func (f *fakeSQS) SendMessage(context.Context, *sqs.SendMessageInput, ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
+func (f *fakeSQS) SendMessage(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
 	f.count("SendMessage")
-	return &sqs.SendMessageOutput{}, f.err
+	f.order = append(f.order, "SendMessage")
+	f.sendIn = in
+	return &sqs.SendMessageOutput{}, f.sendErr
 }
 
-func (f *fakeSQS) DeleteMessage(context.Context, *sqs.DeleteMessageInput, ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
+func (f *fakeSQS) DeleteMessage(_ context.Context, in *sqs.DeleteMessageInput, _ ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
 	f.count("DeleteMessage")
-	return &sqs.DeleteMessageOutput{}, f.err
+	f.order = append(f.order, "DeleteMessage")
+	f.deleteIn = in
+	return &sqs.DeleteMessageOutput{}, f.deleteErr
 }
 
 // fakeSNS answers with its fields, records the last input of each operation and counts the calls.

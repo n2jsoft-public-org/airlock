@@ -142,6 +142,21 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 		done(int64(len(out.Messages)), err)
 		return mcpserve.ToolResult(out, err)
 	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "repost_message", Annotations: destructive,
+		Description: "Send a fresh copy of an at_limit message (read by peek_messages) to its queue, then try to delete the original. " +
+			"Confirm with the user first. Consequences: the copy has a new message ID and age, retention restarts, the receive count resets " +
+			"even for messages that really fail, a FIFO copy goes to the end of its message group, and consumers may see a duplicate " +
+			"because deleting the original is best effort (check delete_accepted).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in repostInput) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		_, done := start("repost_message", command("repost_message", nameOf(in.Queue), in.MessageID))
+		out, err := q.Repost(ctx, &in)
+		done(1, err)
+		return mcpserve.ToolResult(out, err)
+	})
 	return server
 }
 

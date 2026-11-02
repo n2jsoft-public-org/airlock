@@ -92,13 +92,16 @@ func TestWritableServerAddsTheMessageTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := map[string]bool{}
 	for _, tool := range listed.Tools {
-		if tool.Name == "peek_messages" {
+		if tool.Name == "peek_messages" || tool.Name == "repost_message" {
 			if tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint {
-				t.Fatalf("annotations = %+v", tool.Annotations)
+				t.Fatalf("%s annotations = %+v", tool.Name, tool.Annotations)
 			}
-			return
+			found[tool.Name] = true
 		}
 	}
-	t.Fatal("peek_messages not listed")
+	if len(found) != 2 {
+		t.Fatalf("message tools listed: %v", found)
+	}
 }

@@ -2,8 +2,11 @@ package sqsmcp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -159,5 +162,58 @@ func (q *queues) Peek(ctx context.Context, in *peekInput) (peekOutput, error) {
 			Attributes: m.MessageAttributes, AtLimit: p.AtLimit,
 		})
 	}
+	return out, nil
+}
+
+type repostInput struct {
+	Queue     string `json:"queue" jsonschema:"queue name or URL"`
+	MessageID string `json:"message_id" jsonschema:"id of an at_limit message returned by peek_messages"`
+}
+
+type repostOutput struct {
+	MessageID      string `json:"message_id"`
+	DeleteError    string `json:"delete_error,omitempty"`
+	Note           string `json:"note"`
+	DeleteAccepted bool   `json:"delete_accepted"`
+}
+
+const repostNote = "A copy was sent to the queue. Deleting the original is best effort: its receipt handle may have expired, and if anything received the " +
+	"original since the read it may still exist, in this queue or in its dead-letter queue. Consumers may see a duplicate."
+
+// Repost sends a fresh copy of a message read by peek_messages that is at its receive limit, then tries to delete the original.
+func (q *queues) Repost(ctx context.Context, in *repostInput) (repostOutput, error) {
+	u, err := q.url(ctx, in.Queue)
+	if err != nil {
+		return repostOutput{}, err
+	}
+	m, ok := q.cache.get(u, in.MessageID)
+	if !ok {
+		return repostOutput{}, fmt.Errorf("message %s was not read by this session, or is no longer remembered: peek_messages it again", in.MessageID)
+	}
+	if !m.AtLimit {
+		return repostOutput{}, fmt.Errorf("message %s is not at its receive limit: only at_limit messages can be reposted", in.MessageID)
+	}
+	send := &sqs.SendMessageInput{QueueUrl: aws.String(u), MessageBody: aws.String(m.Body), MessageAttributes: m.Attributes}
+	if m.TraceHeader != "" {
+		send.MessageSystemAttributes = map[string]types.MessageSystemAttributeValue{
+			string(types.MessageSystemAttributeNameAWSTraceHeader): {DataType: aws.String("String"), StringValue: aws.String(m.TraceHeader)},
+		}
+	}
+	if strings.HasSuffix(u, ".fifo") {
+		id := make([]byte, 16)
+		if _, err := rand.Read(id); err != nil {
+			return repostOutput{}, fmt.Errorf("generate deduplication id: %w", err)
+		}
+		send.MessageGroupId, send.MessageDeduplicationId = aws.String(m.GroupID), aws.String(hex.EncodeToString(id))
+	}
+	if _, err := q.api.SendMessage(ctx, send); err != nil {
+		return repostOutput{}, mcpserve.AWSError(err)
+	}
+	out := repostOutput{MessageID: in.MessageID, Note: repostNote}
+	if _, err := q.api.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(u), ReceiptHandle: aws.String(m.ReceiptHandle)}); err != nil {
+		out.DeleteError = mcpserve.AWSError(err).Error()
+		return out, nil
+	}
+	out.DeleteAccepted = true
 	return out, nil
 }
