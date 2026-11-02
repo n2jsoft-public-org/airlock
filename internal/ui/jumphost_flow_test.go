@@ -1064,6 +1064,10 @@ func TestSQSCardAndReviewOfferWrites(t *testing.T) {
 	if got := m.reviewFields(); len(got) != 1 || got[0] != reviewFieldMCPWrites {
 		t.Fatalf("fields = %v, want only the MCP write toggle", got)
 	}
+	m.reviewFocus = reviewFieldMCPWrites
+	if !strings.Contains(ansi.Strip(m.renderReviewPanel(120, false)), i18n.T("ui.jumphost_flow_view.space_toggles_sqs_writes")) {
+		t.Fatal("the SQS review must explain the write toggle")
+	}
 }
 
 func TestWizardOffersS3OnlyWithMCP(t *testing.T) {

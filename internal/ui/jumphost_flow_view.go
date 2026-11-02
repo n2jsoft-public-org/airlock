@@ -471,6 +471,8 @@ func (m jumphostWizardModel) renderReviewPanel(width int, compact bool) string {
 		mcpHelp = i18n.T("ui.jumphost_flow_view.space_toggles_dynamodb_writes")
 	case sessions.S3ResourceType:
 		mcpHelp = i18n.T("ui.jumphost_flow_view.space_toggles_s3_writes")
+	case sessions.SQSResourceType:
+		mcpHelp = i18n.T("ui.jumphost_flow_view.space_toggles_sqs_writes")
 	}
 	if compact {
 		portHelp, signInHelp, userHelp, passwordHelp, rememberHelp, secretHelp, mcpHelp = "", "", "", "", "", "", ""

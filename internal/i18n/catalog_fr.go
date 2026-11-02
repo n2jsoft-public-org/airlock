@@ -588,6 +588,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"ui.card.s3.title":                                     "S3",
 	"ui.card.s3.desc":                                      "Buckets d'un profil pour votre assistant IA (MCP), sans tunnel",
 	"ui.jumphost_flow_view.space_toggles_s3_writes":        "espace active put_object et delete_object pour les assistants IA",
+	"ui.jumphost_flow_view.space_toggles_sqs_writes":       "espace : IA peek_messages (use une livraison), repost_message",
 	"ui.card.logs.title":                                   "CloudWatch Logs",
 	"ui.card.logs.desc":                                    "Journaux d'une région pour votre assistant IA (MCP), sans tunnel",
 	"ui.card.sqs.title":                                    "SQS & SNS",

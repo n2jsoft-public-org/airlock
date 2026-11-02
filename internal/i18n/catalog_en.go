@@ -588,6 +588,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"ui.card.s3.title":                                     "S3",
 	"ui.card.s3.desc":                                      "Buckets of a profile for your AI assistant (MCP), no tunnel",
 	"ui.jumphost_flow_view.space_toggles_s3_writes":        "space toggles put_object and delete_object for AI assistants",
+	"ui.jumphost_flow_view.space_toggles_sqs_writes":       "space lets AI peek_messages (uses a delivery) and repost_message",
 	"ui.card.logs.title":                                   "CloudWatch Logs",
 	"ui.card.logs.desc":                                    "Log groups of a region for your AI assistant (MCP), no tunnel",
 	"ui.card.sqs.title":                                    "SQS & SNS",
