@@ -64,7 +64,7 @@ type peekOutput struct {
 }
 
 const peekNote = "Each message read counted as a receive. A message already at its maximum was moved to the dead-letter queue by this read " +
-	"and is not listed. On a standard queue this is a sample, not the whole queue. Do not read at_limit messages again: " +
+	"and is not listed. On a standard queue this is a sample, not the whole queue, and a busy queue may return nothing. Do not read at_limit messages again: " +
 	"repost_message can reset them once the user agrees."
 
 // cut keeps at most maxBodyBytes of body, on a rune boundary, and marks the cut.

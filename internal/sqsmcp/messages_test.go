@@ -78,7 +78,7 @@ func TestPeekWithoutRedriveHasNoLimit(t *testing.T) {
 }
 
 func TestPeekCutsLongBodiesOnARuneBoundary(t *testing.T) {
-	f := &fakeSQS{queueURL: peekURL, messages: []types.Message{msg("a", strings.Repeat("é", 20000), 1)}}
+	f := &fakeSQS{queueURL: peekURL, messages: []types.Message{msg("a", "x"+strings.Repeat("é", 20000), 1)}}
 	out, err := newQueues(f).Peek(t.Context(), &peekInput{Queue: "orders"})
 	if err != nil {
 		t.Fatal(err)

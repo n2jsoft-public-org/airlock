@@ -28,3 +28,18 @@ func TestReadCacheReplacesWithoutGrowing(t *testing.T) {
 		}
 	}
 }
+
+func TestReadCacheRefreshesAReplacedEntry(t *testing.T) {
+	c := newReadCache(2)
+	for _, id := range []string{"a", "b", "a", "c"} {
+		c.put(&readMessage{QueueURL: "q", MessageID: id})
+	}
+	if _, ok := c.get("q", "b"); ok {
+		t.Fatal("b should be evicted")
+	}
+	for _, id := range []string{"a", "c"} {
+		if _, ok := c.get("q", id); !ok {
+			t.Fatalf("%s missing", id)
+		}
+	}
+}
