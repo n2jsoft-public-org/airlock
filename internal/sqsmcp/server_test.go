@@ -13,7 +13,7 @@ func connect(t *testing.T, f *fakeSQS, allowWrites bool) (*mcp.ClientSession, *[
 	t.Helper()
 	var events []mcpserve.ToolEvent
 	server := NewServer(&ServerConfig{Name: "acme-dev-sqs", Profile: "dev", Region: "eu-west-3", AllowWrites: allowWrites},
-		newQueues(f), nil, func(e *mcpserve.ToolEvent) { events = append(events, *e) })
+		newQueues(f), newTopics(&fakeSNS{}), func(e *mcpserve.ToolEvent) { events = append(events, *e) })
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func call(t *testing.T, cs *mcp.ClientSession, tool string, args any) *mcp.CallT
 func TestReadOnlyServerHasNoMessageTool(t *testing.T) {
 	cs, _ := connect(t, &fakeSQS{}, false)
 	got := toolNames(t, cs)
-	for _, want := range []string{"list_queues", "get_queue"} {
+	for _, want := range []string{"list_queues", "get_queue", "list_topics", "get_topic", "get_subscription"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("tools = %v, missing %s", got, want)
 		}

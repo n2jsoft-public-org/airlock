@@ -18,9 +18,6 @@ const (
 	Engine = "sqs"
 )
 
-// topics runs the SNS tool operations; Task 2 fills it in.
-type topics struct{}
-
 // ServerConfig describes the queues and topics an MCP server gives access to.
 type ServerConfig struct {
 	Name        string
@@ -84,6 +81,43 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 		done(1, err)
 		return mcpserve.ToolResult(out, err)
 	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "list_topics", Annotations: readOnly,
+		Description: "List the SNS topics of the session's account and region, one page per call; continue with next as start.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTopicsInput) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		_, done := start("list_topics", command("list_topics"))
+		out, err := t.List(ctx, &in)
+		done(int64(len(out.Topics)), err)
+		return mcpserve.ToolResult(out, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_topic", Annotations: readOnly,
+		Description: "Read a topic by name or ARN: FIFO, encryption, access and delivery policies, tags and its subscriptions " +
+			"(protocol, endpoint, pending confirmation; first page, continue with get_subscription for the details of one).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in topicInput) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		_, done := start("get_topic", command("get_topic", in.Topic))
+		out, err := t.Get(ctx, &in)
+		done(int64(len(out.Subscriptions)), err)
+		return mcpserve.ToolResult(out, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "get_subscription", Annotations: readOnly,
+		Description: "Read a subscription by ARN: topic, protocol, endpoint, filter policy and scope, raw message delivery, redrive policy.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in subscriptionInput) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		_, done := start("get_subscription", command("get_subscription", in.ARN))
+		out, err := t.Subscription(ctx, &in)
+		done(1, err)
+		return mcpserve.ToolResult(out, err)
+	})
 	return server
 }
 
@@ -95,7 +129,8 @@ func instructions(cfg *ServerConfig) string {
 	}
 	return fmt.Sprintf(
 		"Amazon SQS queues and SNS topics of AWS profile %s, region %s, reached through the AWS API (no tunnel). %s "+
-			"Use list_queues, then get_queue for the configuration, counts and dead-letter policy of a queue. "+
+			"Use list_queues, then get_queue for the configuration, counts and dead-letter policy of a queue; "+
+			"list_topics, then get_topic for a topic and its subscriptions, and get_subscription for a filter policy. "+
 			"Listings return one page per call: pass next as start for the next one.",
 		cfg.Profile, cfg.Region, access,
 	)

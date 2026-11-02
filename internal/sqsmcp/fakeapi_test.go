@@ -3,6 +3,8 @@ package sqsmcp
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/service/sns"
+	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
@@ -73,4 +75,68 @@ func (f *fakeSQS) SendMessage(context.Context, *sqs.SendMessageInput, ...func(*s
 func (f *fakeSQS) DeleteMessage(context.Context, *sqs.DeleteMessageInput, ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
 	f.count("DeleteMessage")
 	return &sqs.DeleteMessageOutput{}, f.err
+}
+
+// fakeSNS answers with its fields, records the last input of each operation and counts the calls.
+type fakeSNS struct {
+	err       error
+	list      *sns.ListTopicsInput
+	attrsIn   *sns.GetTopicAttributesInput
+	subsIn    *sns.ListSubscriptionsByTopicInput
+	subAttrs  *sns.GetSubscriptionAttributesInput
+	attrs     map[string]string
+	subAttr   map[string]string
+	calls     map[string]int
+	nextToken string
+	subsNext  string
+	topics    []string
+	subs      []snstypes.Subscription
+	tags      []snstypes.Tag
+}
+
+func (f *fakeSNS) count(op string) {
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls[op]++
+}
+
+func (f *fakeSNS) ListTopics(_ context.Context, in *sns.ListTopicsInput, _ ...func(*sns.Options)) (*sns.ListTopicsOutput, error) {
+	f.count("ListTopics")
+	f.list = in
+	out := &sns.ListTopicsOutput{}
+	for _, a := range f.topics {
+		out.Topics = append(out.Topics, snstypes.Topic{TopicArn: &a})
+	}
+	if f.nextToken != "" {
+		out.NextToken = &f.nextToken
+	}
+	return out, f.err
+}
+
+func (f *fakeSNS) GetTopicAttributes(_ context.Context, in *sns.GetTopicAttributesInput, _ ...func(*sns.Options)) (*sns.GetTopicAttributesOutput, error) {
+	f.count("GetTopicAttributes")
+	f.attrsIn = in
+	return &sns.GetTopicAttributesOutput{Attributes: f.attrs}, f.err
+}
+
+func (f *fakeSNS) ListSubscriptionsByTopic(_ context.Context, in *sns.ListSubscriptionsByTopicInput, _ ...func(*sns.Options)) (*sns.ListSubscriptionsByTopicOutput, error) {
+	f.count("ListSubscriptionsByTopic")
+	f.subsIn = in
+	out := &sns.ListSubscriptionsByTopicOutput{Subscriptions: f.subs}
+	if f.subsNext != "" {
+		out.NextToken = &f.subsNext
+	}
+	return out, f.err
+}
+
+func (f *fakeSNS) GetSubscriptionAttributes(_ context.Context, in *sns.GetSubscriptionAttributesInput, _ ...func(*sns.Options)) (*sns.GetSubscriptionAttributesOutput, error) {
+	f.count("GetSubscriptionAttributes")
+	f.subAttrs = in
+	return &sns.GetSubscriptionAttributesOutput{Attributes: f.subAttr}, f.err
+}
+
+func (f *fakeSNS) ListTagsForResource(context.Context, *sns.ListTagsForResourceInput, ...func(*sns.Options)) (*sns.ListTagsForResourceOutput, error) {
+	f.count("ListTagsForResource")
+	return &sns.ListTagsForResourceOutput{Tags: f.tags}, f.err
 }
