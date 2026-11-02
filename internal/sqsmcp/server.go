@@ -5,6 +5,7 @@ package sqsmcp
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -45,6 +46,7 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 		&mcp.ServerOptions{Instructions: instructions(cfg)},
 	)
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
+	destructive := &mcp.ToolAnnotations{DestructiveHint: new(true)}
 	access := "read-only"
 	if cfg.AllowWrites {
 		access = "read-write"
@@ -116,6 +118,28 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 		_, done := start("get_subscription", command("get_subscription", in.ARN))
 		out, err := t.Subscription(ctx, &in)
 		done(1, err)
+		return mcpserve.ToolResult(out, err)
+	})
+
+	if !cfg.AllowWrites {
+		return server
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "peek_messages", Annotations: destructive,
+		Description: "Read up to 10 messages of a queue without deleting them. Each read raises the receive count of the messages " +
+			"returned: a message at its maxReceiveCount reaches the dead-letter queue. Refused when maxReceiveCount is 2 or less. " +
+			"Bodies are cut at 32 KB. Check deliveries_left and at_limit; do not read at_limit messages again.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in peekInput) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		n := in.Max
+		if n < 1 || n > maxPeek {
+			n = maxPeek
+		}
+		_, done := start("peek_messages", command("peek_messages", nameOf(in.Queue), "n="+strconv.Itoa(n)))
+		out, err := q.Peek(ctx, &in)
+		done(int64(len(out.Messages)), err)
 		return mcpserve.ToolResult(out, err)
 	})
 	return server

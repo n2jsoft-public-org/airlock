@@ -85,3 +85,20 @@ func TestListQueuesRecordsAnEvent(t *testing.T) {
 		t.Fatalf("event = %+v", e)
 	}
 }
+
+func TestWritableServerAddsTheMessageTools(t *testing.T) {
+	cs, _ := connect(t, &fakeSQS{}, true)
+	listed, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		if tool.Name == "peek_messages" {
+			if tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint {
+				t.Fatalf("annotations = %+v", tool.Annotations)
+			}
+			return
+		}
+	}
+	t.Fatal("peek_messages not listed")
+}

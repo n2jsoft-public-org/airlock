@@ -35,10 +35,11 @@ type sqsAPI interface {
 
 // queues runs the SQS tool operations.
 type queues struct {
-	api sqsAPI
+	api   sqsAPI
+	cache *readCache
 }
 
-func newQueues(a sqsAPI) *queues { return &queues{api: a} }
+func newQueues(a sqsAPI) *queues { return &queues{api: a, cache: newReadCache(cacheSize)} }
 
 func optional(s string) *string {
 	if s == "" {

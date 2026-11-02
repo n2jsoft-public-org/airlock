@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
 // fakeSQS answers with its fields, records the last input of each operation and counts the calls.
@@ -14,6 +15,7 @@ type fakeSQS struct {
 	list      *sqs.ListQueuesInput
 	urlIn     *sqs.GetQueueUrlInput
 	attrsIn   *sqs.GetQueueAttributesInput
+	recvIn    *sqs.ReceiveMessageInput
 	attrs     map[string]string
 	tags      map[string]string
 	calls     map[string]int
@@ -21,6 +23,7 @@ type fakeSQS struct {
 	nextToken string
 	urls      []string
 	sources   []string
+	messages  []types.Message
 }
 
 func (f *fakeSQS) count(op string) {
@@ -62,9 +65,10 @@ func (f *fakeSQS) ListDeadLetterSourceQueues(_ context.Context, _ *sqs.ListDeadL
 	return &sqs.ListDeadLetterSourceQueuesOutput{QueueUrls: f.sources}, f.err
 }
 
-func (f *fakeSQS) ReceiveMessage(context.Context, *sqs.ReceiveMessageInput, ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
+func (f *fakeSQS) ReceiveMessage(_ context.Context, in *sqs.ReceiveMessageInput, _ ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
 	f.count("ReceiveMessage")
-	return &sqs.ReceiveMessageOutput{}, f.err
+	f.recvIn = in
+	return &sqs.ReceiveMessageOutput{Messages: f.messages}, f.err
 }
 
 func (f *fakeSQS) SendMessage(context.Context, *sqs.SendMessageInput, ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
