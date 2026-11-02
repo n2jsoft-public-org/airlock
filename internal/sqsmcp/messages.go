@@ -201,15 +201,18 @@ func (q *queues) Repost(ctx context.Context, in *repostInput) (repostOutput, err
 	}
 	if strings.HasSuffix(u, ".fifo") {
 		id := make([]byte, 16)
-		if _, err := rand.Read(id); err != nil {
+		if _, err = rand.Read(id); err != nil {
 			return repostOutput{}, fmt.Errorf("generate deduplication id: %w", err)
 		}
 		send.MessageGroupId, send.MessageDeduplicationId = aws.String(m.GroupID), aws.String(hex.EncodeToString(id))
 	}
-	if _, err := q.api.SendMessage(ctx, send); err != nil {
+	sent, err := q.api.SendMessage(ctx, send)
+	if err != nil {
 		return repostOutput{}, mcpserve.AWSError(err)
 	}
-	out := repostOutput{MessageID: in.MessageID, Note: repostNote}
+	// The copy exists: a second repost would duplicate it, so forget the original whatever the delete says.
+	q.cache.remove(u, in.MessageID)
+	out := repostOutput{MessageID: aws.ToString(sent.MessageId), Note: repostNote}
 	if _, err := q.api.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(u), ReceiptHandle: aws.String(m.ReceiptHandle)}); err != nil {
 		out.DeleteError = mcpserve.AWSError(err).Error()
 		return out, nil

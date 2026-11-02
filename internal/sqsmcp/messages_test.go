@@ -192,7 +192,7 @@ func TestRepostSendsTheCachedCopyThenDeletes(t *testing.T) {
 	if !slices.Equal(f.order[len(f.order)-2:], []string{"SendMessage", "DeleteMessage"}) {
 		t.Fatalf("order = %v", f.order)
 	}
-	if !out.DeleteAccepted || out.MessageID != "a" || out.Note == "" {
+	if !out.DeleteAccepted || out.MessageID != "new-id" || out.Note == "" {
 		t.Fatalf("out = %+v", out)
 	}
 }
@@ -246,5 +246,16 @@ func TestRepostAfterEvictionAsksToPeekAgain(t *testing.T) {
 	_, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "m0"})
 	if err == nil || !strings.Contains(err.Error(), "peek_messages it again") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRepostTwiceIsRefused(t *testing.T) {
+	q, f := atLimitQueue(t, peekURL, nil)
+	if _, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := q.Repost(t.Context(), &repostInput{Queue: "orders", MessageID: "a"})
+	if err == nil || !strings.Contains(err.Error(), "peek_messages it again") || f.calls["SendMessage"] != 1 {
+		t.Fatalf("err = %v, sends = %d", err, f.calls["SendMessage"])
 	}
 }

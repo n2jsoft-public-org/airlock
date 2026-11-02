@@ -43,3 +43,17 @@ func TestReadCacheRefreshesAReplacedEntry(t *testing.T) {
 		}
 	}
 }
+
+func TestReadCacheRemoveForgetsAMessage(t *testing.T) {
+	c := newReadCache(2)
+	c.put(&readMessage{QueueURL: "q", MessageID: "a"})
+	c.put(&readMessage{QueueURL: "q", MessageID: "b"})
+	c.remove("q", "a")
+	c.put(&readMessage{QueueURL: "q", MessageID: "c"})
+	if _, ok := c.get("q", "a"); ok {
+		t.Fatal("a still cached")
+	}
+	if _, ok := c.get("q", "b"); !ok {
+		t.Fatal("b evicted although a slot was free")
+	}
+}

@@ -3,6 +3,7 @@ package sqsmcp
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -80,7 +81,7 @@ func (f *fakeSQS) SendMessage(_ context.Context, in *sqs.SendMessageInput, _ ...
 	f.count("SendMessage")
 	f.order = append(f.order, "SendMessage")
 	f.sendIn = in
-	return &sqs.SendMessageOutput{}, f.sendErr
+	return &sqs.SendMessageOutput{MessageId: aws.String("new-id")}, f.sendErr
 }
 
 func (f *fakeSQS) DeleteMessage(_ context.Context, in *sqs.DeleteMessageInput, _ ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {

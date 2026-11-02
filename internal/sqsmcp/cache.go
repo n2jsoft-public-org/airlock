@@ -40,3 +40,12 @@ func (c *readCache) get(queueURL, messageID string) (*readMessage, bool) {
 	m, ok := c.items[cacheKey(queueURL, messageID)]
 	return m, ok
 }
+
+// remove forgets a message, so it cannot be acted on again.
+func (c *readCache) remove(queueURL, messageID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	k := cacheKey(queueURL, messageID)
+	delete(c.items, k)
+	c.order = slices.DeleteFunc(c.order, func(o string) bool { return o == k })
+}
