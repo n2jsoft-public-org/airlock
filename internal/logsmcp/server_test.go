@@ -2,6 +2,8 @@ package logsmcp
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -38,7 +40,9 @@ func connect(t *testing.T, f *fakeAWS) (*mcp.ClientSession, *logs, *[]mcpserve.T
 	f.requests = map[string][]map[string]any{}
 	awsapitest.Env(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); errors.Is(err, io.ErrUnexpectedEOF) {
+			return // the client gave up mid-request: a query past its timeout.
+		} else if err != nil {
 			t.Error(err)
 		}
 		op := awsapitest.Operation(r)
