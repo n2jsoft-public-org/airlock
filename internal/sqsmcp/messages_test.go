@@ -334,12 +334,18 @@ func TestPeekNoteMentionsTheDeadLetterQueueOnlyWithARedrivePolicy(t *testing.T) 
 	const dlq = "moved to the dead-letter queue"
 	with := &fakeSQS{queueURL: peekURL, attrs: redriveAttrs(5)}
 	out, err := newQueues(with).Peek(t.Context(), &peekInput{Queue: "orders"})
-	if err != nil || !strings.Contains(out.Note, dlq) {
-		t.Fatalf("note = %q, err = %v", out.Note, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Note, dlq) {
+		t.Fatalf("note = %q", out.Note)
 	}
 	without := &fakeSQS{queueURL: peekURL}
 	out, err = newQueues(without).Peek(t.Context(), &peekInput{Queue: "orders"})
-	if err != nil || strings.Contains(out.Note, dlq) {
-		t.Fatalf("note = %q, err = %v", out.Note, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.Note, dlq) {
+		t.Fatalf("note = %q", out.Note)
 	}
 }

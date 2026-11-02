@@ -23,14 +23,13 @@ func TestTopicsListNamesFromARN(t *testing.T) {
 }
 
 func TestGetTopicResolvesANameAndListsSubscriptions(t *testing.T) {
-	pending, confirmed := "PendingConfirmation", "arn:aws:sns:eu-west-3:1:orders-events:abc"
 	proto, endpoint := "email", "a@b.c"
 	f := &fakeSNS{
 		topics: []string{"arn:aws:sns:eu-west-3:1:other", ordersARN},
 		attrs:  map[string]string{"TopicArn": ordersARN, "DisplayName": "Orders", "FifoTopic": "true", "Policy": "{}", "SubscriptionsConfirmed": "1"},
 		subs: []snstypes.Subscription{
-			{SubscriptionArn: &pending, Protocol: &proto, Endpoint: &endpoint},
-			{SubscriptionArn: &confirmed, Protocol: &proto, Endpoint: &endpoint},
+			{SubscriptionArn: new("PendingConfirmation"), Protocol: &proto, Endpoint: &endpoint},
+			{SubscriptionArn: new("arn:aws:sns:eu-west-3:1:orders-events:abc"), Protocol: &proto, Endpoint: &endpoint},
 		},
 		tags: []snstypes.Tag{{Key: &proto, Value: &endpoint}},
 	}

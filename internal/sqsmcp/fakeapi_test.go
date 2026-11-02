@@ -168,7 +168,7 @@ func (f *fakeSNS) GetSubscriptionAttributes(_ context.Context, in *sns.GetSubscr
 	return &sns.GetSubscriptionAttributesOutput{Attributes: f.subAttr}, f.err
 }
 
-func (f *fakeSNS) ListTagsForResource(context.Context, *sns.ListTagsForResourceInput, ...func(*sns.Options)) (*sns.ListTagsForResourceOutput, error) {
+func (f *fakeSNS) ListTagsForResource(_ context.Context, _ *sns.ListTagsForResourceInput, _ ...func(*sns.Options)) (*sns.ListTagsForResourceOutput, error) {
 	f.count("ListTagsForResource")
 	if f.tagsErr != nil {
 		return &sns.ListTagsForResourceOutput{}, f.tagsErr
