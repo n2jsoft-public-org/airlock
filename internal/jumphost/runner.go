@@ -40,7 +40,7 @@ const (
 
 // supportedResourceType reports whether resourceType (lower case) is one airlock connects to.
 func supportedResourceType(resourceType string) bool {
-	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3 || resourceType == resourceLogs || resourceType == resourceForward
+	return resourceType == resourceEKS || resourceType == resourceRDS || resourceType == resourceElastiCache || resourceType == resourceDynamoDB || resourceType == resourceS3 || resourceType == resourceLogs || resourceType == resourceSQS || resourceType == resourceForward
 }
 
 type Options struct {
@@ -440,6 +440,9 @@ func (r *Runner) Prepare(ctx context.Context, options Options) (*Session, error)
 	}
 	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceLogs) {
 		return r.prepareLogs(ctx, &options)
+	}
+	if strings.EqualFold(strings.TrimSpace(options.ResourceType), resourceSQS) {
+		return r.prepareSQS(ctx, &options)
 	}
 
 	resourceType := strings.ToLower(strings.TrimSpace(options.ResourceType))

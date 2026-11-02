@@ -19,7 +19,7 @@ func TestPrepareRefusesDisabledModule(t *testing.T) {
 			t.Errorf("Prepare(%s) error = %v, want the disabled module", resourceType, err)
 		}
 	}
-	for _, resourceType := range []string{"eks", "dynamodb", "s3", "logs"} {
+	for _, resourceType := range []string{"eks", "dynamodb", "s3", "logs", "sqs"} {
 		if runner.ModuleDisabled(resourceType) {
 			t.Errorf("ModuleDisabled(%s) = true, want false", resourceType)
 		}
