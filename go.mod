@@ -23,7 +23,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.6
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.5
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.5
-	github.com/aws/smithy-go v1.28.6
+	github.com/aws/smithy-go v1.28.7
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1
 	github.com/beevik/etree v1.8.1
 	github.com/charmbracelet/x/ansi v0.11.9
