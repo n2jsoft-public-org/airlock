@@ -69,7 +69,7 @@ type Config struct {
 }
 
 // Modules are the target families modules.<name>.enabled can turn off.
-var Modules = []string{"sql", "k8s", "cache", "dynamodb", "s3", "logs"}
+var Modules = []string{"sql", "k8s", "cache", "dynamodb", "s3", "logs", "sqs"}
 
 // Modes of the mode setting.
 const (
@@ -161,6 +161,7 @@ type file struct {
 	DynamoDBEnabled    *string
 	S3Enabled          *string
 	LogsEnabled        *string
+	SQSEnabled         *string
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
 	ProductionProfiles *string

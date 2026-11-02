@@ -29,11 +29,11 @@
   │  LOGS   CloudWatch Logs                                            6 │
   │ Log groups of a region for your AI assistant (MCP), no tunnel        │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  SQS   SQS & SNS                                                   7 │
+  │ Queues and topics of a region for your AI assistant (MCP), no tunnel │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
-
-
-
-
-   ↑↓  move   1-6  pick   enter  select   r  region   s  search   ?  help   q  quit
+   ↑↓  move   1-7  pick   enter  select   r  region   s  search   ?  help   q  quit

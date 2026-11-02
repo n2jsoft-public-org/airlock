@@ -1,9 +1,9 @@
 # AI access with MCP
 
 For **RDS PostgreSQL**, **MySQL**, **MariaDB** (Aurora included) and **SQL Server** sessions, **direct databases** (PostgreSQL, SQL Server, MySQL, MariaDB), local **Docker** databases and caches, **EKS** clusters and
-**Redis / Valkey ElastiCache** caches, **DynamoDB** tables, **S3** buckets and **CloudWatch Logs**, airlock serves an MCP server on
+**Redis / Valkey ElastiCache** caches, **DynamoDB** tables, **S3** buckets, **CloudWatch Logs** and **SQS / SNS**, airlock serves an MCP server on
 `127.0.0.1` for as long as the session runs, so AI assistants can explore them: through the tunnel,
-straight at the server for direct databases, or through the AWS API for DynamoDB, S3 and CloudWatch Logs.
+straight at the server for direct databases, or through the AWS API for DynamoDB, S3, CloudWatch Logs and SQS / SNS.
 
 ## Database tools
 
@@ -183,11 +183,50 @@ it scans: the tools default to a short range and report the bytes scanned. The p
 `logs:GetQueryResults`, `logs:StopQuery` and `logs:FilterLogEvents`. `--no-mcp` and
 `--mcp-allow-writes` are refused.
 
+## SQS and SNS tools
+
+| Tool | Description |
+|---|---|
+| `list_queues` | List the queues of the region by name `prefix`, 100 per page (`next` token), with their URL and whether they are FIFO |
+| `get_queue` | Approximate visible, in-flight and delayed counts, timeouts, retention, FIFO settings, KMS key, redrive policy (`dead_letter_target_arn`, `max_receive_count`), access policy, tags, and the source queues of a dead-letter queue |
+| `list_topics` | List the SNS topics of the region (`next` token) |
+| `get_topic` | Attributes, subscriptions (protocol, endpoint, pending confirmation) and tags of a topic |
+| `get_subscription` | Filter policy and its scope, raw message delivery, redrive policy, endpoint and protocol of a subscription |
+| `peek_messages` | Read up to 10 messages of a queue without deleting them. **Only with `--mcp-allow-writes`, and read the warning below.** |
+| `repost_message` | Send a copy of a message `peek_messages` found at its receive limit, then delete the original. **Only with `--mcp-allow-writes`, and with your consent.** |
+
+An SQS and SNS session is the region of a profile, like DynamoDB: no tunnel, no jumphost, no port. A
+queue is given by name or URL.
+
+**`peek_messages` changes the queue.** Each read counts as a receive: it uses up one of the
+consumer's deliveries (`ApproximateReceiveCount`), and the message is visible again after one
+second. A message already at its `maxReceiveCount` is moved to the dead-letter queue by the read
+itself and not returned. The tool therefore refuses to read a queue whose `maxReceiveCount` is 2 or
+less, and flags each message with `deliveries_left` and `at_limit`: do not read an `at_limit`
+message again. On a standard queue the result is a sample, not the head of the queue, and a busy
+queue may return nothing.
+
+**`repost_message` is best effort.** It only accepts a message `peek_messages` returned `at_limit`,
+and sends the copy before deleting the original, so a failure deletes nothing. The copy has a new
+message ID and age, the retention restarts, and the receive count restarts even if the consumer was
+really failing on it (it will not reach the dead-letter queue this time); on a FIFO queue it goes to
+the end of its group. The original was visible since the read: a consumer may have received it, so
+it may survive as a duplicate, in the queue or its dead-letter queue. The result gives the new
+message ID and whether SQS accepted the delete, never a promise that the original is gone. The
+assistant is told to confirm with you first.
+
+The profile needs `sqs:ListQueues` (to open the session), `sqs:GetQueueUrl`,
+`sqs:GetQueueAttributes`, `sqs:ListQueueTags`, `sqs:ListDeadLetterSourceQueues`, `sns:ListTopics`,
+`sns:GetTopicAttributes`, `sns:ListSubscriptionsByTopic`, `sns:GetSubscriptionAttributes` and
+`sns:ListTagsForResource`, plus `sqs:ReceiveMessage`, `sqs:SendMessage` and `sqs:DeleteMessage` for
+`--mcp-allow-writes` (and `kms:Decrypt` / `kms:GenerateDataKey` on queues encrypted with a customer
+key). `--no-mcp` is refused.
+
 ## Registering the servers in AI clients
 
 The server is registered as `<prefix>-<profile>-<instance>` for a database,
 `<prefix>-<profile>-<cluster>-eks` for an EKS cluster and `<prefix>-<profile>-<cache>-cache` for a
-cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB, `<prefix>-<profile>-s3` for S3 and `<prefix>-<profile>-logs-<region>` for CloudWatch Logs (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
+cache, `<prefix>-<profile>-dynamodb-<region>` for DynamoDB, `<prefix>-<profile>-s3` for S3 `<prefix>-<profile>-logs-<region>` for CloudWatch Logs and `<prefix>-<profile>-sqs-<region>` for SQS and SNS (e.g. `airlock-dev-platform-eks`, `airlock-dev-sessions-cache`), so resources of the same
 name never share one, in the configuration of the AI clients chosen by `mcp.clients` (or
 `--mcp-clients`):
 
@@ -257,7 +296,7 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 | `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
 | `open_session` | Open a target, with a reason you read |
 | `close_session` | Close a session an agent opened |
-| `db_*`, `k8s_*`, `cache_*`, `dynamo_*`, `s3_*`, `logs_*` | The tools of the sessions above, with a `session` argument |
+| `db_*`, `k8s_*`, `cache_*`, `dynamo_*`, `s3_*`, `logs_*`, `sqs_*` | The tools of the sessions above, with a `session` argument |
 
 An opening asked by an agent shows an **approval dialog** in every open dashboard (`y` allow, `n`
 deny, 2 minutes to answer); with no dashboard open it is refused at once. `agent.autoConnect` lets

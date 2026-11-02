@@ -19,6 +19,7 @@ import (
 	"github.com/n2jsoft-public-org/airlock/internal/s3mcp"
 	"github.com/n2jsoft-public-org/airlock/internal/sessions"
 	"github.com/n2jsoft-public-org/airlock/internal/sessions/sessionstest"
+	"github.com/n2jsoft-public-org/airlock/internal/sqsmcp"
 )
 
 // relayServer is a gateway server with the relayed tools only, applying settings, and a client of it.
@@ -342,5 +343,47 @@ func TestLogsSessionsServeTheLogsTools(t *testing.T) {
 	slices.Sort(names)
 	if want := []string{"logs_filter_events", "logs_list_log_groups", "logs_list_log_streams", "logs_query"}; !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
+	}
+}
+
+func TestSQSSessionsServeTheSQSToolsAndRefuseTheDestructiveOnesWithoutWrites(t *testing.T) {
+	if kindOf("sqs") != kindSQS || !slices.Contains(openableTypes, "sqs") {
+		t.Fatalf("kindOf(sqs) = %q, openable = %v", kindOf("sqs"), openableTypes)
+	}
+	cs, err := connectClient(t.Context(), prototype(kindSQS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close() //nolint:errcheck // an in-memory session.
+	listed, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, proto := range listed.Tools {
+		tool, rerr := relayTool(kindSQS, proto)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		names = append(names, tool.Name)
+	}
+	for _, want := range []string{"sqs_list_queues", "sqs_peek_messages", "sqs_repost_message"} {
+		if !slices.Contains(names, want) {
+			t.Fatalf("tools = %v, missing %s", names, want)
+		}
+	}
+
+	runner := sessionstest.NewRunner()
+	m, _ := newTestManager(t, runner)
+	runner.SQS("eu-west-3")
+	server := sqsmcp.NewServer(&sqsmcp.ServerConfig{Name: "sqs-eu-west-3", Region: "eu-west-3"}, nil, nil, nil)
+	runner.WithMCP("eu-west-3", &sessionstest.MCPServer{S: server})
+	id, err := m.Open(t.Context(), sessions.OpenRequest{Options: jumphost.Options{ResourceType: sessions.SQSResourceType, Name: "eu-west-3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, on := relayServer(t, m, &Settings{AgentWrites: true})
+	if text, isError := callTool(t, on, "sqs_peek_messages", map[string]any{"session": int(id), "queue": "q"}); !isError || !strings.Contains(text, "read-only") {
+		t.Fatalf("peek_messages on a read-only session = %q (error %v)", text, isError)
 	}
 }

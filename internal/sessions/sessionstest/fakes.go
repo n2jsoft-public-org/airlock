@@ -75,6 +75,16 @@ func (r *Runner) DynamoDB(region string) *jumphost.Session {
 	return s
 }
 
+// SQS registers the SQS and SNS session of region, named after it.
+func (r *Runner) SQS(region string) *jumphost.Session {
+	s := &jumphost.Session{Label: "SQS " + region, ResourceType: sessions.SQSResourceType, Target: region, Profile: "dev", Region: region,
+		Details: jumphost.SessionDetails{ConnectedServer: "sqs." + region + ".amazonaws.com"}}
+	r.mu.Lock()
+	r.Sessions[region] = s
+	r.mu.Unlock()
+	return s
+}
+
 func (r *Runner) Prepare(ctx context.Context, o jumphost.Options) (*jumphost.Session, error) { //nolint:gocritic // implements sessions.Runner.
 	r.mu.Lock()
 	r.Prepared = append(r.Prepared, o)

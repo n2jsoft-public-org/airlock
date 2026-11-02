@@ -230,6 +230,9 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
     },
     "logs": {
       "enabled": true
+    },
+    "sqs": {
+      "enabled": true
     }
   }
 }
