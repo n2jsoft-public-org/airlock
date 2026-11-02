@@ -2,6 +2,7 @@ package jumphost
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,7 +20,7 @@ func TestSearchResourcesMergesTypesByName(t *testing.T) {
 		return listed[resourceType], nil
 	})
 
-	if calls.Load() != 6 || len(failures) != 0 {
+	if calls.Load() != 7 || !slices.Contains(searchableResourceTypes, "sqs") || len(failures) != 0 {
 		t.Fatalf("calls = %d failures = %v", calls.Load(), failures)
 	}
 	want := []string{"archive/eks", "archive/rds", "cache/elasticache", "orders/rds"}
@@ -43,7 +44,7 @@ func TestSearchResourcesKeepsResultsOfTypesThatWork(t *testing.T) {
 		}
 		return []ResourceSummary{{Name: resourceType + "-target"}}, nil
 	})
-	if len(got) != 5 || len(failures) != 1 || failures["eks"] == nil {
+	if len(got) != 6 || len(failures) != 1 || failures["eks"] == nil {
 		t.Fatalf("got = %+v failures = %v", got, failures)
 	}
 }

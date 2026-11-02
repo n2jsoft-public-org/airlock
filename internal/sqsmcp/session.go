@@ -20,7 +20,7 @@ type SessionConfig struct {
 	LogDir string
 	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
 	SkipRegistration bool
-	// AllowWrites exposes repost_message; IAM still decides what is allowed.
+	// AllowWrites exposes peek_messages and repost_message; IAM still decides what is allowed.
 	AllowWrites bool
 }
 
