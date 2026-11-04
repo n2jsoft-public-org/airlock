@@ -1,7 +1,9 @@
 package dbmcp
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/n2jsoft-public-org/airlock/internal/awstag"
@@ -19,6 +21,9 @@ type SessionConfig struct {
 	// OnPasswordRejected is called once when the database rejects DBPassword, e.g. to forget a
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
+	// OnDatabases receives the databases of the server, listed once it starts and at every
+	// list_databases, so that agents find them without connecting; nil when unused.
+	OnDatabases func([]string)
 	// ReadOnlySecretTag marks the read-only per-database secrets of SQL Server instances; zero
 	// disables read-only SQL Server access.
 	ReadOnlySecretTag awstag.Tag
@@ -91,6 +96,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 			Engine: engine, AllowWrites: cfg.AllowWrites,
 		},
 		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, skipRegistration: cfg.SkipRegistration,
+		onDatabases: cfg.OnDatabases,
 	})
 	if err != nil {
 		return nil, err
@@ -103,6 +109,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 // served is what serveDatabase needs to mount the MCP server of one database.
 type served struct {
 	creds            *switchableProvider
+	onDatabases      func([]string)
 	projectDir       string
 	logDir           string
 	server           ServerConfig
@@ -119,19 +126,52 @@ func serveDatabase(host *mcpserve.Host, s *served) (*Handle, error) {
 	}
 	recorder := mcpserve.NewRecorder(s.logDir)
 	inner := newQuerier(s.server.Engine, s.creds, s.addr)
-	querier := newRecordingQuerier(inner, &mcpserve.ToolEvent{
+	querier := &recordingQuerier{inner: inner, record: recorder.Record, onDatabases: s.onDatabases, base: mcpserve.ToolEvent{
 		Server: s.server.Name, Profile: s.server.Profile, Region: s.server.Region,
 		Target: s.server.Target, Engine: string(s.server.Engine), Access: access,
-	}, recorder.Record)
+	}}
+	ctx, stopListing := context.WithCancel(context.Background())
 	shared, err := mcpserve.Serve(host, &mcpserve.ServeConfig{
-		Server: NewServer(&s.server, querier), Recorder: recorder, Cleanup: querier.Close,
-		Name: s.server.Name, ProjectDir: s.projectDir, AllowWrites: s.server.AllowWrites,
+		Server: NewServer(&s.server, querier), Recorder: recorder,
+		Cleanup: func() error { stopListing(); return querier.Close() },
+		Name:    s.server.Name, ProjectDir: s.projectDir, AllowWrites: s.server.AllowWrites,
 		SkipRegistration: s.skipRegistration,
 	})
 	if err != nil {
+		stopListing()
 		return nil, err
 	}
+	if s.onDatabases != nil {
+		go listDatabasesOnce(ctx, inner, s.onDatabases)
+	}
 	return &Handle{Handle: shared, creds: s.creds, querier: inner}, nil
+}
+
+// listDatabasesAttempts and listDatabasesRetry bound the listing of a starting server: its tunnel
+// may still be opening. Few attempts, so a wrong password is not tried over and over.
+const listDatabasesAttempts = 3
+
+// listDatabasesRetry is a variable so tests can shorten it.
+var listDatabasesRetry = 5 * time.Second
+
+// listDatabasesOnce gives the databases of q to onDatabases, retrying a few times until ctx ends.
+// It goes through the inner querier: airlock's own listing is no agent tool call to audit.
+func listDatabasesOnce(ctx context.Context, q Querier, onDatabases func([]string)) {
+	for attempt := 1; ; attempt++ {
+		names, err := q.Databases(ctx)
+		if err == nil {
+			onDatabases(names)
+			return
+		}
+		if attempt == listDatabasesAttempts {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(listDatabasesRetry):
+		}
+	}
 }
 
 func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -102,14 +103,15 @@ func decodeText[T any](t *testing.T, text string) T {
 type targetsReply struct {
 	Failures map[string]string `json:"failures"`
 	Targets  []struct {
-		Type        string `json:"type"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Profile     string `json:"profile"`
-		Region      string `json:"region"`
-		Opens       string `json:"opens"`
-		Production  bool   `json:"production"`
-		Saved       bool   `json:"saved"`
+		Type        string   `json:"type"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Profile     string   `json:"profile"`
+		Region      string   `json:"region"`
+		Opens       string   `json:"opens"`
+		Databases   []string `json:"databases"`
+		Production  bool     `json:"production"`
+		Saved       bool     `json:"saved"`
 	} `json:"targets"`
 	Profiles []string `json:"profiles"`
 }
@@ -149,6 +151,25 @@ func TestListTargetsSaved(t *testing.T) {
 	}
 	if len(d.searched) != 0 {
 		t.Fatal("without profile, list_targets must not call AWS")
+	}
+}
+
+func TestListTargetsFindsAServerByOneOfItsDatabases(t *testing.T) {
+	m, _ := newTestManager(t, sessionstest.NewRunner())
+	billing := savedRDS("main-db", "dev")
+	billing.Databases, billing.DatabasesSeenAt = []string{"Invoicing", "ledger"}, time.Now()
+	d := &fakeDiscovery{saved: []jumphost.SavedConnection{billing, savedRDS("orders-db", "dev")}}
+	cs, _ := newToolset(t, m, &Settings{}, d, fakeDatabases{})
+	for _, args := range []map[string]any{{"query": "invoic"}, {"query": "invoic", "profile": "dev"}} {
+		d.found = []jumphost.ResourceSummary{{Name: "main-db", Type: "rds"}, {Name: "orders-db", Type: "rds"}}
+		text, isError := callTool(t, cs, "list_targets", args)
+		if isError {
+			t.Fatal(text)
+		}
+		reply := decodeText[targetsReply](t, text)
+		if len(reply.Targets) != 1 || reply.Targets[0].Name != "main-db" || !slices.Equal(reply.Targets[0].Databases, []string{"Invoicing", "ledger"}) {
+			t.Fatalf("%v: reply = %+v", args, reply)
+		}
 	}
 }
 
