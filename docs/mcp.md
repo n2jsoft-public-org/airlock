@@ -269,7 +269,9 @@ airlock --mcp-clients none                        # this run only: register nowh
 `claude_desktop_config.json` in `~/Library/Application Support/Claude` (macOS) or `%APPDATA%\Claude`
 (Windows). Claude Desktop only launches stdio servers, so its entry runs `airlock mcp-proxy <url>`,
 which relays the server with the token in `AIRLOCK_MCP_TOKEN`. Claude Desktop reads that file at
-startup: restart it to see a server added while it runs.
+startup: restart it to see a server added while it runs. When the server comes back with other tools
+(after `airlock update`), the proxy picks them up at the next tool call and tells Claude Desktop the
+tool list changed, so it does not need a restart.
 
 A client chosen explicitly gets its project file even when its directory does not exist yet. Project
 files are never written when the working directory is your home directory: use `:user` there. Each

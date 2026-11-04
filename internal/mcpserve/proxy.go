@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"reflect"
+	"slices"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -28,22 +31,23 @@ func Proxy(ctx context.Context, url, token string, local mcp.Transport) error {
 		return err
 	}
 	info := session.InitializeResult()
-	server := mcp.NewServer(info.ServerInfo, &mcp.ServerOptions{Instructions: info.Instructions})
-	for tool, err := range session.Tools(ctx, nil) {
-		if err != nil {
-			return fmt.Errorf("failed to list the tools of %s: %w", url, err)
-		}
-		server.AddTool(tool, upstream.callTool)
+	upstream.local = mcp.NewServer(info.ServerInfo, &mcp.ServerOptions{Instructions: info.Instructions})
+	if err := upstream.syncTools(ctx, session); err != nil {
+		return err
 	}
-	return server.Run(ctx, local)
+	return upstream.local.Run(ctx, local)
 }
 
 // upstream is the relayed server, reconnected when it dropped the session (idle timeout, restart).
 type upstream struct {
 	current *mcp.ClientSession
-	url     string
-	token   string
-	mu      sync.Mutex
+	// local serves the tools of the current session to the stdio client.
+	local *mcp.Server
+	// tools are the tools local serves, by name.
+	tools map[string]*mcp.Tool
+	url   string
+	token string
+	mu    sync.Mutex
 }
 
 func (u *upstream) session(ctx context.Context) (*mcp.ClientSession, error) {
@@ -60,8 +64,42 @@ func (u *upstream) session(ctx context.Context) (*mcp.ClientSession, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", u.url, err)
 	}
+	// A new session may come from a restarted server (airlock update) with other tools.
+	// ponytail: tools only refresh on a reconnection, so after the next tool call; add a
+	// keep-alive watcher if clients must see them before calling any tool.
+	if u.local != nil {
+		if err = u.syncTools(ctx, session); err != nil {
+			_ = session.Close() //nolint:errcheck // the sync error is the one to report.
+			return nil, err
+		}
+	}
 	u.current = session
 	return session, nil
+}
+
+// syncTools serves the tools of session on local. local notifies its client of any change
+// (notifications/tools/list_changed), which then lists the tools again without a restart.
+func (u *upstream) syncTools(ctx context.Context, session *mcp.ClientSession) error {
+	var tools []*mcp.Tool
+	for tool, err := range session.Tools(ctx, nil) {
+		if err != nil {
+			return fmt.Errorf("failed to list the tools of %s: %w", u.url, err)
+		}
+		tools = append(tools, tool)
+	}
+	stale := u.tools
+	u.tools = make(map[string]*mcp.Tool, len(tools))
+	for _, tool := range tools {
+		u.tools[tool.Name] = tool
+		if !reflect.DeepEqual(stale[tool.Name], tool) {
+			u.local.AddTool(tool, u.callTool)
+		}
+		delete(stale, tool.Name)
+	}
+	if len(stale) > 0 {
+		u.local.RemoveTools(slices.Collect(maps.Keys(stale))...)
+	}
+	return nil
 }
 
 // reset drops session if it is still the current one, so that the next call reconnects.

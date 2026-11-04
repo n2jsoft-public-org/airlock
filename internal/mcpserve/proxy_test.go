@@ -2,20 +2,24 @@ package mcpserve
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // startProxy relays endpoint to an in-memory client session, closed when the test ends.
-func startProxy(t *testing.T, endpoint Endpoint) *mcp.ClientSession {
+func startProxy(t *testing.T, endpoint Endpoint, opts *mcp.ClientOptions) *mcp.ClientSession {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	local, remote := mcp.NewInMemoryTransports()
 	done := make(chan error, 1)
 	go func() { done <- Proxy(ctx, endpoint.URL, endpoint.Token, local) }()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "desktop"}, nil).Connect(ctx, remote, nil)
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "desktop"}, opts).Connect(ctx, remote, nil)
 	if err != nil {
 		cancel()
 		t.Fatal(err)
@@ -33,7 +37,7 @@ func TestProxyRelaysTheToolsOfTheServer(t *testing.T) {
 	endpoint := mountTestServer(t, host, "acme-dev-app-abc123")
 	unmountOnCleanup(t, host, "acme-dev-app-abc123")
 
-	session := startProxy(t, endpoint)
+	session := startProxy(t, endpoint, nil)
 	if got := toolNames(t, session); !reflect.DeepEqual(got, []string{"ping"}) {
 		t.Fatalf("tools = %v", got)
 	}
@@ -66,6 +70,46 @@ func TestProxyReconnectsWhenTheSessionIsGone(t *testing.T) {
 	}
 	if up.current == first {
 		t.Fatal("the dropped session must be replaced")
+	}
+}
+
+func TestProxyServesTheToolsOfARestartedServer(t *testing.T) {
+	var handler atomic.Pointer[http.Handler]
+	serve := func(names ...string) {
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+		for _, name := range names {
+			mcp.AddTool(server, &mcp.Tool{Name: name}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, struct{}, error) {
+				return nil, struct{}{}, nil
+			})
+		}
+		h := http.Handler(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
+		handler.Store(&h)
+	}
+	serve("ping", "removed")
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*handler.Load()).ServeHTTP(w, r) }))
+	t.Cleanup(gateway.Close)
+	changed := make(chan struct{}, 1)
+	session := startProxy(t, Endpoint{URL: gateway.URL, Token: "tok"}, &mcp.ClientOptions{
+		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		},
+	})
+
+	serve("ping", "added") // the restarted server knows neither the session nor the removed tool.
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "ping", Arguments: map[string]any{}})
+	if err != nil || result.IsError {
+		t.Fatalf("ping after the restart = %+v, %v", result, err)
+	}
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client must be notified that the tools changed")
+	}
+	if got := toolNames(t, session); !reflect.DeepEqual(got, []string{"added", "ping"}) {
+		t.Fatalf("tools = %v, want those of the restarted server", got)
 	}
 }
 
