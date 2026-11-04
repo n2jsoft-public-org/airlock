@@ -49,7 +49,8 @@ func settingSection(key string) string {
 func settingKind(key string) ui.SettingKind {
 	switch key {
 	case "aws.randomLocalPort", "mcp.gateway.enabled", "agent.writes", "modules.sql.enabled", "modules.k8s.enabled",
-		"modules.cache.enabled", "modules.dynamodb.enabled", "modules.s3.enabled", "modules.logs.enabled":
+		"modules.cache.enabled", "modules.dynamodb.enabled", "modules.s3.enabled", "modules.logs.enabled", "modules.sqs.enabled",
+		"modules.sqs.allowDequeue":
 		return ui.KindToggle
 	case "mode", "language", "agent.autoConnect":
 		return ui.KindChoice

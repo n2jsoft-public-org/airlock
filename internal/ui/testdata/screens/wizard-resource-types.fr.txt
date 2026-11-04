@@ -29,11 +29,11 @@
   │  LOGS   CloudWatch Logs                                            6 │
   │ Journaux d'une région pour votre assistant IA (MCP), sans tunnel     │
   ╰──────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │  SQS   SQS & SNS                                                   7 │
+  │ Files et topics d'une région pour l'assistant IA (MCP), sans tunnel  │
+  ╰──────────────────────────────────────────────────────────────────────╯
 
 
 
-
-
-
-
-   ↑↓  naviguer   1-6  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter
+   ↑↓  naviguer   1-7  choisir   enter  valider   r  région   s  rechercher   ?  aide   q  quitter

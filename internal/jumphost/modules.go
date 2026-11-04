@@ -22,6 +22,8 @@ func ModuleOf(resourceType string) string {
 		return "s3"
 	case resourceLogs:
 		return "logs"
+	case resourceSQS:
+		return "sqs"
 	default:
 		return ""
 	}

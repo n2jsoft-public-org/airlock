@@ -100,6 +100,8 @@ func (r *Runner) listResources(ctx context.Context, cfg awsConfig, resourceType 
 		return r.s3Targets(ctx, cfg)
 	case resourceLogs:
 		return r.logsTargets(ctx, cfg)
+	case resourceSQS:
+		return r.sqsTargets(ctx, cfg)
 	case resourceRDS:
 		instances, err := r.rdsInstances(ctx, cfg)
 		if err != nil {

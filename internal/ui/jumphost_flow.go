@@ -111,6 +111,7 @@ var resourceTypeOptions = []resourceTypeOption{
 	{name: "dynamodb", titleKey: "ui.card.dynamodb.title", descKey: "ui.card.dynamodb.desc"},
 	{name: "s3", titleKey: "ui.card.s3.title", descKey: "ui.card.s3.desc"},
 	{name: "logs", titleKey: "ui.card.logs.title", descKey: "ui.card.logs.desc"},
+	{name: "sqs", titleKey: "ui.card.sqs.title", descKey: "ui.card.sqs.desc"},
 }
 
 // directCard is the Type step card of direct databases, offered when the dashboard has a store.
@@ -429,7 +430,7 @@ func newStyledWizardModel(ctx context.Context, runner JumphostDiscovery, base ju
 	return m
 }
 
-// typeOptions are the cards of the Type step: the AWS types (the API-only ones, DynamoDB, S3 and Logs, only
+// typeOptions are the cards of the Type step: the AWS types (the API-only ones, DynamoDB, S3, Logs and SQS, only
 // with MCP, as their session is their MCP server), and direct databases when the dashboard has their
 // store; disabled modules have none.
 func (m jumphostWizardModel) typeOptions() []resourceTypeOption {
@@ -455,7 +456,7 @@ func (m jumphostWizardModel) isDocker() bool {
 		m.step != jumphostStepType && m.step != jumphostStepStart
 }
 
-// isAPIOnly reports whether the flow works on an API-only type (DynamoDB, S3, CloudWatch Logs): no
+// isAPIOnly reports whether the flow works on an API-only type (DynamoDB, S3, CloudWatch Logs, SQS): no
 // port, no sign-in, at most the MCP write toggle.
 func (m jumphostWizardModel) isAPIOnly() bool {
 	return jumphost.APIOnly(m.options.ResourceType)
@@ -1039,7 +1040,7 @@ func (m jumphostWizardModel) mcpApplies() bool {
 		return false
 	}
 	switch m.options.ResourceType {
-	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType, sessions.DynamoDBResourceType, sessions.S3ResourceType, sessions.LogsResourceType:
+	case "rds", "eks", sessions.DirectResourceType, sessions.DockerResourceType, sessions.DynamoDBResourceType, sessions.S3ResourceType, sessions.LogsResourceType, sessions.SQSResourceType:
 		return true
 	case "elasticache":
 		return jumphost.CacheEngineSupported(m.targetEngine)

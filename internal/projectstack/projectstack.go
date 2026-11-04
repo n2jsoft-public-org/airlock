@@ -28,7 +28,7 @@ const maxPort = 65535
 
 // Target is one target of a stack, with the stack's profile and region applied.
 type Target struct {
-	// Type is the connect command: rds, eks, elasticache, dynamodb, s3, logs, forward, direct, docker.
+	// Type is the connect command: rds, eks, elasticache, dynamodb, s3, logs, sqs, forward, direct, docker.
 	Type string
 	// Name is the target's name; host:port for a forward.
 	Name     string
@@ -57,6 +57,7 @@ var typeKeys = map[string][]string{
 	"dynamodb":    {"name", "mcpAllowWrites", "profile", "region"},
 	"s3":          {"name", "mcpAllowWrites", "profile", "region"},
 	"logs":        {"name", "profile", "region"},
+	"sqs":         {"name", "mcpAllowWrites", "profile", "region"},
 	"forward":     {"host", "remotePort", "port", "profile", "region"},
 	"direct":      {"name", "mcpAllowWrites"},
 	"docker":      {"name", "mcpAllowWrites"},

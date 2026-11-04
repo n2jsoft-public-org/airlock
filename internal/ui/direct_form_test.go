@@ -40,7 +40,7 @@ func focusFormField(t *testing.T, m jumphostWizardModel, field int) jumphostWiza
 func directFormWizard(t *testing.T, runner JumphostDiscovery, store *fakeDirectStore, previous string) jumphostWizardModel {
 	t.Helper()
 	m := newDirectWizard(t, runner, store)
-	m, _ = wizardUpdate(t, m, key("7"))
+	m, _ = wizardUpdate(t, m, key("8"))
 	if previous == "" {
 		m, _ = wizardUpdate(t, m, key("a"))
 	} else {
@@ -316,7 +316,7 @@ func TestDirectFormBreadcrumbStaysOnTarget(t *testing.T) {
 
 func TestDirectListKeysOfferAddAndEdit(t *testing.T) {
 	m := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{dbs: testDirectDatabases()})
-	m, _ = wizardUpdate(t, m, key("7"))
+	m, _ = wizardUpdate(t, m, key("8"))
 
 	keys := m.directListKeys([2]string{"?", "help"}, [2]string{"q", "quit"})
 	if !slices.Contains(keys, [2]string{"a", "add"}) || !slices.Contains(keys, [2]string{"e", "edit"}) {
@@ -324,7 +324,7 @@ func TestDirectListKeysOfferAddAndEdit(t *testing.T) {
 	}
 
 	empty := newDirectWizard(t, fakeSessionRunner{}, &fakeDirectStore{})
-	empty, _ = wizardUpdate(t, empty, key("7"))
+	empty, _ = wizardUpdate(t, empty, key("8"))
 	keys = empty.directListKeys([2]string{"?", "help"}, [2]string{"q", "quit"})
 	if !slices.Contains(keys, [2]string{"a", "add"}) || slices.Contains(keys, [2]string{"e", "edit"}) {
 		t.Fatalf("keys = %v, want add without edit on an empty list", keys)

@@ -172,6 +172,7 @@ airlock elasticache my-cache 6379    # tunnel to an ElastiCache cluster
 airlock dynamodb eu-west-3           # DynamoDB tables of a region, for the AI assistant (MCP)
 airlock s3                           # S3 buckets of a profile, for the AI assistant (MCP)
 airlock logs eu-west-3               # CloudWatch Logs of a region, read-only, for the AI assistant (MCP)
+airlock sqs eu-west-3                # SQS queues and SNS topics of a region, for the AI assistant (MCP)
 airlock direct legacy-billing        # a direct database declared with airlock connection add
 airlock docker pg                    # a database running in a local Docker container
 airlock forward search.internal 443  # any host:port the jumphost reaches

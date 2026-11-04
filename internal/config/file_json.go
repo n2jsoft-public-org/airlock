@@ -19,10 +19,11 @@ type legacyKey struct {
 
 // typedKeys are the keys written as JSON booleans or numbers rather than strings.
 var typedKeys = map[string]bool{
-	"aws.randomLocalPort": true,
-	"mcp.gateway.enabled": true,
-	"mcp.gateway.port":    true,
-	"agent.writes":        true,
+	"aws.randomLocalPort":      true,
+	"mcp.gateway.enabled":      true,
+	"mcp.gateway.port":         true,
+	"agent.writes":             true,
+	"modules.sqs.allowDequeue": true,
 }
 
 // MarshalJSON writes the keys f sets nested by their dotted names, in Keys order, the deprecated

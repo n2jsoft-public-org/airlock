@@ -1,6 +1,6 @@
 ---
 name: airlock
-description: Reach private resources (RDS and other SQL databases, EKS clusters, ElastiCache and Docker caches, DynamoDB tables, S3 buckets, CloudWatch Logs) through the airlock MCP tools. Use when the user asks to query a database, inspect a Kubernetes cluster, read a cache key, a DynamoDB item, an S3 object or Lambda / ECS logs, or to investigate data or an incident in an AWS account.
+description: Reach private resources (RDS and other SQL databases, EKS clusters, ElastiCache and Docker caches, DynamoDB tables, S3 buckets, CloudWatch Logs, SQS queues and SNS topics) through the airlock MCP tools. Use when the user asks to query a database, inspect a Kubernetes cluster, read a cache key, a DynamoDB item, an S3 object, Lambda / ECS logs or an SQS queue, or to investigate data or an incident in an AWS account.
 ---
 
 # airlock
@@ -10,7 +10,7 @@ serves MCP tools on them. Its tools come
 in two shapes:
 
 - **Gateway** (the airlock daemon): `list_targets`, `list_sessions`, `open_session`,
-  `close_session`, then `db_`, `k8s_`, `cache_`, `dynamo_`, `s3_` and `logs_` tools taking a `session` id.
+  `close_session`, then `db_`, `k8s_`, `cache_`, `dynamo_`, `s3_`, `logs_` and `sqs_` tools taking a `session` id.
 - **Session servers** (an airlock the user runs in a terminal): one MCP server per open session,
   whose tools carry no prefix (`query`, `list_tables`, `pod_logs`…).
 
@@ -55,6 +55,11 @@ Tool names below are those of a session server; the gateway prefixes them with t
 - **CloudWatch Logs**: `list_log_groups` with a prefix (`/aws/lambda/`, `/ecs/`), then
   `filter_events` to tail a group or `query` (Logs Insights, billed per GB scanned) over a short
   range first: widen it only when needed.
+- **SQS and SNS**: `list_queues` then `get_queue` (counts, redrive policy, DLQ); `list_topics`,
+  `get_topic`, `get_subscription`. `peek_messages` (writes only) counts as a receive and uses up a
+  delivery, and is refused when `maxReceiveCount` is 2 or less: never re-read a message flagged
+  `at_limit`, and ask the user before `repost_message` or `delete_message` (served only when the
+  user's config allows dequeuing).
 
 ## No airlock tools?
 

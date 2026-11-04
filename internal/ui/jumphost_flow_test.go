@@ -1054,6 +1054,22 @@ func TestLogsReviewIsReadOnlyWithNothingToChoose(t *testing.T) {
 	}
 }
 
+func TestSQSCardAndReviewOfferWrites(t *testing.T) {
+	m := newTestWizard(t, fakeSessionRunner{}, jumphost.Options{})
+	if !slices.ContainsFunc(m.typeOptions(), func(o resourceTypeOption) bool { return o.name == "sqs" }) {
+		t.Fatal("the SQS card is missing")
+	}
+	m.flow, m.step = flowNew, jumphostStepReview
+	m.options.ResourceType, m.options.Name, m.options.AwsProfile = "sqs", "eu-west-3", "dev"
+	if got := m.reviewFields(); len(got) != 1 || got[0] != reviewFieldMCPWrites {
+		t.Fatalf("fields = %v, want only the MCP write toggle", got)
+	}
+	m.reviewFocus = reviewFieldMCPWrites
+	if !strings.Contains(ansi.Strip(m.renderReviewPanel(120, false)), i18n.T("ui.jumphost_flow_view.space_toggles_sqs_writes")) {
+		t.Fatal("the SQS review must explain the write toggle")
+	}
+}
+
 func TestWizardOffersS3OnlyWithMCP(t *testing.T) {
 	hasS3 := func(m jumphostWizardModel) bool {
 		return slices.ContainsFunc(m.typeOptions(), func(o resourceTypeOption) bool { return o.name == "s3" })
@@ -1094,7 +1110,7 @@ func TestDirectAndDockerReviewsIgnoreWritesWhenLocked(t *testing.T) {
 	runner.saved["/legacy-billing"] = jumphost.ConnectionPrefs{DBUser: "mcp_ro", SignIn: jumphost.SignInPassword, MCPAllowWrites: true}
 	direct := newDirectWizard(t, runner, &fakeDirectStore{dbs: testDirectDatabases()})
 	direct.writesLocked = true
-	direct, _ = wizardUpdate(t, direct, key("7"))
+	direct, _ = wizardUpdate(t, direct, key("8"))
 	direct.directList.selectName("legacy-billing")
 	direct, cmd := wizardUpdate(t, direct, key("enter"))
 	direct, _ = wizardUpdate(t, direct, findMsg[directChoicesLoadedMsg](t, cmd))
