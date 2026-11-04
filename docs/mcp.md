@@ -306,7 +306,7 @@ so an open Claude Code keeps it without `/mcp`. The entry stays when the daemon 
 
 | Tool | Description |
 |---|---|
-| `list_targets` | The saved connections, direct databases and local Docker databases and caches, or a live search of an AWS profile, each telling whether it opens at once or after your approval |
+| `list_targets` | The saved connections, direct databases and local Docker databases and caches, or a live search of an AWS profile, each telling whether it opens at once or after your approval. A database server lists the databases seen at its last connection (kept in `database-catalog.json` next to `saved-connections.json`), and `query` matches them too: an agent finds a database without opening every server |
 | `list_sessions` | The running sessions, yours included, with their id and the tools that apply |
 | `open_session` | Open a target, with a reason you read |
 | `close_session` | Close a session an agent opened |

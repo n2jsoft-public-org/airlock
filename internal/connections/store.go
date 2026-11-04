@@ -193,17 +193,22 @@ func (s *Store) update(change func(entries map[string]Entry) error) error {
 
 // lock holds the cross-process lock of the file, next to it, until unlock is called.
 func (s *Store) lock() (unlock func(), err error) {
-	mkdirErr := os.MkdirAll(filepath.Dir(s.path), 0o700)
+	return lockFile(s.path)
+}
+
+// lockFile holds the cross-process lock of path, next to it, until unlock is called.
+func lockFile(path string) (unlock func(), err error) {
+	mkdirErr := os.MkdirAll(filepath.Dir(path), 0o700)
 	if mkdirErr != nil {
-		return nil, fmt.Errorf("failed to create %s: %w", filepath.Dir(s.path), mkdirErr)
+		return nil, fmt.Errorf("failed to create %s: %w", filepath.Dir(path), mkdirErr)
 	}
-	file, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- next to the user's own file.
+	file, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- next to the user's own file.
 	if err != nil {
-		return nil, fmt.Errorf("failed to lock %s: %w", s.path, err)
+		return nil, fmt.Errorf("failed to lock %s: %w", path, err)
 	}
 	if lockErr := platform.LockFile(file); lockErr != nil {
 		_ = file.Close() //nolint:errcheck // ignore close error on failed lock
-		return nil, fmt.Errorf("failed to lock %s: %w", s.path, lockErr)
+		return nil, fmt.Errorf("failed to lock %s: %w", path, lockErr)
 	}
 	return func() {
 		_ = platform.UnlockFile(file) //nolint:errcheck // ignore unlock error on cleanup
@@ -289,7 +294,7 @@ func writeAtomic(path string, data []byte) (err error) {
 	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create %s: %w", dir, err)
 	}
-	tmp, err := os.CreateTemp(dir, ".saved-connections-*.json")
+	tmp, err := os.CreateTemp(dir, "."+strings.TrimSuffix(filepath.Base(path), ".json")+"-*.json")
 	if err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}

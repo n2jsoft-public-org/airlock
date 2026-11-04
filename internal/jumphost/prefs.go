@@ -1,6 +1,8 @@
 package jumphost
 
 import (
+	"errors"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -54,11 +56,17 @@ func (p ConnectionPrefs) SignInMethod() string { //nolint:gocritic
 // profiles may reach one account, and profile names are local to each machine.
 type PrefsStore struct {
 	store *connections.Store
+	// catalog keeps the databases seen on each target, in database-catalog.json next to the store.
+	catalog *connections.Catalog
 }
 
 // NewPrefsStore stores preferences in the saved-connections.json at path, created on the first save.
 func NewPrefsStore(path string) *PrefsStore {
-	return &PrefsStore{store: connections.NewStore(path)}
+	catalogPath := ""
+	if path != "" {
+		catalogPath = filepath.Join(filepath.Dir(path), "database-catalog.json")
+	}
+	return &PrefsStore{store: connections.NewStore(path), catalog: connections.NewCatalog(catalogPath)}
 }
 
 // entryKey is the key of the entry of ref.
@@ -118,8 +126,12 @@ func (t TargetRef) complete() bool {
 
 // SavedConnection is one remembered target with its choices.
 type SavedConnection struct {
-	Ref   TargetRef
-	Prefs ConnectionPrefs
+	// Databases are the databases seen on the target at its last connection, sorted.
+	Databases []string
+	// DatabasesSeenAt is when Databases were listed; zero when no database was ever listed.
+	DatabasesSeenAt time.Time
+	Ref             TargetRef
+	Prefs           ConnectionPrefs
 	// ProfileMissing reports that Prefs.Profile no longer exists locally. The store leaves it
 	// false; the runner sets it.
 	ProfileMissing bool
@@ -166,10 +178,14 @@ func (s *PrefsStore) List() ([]SavedConnection, error) {
 	if err != nil {
 		return nil, err
 	}
+	catalog := s.catalog.List()
 	saved := make([]SavedConnection, 0, len(entries))
 	for idx := range entries {
 		if entry := &entries[idx]; entry.Invalid == nil && remembered(entry) {
-			saved = append(saved, SavedConnection{Ref: refOf(entry), Prefs: prefsOf(entry)})
+			seen := catalog[entry.Key]
+			saved = append(saved, SavedConnection{
+				Ref: refOf(entry), Prefs: prefsOf(entry), Databases: seen.Databases, DatabasesSeenAt: seen.SeenAt,
+			})
 		}
 	}
 	sort.Slice(saved, func(i, j int) bool {
@@ -184,5 +200,13 @@ func (s *PrefsStore) List() ([]SavedConnection, error) {
 // Delete forgets ref, keeping the other entries: a jumphost target goes, a direct database keeps
 // its definition. Forgetting an unknown target is not an error.
 func (s *PrefsStore) Delete(ref TargetRef) error {
-	return s.store.Forget(entryKey(ref))
+	return errors.Join(s.store.Forget(entryKey(ref)), s.catalog.Forget(entryKey(ref)))
+}
+
+// RememberDatabases records databases as the databases seen now on ref.
+func (s *PrefsStore) RememberDatabases(ref TargetRef, databases []string) error {
+	if !ref.complete() {
+		return nil
+	}
+	return s.catalog.Remember(entryKey(ref), databases)
 }

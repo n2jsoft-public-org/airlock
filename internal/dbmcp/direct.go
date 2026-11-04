@@ -11,7 +11,9 @@ type DirectConfig struct {
 	// OnPasswordRejected is called once when the database rejects Password, e.g. to forget a
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
-	ProjectDir         string
+	// OnDatabases receives the databases of the server (see SessionConfig.OnDatabases).
+	OnDatabases func([]string)
+	ProjectDir  string
 	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
 	ServerPrefix string
 	// Name is the direct database name: it ends the server name and is the audit log target.
@@ -46,6 +48,7 @@ func StartDirect(host *mcpserve.Host, cfg *DirectConfig) (*Handle, error) {
 			Engine: cfg.Engine, AllowWrites: cfg.AllowWrites,
 		},
 		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, skipRegistration: cfg.SkipRegistration,
+		onDatabases: cfg.OnDatabases,
 	})
 	if err != nil {
 		return nil, err

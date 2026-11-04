@@ -20,6 +20,8 @@ in two shapes:
 2. `list_targets`: without `profile`, the saved connections and local databases (no AWS call);
    with `profile`, a live search of that AWS profile. Each target says whether it opens at once
    (`opens: auto`) or after the user approves it in the airlock dashboard (`opens: prompt`).
+   A database server lists the `databases` seen at its last connection: to find a database by
+   name, pass it as `query` instead of opening every server.
 3. `open_session` with a short, honest `reason`: the user reads it before approving. When
    approval is needed, tell the user to approve the session in the airlock dashboard.
 4. Call the tools of the session's family (`tools:` in `list_sessions`) with its `session` id.
