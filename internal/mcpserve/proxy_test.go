@@ -82,8 +82,7 @@ func TestProxyServesTheToolsOfARestartedServer(t *testing.T) {
 				return nil, struct{}{}, nil
 			})
 		}
-		h := http.Handler(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
-		handler.Store(&h)
+		handler.Store(new(http.Handler(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))))
 	}
 	serve("ping", "removed")
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*handler.Load()).ServeHTTP(w, r) }))
