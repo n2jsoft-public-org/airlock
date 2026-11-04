@@ -235,3 +235,32 @@ func (q *queues) Repost(ctx context.Context, in *repostInput) (repostOutput, err
 	out.DeleteAccepted = true
 	return out, nil
 }
+
+type deleteInput struct {
+	Queue     string `json:"queue" jsonschema:"queue name or URL"`
+	MessageID string `json:"message_id" jsonschema:"id of a message returned by peek_messages"`
+}
+
+type deleteOutput struct {
+	MessageID string `json:"message_id"`
+	Note      string `json:"note"`
+}
+
+const deleteNote = "SQS accepted the delete. It removes the message unless something received it since the read: SQS then keeps it, " +
+	"in this queue or its dead-letter queue."
+
+// Delete removes from its queue a message read by peek_messages, with the receipt handle of that read.
+func (q *queues) Delete(ctx context.Context, in *deleteInput) (deleteOutput, error) {
+	u, err := q.url(ctx, in.Queue)
+	if err != nil {
+		return deleteOutput{}, err
+	}
+	m, ok := q.cache.take(u, in.MessageID)
+	if !ok {
+		return deleteOutput{}, fmt.Errorf("message %s was not read by this session, or is no longer remembered: peek_messages it again", in.MessageID)
+	}
+	if _, err := q.api.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: aws.String(u), ReceiptHandle: aws.String(m.ReceiptHandle)}); err != nil {
+		return deleteOutput{}, fmt.Errorf("delete %s: %w (peek_messages it again for a fresh receipt)", in.MessageID, mcpserve.AWSError(err))
+	}
+	return deleteOutput{MessageID: in.MessageID, Note: deleteNote}, nil
+}

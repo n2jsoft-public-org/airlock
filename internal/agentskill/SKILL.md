@@ -56,7 +56,8 @@ Tool names below are those of a session server; the gateway prefixes them with t
 - **SQS and SNS**: `list_queues` then `get_queue` (counts, redrive policy, DLQ); `list_topics`,
   `get_topic`, `get_subscription`. `peek_messages` (writes only) counts as a receive and uses up a
   delivery, and is refused when `maxReceiveCount` is 2 or less: never re-read a message flagged
-  `at_limit`, and ask the user before `repost_message`.
+  `at_limit`, and ask the user before `repost_message` or `delete_message` (served only when the
+  user's config allows dequeuing).
 
 ## No airlock tools?
 

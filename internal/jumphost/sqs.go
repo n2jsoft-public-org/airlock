@@ -87,6 +87,7 @@ func (r *Runner) startSQSMCP(ctx context.Context, options *Options, cfg awsConfi
 			AWS: awsCfg, ProjectDir: projectDir, Profile: cfg.Profile, Region: cfg.Region,
 			ServerPrefix: r.mcpServerPrefix, LogDir: r.mcpLogDir,
 			SkipRegistration: options.SkipMCPRegistration, AllowWrites: options.MCPAllowWrites,
+			AllowDequeue: options.MCPAllowWrites && r.sqsAllowDequeue,
 		})
 	})
 }

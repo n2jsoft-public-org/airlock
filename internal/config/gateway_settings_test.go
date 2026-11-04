@@ -90,3 +90,16 @@ func TestSetValidatesGatewaySettings(t *testing.T) {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 }
+
+func TestSQSAllowDequeue(t *testing.T) {
+	if Defaults().SQSAllowDequeue {
+		t.Fatal("default on, want off")
+	}
+	cfg, err := Load(writeConfig(t, `{"modules": {"sqs": {"allowDequeue": true}}}`), nil)
+	if err != nil || !cfg.SQSAllowDequeue {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	if _, err := Load(writeConfig(t, `{"modules": {"sqs": {"allowDequeue": "maybe"}}}`), nil); err == nil || !strings.Contains(err.Error(), "modules.sqs.allowDequeue") {
+		t.Fatalf("err = %v, want one naming modules.sqs.allowDequeue", err)
+	}
+}

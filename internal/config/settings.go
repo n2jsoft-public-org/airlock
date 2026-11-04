@@ -54,6 +54,7 @@ var Keys = []Key{
 	{Name: "modules.s3.enabled"},
 	{Name: "modules.logs.enabled"},
 	{Name: "modules.sqs.enabled"},
+	{Name: "modules.sqs.allowDequeue"},
 }
 
 // renamedKeys maps each flat key of the earlier layout to the key replacing it.
@@ -390,6 +391,7 @@ func (c *Config) values() map[string]string {
 		"daemon.idleTimeout":            FormatDuration(c.DaemonIdleTimeout),
 		"modules.sql.defaultDbUser":     c.DefaultDBUser.String(),
 		"modules.sql.readOnlySecretTag": c.ReadOnlySecretTag.String(),
+		"modules.sqs.allowDequeue":      strconv.FormatBool(c.SQSAllowDequeue),
 	}
 	for _, module := range Modules {
 		values[moduleEnabledKey(module)] = strconv.FormatBool(!slices.Contains(c.DisabledModules, module))
@@ -448,6 +450,8 @@ func (f *file) field(key string) **string {
 		return &f.LogsEnabled
 	case "modules.sqs.enabled":
 		return &f.SQSEnabled
+	case "modules.sqs.allowDequeue":
+		return &f.SQSAllowDequeue
 	case legacyProductionProfiles:
 		return &f.ProductionProfiles
 	default:

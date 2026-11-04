@@ -66,6 +66,8 @@ type Config struct {
 	AgentWrites bool
 	// RandomLocalPort binds SSM tunnels to a free port chosen by the OS instead of the target's port.
 	RandomLocalPort bool
+	// SQSAllowDequeue lets SQS sessions with MCP writes delete the messages they read.
+	SQSAllowDequeue bool
 }
 
 // Modules are the target families modules.<name>.enabled can turn off.
@@ -162,6 +164,7 @@ type file struct {
 	S3Enabled          *string
 	LogsEnabled        *string
 	SQSEnabled         *string
+	SQSAllowDequeue    *string
 	// ProductionProfiles is the deprecated key environments replaces: read while environments is
 	// not set, never written by airlock.
 	ProductionProfiles *string
@@ -290,6 +293,11 @@ func (f *file) apply(base *Config) (Config, error) {
 	if f.AgentWrites != nil {
 		if cfg.AgentWrites, err = parseBool(*f.AgentWrites); err != nil {
 			return Config{}, fmt.Errorf("agent.writes: %w", err)
+		}
+	}
+	if f.SQSAllowDequeue != nil {
+		if cfg.SQSAllowDequeue, err = parseBool(*f.SQSAllowDequeue); err != nil {
+			return Config{}, fmt.Errorf("modules.sqs.allowDequeue: %w", err)
 		}
 	}
 	if f.DaemonIdleTimeout != nil {

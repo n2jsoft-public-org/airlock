@@ -83,7 +83,7 @@ func prototype(k kind) *mcp.Server {
 	case kindS3:
 		return s3mcp.NewServer(&s3mcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil)
 	case kindSQS:
-		return sqsmcp.NewServer(&sqsmcp.ServerConfig{Name: "prototype", AllowWrites: true}, nil, nil, nil)
+		return sqsmcp.NewServer(&sqsmcp.ServerConfig{Name: "prototype", AllowWrites: true, AllowDequeue: true}, nil, nil, nil)
 	default:
 		return logsmcp.NewServer(&logsmcp.ServerConfig{Name: "prototype"}, nil, nil)
 	}

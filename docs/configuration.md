@@ -21,7 +21,8 @@ path, e.g. `modules.sql.defaultDbUser`:
     "cache": { "enabled": true },
     "dynamodb": { "enabled": false },
     "s3": { "enabled": true },
-    "logs": { "enabled": true }
+    "logs": { "enabled": true },
+    "sqs": { "enabled": true, "allowDequeue": false }
   }
 }
 ```
@@ -42,7 +43,8 @@ path, e.g. `modules.sql.defaultDbUser`:
 | `agent.writes` | none | `false` | `true`: agents may ask for MCP writes, always approved in a dashboard; `false`: agents only open read-only sessions |
 | `agent.idleTimeout` | none | `30m` | Close a session opened by an agent after this long without a call through the gateway, e.g. `30m` or `2h` (at least `1m`) |
 | `daemon.idleTimeout` | none | `10m` | Stop the daemon after this long without session, dashboard nor call through the gateway, e.g. `10m` or `8h` (at least `1m`); read at the daemon's start |
-| `modules.<name>.enabled` | none | `true` | `false`: airlock neither lists nor opens the targets of that module: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, `s3`, `logs` (CloudWatch Logs) |
+| `modules.<name>.enabled` | none | `true` | `false`: airlock neither lists nor opens the targets of that module: `sql` (RDS, direct and Docker databases), `k8s` (EKS), `cache` (ElastiCache and Docker caches), `dynamodb`, `s3`, `logs` (CloudWatch Logs), `sqs` (SQS and SNS) |
+| `modules.sqs.allowDequeue` | none | `false` | `true`: SQS sessions opened with MCP writes also serve `delete_message`, which deletes a message the assistant read; `false`: they never delete one (see [AI access with MCP](mcp.md)) |
 | `modules.sql.defaultDbUser` | `--db-user` | none (asked) | Database user prefilled on RDS: a user signing in with AWS IAM on PostgreSQL and MySQL, and/or `engine=user` pairs (`postgres`, `mysql`, `sqlserver`), e.g. `app_ro,sqlserver=mcp_ro` (see below) |
 | `modules.sql.readOnlySecretTag` | `--read-only-secret-tag` | none (no **Auto** sign-in on SQL Server without MCP writes) | Tag (`Key=Value`) of the per-database read-only Secrets Manager secrets, used by the **Auto** sign-in of SQL Server |
 | `organizationConfig` | none | none | Source of the [organization config](organization-config.md): an absolute path, an `https://` URL or a `github.com` link; personal, never exported |

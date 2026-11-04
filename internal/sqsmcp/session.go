@@ -22,6 +22,8 @@ type SessionConfig struct {
 	SkipRegistration bool
 	// AllowWrites exposes peek_messages and repost_message; IAM still decides what is allowed.
 	AllowWrites bool
+	// AllowDequeue, with AllowWrites, exposes delete_message (the modules.sqs.allowDequeue setting).
+	AllowDequeue bool
 }
 
 // Start mounts the MCP server of an SQS session on host and registers it in the project's AI
@@ -32,8 +34,8 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*mcpserve.Handle, error) {
 	credentials := mcpserve.SignInCredentials(cfg.AWS.Credentials)
 	sqsClient := sqs.NewFromConfig(cfg.AWS, func(o *sqs.Options) { o.Credentials = credentials })
 	snsClient := sns.NewFromConfig(cfg.AWS, func(o *sns.Options) { o.Credentials = credentials })
-	server := NewServer(&ServerConfig{Name: name, Profile: cfg.Profile, Region: cfg.Region, AllowWrites: cfg.AllowWrites},
-		newQueues(sqsClient), newTopics(snsClient), recorder.Record)
+	server := NewServer(&ServerConfig{Name: name, Profile: cfg.Profile, Region: cfg.Region, AllowWrites: cfg.AllowWrites,
+		AllowDequeue: cfg.AllowDequeue}, newQueues(sqsClient), newTopics(snsClient), recorder.Record)
 	return mcpserve.Serve(host, &mcpserve.ServeConfig{
 		Server: server, Recorder: recorder, Name: name, ProjectDir: cfg.ProjectDir,
 		AllowWrites: cfg.AllowWrites, SkipRegistration: cfg.SkipRegistration,

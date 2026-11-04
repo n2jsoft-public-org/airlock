@@ -11,8 +11,14 @@ import (
 // connect serves NewServer over in-memory transports and returns a client session and the events recorded.
 func connect(t *testing.T, f *fakeSQS, allowWrites bool) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {
 	t.Helper()
+	return connectWith(t, f, &ServerConfig{Name: "acme-dev-sqs", Profile: "dev", Region: "eu-west-3", AllowWrites: allowWrites})
+}
+
+// connectWith is connect for the server cfg.
+func connectWith(t *testing.T, f *fakeSQS, cfg *ServerConfig) (*mcp.ClientSession, *[]mcpserve.ToolEvent) {
+	t.Helper()
 	var events []mcpserve.ToolEvent
-	server := NewServer(&ServerConfig{Name: "acme-dev-sqs", Profile: "dev", Region: "eu-west-3", AllowWrites: allowWrites},
+	server := NewServer(cfg,
 		newQueues(f), newTopics(&fakeSNS{}), func(e *mcpserve.ToolEvent) { events = append(events, *e) })
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(t.Context(), serverTransport, nil); err != nil {
@@ -103,5 +109,24 @@ func TestWritableServerAddsTheMessageTools(t *testing.T) {
 	}
 	if len(found) != 2 {
 		t.Fatalf("message tools listed: %v", found)
+	}
+}
+
+func TestDeleteMessageNeedsWritesAndDequeue(t *testing.T) {
+	for _, tc := range []struct {
+		writes, dequeue, want bool
+	}{{true, false, false}, {false, true, false}, {true, true, true}} {
+		cs, _ := connectWith(t, &fakeSQS{}, &ServerConfig{Name: "acme-dev-sqs", AllowWrites: tc.writes, AllowDequeue: tc.dequeue})
+		listed, err := cs.ListTools(t.Context(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(listed.Tools, func(tool *mcp.Tool) bool { return tool.Name == "delete_message" })
+		if (i >= 0) != tc.want {
+			t.Fatalf("writes %v, dequeue %v: delete_message listed = %v", tc.writes, tc.dequeue, i >= 0)
+		}
+		if i >= 0 && (listed.Tools[i].Annotations.DestructiveHint == nil || !*listed.Tools[i].Annotations.DestructiveHint) {
+			t.Fatalf("annotations = %+v", listed.Tools[i].Annotations)
+		}
 	}
 }

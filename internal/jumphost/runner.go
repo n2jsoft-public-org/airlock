@@ -166,6 +166,8 @@ type RunnerOptions struct {
 	// WritesLocked keeps every MCP server read-only, whatever the options or the saved choices ask
 	// (the organization locks agent.writes off).
 	WritesLocked bool
+	// SQSAllowDequeue lets SQS sessions with MCP writes delete the messages they read.
+	SQSAllowDequeue bool
 }
 
 type SessionDetails struct {
@@ -279,6 +281,8 @@ type Runner struct {
 	// writesLocked forces MCPAllowWrites off and keeps the saved one as it is.
 	writesLocked bool
 	keychainOK   bool
+	// sqsAllowDequeue lets SQS sessions with MCP writes delete the messages they read.
+	sqsAllowDequeue bool
 }
 
 // attachMCP records the MCP server of session (nil when none started, see serveMCP) and its
@@ -374,7 +378,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: opts.DefaultDBUser,
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
-		randomLocalPort: opts.RandomLocalPort,
+		randomLocalPort: opts.RandomLocalPort, sqsAllowDequeue: opts.SQSAllowDequeue,
 		disabledModules: opts.DisabledModules,
 		databases:       opts.Databases,
 		containers:      opts.Containers,

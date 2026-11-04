@@ -367,7 +367,7 @@ func TestSQSSessionsServeTheSQSToolsAndRefuseTheDestructiveOnesWithoutWrites(t *
 		}
 		names = append(names, tool.Name)
 	}
-	for _, want := range []string{"sqs_list_queues", "sqs_peek_messages", "sqs_repost_message"} {
+	for _, want := range []string{"sqs_list_queues", "sqs_peek_messages", "sqs_repost_message", "sqs_delete_message"} {
 		if !slices.Contains(names, want) {
 			t.Fatalf("tools = %v, missing %s", names, want)
 		}

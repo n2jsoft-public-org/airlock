@@ -194,6 +194,7 @@ it scans: the tools default to a short range and report the bytes scanned. The p
 | `get_subscription` | Filter policy and its scope, raw message delivery, redrive policy, endpoint and protocol of a subscription |
 | `peek_messages` | Read up to 10 messages of a queue without deleting them. **Only with `--mcp-allow-writes`, and read the warning below.** |
 | `repost_message` | Send a copy of a message `peek_messages` found at its receive limit, then delete the original. **Only with `--mcp-allow-writes`, and with your consent.** |
+| `delete_message` | Delete for good a message `peek_messages` returned (dequeue it). **Only with `--mcp-allow-writes` and the `modules.sqs.allowDequeue` setting, and with your consent.** |
 
 An SQS and SNS session is the region of a profile, like DynamoDB: no tunnel, no jumphost, no port. A
 queue is given by name or URL.
@@ -217,6 +218,13 @@ assistant is told to confirm with you first. A message can be reposted once per 
 refused until it is peeked again, and a failed send keeps it (the copy may still exist, so check the
 queue before trying again).
 
+**`delete_message` is off by default.** It needs both a session opened with writes and
+`modules.sqs.allowDequeue: true` in the [configuration](configuration.md) (an organization can lock it).
+It deletes the message with the receipt of the `peek_messages` call that returned it, once per read:
+a repeat or a message the session did not read is refused. The message was visible again one second
+after the read, so if a consumer received it since, SQS accepts the delete but keeps the message. The
+assistant is told to confirm with you first.
+
 `get_queue` and `get_topic` treat tags (and, for queues, the source queues) as optional: without the
 permission they still answer and list the gap in `warnings`. `get_topic` returns the first page of
 subscriptions; pass its `subscriptions_next` as `subscriptions_start` for the next one.
@@ -225,7 +233,7 @@ The profile needs `sqs:ListQueues` (to open the session), `sqs:GetQueueUrl`,
 `sqs:GetQueueAttributes`, `sqs:ListQueueTags`, `sqs:ListDeadLetterSourceQueues`, `sns:ListTopics`,
 `sns:GetTopicAttributes`, `sns:ListSubscriptionsByTopic`, `sns:GetSubscriptionAttributes` and
 `sns:ListTagsForResource`, plus `sqs:ReceiveMessage`, `sqs:SendMessage` and `sqs:DeleteMessage` for
-`--mcp-allow-writes` (and `kms:Decrypt` / `kms:GenerateDataKey` on queues encrypted with a customer
+`--mcp-allow-writes` and `delete_message` (and `kms:Decrypt` / `kms:GenerateDataKey` on queues encrypted with a customer
 key). `--no-mcp` is refused.
 
 ## Registering the servers in AI clients

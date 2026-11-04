@@ -232,7 +232,8 @@ func TestWriteTemplateListsEveryKeyWithItsDefault(t *testing.T) {
       "enabled": true
     },
     "sqs": {
-      "enabled": true
+      "enabled": true,
+      "allowDequeue": false
     }
   }
 }

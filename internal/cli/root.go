@@ -397,6 +397,7 @@ func sharedRunnerOptions(cfg *config.Config, org *config.Organization, registry 
 		RandomLocalPort:   cfg.RandomLocalPort,
 		DisabledModules:   cfg.DisabledModules,
 		WritesLocked:      writesLocked(org, cfg),
+		SQSAllowDequeue:   cfg.SQSAllowDequeue,
 	}
 }
 

@@ -25,6 +25,8 @@ type ServerConfig struct {
 	Profile     string
 	Region      string
 	AllowWrites bool
+	// AllowDequeue, with AllowWrites, adds delete_message.
+	AllowDequeue bool
 }
 
 // command is the readable command of a call: the operation and its non-empty parts; never content.
@@ -160,6 +162,24 @@ func NewServer(cfg *ServerConfig, q *queues, t *topics, record func(*mcpserve.To
 		done(1, err)
 		return mcpserve.ToolResult(out, err)
 	})
+
+	if !cfg.AllowDequeue {
+		return server
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "delete_message", Annotations: destructive,
+		Description: "Delete for good a message read by peek_messages from its queue (dequeue it). Confirm with the user first. " +
+			"Only served when airlock's modules.sqs.allowDequeue setting is true. Best effort: if anything received the message since " +
+			"the read, SQS accepts the delete but keeps the message (check the queue). A message can be deleted once per read.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteInput) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		_, done := start("delete_message", command("delete_message", nameOf(in.Queue), in.MessageID))
+		out, err := q.Delete(ctx, &in)
+		done(1, err)
+		return mcpserve.ToolResult(out, err)
+	})
 	return server
 }
 
@@ -168,6 +188,9 @@ func instructions(cfg *ServerConfig) string {
 	if cfg.AllowWrites {
 		access = "WRITES ARE ENABLED: peek_messages raises the receive count of every message it returns, so a message may reach " +
 			"its dead-letter queue; repost_message only after the user confirms."
+		if cfg.AllowDequeue {
+			access += " delete_message removes a message for good: only after the user confirms."
+		}
 	}
 	return fmt.Sprintf(
 		"Amazon SQS queues and SNS topics of AWS profile %s, region %s, reached through the AWS API (no tunnel). %s "+

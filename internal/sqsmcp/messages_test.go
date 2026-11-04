@@ -349,3 +349,40 @@ func TestPeekNoteMentionsTheDeadLetterQueueOnlyWithARedrivePolicy(t *testing.T) 
 		t.Fatalf("note = %q", out.Note)
 	}
 }
+
+func TestDeleteUsesTheReceiptOfTheReadOnce(t *testing.T) {
+	f := &fakeSQS{queueURL: peekURL, attrs: redriveAttrs(5), messages: []types.Message{msg("a", "x", 1)}}
+	q := newQueues(f)
+	if _, err := q.Peek(t.Context(), &peekInput{Queue: "orders"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := q.Delete(t.Context(), &deleteInput{Queue: "orders", MessageID: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aws.ToString(f.deleteIn.ReceiptHandle) != "rh-a" || aws.ToString(f.deleteIn.QueueUrl) != peekURL || out.MessageID != "a" || out.Note == "" {
+		t.Fatalf("delete = %+v, out = %+v", f.deleteIn, out)
+	}
+	if _, err := q.Delete(t.Context(), &deleteInput{Queue: "orders", MessageID: "a"}); err == nil || f.calls["DeleteMessage"] != 1 {
+		t.Fatalf("second delete: err = %v, deletes = %d", err, f.calls["DeleteMessage"])
+	}
+}
+
+func TestDeleteRefusesAMessageNotRead(t *testing.T) {
+	f := &fakeSQS{queueURL: peekURL}
+	_, err := newQueues(f).Delete(t.Context(), &deleteInput{Queue: "orders", MessageID: "zz"})
+	if err == nil || !strings.Contains(err.Error(), "peek_messages it again") || f.calls["DeleteMessage"] != 0 {
+		t.Fatalf("err = %v, deletes = %d", err, f.calls["DeleteMessage"])
+	}
+}
+
+func TestDeleteReportsAFailedDelete(t *testing.T) {
+	f := &fakeSQS{queueURL: peekURL, attrs: redriveAttrs(5), messages: []types.Message{msg("a", "x", 1)}, deleteErr: errors.New("expired")}
+	q := newQueues(f)
+	if _, err := q.Peek(t.Context(), &peekInput{Queue: "orders"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Delete(t.Context(), &deleteInput{Queue: "orders", MessageID: "a"}); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("err = %v", err)
+	}
+}
