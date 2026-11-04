@@ -20,7 +20,34 @@ var prefsNow = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 func newTestPrefsStore(t *testing.T) (store *PrefsStore, path string) {
 	t.Helper()
 	path = filepath.Join(t.TempDir(), "airlock", "saved-connections.json")
-	return &PrefsStore{store: connections.NewStoreWithClock(path, func() time.Time { return prefsNow })}, path
+	return &PrefsStore{
+		store:   connections.NewStoreWithClock(path, func() time.Time { return prefsNow }),
+		catalog: connections.NewCatalog(filepath.Join(filepath.Dir(path), "database-catalog.json")),
+	}, path
+}
+
+func TestPrefsStoreListsTheDatabasesSeenAndForgetsThem(t *testing.T) {
+	store, _ := newTestPrefsStore(t)
+	ref := TargetRef{Account: "111111111111", Region: "eu-west-3", Type: resourceRDS, Name: "main-db"}
+	if err := store.Save(ref, &ConnectionPrefs{Profile: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RememberDatabases(ref, []string{"ledger", "billing"}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.List()
+	if err != nil || len(saved) != 1 || strings.Join(saved[0].Databases, ",") != "billing,ledger" || saved[0].DatabasesSeenAt.IsZero() {
+		t.Fatalf("saved = %+v, err = %v", saved, err)
+	}
+	if err := store.Delete(ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(ref, &ConnectionPrefs{Profile: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := store.List(); err != nil || len(saved) != 1 || saved[0].Databases != nil {
+		t.Fatalf("a forgotten target keeps its databases: %+v, err = %v", saved, err)
+	}
 }
 
 var devArchive = TargetRef{Account: "111111111111", Region: "eu-west-3", Type: "rds", Name: "archive"}

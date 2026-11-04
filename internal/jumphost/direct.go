@@ -263,6 +263,7 @@ func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine 
 			Engine:             engine,
 			AllowWrites:        allowWrites,
 			SkipRegistration:   options.SkipMCPRegistration,
+			OnDatabases:        r.rememberDatabasesFunc(*options),
 		})
 	})
 }

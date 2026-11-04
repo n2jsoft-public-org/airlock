@@ -50,7 +50,9 @@ func (t *toolset) add(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_targets", Annotations: readOnly,
 		Description: "List what open_session can open. Without profile: the saved connections, direct databases and local Docker databases and caches, " +
-			"no AWS call. With profile: a live search of that AWS profile. Each target says whether it opens at once " +
+			"no AWS call. With profile: a live search of that AWS profile. A database server lists the databases seen at its last " +
+			"connection (databases, databasesSeenAt) and query also matches them: search a database by name here before opening servers. " +
+			"Each target says whether it opens at once " +
 			"(opens: auto) or after the user approves it in the airlock dashboard (opens: prompt).",
 	}, t.listTargets)
 	mcp.AddTool(server, &mcp.Tool{
@@ -76,7 +78,7 @@ func (t *toolset) add(server *mcp.Server) {
 type listTargetsInput struct {
 	Profile string `json:"profile,omitempty" jsonschema:"AWS profile to search live; without it the saved connections are listed"`
 	Type    string `json:"type,omitempty" jsonschema:"only targets of this type: rds, eks, elasticache, dynamodb, s3, logs or direct"`
-	Query   string `json:"query,omitempty" jsonschema:"only targets whose name contains this text"`
+	Query   string `json:"query,omitempty" jsonschema:"only targets whose name, or the name of one of their known databases, contains this text"`
 }
 
 type targetInfo struct {
@@ -86,9 +88,12 @@ type targetInfo struct {
 	Region      string `json:"region,omitempty"`
 	Description string `json:"description,omitempty"`
 	// Opens is auto, prompt, or "refused: <reason>", for a read-only opening.
-	Opens      string `json:"opens"`
-	Production bool   `json:"production"`
-	Saved      bool   `json:"saved"`
+	Opens string `json:"opens"`
+	// Databases are the databases seen on the server at its last connection; DatabasesSeenAt dates them.
+	DatabasesSeenAt time.Time `json:"databasesSeenAt,omitzero"`
+	Databases       []string  `json:"databases,omitempty"`
+	Production      bool      `json:"production"`
+	Saved           bool      `json:"saved"`
 }
 
 type targetsOutput struct {
@@ -116,8 +121,10 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 		return refusal("unknown type %q (valid: %s)", in.Type, strings.Join(openableTypes, ", ")), nil, nil
 	}
 	// Forwards serve no tool: agents neither see nor open them.
-	keep := func(targetType, name string) bool {
-		return (wantType == "" || wantType == targetType) && slices.Contains(openableTypes, targetType) && !settings.disabled(targetType) && (query == "" || strings.Contains(strings.ToLower(name), query))
+	keep := func(targetType, name string, databases []string) bool {
+		matches := func(text string) bool { return strings.Contains(strings.ToLower(text), query) }
+		return (wantType == "" || wantType == targetType) && slices.Contains(openableTypes, targetType) && !settings.disabled(targetType) &&
+			(query == "" || matches(name) || slices.ContainsFunc(databases, matches))
 	}
 	saved, err := discovery.ListSavedConnections(ctx, profile, "")
 	if err != nil {
@@ -126,13 +133,14 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	if profile == "" {
 		for idx := range saved {
 			conn := &saved[idx]
-			if conn.ProfileMissing || conn.TargetMissing || !keep(conn.Ref.Type, conn.Ref.Name) {
+			if conn.ProfileMissing || conn.TargetMissing || !keep(conn.Ref.Type, conn.Ref.Name, conn.Databases) {
 				continue
 			}
 			production := t.savedProduction(conn, &settings)
 			target := targetInfo{
 				Type: conn.Ref.Type, Name: conn.Ref.Name, Profile: conn.Prefs.Profile, Region: conn.Ref.Region,
 				Saved: true, Production: production, Opens: opens(&settings, production, views),
+				Databases: conn.Databases, DatabasesSeenAt: conn.DatabasesSeenAt,
 			}
 			if conn.Ref.Type == sessions.DirectResourceType {
 				// Reached outside AWS: the region of its saved entry is a placeholder.
@@ -152,12 +160,19 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	}
 	production := settings.Environments.Match(profile).Production
 	for _, r := range found {
-		if !keep(r.Type, r.Name) {
+		conn := savedAs(saved, r.Type, r.Name)
+		var databases []string
+		var seenAt time.Time
+		if conn != nil {
+			databases, seenAt = conn.Databases, conn.DatabasesSeenAt
+		}
+		if !keep(r.Type, r.Name, databases) {
 			continue
 		}
 		out.Targets = append(out.Targets, targetInfo{
 			Type: r.Type, Name: r.Name, Description: r.Description, Profile: profile, Region: search.AwsRegion,
-			Saved: isSaved(saved, r.Type, r.Name), Production: production, Opens: opens(&settings, production, views),
+			Saved: conn != nil, Production: production, Opens: opens(&settings, production, views),
+			Databases: databases, DatabasesSeenAt: seenAt,
 		})
 	}
 	if len(failures) > 0 {
@@ -179,7 +194,7 @@ func dockerType(c *dockerdb.Container) string {
 
 // addDockerTargets lists the database containers open_session can open; a discovery failure goes
 // to out.Failures, listing none.
-func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, settings *Settings, views int, keep func(targetType, name string) bool) {
+func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, settings *Settings, views int, keep func(targetType, name string, databases []string) bool) {
 	containers, err := t.containers.List(ctx)
 	if err != nil {
 		if out.Failures == nil {
@@ -191,7 +206,7 @@ func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, sett
 	for idx := range containers {
 		c := &containers[idx]
 		typ := dockerType(c)
-		if c.Problem != "" || !keep(typ, c.Name) {
+		if c.Problem != "" || !keep(typ, c.Name, nil) {
 			continue
 		}
 		out.Targets = append(out.Targets, targetInfo{
@@ -212,13 +227,14 @@ func (t *toolset) savedProduction(conn *jumphost.SavedConnection, settings *Sett
 	return err == nil && found && settings.Environments.Lookup(db.Environment).Production
 }
 
-func isSaved(saved []jumphost.SavedConnection, resourceType, name string) bool {
+// savedAs is the saved connection of resourceType and name; nil when there is none.
+func savedAs(saved []jumphost.SavedConnection, resourceType, name string) *jumphost.SavedConnection {
 	for idx := range saved {
 		if saved[idx].Ref.Type == resourceType && strings.EqualFold(saved[idx].Ref.Name, name) {
-			return true
+			return &saved[idx]
 		}
 	}
-	return false
+	return nil
 }
 
 // opens tells how a read-only opening would go under settings.
