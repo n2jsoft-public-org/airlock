@@ -51,7 +51,8 @@ func (t *toolset) add(server *mcp.Server) {
 		Name: "list_targets", Annotations: readOnly,
 		Description: "List what open_session can open. Without profile: the saved connections, direct databases and local Docker databases and caches, " +
 			"no AWS call. With profile: a live search of that AWS profile. A database server lists the databases seen at its last " +
-			"connection (databases, databasesSeenAt) and query also matches them: search a database by name here before opening servers. " +
+			"connection (databases, databasesSeenAt) and query also matches them and the names of their tables (tables: database.schema.table): " +
+			"search a database or a table by name here before opening servers. " +
 			"Each target says whether it opens at once " +
 			"(opens: auto) or after the user approves it in the airlock dashboard (opens: prompt).",
 	}, t.listTargets)
@@ -78,7 +79,7 @@ func (t *toolset) add(server *mcp.Server) {
 type listTargetsInput struct {
 	Profile string `json:"profile,omitempty" jsonschema:"AWS profile to search live; without it the saved connections are listed"`
 	Type    string `json:"type,omitempty" jsonschema:"only targets of this type: rds, eks, elasticache, dynamodb, s3, logs, sqs or direct"`
-	Query   string `json:"query,omitempty" jsonschema:"only targets whose name, or the name of one of their known databases, contains this text"`
+	Query   string `json:"query,omitempty" jsonschema:"only targets whose name, or the name of one of their known databases or tables, contains this text"`
 }
 
 type targetInfo struct {
@@ -92,8 +93,10 @@ type targetInfo struct {
 	// Databases are the databases seen on the server at its last connection; DatabasesSeenAt dates them.
 	DatabasesSeenAt time.Time `json:"databasesSeenAt,omitzero"`
 	Databases       []string  `json:"databases,omitempty"`
-	Production      bool      `json:"production"`
-	Saved           bool      `json:"saved"`
+	// Tables are the known tables whose name matches the query, as database.schema.table.
+	Tables     []string `json:"tables,omitempty"`
+	Production bool     `json:"production"`
+	Saved      bool     `json:"saved"`
 }
 
 type targetsOutput struct {
@@ -120,11 +123,21 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	if wantType != "" && !slices.Contains(openableTypes, wantType) {
 		return refusal("unknown type %q (valid: %s)", in.Type, strings.Join(openableTypes, ", ")), nil, nil
 	}
-	// Forwards serve no tool: agents neither see nor open them.
-	keep := func(targetType, name string, databases []string) bool {
+	// Forwards serve no tool: agents neither see nor open them. conn is the saved connection of
+	// the target, nil when it has none; tables are its known tables matching query.
+	keep := func(targetType, name string, conn *jumphost.SavedConnection) (tables []string, ok bool) {
+		if (wantType != "" && wantType != targetType) || !slices.Contains(openableTypes, targetType) || settings.disabled(targetType) {
+			return nil, false
+		}
+		if query == "" {
+			return nil, true
+		}
 		matches := func(text string) bool { return strings.Contains(strings.ToLower(text), query) }
-		return (wantType == "" || wantType == targetType) && slices.Contains(openableTypes, targetType) && !settings.disabled(targetType) &&
-			(query == "" || matches(name) || slices.ContainsFunc(databases, matches))
+		var databases []string
+		if conn != nil {
+			databases, tables = conn.Databases, matchingTables(conn.Tables, query)
+		}
+		return tables, matches(name) || slices.ContainsFunc(databases, matches) || len(tables) > 0
 	}
 	saved, err := discovery.ListSavedConnections(ctx, profile, "")
 	if err != nil {
@@ -133,14 +146,18 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 	if profile == "" {
 		for idx := range saved {
 			conn := &saved[idx]
-			if conn.ProfileMissing || conn.TargetMissing || !keep(conn.Ref.Type, conn.Ref.Name, conn.Databases) {
+			if conn.ProfileMissing || conn.TargetMissing {
+				continue
+			}
+			tables, ok := keep(conn.Ref.Type, conn.Ref.Name, conn)
+			if !ok {
 				continue
 			}
 			production := t.savedProduction(conn, &settings)
 			target := targetInfo{
 				Type: conn.Ref.Type, Name: conn.Ref.Name, Profile: conn.Prefs.Profile, Region: conn.Ref.Region,
 				Saved: true, Production: production, Opens: opens(&settings, production, views),
-				Databases: conn.Databases, DatabasesSeenAt: conn.DatabasesSeenAt,
+				Databases: conn.Databases, DatabasesSeenAt: conn.DatabasesSeenAt, Tables: tables,
 			}
 			if conn.Ref.Type == sessions.DirectResourceType {
 				// Reached outside AWS: the region of its saved entry is a placeholder.
@@ -166,13 +183,14 @@ func (t *toolset) listTargets(ctx context.Context, _ *mcp.CallToolRequest, in li
 		if conn != nil {
 			databases, seenAt = conn.Databases, conn.DatabasesSeenAt
 		}
-		if !keep(r.Type, r.Name, databases) {
+		tables, ok := keep(r.Type, r.Name, conn)
+		if !ok {
 			continue
 		}
 		out.Targets = append(out.Targets, targetInfo{
 			Type: r.Type, Name: r.Name, Description: r.Description, Profile: profile, Region: search.AwsRegion,
 			Saved: conn != nil, Production: production, Opens: opens(&settings, production, views),
-			Databases: databases, DatabasesSeenAt: seenAt,
+			Databases: databases, DatabasesSeenAt: seenAt, Tables: tables,
 		})
 	}
 	if len(failures) > 0 {
@@ -194,7 +212,7 @@ func dockerType(c *dockerdb.Container) string {
 
 // addDockerTargets lists the database containers open_session can open; a discovery failure goes
 // to out.Failures, listing none.
-func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, settings *Settings, views int, keep func(targetType, name string, databases []string) bool) {
+func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, settings *Settings, views int, keep func(targetType, name string, conn *jumphost.SavedConnection) ([]string, bool)) {
 	containers, err := t.containers.List(ctx)
 	if err != nil {
 		if out.Failures == nil {
@@ -206,7 +224,10 @@ func (t *toolset) addDockerTargets(ctx context.Context, out *targetsOutput, sett
 	for idx := range containers {
 		c := &containers[idx]
 		typ := dockerType(c)
-		if c.Problem != "" || !keep(typ, c.Name, nil) {
+		if c.Problem != "" {
+			continue
+		}
+		if _, ok := keep(typ, c.Name, nil); !ok {
 			continue
 		}
 		out.Targets = append(out.Targets, targetInfo{
@@ -225,6 +246,25 @@ func (t *toolset) savedProduction(conn *jumphost.SavedConnection, settings *Sett
 	}
 	db, found, err := t.databases.Get(conn.Ref.Name)
 	return err == nil && found && settings.Environments.Lookup(db.Environment).Production
+}
+
+// maxMatchedTables caps the tables a target lists for a query, so a short query stays readable.
+const maxMatchedTables = 20
+
+// matchingTables are the tables (schema.table, by database) whose table name contains query,
+// lowercase, as database.schema.table, sorted and capped at maxMatchedTables.
+func matchingTables(tables map[string][]string, query string) []string {
+	var found []string
+	for database, names := range tables {
+		for _, name := range names {
+			table := name[strings.LastIndex(name, ".")+1:]
+			if strings.Contains(strings.ToLower(table), query) {
+				found = append(found, database+"."+name)
+			}
+		}
+	}
+	slices.Sort(found)
+	return found[:min(len(found), maxMatchedTables)]
 }
 
 // savedAs is the saved connection of resourceType and name; nil when there is none.
