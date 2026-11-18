@@ -32,11 +32,12 @@ func TestPrefsStoreListsTheDatabasesSeenAndForgetsThem(t *testing.T) {
 	if err := store.Save(ref, &ConnectionPrefs{Profile: "dev"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RememberDatabases(ref, []string{"ledger", "billing"}); err != nil {
+	if err := store.RememberDatabases(ref, []string{"ledger", "billing"}, map[string][]string{"billing": {"public.invoices"}}); err != nil {
 		t.Fatal(err)
 	}
 	saved, err := store.List()
-	if err != nil || len(saved) != 1 || strings.Join(saved[0].Databases, ",") != "billing,ledger" || saved[0].DatabasesSeenAt.IsZero() {
+	if err != nil || len(saved) != 1 || strings.Join(saved[0].Databases, ",") != "billing,ledger" || saved[0].DatabasesSeenAt.IsZero() ||
+		strings.Join(saved[0].Tables["billing"], ",") != "public.invoices" {
 		t.Fatalf("saved = %+v, err = %v", saved, err)
 	}
 	if err := store.Delete(ref); err != nil {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -110,6 +111,7 @@ type targetsReply struct {
 		Region      string   `json:"region"`
 		Opens       string   `json:"opens"`
 		Databases   []string `json:"databases"`
+		Tables      []string `json:"tables"`
 		Production  bool     `json:"production"`
 		Saved       bool     `json:"saved"`
 	} `json:"targets"`
@@ -170,6 +172,42 @@ func TestListTargetsFindsAServerByOneOfItsDatabases(t *testing.T) {
 		if len(reply.Targets) != 1 || reply.Targets[0].Name != "main-db" || !slices.Equal(reply.Targets[0].Databases, []string{"Invoicing", "ledger"}) {
 			t.Fatalf("%v: reply = %+v", args, reply)
 		}
+	}
+}
+
+func TestListTargetsFindsAServerByOneOfItsTables(t *testing.T) {
+	m, _ := newTestManager(t, sessionstest.NewRunner())
+	billing := savedRDS("main-db", "dev")
+	billing.Databases = []string{"billing", "ledger"}
+	billing.Tables = map[string][]string{"billing": {"public.Invoices", "invoicing.runs"}, "ledger": {"public.entries"}}
+	d := &fakeDiscovery{saved: []jumphost.SavedConnection{billing, savedRDS("orders-db", "dev")}}
+	cs, _ := newToolset(t, m, &Settings{}, d, fakeDatabases{})
+	for _, args := range []map[string]any{{"query": "invoice"}, {"query": "invoice", "profile": "dev"}} {
+		d.found = []jumphost.ResourceSummary{{Name: "main-db", Type: "rds"}, {Name: "orders-db", Type: "rds"}}
+		text, isError := callTool(t, cs, "list_targets", args)
+		if isError {
+			t.Fatal(text)
+		}
+		// The schema invoicing is no table name: only billing.public.Invoices matches.
+		reply := decodeText[targetsReply](t, text)
+		if len(reply.Targets) != 1 || !slices.Equal(reply.Targets[0].Tables, []string{"billing.public.Invoices"}) {
+			t.Fatalf("%v: reply = %+v", args, reply)
+		}
+	}
+	// Without query, no table is listed: the catalog may hold thousands.
+	text, _ := callTool(t, cs, "list_targets", map[string]any{})
+	if reply := decodeText[targetsReply](t, text); len(reply.Targets) != 2 || reply.Targets[0].Tables != nil {
+		t.Fatalf("reply = %+v", reply)
+	}
+}
+
+func TestMatchingTablesCaps(t *testing.T) {
+	var names []string
+	for idx := range maxMatchedTables + 5 {
+		names = append(names, fmt.Sprintf("public.t%02d", idx))
+	}
+	if got := matchingTables(map[string][]string{"app": names}, "t"); len(got) != maxMatchedTables || got[0] != "app.public.t00" {
+		t.Fatalf("got = %v", got)
 	}
 }
 

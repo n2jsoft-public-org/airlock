@@ -14,10 +14,10 @@ func TestCatalogRemembersSortedDatabasesAndForgets(t *testing.T) {
 	seen := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
 	catalog.now = func() time.Time { return seen }
 
-	if err := catalog.Remember("111/eu-west-1/rds/main", []string{"orders", "billing", "orders"}); err != nil {
+	if err := catalog.Remember("111/eu-west-1/rds/main", []string{"orders", "billing", "orders"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := catalog.Remember("local-db", []string{"app"}); err != nil {
+	if err := catalog.Remember("local-db", []string{"app"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	entry := catalog.List()["111/eu-west-1/rds/main"]
@@ -45,10 +45,30 @@ func TestCatalogReadsAnUnreadableFileAsEmpty(t *testing.T) {
 	if len(catalog.List()) != 0 {
 		t.Fatal("an unreadable catalog must read as empty")
 	}
-	if err := catalog.Remember("db", []string{"app"}); err != nil {
+	if err := catalog.Remember("db", []string{"app"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := catalog.List()["db"].Databases; !slices.Equal(got, []string{"app"}) {
 		t.Fatalf("databases = %v", got)
+	}
+}
+
+func TestCatalogKeepsTheTablesOfTheDatabasesStillListed(t *testing.T) {
+	catalog := NewCatalog(filepath.Join(t.TempDir(), "database-catalog.json"))
+	tables := map[string][]string{"billing": {"public.invoices", "audit.events"}, "orders": {"public.orders"}, "gone": {"public.x"}}
+	if err := catalog.Remember("db", []string{"billing", "orders"}, tables); err != nil {
+		t.Fatal(err)
+	}
+	entry := catalog.List()["db"]
+	if !slices.Equal(entry.Tables["billing"], []string{"audit.events", "public.invoices"}) || len(entry.Tables) != 2 {
+		t.Fatalf("tables = %v", entry.Tables)
+	}
+
+	// A listing of the databases alone keeps the tables of those still there.
+	if err := catalog.Remember("db", []string{"billing"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := catalog.List()["db"].Tables; len(got) != 1 || !slices.Equal(got["billing"], []string{"audit.events", "public.invoices"}) {
+		t.Fatalf("tables = %v", got)
 	}
 }
