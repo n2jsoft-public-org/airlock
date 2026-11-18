@@ -43,6 +43,14 @@ func (f *fakeQuerier) Query(_ context.Context, database, query string, maxRows i
 	return Result{Columns: []string{"n"}, Rows: [][]any{{1}}, RowCount: 1}, nil
 }
 
+func (f *fakeQuerier) Export(_ context.Context, database, query, format string) (ExportResult, error) {
+	f.lastDB, f.lastSQL = database, query
+	if f.queryErr != nil {
+		return ExportResult{}, f.queryErr
+	}
+	return ExportResult{Path: "/exports/app.csv", Format: format, Columns: []string{"n"}, RowCount: 2000, Bytes: 9000}, nil
+}
+
 func (f *fakeQuerier) Exec(_ context.Context, _, statement string) (int64, error) {
 	f.lastSQL = statement
 	return 7, nil
@@ -116,7 +124,7 @@ func TestServerReadOnlyTools(t *testing.T) {
 	session := connect(t, testServerConfig(false), &fakeQuerier{})
 
 	got := strings.Join(toolNames(t, session), ",")
-	if got != "describe_table,list_databases,list_tables,query,query_plan" {
+	if got != "describe_table,export,list_databases,list_tables,query,query_plan" {
 		t.Fatalf("tools = %s", got)
 	}
 	if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "read-only") || !strings.Contains(instructions, "profile dev") {
@@ -222,7 +230,8 @@ func TestDescribeAndListTools(t *testing.T) {
 func TestInstructionsKeepTheTunnelText(t *testing.T) {
 	want := "Database app (PostgreSQL dialect), reached through an airlock SSM tunnel. AWS profile dev, region eu-west-3. " +
 		"Access is read-only. Explore with list_databases, list_tables and describe_table before writing queries. " +
-		"The query tool runs one SELECT/WITH statement and returns at most 1000 rows. " +
+		"The query tool runs one SELECT/WITH statement and returns at most 1000 rows; export writes all of them " +
+		"to a local file instead, without returning them. " +
 		"To analyze a slow query, get its plan with query_plan (EXPLAIN ANALYZE, rolled back), passing the values of $1, $2… " +
 		"the application sends; pg_stat_statements tells which queries cost the most, when installed."
 	if got := instructions(testServerConfig(false)); got != want {
@@ -247,7 +256,7 @@ func TestServerOffersQueryPlanToBothEngines(t *testing.T) {
 		testServerConfig(false),
 	} {
 		session := connect(t, cfg, &fakeQuerier{})
-		if got := strings.Join(toolNames(t, session), ","); got != "describe_table,list_databases,list_tables,query,query_plan" {
+		if got := strings.Join(toolNames(t, session), ","); got != "describe_table,export,list_databases,list_tables,query,query_plan" {
 			t.Fatalf("%s tools = %s", cfg.Engine, got)
 		}
 		if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "query_plan") {
@@ -271,5 +280,19 @@ func TestServerQueryPlanPassesTheRequest(t *testing.T) {
 	}
 	if text := resultText(result); !strings.Contains(text, `"operators":["Index Seek"]`) {
 		t.Fatalf("result = %s", text)
+	}
+}
+
+func TestExportToolRepliesWithoutRows(t *testing.T) {
+	q := &fakeQuerier{}
+	session := connect(t, testServerConfig(false), q)
+
+	result := call(t, session, "export", map[string]any{"sql": "SELECT id FROM users", "database": "reporting", "format": "jsonl"})
+	want := `{"path":"/exports/app.csv","format":"jsonl","columns":["n"],"row_count":2000,"bytes":9000,"truncated":false}`
+	if text := resultText(result); result.IsError || text != want {
+		t.Fatalf("export = %s, want %s", text, want)
+	}
+	if q.lastDB != "reporting" || q.lastSQL != "SELECT id FROM users" {
+		t.Fatalf("database = %q sql = %q", q.lastDB, q.lastSQL)
 	}
 }

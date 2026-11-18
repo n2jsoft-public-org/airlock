@@ -45,7 +45,9 @@ Tool names below are those of a session server; the gateway prefixes them with t
 (`db_query`, `k8s_pod_logs`, `cache_info`, `dynamo_scan`, `s3_list_objects`, `logs_query`).
 
 - **SQL**: explore with `list_databases`, `list_tables` and `describe_table` before writing a
-  query. `query` runs one SELECT/WITH statement and caps the rows. `query_plan`
+  query. `query` runs one SELECT/WITH statement and caps the rows. `export` writes all the rows
+  of one to a local CSV/JSONL file and returns only its path: use it for large results or lists
+  meant for another query or a migration, and tell the user the path. `query_plan`
   explains a slow query (SQL Server, PostgreSQL, MySQL and MariaDB).
 - **Kubernetes**: `list_namespaces`, `list_resource_types`, then `list_resources` and
   `get_resource`; `list_events` and `pod_logs` for a failing workload.

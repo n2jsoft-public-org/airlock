@@ -101,6 +101,16 @@ func LogsDir() (string, error) {
 	return filepath.Join(dir, "logs"), nil
 }
 
+// ExportsDir is the directory under ConfigDir receiving the files of the MCP database export
+// tool. The directory is not created.
+func ExportsDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "exports"), nil
+}
+
 // UpdateCheckFile is the file under ConfigDir keeping the last check of the latest airlock release.
 func UpdateCheckFile() (string, error) {
 	dir, err := ConfigDir()

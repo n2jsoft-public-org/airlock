@@ -84,6 +84,12 @@ func (q *fakeQuerier) Query(_ context.Context, _, query string, _ int) (dbmcp.Re
 	q.queries = append(q.queries, query)
 	return dbmcp.Result{Columns: []string{"n"}, Rows: [][]any{{1}}, RowCount: 1}, nil
 }
+func (q *fakeQuerier) Export(_ context.Context, _, query, format string) (dbmcp.ExportResult, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.queries = append(q.queries, query)
+	return dbmcp.ExportResult{Path: "/exports/orders.csv", Format: format, Columns: []string{"n"}, RowCount: 1}, nil
+}
 func (q *fakeQuerier) Exec(_ context.Context, _, statement string) (int64, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

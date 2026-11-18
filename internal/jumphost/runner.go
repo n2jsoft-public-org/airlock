@@ -146,6 +146,8 @@ type RunnerOptions struct {
 	ReadOnlySecretTag awstag.Tag
 	// MCPLogDir receives the audit log of the SQL run through MCP servers; empty disables it.
 	MCPLogDir string
+	// MCPExportDir receives the files of the database export tool; empty disables it.
+	MCPExportDir string
 	// ProjectDir is where the IntelliJ .idea directory is looked up (defaults to the working directory).
 	ProjectDir string
 	// PrefsPath is the saved-connections.json remembering the Connect step choices per target; empty disables it.
@@ -263,6 +265,7 @@ type Runner struct {
 	interactive  InteractiveFunc
 	projectDir   string
 	mcpLogDir    string
+	mcpExportDir string
 	// defaultRegion and defaultDBUser are used when none is given; empty when not configured.
 	defaultRegion string
 	defaultDBUser dbuser.Defaults
@@ -374,7 +377,7 @@ func NewRunner(opts *RunnerOptions) *Runner {
 	}
 	runner := &Runner{
 		in: in, out: out, err: err, registry: registry, mcpHost: mcpHost, configs: awsapi.NewConfigs(),
-		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, accounts: map[string]string{},
+		projectDir: opts.ProjectDir, mcpLogDir: opts.MCPLogDir, mcpExportDir: opts.MCPExportDir, accounts: map[string]string{},
 		defaultRegion: strings.TrimSpace(opts.DefaultRegion), defaultDBUser: opts.DefaultDBUser,
 		jumphostTag: jumphostTag, readOnlySecretTag: opts.ReadOnlySecretTag,
 		mcpServerPrefix: opts.MCPServerPrefix, kubeconfigDir: opts.KubeconfigDir,
