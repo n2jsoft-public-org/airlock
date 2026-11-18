@@ -260,6 +260,7 @@ func (r *Runner) startDirectMCP(options *Options, db *directdb.Database, engine 
 			User:               db.User,
 			Password:           password,
 			LogDir:             r.mcpLogDir,
+			ExportDir:          r.mcpExportDir,
 			Engine:             engine,
 			AllowWrites:        allowWrites,
 			SkipRegistration:   options.SkipMCPRegistration,

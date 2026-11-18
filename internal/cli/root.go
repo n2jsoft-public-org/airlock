@@ -381,10 +381,13 @@ func sharedRunnerOptions(cfg *config.Config, org *config.Organization, registry 
 	if databaseStore != nil {
 		databases = databaseStore
 	}
+	// Exports go to ~/.config/airlock/exports; the lookup fails only as that of mcpLogDir, already reported.
+	exportDir, _ := appdir.ExportsDir() //nolint:errcheck // empty disables the export tool.
 	return jumphost.RunnerOptions{
 		Registry:          registry,
 		MCPHost:           mcpHost,
 		MCPLogDir:         mcpLogDir,
+		MCPExportDir:      exportDir,
 		DefaultRegion:     cfg.DefaultRegion,
 		DefaultDBUser:     cfg.DefaultDBUser,
 		JumphostTag:       cfg.JumphostTag,

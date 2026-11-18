@@ -27,8 +27,12 @@ type dialect struct {
 	// connParams are the session variables set on every new connection (MySQL family).
 	connParams map[string]string
 	// txSetup runs at the start of every read transaction.
-	txSetup    []string
-	readOnlyTx bool
+	txSetup []string
+	// exportSetup raises the server's statement timeout to exportTimeout after txSetup; exportReset
+	// puts back a session-wide one before the pooled connection is reused.
+	exportSetup []string
+	exportReset []string
+	readOnlyTx  bool
 }
 
 var postgresDialect = dialect{
@@ -36,6 +40,7 @@ var postgresDialect = dialect{
 	defaultSchema: "public",
 	readOnlyTx:    true,
 	txSetup:       []string{"SET LOCAL standard_conforming_strings = on", "SET LOCAL statement_timeout = '30s'"},
+	exportSetup:   []string{"SET LOCAL statement_timeout = '300s'"},
 	databasesSQL:  "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn AND has_database_privilege(datname, 'CONNECT') ORDER BY datname",
 	tablesSQL: `SELECT table_schema, table_name, table_type FROM information_schema.tables
 WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND ($1 = '' OR table_schema = $1)
@@ -117,6 +122,8 @@ var mysqlDialect = dialect{
 	readOnlyTx: true,
 	// max_execution_time only bounds SELECT statements; execute relies on its context deadline.
 	connParams:   map[string]string{"max_execution_time": "30000", "sql_mode": mysqlSQLMode},
+	exportSetup:  []string{"SET SESSION max_execution_time = 300000"},
+	exportReset:  []string{"SET SESSION max_execution_time = 30000"},
 	databasesSQL: "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') ORDER BY schema_name",
 	tablesSQL: `SELECT table_schema, table_name, table_type FROM information_schema.tables
 WHERE table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
@@ -145,6 +152,8 @@ var mariaDBDialect = func() dialect {
 	d := mysqlDialect
 	d.engine = EngineMariaDB
 	d.connParams = map[string]string{"max_statement_time": "30", "sql_mode": mysqlSQLMode}
+	d.exportSetup = []string{"SET SESSION max_statement_time = 300"}
+	d.exportReset = []string{"SET SESSION max_statement_time = 30"}
 	d.columnsSQL = `SELECT column_name, column_type, is_nullable, NULLIF(column_default, 'NULL') FROM information_schema.columns
 WHERE table_schema = ` + mysqlSchema + ` AND table_name = ? ORDER BY ordinal_position`
 	return d

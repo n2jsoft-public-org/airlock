@@ -68,6 +68,15 @@ func (q *recordingQuerier) Query(ctx context.Context, database, query string, ma
 	return result, err
 }
 
+func (q *recordingQuerier) Export(ctx context.Context, database, query, format string) (ExportResult, error) {
+	e, done := q.start("export")
+	e.Database, e.SQL = database, query
+	result, err := q.inner.Export(ctx, database, query, format)
+	e.Truncated = result.Truncated
+	done(result.RowCount, err)
+	return result, err
+}
+
 func (q *recordingQuerier) Exec(ctx context.Context, database, statement string) (int64, error) {
 	e, done := q.start("execute")
 	e.Database, e.SQL = database, statement

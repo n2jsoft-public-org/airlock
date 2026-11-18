@@ -9,27 +9,34 @@ import (
 	mssql "github.com/microsoft/go-mssqldb"
 )
 
-// maxTextBytes caps a single text value returned to the AI assistant.
+// maxTextBytes caps a single text value returned to the AI assistant by query.
 const maxTextBytes = 4096
 
-// jsonValue converts a database/sql driver value into a JSON-friendly value.
+// jsonValue converts a database/sql driver value into a JSON-friendly value, uncut: query cuts text
+// with truncateValue, export writes it whole.
 func jsonValue(v any) any {
 	switch x := v.(type) {
-	case nil, bool, int64, uint64, float64:
+	case nil, bool, int64, uint64, float64, string:
 		// encoding/json writes 64-bit integers exactly: no float rounding past 2^53.
 		return x
-	case string:
-		return truncateText(x)
 	case []byte:
 		if utf8.Valid(x) {
-			return truncateText(string(x))
+			return string(x)
 		}
-		return truncateText("0x" + hex.EncodeToString(x))
+		return "0x" + hex.EncodeToString(x)
 	case time.Time:
 		return x.Format(time.RFC3339Nano)
 	default:
-		return truncateText(fmt.Sprint(x))
+		return fmt.Sprint(x)
 	}
+}
+
+// truncateValue cuts a converted text value with truncateText; other values are returned as is.
+func truncateValue(v any) any {
+	if text, ok := v.(string); ok {
+		return truncateText(text)
+	}
+	return v
 }
 
 // bitValue reads a MySQL BIT value, sent as big-endian bytes, as a number.

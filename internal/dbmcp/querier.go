@@ -75,6 +75,8 @@ type Querier interface {
 	Tables(ctx context.Context, database, schema string) (tables []Table, truncated bool, err error)
 	Describe(ctx context.Context, database, schema, table string) (TableDescription, error)
 	Query(ctx context.Context, database, query string, maxRows int) (Result, error)
+	// Export writes every row of a read-only query to a local file in format (csv or jsonl).
+	Export(ctx context.Context, database, query, format string) (ExportResult, error)
 	Exec(ctx context.Context, database, statement string) (int64, error)
 	Plan(ctx context.Context, req *PlanRequest) (PlanResult, error)
 	Close() error
@@ -90,6 +92,8 @@ type sqlQuerier struct {
 	pools     map[string]*sql.DB
 	dialect   *dialect
 	defaultDB string
+	// exportDir receives the files of Export; empty disables it.
+	exportDir string
 	addr      Address
 	mu        sync.Mutex
 }
@@ -245,24 +249,12 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 			result.Truncated = true
 			break
 		}
-		values := make([]any, len(columns))
-		pointers := make([]any, len(columns))
-		for i := range values {
-			pointers[i] = &values[i]
-		}
-		if err := rows.Scan(pointers...); err != nil {
+		values, err := scanValues(rows, types)
+		if err != nil {
 			return Result{}, err
 		}
 		for i, value := range values {
-			raw, isRaw := value.([]byte)
-			switch {
-			case isRaw && types[i] == "UNIQUEIDENTIFIER" && len(raw) == 16:
-				values[i] = truncateText(mssqlGUID(raw))
-			case isRaw && types[i] == "BIT" && len(raw) <= 8:
-				values[i] = bitValue(raw)
-			default:
-				values[i] = jsonValue(value)
-			}
+			values[i] = truncateValue(value)
 		}
 		result.Rows = append(result.Rows, values)
 	}
@@ -271,6 +263,35 @@ func collectRows(rows *sql.Rows, maxRows int) (Result, error) {
 	}
 	result.RowCount = len(result.Rows)
 	return result, nil
+}
+
+// scanValues scans the current row and converts each value as columnValue does.
+func scanValues(rows *sql.Rows, types []string) ([]any, error) {
+	values := make([]any, len(types))
+	pointers := make([]any, len(types))
+	for i := range values {
+		pointers[i] = &values[i]
+	}
+	if err := rows.Scan(pointers...); err != nil {
+		return nil, err
+	}
+	for i, value := range values {
+		values[i] = columnValue(value, types[i])
+	}
+	return values, nil
+}
+
+// columnValue converts a scanned value of a column of dbType (see columnTypes), uncut.
+func columnValue(value any, dbType string) any {
+	raw, isRaw := value.([]byte)
+	switch {
+	case isRaw && dbType == "UNIQUEIDENTIFIER" && len(raw) == 16:
+		return mssqlGUID(raw)
+	case isRaw && dbType == "BIT" && len(raw) <= 8:
+		return bitValue(raw)
+	default:
+		return jsonValue(value)
+	}
 }
 
 // columnTypes returns the upper-cased database type of each column (indexed as in rows.Columns()),
