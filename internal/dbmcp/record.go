@@ -72,8 +72,11 @@ func (q *recordingQuerier) Export(ctx context.Context, database, query, format s
 	e, done := q.start("export")
 	e.Database, e.SQL = database, query
 	result, err := q.inner.Export(ctx, database, query, format)
-	e.Truncated = result.Truncated
-	done(result.RowCount, err)
+	var rows int64
+	if err == nil {
+		e.Truncated, rows = result.Truncated, result.RowCount
+	}
+	done(rows, err)
 	return result, err
 }
 
