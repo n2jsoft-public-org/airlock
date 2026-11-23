@@ -256,7 +256,7 @@ on one of them switches to its session instead of opening a second one.
 | `r` | Restart the selected ended session: same target, local port and sign-in |
 | `c` | Copy the local address, the IAM token command, the reconnect command, the `KUBECONFIG` export or the last MCP call |
 | `a` | Choose the database credentials of the session, or check them again after a failure |
-| `p` | Show the database passwords read from Secrets Manager: the picked secret, or the read-only secret of each database (never the master one). They are read again each time; `c` or `1`–`9` copies one, `esc` hides them |
+| `p` | Show the database passwords read from Secrets Manager: the picked secret, or the read-only secret of each database (never the master one). They are read again each time; `c` or `1`–`9` copies one, `esc` hides them. A session signing in with AWS IAM shows a fresh IAM token instead, valid 15 minutes, for clients without IAM support |
 | `esc` | Cancel a connection being prepared |
 | `?` | List every key |
 | `q` · `ctrl+c` | Stop all sessions and quit, after a confirmation (`y` / `n`, or `ctrl+c` again) |
@@ -301,7 +301,8 @@ airlock eks-token --cluster-name platform --profile dev --region eu-west-3
 - `airlock sso-login` signs a profile in on the terminal, as airlock does when a sign-in expired:
   the IAM Identity Center browser sign-in, or the MFA code of a role (see [MFA profiles](#mfa-profiles)).
 - `airlock rds-token` prints an AWS IAM token for a database user, valid 15 minutes, such as a new
-  connection needs once the one [`airlock exec`](exec-and-stacks.md) gave has expired. `--port`
+  connection needs once the one [`airlock exec`](exec-and-stacks.md) gave has expired. In the
+  dashboard, `p` on an IAM session generates and copies one. `--port`
   `--hostname` (the instance endpoint) and `--username` are required; `--port` defaults to `5432`,
   `--profile` to the AWS SDK's default and `--region` to the profile's.
 - `airlock eks-token` prints the credential kubectl signs in to an EKS cluster with, in the

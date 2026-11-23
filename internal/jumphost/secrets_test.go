@@ -218,11 +218,31 @@ func TestSecretCredentialsReaderReadsTheReadOnlySecretsOfEachDatabase(t *testing
 	}
 }
 
+func TestSecretCredentialsReaderGeneratesAnIAMToken(t *testing.T) {
+	const host = "archive.abc.eu-west-3.rds.amazonaws.com"
+	fake := installSecretsManager(t, nil)
+	runner := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
+	read := runner.secretCredentialsReader(fake.cfg, "archive",
+		&ideTarget{IAMAuth: true, DBUser: "app_ro", RDSHost: host, RDSPort: 5432, InstanceARN: secretsInstanceARN})
+	if read == nil {
+		t.Fatal("no reader for a session signing in with AWS IAM")
+	}
+
+	creds, err := read(context.Background())
+	if err != nil || len(creds) != 1 || creds[0].User != "app_ro" ||
+		!strings.HasPrefix(creds[0].Password, host+":5432?Action=connect&DBUser=app_ro") {
+		t.Fatalf("read = %+v, %v, want an IAM token of app_ro for %s:5432", creds, err, host)
+	}
+	if len(fake.ops) != 0 {
+		t.Fatalf("operations = %v, want the token signed locally, no secret read", fake.ops)
+	}
+}
+
 func TestSecretCredentialsReaderNeedsSecrets(t *testing.T) {
 	tagged := NewRunner(&RunnerOptions{Out: io.Discard, Err: io.Discard, ReadOnlySecretTag: awstag.Tag{Key: "Role", Value: "read-only"}})
 	for name, target := range map[string]*ideTarget{
-		"AWS IAM":        {IAMAuth: true, DBUser: "app_ro", InstanceARN: secretsInstanceARN},
-		"typed password": {DBUser: "app_rw", DBPassword: "typed", InstanceARN: secretsInstanceARN},
+		"AWS IAM without endpoint": {IAMAuth: true, DBUser: "app_ro", InstanceARN: secretsInstanceARN},
+		"typed password":           {DBUser: "app_rw", DBPassword: "typed", InstanceARN: secretsInstanceARN},
 	} {
 		if tagged.secretCredentialsReader(nil, "archive", target) != nil {
 			t.Errorf("%s session offers to show secrets", name)
