@@ -130,8 +130,10 @@ type SavedConnection struct {
 	Databases []string
 	// DatabasesSeenAt is when Databases were listed; zero when no database was ever listed.
 	DatabasesSeenAt time.Time
-	Ref             TargetRef
-	Prefs           ConnectionPrefs
+	// Tables are the tables of each database seen, as schema.table (connections.CatalogEntry).
+	Tables map[string][]string
+	Ref    TargetRef
+	Prefs  ConnectionPrefs
 	// ProfileMissing reports that Prefs.Profile no longer exists locally. The store leaves it
 	// false; the runner sets it.
 	ProfileMissing bool
@@ -184,7 +186,7 @@ func (s *PrefsStore) List() ([]SavedConnection, error) {
 		if entry := &entries[idx]; entry.Invalid == nil && remembered(entry) {
 			seen := catalog[entry.Key]
 			saved = append(saved, SavedConnection{
-				Ref: refOf(entry), Prefs: prefsOf(entry), Databases: seen.Databases, DatabasesSeenAt: seen.SeenAt,
+				Ref: refOf(entry), Prefs: prefsOf(entry), Databases: seen.Databases, DatabasesSeenAt: seen.SeenAt, Tables: seen.Tables,
 			})
 		}
 	}
@@ -203,10 +205,11 @@ func (s *PrefsStore) Delete(ref TargetRef) error {
 	return errors.Join(s.store.Forget(entryKey(ref)), s.catalog.Forget(entryKey(ref)))
 }
 
-// RememberDatabases records databases as the databases seen now on ref.
-func (s *PrefsStore) RememberDatabases(ref TargetRef, databases []string) error {
+// RememberDatabases records databases as the databases seen now on ref, and tables as their
+// tables; nil tables keep the tables known of the databases still listed.
+func (s *PrefsStore) RememberDatabases(ref TargetRef, databases []string, tables map[string][]string) error {
 	if !ref.complete() {
 		return nil
 	}
-	return s.catalog.Remember(entryKey(ref), databases)
+	return s.catalog.Remember(entryKey(ref), databases, tables)
 }

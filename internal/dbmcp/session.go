@@ -22,8 +22,9 @@ type SessionConfig struct {
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
 	// OnDatabases receives the databases of the server, listed once it starts and at every
-	// list_databases, so that agents find them without connecting; nil when unused.
-	OnDatabases func([]string)
+	// list_databases, so that agents find them without connecting; nil when unused. tables holds
+	// the tables of each database (schema.table), listed only once the server starts; nil without.
+	OnDatabases func(databases []string, tables map[string][]string)
 	// ReadOnlySecretTag marks the read-only per-database secrets of SQL Server instances; zero
 	// disables read-only SQL Server access.
 	ReadOnlySecretTag awstag.Tag
@@ -109,7 +110,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 // served is what serveDatabase needs to mount the MCP server of one database.
 type served struct {
 	creds            *switchableProvider
-	onDatabases      func([]string)
+	onDatabases      func([]string, map[string][]string)
 	projectDir       string
 	logDir           string
 	server           ServerConfig
@@ -154,13 +155,20 @@ const listDatabasesAttempts = 3
 // listDatabasesRetry is a variable so tests can shorten it.
 var listDatabasesRetry = 5 * time.Second
 
-// listDatabasesOnce gives the databases of q to onDatabases, retrying a few times until ctx ends.
-// It goes through the inner querier: airlock's own listing is no agent tool call to audit.
-func listDatabasesOnce(ctx context.Context, q Querier, onDatabases func([]string)) {
+// catalogDatabases caps the databases whose tables a starting server lists: one query each.
+const catalogDatabases = 50
+
+// listDatabasesOnce gives the databases of q to onDatabases, retrying a few times until ctx ends,
+// then their tables (the first catalogDatabases, maxTables each). It goes through the inner
+// querier: airlock's own listing is no agent tool call to audit.
+func listDatabasesOnce(ctx context.Context, q Querier, onDatabases func([]string, map[string][]string)) {
 	for attempt := 1; ; attempt++ {
 		names, err := q.Databases(ctx)
 		if err == nil {
-			onDatabases(names)
+			onDatabases(names, nil)
+			if tables := listTables(ctx, q, names); len(tables) > 0 {
+				onDatabases(names, tables)
+			}
 			return
 		}
 		if attempt == listDatabasesAttempts {
@@ -172,6 +180,27 @@ func listDatabasesOnce(ctx context.Context, q Querier, onDatabases func([]string
 		case <-time.After(listDatabasesRetry):
 		}
 	}
+}
+
+// listTables lists the tables of databases as schema.table, skipping the databases it cannot list
+// (a SQL Server read-only login may only reach some of them).
+func listTables(ctx context.Context, q Querier, databases []string) map[string][]string {
+	tables := map[string][]string{}
+	for _, database := range databases[:min(len(databases), catalogDatabases)] {
+		found, _, err := q.Tables(ctx, database, "")
+		if ctx.Err() != nil {
+			break
+		}
+		if err != nil {
+			continue
+		}
+		names := make([]string, 0, len(found))
+		for _, table := range found {
+			names = append(names, table.Schema+"."+table.Name)
+		}
+		tables[database] = names
+	}
+	return tables
 }
 
 func credentialProvider(cfg *SessionConfig, engine Engine) CredentialProvider {

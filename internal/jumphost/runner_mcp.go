@@ -59,10 +59,10 @@ func (r *Runner) startKubeMCP(ctx context.Context, options *Options, clusterName
 
 // rememberDatabasesFunc records the databases listed on the target of options in the catalog that
 // list_targets searches; a failure only loses that listing.
-func (r *Runner) rememberDatabasesFunc(options Options) func([]string) { //nolint:gocritic // hugeParam: a copy kept by the closure
-	return func(databases []string) {
+func (r *Runner) rememberDatabasesFunc(options Options) func([]string, map[string][]string) { //nolint:gocritic // hugeParam: a copy kept by the closure
+	return func(databases []string, tables map[string][]string) {
 		if target, ok := r.prefsTarget(context.Background(), &options); ok {
-			_ = r.prefs.RememberDatabases(target, databases) //nolint:errcheck // the catalog is a cache
+			_ = r.prefs.RememberDatabases(target, databases, tables) //nolint:errcheck // the catalog is a cache
 		}
 	}
 }

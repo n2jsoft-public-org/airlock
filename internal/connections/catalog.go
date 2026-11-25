@@ -14,8 +14,11 @@ const catalogVersion = 1
 
 // CatalogEntry is what the catalog knows of one server: its databases at its last connection.
 type CatalogEntry struct {
-	SeenAt    time.Time `json:"seen_at"`
-	Databases []string  `json:"databases"`
+	SeenAt time.Time `json:"seen_at"`
+	// Tables are the tables of each database listed, as schema.table, sorted; a database whose
+	// tables were never listed has none.
+	Tables    map[string][]string `json:"tables,omitempty"`
+	Databases []string            `json:"databases"`
 }
 
 // catalogDocument is the JSON of the catalog file.
@@ -56,12 +59,29 @@ func (c *Catalog) List() map[string]CatalogEntry {
 	return doc.Servers
 }
 
-// Remember records databases as the databases of the server key, seen now.
-func (c *Catalog) Remember(key string, databases []string) error {
+// Remember records databases as the databases of the server key, seen now, and tables as the
+// tables of the databases they list. Without tables, the databases still listed keep theirs.
+func (c *Catalog) Remember(key string, databases []string, tables map[string][]string) error {
 	databases = slices.Clone(databases)
 	slices.Sort(databases)
+	databases = slices.Compact(databases)
 	return c.update(func(servers map[string]CatalogEntry) bool {
-		servers[strings.TrimSpace(key)] = CatalogEntry{SeenAt: c.now().UTC(), Databases: slices.Compact(databases)}
+		key = strings.TrimSpace(key)
+		if tables == nil {
+			tables = servers[key].Tables
+		}
+		kept := map[string][]string{}
+		for _, database := range databases {
+			if names, found := tables[database]; found {
+				names = slices.Clone(names)
+				slices.Sort(names)
+				kept[database] = slices.Compact(names)
+			}
+		}
+		if len(kept) == 0 {
+			kept = nil
+		}
+		servers[key] = CatalogEntry{SeenAt: c.now().UTC(), Databases: databases, Tables: kept}
 		return true
 	})
 }

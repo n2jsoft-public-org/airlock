@@ -12,7 +12,7 @@ type DirectConfig struct {
 	// password remembered in the keychain. Nil when unused.
 	OnPasswordRejected func()
 	// OnDatabases receives the databases of the server (see SessionConfig.OnDatabases).
-	OnDatabases func([]string)
+	OnDatabases func(databases []string, tables map[string][]string)
 	ProjectDir  string
 	// ServerPrefix starts the client-facing server name (mcpserve.DefaultServerPrefix when empty).
 	ServerPrefix string

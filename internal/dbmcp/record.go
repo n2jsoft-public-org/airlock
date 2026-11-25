@@ -10,8 +10,9 @@ import (
 type recordingQuerier struct {
 	inner  Querier
 	record func(*mcpserve.ToolEvent)
-	// onDatabases receives the databases of every successful list_databases; nil when unused.
-	onDatabases func([]string)
+	// onDatabases receives the databases of every successful list_databases, without their
+	// tables; nil when unused.
+	onDatabases func([]string, map[string][]string)
 	base        mcpserve.ToolEvent
 }
 
@@ -30,7 +31,7 @@ func (q *recordingQuerier) Databases(ctx context.Context) ([]string, error) {
 	names, err := q.inner.Databases(ctx)
 	done(int64(len(names)), err)
 	if err == nil && q.onDatabases != nil {
-		q.onDatabases(names)
+		q.onDatabases(names, nil)
 	}
 	return names, err
 }
