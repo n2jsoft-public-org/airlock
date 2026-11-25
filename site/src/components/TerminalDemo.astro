@@ -1,0 +1,339 @@
+---
+// Scripted replays of real airlock flows. Names (acme-*, orders-db) are made up on purpose.
+const scenarios = [
+	{ id: 'connect', label: 'Connect a database', summary: 'The airlock wizard picks an RDS database and serves it on localhost:5432.' },
+	{ id: 'assistant', label: 'Ask your assistant', summary: 'An AI assistant queries the database through airlock’s MCP server; the call shows up live in the dashboard.' },
+	{ id: 'stack', label: 'Open a project stack', summary: 'airlock up opens every target listed in the project’s .airlock.json.' },
+];
+---
+
+<figure class="term" data-term>
+	<div class="term-bar">
+		<span class="lamps" aria-hidden="true"><i></i><i></i><i></i></span>
+		<div class="tabs" role="tablist" aria-label="airlock examples">
+			{scenarios.map((s, i) => (
+				<button type="button" role="tab" class="tab" data-scenario={s.id} data-summary={s.summary} aria-selected={i === 0 ? 'true' : 'false'}>
+					{s.label}
+				</button>
+			))}
+		</div>
+	</div>
+	<div class="screen" data-screen aria-hidden="true"></div>
+	<figcaption class="sr-only" data-caption>{scenarios[0].summary}</figcaption>
+</figure>
+
+<script>
+	type Step =
+		| { type: string; text: string; wait?: number }
+		| { line: string; wait?: number }
+		| { screen: string; wait?: number };
+
+	const bar = (title: string) =>
+		`<span class="badge">airlock</span> <span class="dim">private resource access</span>\n\n<b>${title}</b>\n`;
+	const hint = (keys: string) => `\n<span class="dim">${keys}</span>`;
+
+	const review = (state: string) =>
+		bar('Review and connect') +
+		`
+  Profile   acme-staging
+  Type      RDS
+  Target    orders-db  <span class="dim">postgres · eu-west-3</span>
+  Local     localhost:5432
+  Auth      IAM token
+  IDE       data source in .idea/dataSources.xml
+  MCP       read-only
+
+  ${state}
+` +
+		hint('enter connect · e edit · esc back');
+
+	const sessions = (calls: string[]) =>
+		`<span class="badge">airlock</span> <span class="dim">private resource access</span>   <span class="ok">● 1 ready</span>
+
+<b>Sessions</b>                    <span class="dim">+ new connection</span>
+<span class="sel"> orders-db              <span class="ok">Ready</span> </span>
+
+  Local    localhost:5432
+  Auth     IAM token
+  Uptime   ${calls.length ? '4m12s' : '0m03s'}
+
+<b>MCP calls</b>  <span class="ok">● live</span>
+${calls.length ? calls.join('\n') : '<span class="dim">  no call yet</span>'}
+` + hint('tab switch · c copy · q quit');
+
+	const scenarios: Record<string, Step[]> = {
+		connect: [
+			{ type: 'cmd', text: 'airlock', wait: 500 },
+			{
+				screen:
+					bar('What do you want to reach?') +
+					`
+<span class="sel"> ▸ Relational Database Service                </span>
+   <span class="dim">Tunnel to a database, with IDE data source and MCP server</span>
+   Elastic Kubernetes Service
+   ElastiCache
+   Direct database
+   Docker database
+` +
+					hint('↑↓ move · enter choose · / search'),
+				wait: 1700,
+			},
+			{
+				screen:
+					bar('Choose an AWS profile') +
+					`
+   acme-dev
+<span class="sel"> ▸ acme-staging                               </span>
+   acme-prod        <span class="warn">production</span>
+` +
+					hint('↑↓ move · enter choose · r region'),
+				wait: 1500,
+			},
+			{
+				screen:
+					bar('Choose the RDS target') +
+					`
+  <span class="dim">/</span> orders▏
+
+<span class="sel"> ▸ orders-db          postgres   eu-west-3    </span>
+   orders-archive     postgres   eu-west-3
+` +
+					hint('↑↓ move · enter choose · esc clear filter'),
+				wait: 1700,
+			},
+			{ screen: review('<span class="warn">◌ Connecting…</span>'), wait: 1300 },
+			{ screen: sessions([]), wait: 1600 },
+			{
+				screen:
+					sessions([]) +
+					`\n\n<span class="dim">$</span> psql -h localhost -p 5432 orders\n<span class="dim">orders=></span> ▏`,
+				wait: 3200,
+			},
+		],
+		assistant: [
+			{ line: '<span class="who">you</span>  How many orders failed in the last hour?', wait: 900 },
+			{ line: '', wait: 0 },
+			{ line: '<span class="who ai">assistant</span>  I’ll ask the orders database.', wait: 800 },
+			{
+				line: `  <span class="tool">airlock · db_query</span> <span class="dim">session orders-db</span>
+  <span class="dim">│</span> SELECT count(*) FROM orders
+  <span class="dim">│</span> WHERE status = 'failed'
+  <span class="dim">│</span>   AND created_at > now() - interval '1 hour'`,
+				wait: 1400,
+			},
+			{ line: '  <span class="dim">└</span> <span class="ok">1 row · 18 ms</span>', wait: 700 },
+			{ line: '', wait: 0 },
+			{ line: '<span class="who ai">assistant</span>  37 orders failed, 31 of them with payment_declined.', wait: 1600 },
+			{
+				screen: sessions([
+					'  <span class="dim">14:02:11</span>  db_query   <span class="ok">ok</span>   18 ms   1 row',
+					'  <span class="dim">14:02:13</span>  db_query   <span class="ok">ok</span>   22 ms   4 rows',
+				]),
+				wait: 1800,
+			},
+			{
+				screen:
+					sessions([
+						'  <span class="dim">14:02:11</span>  db_query   <span class="ok">ok</span>   18 ms   1 row',
+						'  <span class="dim">14:02:13</span>  db_query   <span class="ok">ok</span>   22 ms   4 rows',
+					]) +
+					'\n\n<span class="dim">Every call is also written to the daily audit log. Writes stay off unless you allow them.</span>',
+				wait: 3600,
+			},
+		],
+		stack: [
+			{ line: '<span class="dim"># .airlock.json, committed with the project</span>', wait: 300 },
+			{ type: 'cmd', text: 'airlock up', wait: 500 },
+			{
+				line: `Stack <b>default</b> of .airlock.json:
+  rds          orders-db        acme-staging
+  elasticache  sessions-cache   acme-staging
+  docker       pg`,
+				wait: 1000,
+			},
+			{ line: 'Opening orders-db...', wait: 700 },
+			{ line: 'Opening sessions-cache...', wait: 700 },
+			{ line: 'Opening pg...', wait: 700 },
+			{ line: '<span class="ok">3 of 3 targets open</span>', wait: 900 },
+			{ line: 'Press Enter to open the dashboard ▏', wait: 1500 },
+			{ line: '', wait: 0 },
+			{ line: '<span class="dim"># or run one command with the tunnels open</span>', wait: 300 },
+			{ type: 'cmd', text: 'airlock exec --stack default -- npm test', wait: 3200 },
+		],
+	};
+
+	const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	for (const root of document.querySelectorAll<HTMLElement>('[data-term]')) {
+		const screen = root.querySelector<HTMLElement>('[data-screen]')!;
+		const caption = root.querySelector<HTMLElement>('[data-caption]')!;
+		const tabs = [...root.querySelectorAll<HTMLButtonElement>('[data-scenario]')];
+		let run = 0;
+		let auto = !reduced;
+
+		const sleep = (ms: number, id: number) =>
+			new Promise<boolean>((done) => setTimeout(() => done(id === run), reduced ? 0 : ms));
+
+		async function play(name: string) {
+			const id = ++run;
+			tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.scenario === name)));
+			caption.textContent = tabs.find((t) => t.dataset.scenario === name)!.dataset.summary!;
+			screen.innerHTML = '';
+			let lines = '';
+			for (const step of scenarios[name]) {
+				if ('screen' in step) {
+					screen.innerHTML = step.screen;
+				} else if ('line' in step) {
+					lines += step.line + '\n';
+					screen.innerHTML = lines;
+				} else {
+					const prompt = '<span class="prompt">$</span> ';
+					for (let i = 1; i <= step.text.length; i++) {
+						screen.innerHTML = lines + prompt + step.text.slice(0, i) + '▏';
+						if (!(await sleep(45, id))) return;
+						if (reduced) i = step.text.length - 1;
+					}
+					lines += prompt + step.text + '\n';
+					screen.innerHTML = lines;
+				}
+				screen.scrollTop = screen.scrollHeight;
+				if (!(await sleep(step.wait ?? 600, id))) return;
+			}
+			if (auto) {
+				const next = tabs[(tabs.findIndex((t) => t.dataset.scenario === name) + 1) % tabs.length];
+				play(next.dataset.scenario!);
+			}
+		}
+
+		tabs.forEach((tab, i) => {
+			tab.addEventListener('click', () => {
+				auto = false; // the visitor took over: stop cycling
+				play(tab.dataset.scenario!);
+			});
+			tab.addEventListener('keydown', (e) => {
+				const move = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+				if (move) tabs[(i + move + tabs.length) % tabs.length].focus();
+			});
+		});
+
+		// Start when the terminal first scrolls into view.
+		new IntersectionObserver((entries, obs) => {
+			if (entries.some((e) => e.isIntersecting)) {
+				obs.disconnect();
+				play(tabs[0].dataset.scenario!);
+			}
+		}).observe(root);
+	}
+</script>
+
+<style>
+	.term {
+		margin: 0;
+		background: var(--al-hull);
+		border: 1px solid var(--al-hull-line);
+		border-radius: 0.75rem;
+		overflow: hidden;
+		box-shadow: 0 1.5rem 3rem -1.5rem rgb(5 12 20 / 0.55);
+		color: var(--al-screen-fg);
+	}
+	.term-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid var(--al-hull-line);
+	}
+	.lamps {
+		display: flex;
+		gap: 0.35rem;
+		flex: none;
+	}
+	.lamps i {
+		width: 0.6rem;
+		height: 0.6rem;
+		border-radius: 50%;
+		background: var(--al-hull-line);
+	}
+	.lamps i:last-child {
+		background: var(--al-green);
+		box-shadow: 0 0 0.4rem var(--al-green);
+	}
+	.tabs {
+		display: flex;
+		gap: 0.25rem;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+	.tab {
+		font: 500 0.8rem/1 var(--sl-font);
+		color: var(--al-screen-dim);
+		background: none;
+		border: 1px solid transparent;
+		border-radius: 0.4rem;
+		padding: 0.45rem 0.65rem;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.tab:hover {
+		color: var(--al-screen-fg);
+	}
+	.tab[aria-selected='true'] {
+		color: var(--al-screen-fg);
+		border-color: var(--al-hull-line);
+		background: rgb(255 255 255 / 0.04);
+	}
+	.tab:focus-visible {
+		outline: 2px solid var(--al-amber);
+		outline-offset: 1px;
+	}
+	.screen {
+		height: 24rem;
+		overflow: hidden;
+		padding: 1rem 1.1rem;
+		font: 0.8rem/1.55 var(--sl-font-mono);
+		white-space: pre-wrap;
+	}
+	.screen :global(.badge) {
+		background: var(--al-amber);
+		color: var(--al-hull);
+		font-weight: 600;
+		padding: 0 0.35rem;
+		border-radius: 0.2rem;
+	}
+	.screen :global(b) {
+		color: #fff;
+		font-weight: 600;
+	}
+	.screen :global(.dim) {
+		color: var(--al-screen-dim);
+	}
+	.screen :global(.ok) {
+		color: var(--al-green);
+	}
+	.screen :global(.warn) {
+		color: var(--al-amber);
+	}
+	.screen :global(.sel) {
+		background: rgb(224 160 48 / 0.16);
+		color: #fff;
+	}
+	.screen :global(.prompt) {
+		color: var(--al-amber);
+	}
+	.screen :global(.who) {
+		color: var(--al-screen-dim);
+		font-weight: 600;
+	}
+	.screen :global(.who.ai) {
+		color: var(--al-amber);
+	}
+	.screen :global(.tool) {
+		color: var(--al-green);
+	}
+	@media (max-width: 40rem) {
+		.screen {
+			height: 26rem;
+			font-size: 0.7rem;
+		}
+	}
+</style>

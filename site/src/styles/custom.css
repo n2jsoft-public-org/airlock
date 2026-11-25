@@ -1,0 +1,27 @@
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+@import '@fontsource/chakra-petch/600.css';
+
+/* Airlock signage: amber warning light, green "ready" lamp, slate hull. */
+:root {
+	--sl-font: 'IBM Plex Sans', system-ui, sans-serif;
+	--sl-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	--al-display: 'Chakra Petch', 'IBM Plex Sans', sans-serif;
+	--al-amber: #e0a030;
+	--al-green: #39c59a;
+	--al-hull: #0f1a24;
+	--al-hull-line: #253545;
+	--al-screen-fg: #d5dee7;
+	--al-screen-dim: #7c8b99;
+	--sl-color-accent-low: #3d2a07;
+	--sl-color-accent: #e0a030;
+	--sl-color-accent-high: #ffd58a;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #fbe7c0;
+	--sl-color-accent: #a86d00;
+	--sl-color-accent-high: #5c3a00;
+}

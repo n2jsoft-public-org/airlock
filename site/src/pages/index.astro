@@ -1,0 +1,322 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import CopyCommand from '../components/CopyCommand.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const doc = (page: string) => `${base}/${page}/`;
+
+const groups = [
+	{
+		title: 'Reach what you need',
+		items: [
+			['Guided wizard', 'Pick a recent connection, or go resource type, profile, target, review. Search every target of a profile in one list.'],
+			['Parallel sessions', 'Open as many tunnels as you need and switch between them with a keystroke. Local ports never collide.'],
+			['Direct and Docker databases', 'PostgreSQL, SQL Server, MySQL and MariaDB reached without a jumphost, or running in a local container.'],
+			['Project stacks', 'Commit .airlock.json with the targets an application needs; airlock up opens them all.'],
+			['Region aware', 'Switch region at any time from a searchable list: paris, eu-west, japan…'],
+		],
+	},
+	{
+		title: 'Let your assistant in, on your terms',
+		items: [
+			['MCP server per session', 'Databases, EKS, caches, DynamoDB, S3 and CloudWatch Logs, registered for Claude Code, VS Code, Codex, Cursor and Gemini CLI.'],
+			['Read-only by default', 'Writes stay off until you allow them. Connections an agent asks to open can wait for your approval.'],
+			['Audited', 'Every MCP call is shown live in the dashboard and written to a daily JSONL audit log.'],
+		],
+	},
+	{
+		title: 'Fit how your team works',
+		items: [
+			['Passwordless databases', 'RDS sign-in with short-lived IAM tokens. Password and Secrets Manager sign-in too, with an optional OS keychain.'],
+			['IDE integration', 'Each tunnel becomes an IntelliJ data source in .idea/dataSources.xml.'],
+			['Team settings', 'Share one config string with airlock config export and import.'],
+			['Organization config', 'Publish company conventions once, with locks on what must not change.'],
+		],
+	},
+];
+
+const routes = [
+	['Your tools and assistant', 'IDE, psql, kubectl, redis-cli, MCP clients'],
+	['airlock', 'localhost:<port> and an MCP server'],
+	['AWS Systems Manager', 'HTTPS 443, ssm:StartSession'],
+	['Jumphost', 'EC2, SSM Agent, no inbound port'],
+	['RDS, EKS, ElastiCache', 'in private subnets'],
+];
+
+const installs = [
+	{ id: 'unix', label: 'macOS and Linux', commands: ['curl -fsSL https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.sh | sh'] },
+	{
+		id: 'windows',
+		label: 'Windows',
+		commands: ['& ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.ps1)))'],
+	},
+	{
+		id: 'pm',
+		label: 'Package managers',
+		commands: [
+			'brew install --cask n2jsoft-public-org/tap/airlock',
+			'scoop bucket add n2jsoft https://github.com/n2jsoft-public-org/scoop-bucket && scoop install n2jsoft/airlock',
+			'winget install N2JSoft.Airlock',
+			'go install github.com/n2jsoft-public-org/airlock/cmd/airlock@latest',
+		],
+	},
+];
+---
+
+<StarlightPage
+	frontmatter={{
+		title: 'airlock',
+		description: 'One access point to your private resources, for you and your AI assistants.',
+		template: 'splash',
+		hero: {},
+		pagefind: false,
+	}}
+>
+	<div class="not-content landing">
+		<section>
+			<h2>How it reaches a private database</h2>
+			<p class="intro">
+				No VPN, no SSH keys, no open ports. For what sits in private subnets, airlock goes through Systems
+				Manager and a small jumphost. DynamoDB, S3 and CloudWatch Logs go through the AWS API; direct and
+				Docker databases need no jumphost at all.
+			</p>
+			<ol class="route">
+				{routes.map(([name, detail]) => (
+					<li>
+						<strong>{name}</strong>
+						<span>{detail}</span>
+					</li>
+				))}
+			</ol>
+			<p class="note">
+				Nothing is exposed to the internet: the jumphost has no public IP and no inbound rule.{' '}
+				<a href={doc('jumphost-setup')}>Set up a jumphost</a>
+			</p>
+		</section>
+
+		<section>
+			<h2>What you get</h2>
+			<div class="groups">
+				{groups.map((g) => (
+					<div class="group">
+						<h3>{g.title}</h3>
+						<dl>
+							{g.items.map(([term, text]) => (
+								<>
+									<dt>{term}</dt>
+									<dd>{text}</dd>
+								</>
+							))}
+						</dl>
+					</div>
+				))}
+			</div>
+		</section>
+
+		<section id="install">
+			<h2>Install it</h2>
+			<p class="intro">No Go and no GitHub account needed: the installer downloads the latest release for your machine.</p>
+			<div class="install" data-install>
+				<div class="install-tabs" role="tablist" aria-label="Platform">
+					{installs.map((p, i) => (
+						<button type="button" role="tab" id={`tab-${p.id}`} aria-controls={`panel-${p.id}`} aria-selected={i === 0 ? 'true' : 'false'}>
+							{p.label}
+						</button>
+					))}
+				</div>
+				{installs.map((p, i) => (
+					<div class="install-panel" role="tabpanel" id={`panel-${p.id}`} aria-labelledby={`tab-${p.id}`} hidden={i !== 0}>
+						{p.commands.map((c) => <CopyCommand command={c} />)}
+					</div>
+				))}
+			</div>
+			<p class="next">
+				Then open a new terminal and run <code>airlock</code>. Something not working? <code>airlock doctor</code>{' '}
+				checks the installation.{' '}<a href={doc('install')}>All install options</a>
+			</p>
+		</section>
+	</div>
+</StarlightPage>
+
+<script>
+	for (const root of document.querySelectorAll<HTMLElement>('[data-install]')) {
+		const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role=tab]')];
+		const select = (tab: HTMLButtonElement) => {
+			for (const t of tabs) {
+				const on = t === tab;
+				t.setAttribute('aria-selected', String(on));
+				document.getElementById(t.getAttribute('aria-controls')!)!.hidden = !on;
+			}
+		};
+		tabs.forEach((tab, i) => {
+			tab.addEventListener('click', () => select(tab));
+			tab.addEventListener('keydown', (e) => {
+				const move = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+				if (!move) return;
+				const next = tabs[(i + move + tabs.length) % tabs.length];
+				next.focus();
+				select(next);
+			});
+		});
+		// Preselect Windows for Windows visitors.
+		if (/Win/.test(navigator.platform)) select(tabs[1]);
+	}
+</script>
+
+<style>
+	.landing {
+		display: flex;
+		flex-direction: column;
+		gap: clamp(3rem, 8vw, 5.5rem);
+		padding-bottom: 3rem;
+	}
+	h2 {
+		font: 600 clamp(1.6rem, 3vw, 2.1rem) / 1.15 var(--al-display);
+		color: var(--sl-color-white);
+		margin: 0 0 0.75rem;
+	}
+	h3 {
+		font: 600 1.1rem/1.3 var(--al-display);
+		color: var(--sl-color-accent-high);
+		margin: 0 0 1rem;
+	}
+	.intro,
+	.note,
+	.next {
+		color: var(--sl-color-gray-2);
+		max-width: 44rem;
+		line-height: 1.6;
+		margin: 0 0 1.5rem;
+	}
+	.note,
+	.next {
+		margin: 1.25rem 0 0;
+		font-size: 0.95rem;
+	}
+	a {
+		color: var(--sl-color-accent-high);
+	}
+	code {
+		font: 0.88em var(--sl-font-mono);
+	}
+
+	/* The route reads left to right like the tunnel itself; the last hop is where the data lives. */
+	.route {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 1.5rem;
+	}
+	.route li {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.9rem 1rem;
+		border: 1px solid var(--sl-color-gray-5);
+		border-radius: 0.6rem;
+		background: var(--sl-color-gray-7, var(--sl-color-gray-6));
+	}
+	.route li:nth-child(2) {
+		border-color: var(--sl-color-accent);
+	}
+	.route li:last-child {
+		border-style: dashed;
+	}
+	.route li + li::before {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: -1.5rem;
+		width: 1.5rem;
+		border-top: 2px dotted var(--sl-color-accent);
+	}
+	.route strong {
+		color: var(--sl-color-white);
+		font-size: 0.95rem;
+	}
+	.route span {
+		color: var(--sl-color-gray-3);
+		font-size: 0.8rem;
+		line-height: 1.4;
+	}
+
+	.groups {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 2.5rem;
+	}
+	.group {
+		border-top: 2px solid var(--sl-color-accent);
+		padding-top: 1rem;
+	}
+	dl {
+		margin: 0;
+	}
+	dt {
+		color: var(--sl-color-white);
+		font-weight: 600;
+	}
+	dd {
+		margin: 0.2rem 0 1.1rem;
+		color: var(--sl-color-gray-2);
+		font-size: 0.92rem;
+		line-height: 1.55;
+	}
+
+	.install {
+		max-width: 52rem;
+	}
+	.install-tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin-bottom: 0.75rem;
+	}
+	.install-tabs button {
+		font: 600 0.85rem/1 var(--sl-font);
+		color: var(--sl-color-gray-3);
+		background: none;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		padding: 0.6rem 0.8rem;
+		cursor: pointer;
+	}
+	.install-tabs button[aria-selected='true'] {
+		color: var(--sl-color-white);
+		border-bottom-color: var(--sl-color-accent);
+	}
+	.install-tabs button:focus-visible {
+		outline: 2px solid var(--sl-color-accent);
+		outline-offset: 2px;
+	}
+	.install-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.install-panel[hidden] {
+		display: none;
+	}
+
+	@media (max-width: 60rem) {
+		.groups {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 1.5rem;
+		}
+		.route {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 1rem;
+		}
+		.route li + li::before {
+			top: -1rem;
+			left: 1.5rem;
+			width: 0;
+			height: 1rem;
+			border-top: 0;
+			border-left: 2px dotted var(--sl-color-accent);
+		}
+	}
+</style>
