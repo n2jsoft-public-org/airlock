@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/n2jsoft-public-org/airlock/internal/appdir"
@@ -292,16 +293,20 @@ func serveDaemon(ctx context.Context, log *daemonLog) error {
 	cfg, err := config.Load(configPath, org)
 	log.warnLookup("daemon.idleTimeout is ignored", err)
 	startGateway := startGatewayFunc(configPath, tokenDir, mcpLogDir, source, databases)
+	var refreshing sync.Once
 	return daemon.Run(ctx, &daemon.RunConfig{
 		Paths: paths, Version: version.String(), Runner: source.Source(), Log: log,
 		// The daemon holds its lock once it starts the gateway: a daemon that is not the running one
-		// never refreshes, nor writes to its log.
+		// never refreshes, nor writes to its log. The gateway is tried again until it starts: one
+		// refresh loop.
 		Gateway: func(ctx context.Context, env daemon.GatewayEnv) (daemon.Gateway, error) {
-			go func() {
-				ticker := time.NewTicker(orgconfig.RefreshInterval)
-				defer ticker.Stop()
-				refreshOrganizationEvery(ctx, orgs, configPath, ticker.C, env.Log)
-			}()
+			refreshing.Do(func() {
+				go func() {
+					ticker := time.NewTicker(orgconfig.RefreshInterval)
+					defer ticker.Stop()
+					refreshOrganizationEvery(ctx, orgs, configPath, ticker.C, env.Log)
+				}()
+			})
 			return startGateway(ctx, env)
 		},
 		IdleTimeout: cfg.DaemonIdleTimeout,

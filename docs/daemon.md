@@ -35,7 +35,7 @@ connections use the new values. For that reason, the setting flags `--jumphost-t
 The gateway line of `airlock daemon status` (`gateway   on http://127.0.0.1:7821/mcp, registered in …`)
 says where the gateway listens and which client files hold it, or why it is off or not registered.
 When the gateway could not start (its port in use, for example), the dashboard says so too as it
-connects to the daemon.
+connects to the daemon, which tries again every 15 seconds.
 `mcp.gateway.enabled`, `mcp.gateway.port`, `mcp.serverPrefix` and `mcp.clients` apply to the gateway at the next
 daemon start: run `airlock daemon restart`.
 
@@ -45,7 +45,9 @@ macOS, `~/.cache/airlock/daemon/daemon.sock` on Linux, or under `$XDG_CACHE_HOME
 `%LocalAppData%\airlock\daemon\daemon.sock` on Windows); on macOS and Linux, airlock refuses a
 daemon directory owned by another user. It logs to `daemon.log` in airlock's logs
 directory, next to the MCP query logs; the previous log is kept as `daemon.log.1`. A daemon that
-fails to start writes why there, and `airlock` quotes the end of it.
+fails to start writes why there, and `airlock` quotes the end of it. A daemon whose socket was
+replaced or removed (its cache directory cleared while it ran, then another daemon started) stops
+on its own within 10 seconds, freeing the gateway port for the new one.
 
 The IntelliJ data source and the MCP entries of a session are written in the directory of the
 terminal that opened it. An AWS sign-in during an opening runs in that terminal too. A session that

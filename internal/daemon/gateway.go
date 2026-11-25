@@ -37,12 +37,19 @@ type gatewayState struct {
 	gateway Gateway
 	off     string
 	mu      sync.Mutex
+	// closed tells that the daemon stops: a gateway started now is not kept.
+	closed bool
 }
 
-func (g *gatewayState) set(gateway Gateway, off string) {
+// set records the gateway, or why it is off; false once closed, gateway then left to the caller.
+func (g *gatewayState) set(gateway Gateway, off string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.closed {
+		return false
+	}
 	g.gateway, g.off = gateway, off
+	return true
 }
 
 func (g *gatewayState) status() string {
@@ -58,7 +65,7 @@ func (g *gatewayState) status() string {
 func (g *gatewayState) close(unregister bool) error {
 	g.mu.Lock()
 	gateway := g.gateway
-	g.gateway, g.off = nil, "off"
+	g.gateway, g.off, g.closed = nil, "off", true
 	g.mu.Unlock()
 	if gateway == nil {
 		return nil

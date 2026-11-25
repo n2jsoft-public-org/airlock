@@ -155,3 +155,32 @@ func TestRunningGivesUpOnADaemonThatNeverAnswers(t *testing.T) {
 		t.Fatalf("client = %v, err = %v after %v, want nil, nil within 3s", client, err, time.Since(start))
 	}
 }
+
+// A daemon whose lock file went away (the cache directory cleared, then an upgrade) is replaced by
+// the next one: it stops, freeing the gateway port, and leaves the socket of the new one in place.
+func TestReplacedDaemonStopsAndKeepsTheNewSocket(t *testing.T) {
+	check := socketCheckEvery
+	socketCheckEvery = 20 * time.Millisecond
+	t.Cleanup(func() { socketCheckEvery = check })
+	paths := testPaths(t)
+	done := runDaemon(t, paths, time.Hour)
+	if err := os.Remove(paths.Socket); err != nil {
+		t.Fatal(err)
+	}
+	newer, err := net.Listen("unix", paths.Socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { ignore(newer.Close()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a replaced daemon must stop")
+	}
+	if _, err := os.Stat(paths.Socket); err != nil {
+		t.Fatalf("the new daemon's socket was removed: %v", err)
+	}
+}
