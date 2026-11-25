@@ -73,7 +73,14 @@ func Run(ctx context.Context, cfg *RunConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", cfg.Paths.Socket, err)
 	}
-	defer func() { discard(os.Remove(cfg.Paths.Socket)) }()
+	ownSocket := socketOwner(listener, cfg.Paths.Socket)
+	// Removed only while it is this daemon's: a daemon that took over (its lock file gone with the
+	// cache directory) must stay reachable when this one stops.
+	defer func() {
+		if ownSocket() {
+			discard(os.Remove(cfg.Paths.Socket))
+		}
+	}()
 	if err := restrictSocket(cfg.Paths.Socket); err != nil {
 		discard(listener.Close())
 		return fmt.Errorf("failed to make the daemon socket %s private: %w", cfg.Paths.Socket, err)
@@ -109,19 +116,15 @@ func Run(ctx context.Context, cfg *RunConfig) error {
 		GatewayStatus: gateway.status,
 	})
 	go idle.watch(ctx, manager)
+	go watchSocket(ctx, ownSocket, func() {
+		logf("the daemon socket %s was replaced or removed: another daemon took over, stopping", cfg.Paths.Socket)
+		cancel()
+	})
 	// Logged before serving: a client that reaches the daemon finds its log already there.
 	logf("daemon %s started (pid %d)", cfg.Version, os.Getpid())
 	go func() { discard(server.Serve(listener)) }()
 	if cfg.Gateway != nil {
-		started, err := cfg.Gateway(ctx, GatewayEnv{Manager: manager, Activity: idle.activity, Log: logf})
-		switch {
-		case err != nil:
-			gateway.set(nil, "off: "+err.Error())
-			logf("MCP gateway not started: %v", err)
-		case started != nil:
-			gateway.set(started, "")
-			logf("MCP gateway started: %s", started.StatusWithoutToken())
-		}
+		go startGateway(ctx, cfg.Gateway, GatewayEnv{Manager: manager, Activity: idle.activity, Log: logf}, gateway)
 	}
 
 	<-ctx.Done()
@@ -135,6 +138,75 @@ func Run(ctx context.Context, cfg *RunConfig) error {
 	manager.Shutdown()
 	server.Close("daemon stopped")
 	return nil
+}
+
+// socketCheckEvery is how often a daemon checks that its socket is still its own.
+var socketCheckEvery = 10 * time.Second
+
+// gatewayRetryEvery is how often a gateway that could not start is tried again: its port may be
+// held by a daemon about to stop (one that another daemon took over, after an upgrade).
+var gatewayRetryEvery = 15 * time.Second
+
+// socketOwner reports whether path is still the socket listener made; always true when the socket
+// cannot be read (Windows), as before.
+func socketOwner(listener net.Listener, path string) func() bool {
+	if unix, ok := listener.(*net.UnixListener); ok {
+		// Close must not remove a socket another daemon put in its place.
+		unix.SetUnlinkOnClose(false)
+	}
+	mine, err := os.Stat(path)
+	if err != nil {
+		return func() bool { return true }
+	}
+	return func() bool {
+		info, err := os.Stat(path)
+		return err == nil && os.SameFile(info, mine)
+	}
+}
+
+// watchSocket calls superseded once the socket is no longer the daemon's: no client can reach it,
+// and its gateway would keep the port of the daemon that replaced it.
+func watchSocket(ctx context.Context, own func() bool, superseded func()) {
+	tick := time.NewTicker(socketCheckEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if !own() {
+				superseded()
+				return
+			}
+		}
+	}
+}
+
+// startGateway starts the gateway, trying again until it starts or ctx ends.
+func startGateway(ctx context.Context, start StartGatewayFunc, env GatewayEnv, state *gatewayState) {
+	for attempt := 0; ; attempt++ {
+		started, err := start(ctx, env)
+		switch {
+		case err == nil && started != nil:
+			if state.set(started, "") {
+				env.Log("MCP gateway started: %s", started.StatusWithoutToken())
+			} else {
+				discard(started.Close()) // the daemon stopped meanwhile.
+			}
+			return
+		case err == nil:
+			return
+		}
+		state.set(nil, fmt.Sprintf("off: %v (retrying every %s)", err, gatewayRetryEvery))
+		if attempt == 0 {
+			env.Log("MCP gateway not started, retrying every %s: %v", gatewayRetryEvery, err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(gatewayRetryEvery):
+		}
+	}
 }
 
 // idleWatch cancels the daemon once it had neither session nor view for its timeout.

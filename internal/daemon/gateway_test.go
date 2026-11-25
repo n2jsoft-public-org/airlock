@@ -60,7 +60,10 @@ func runDaemonWith(t *testing.T, paths Paths, idle time.Duration, gateway StartG
 		result <- Run(ctx, &RunConfig{Paths: paths, Version: "v-test", Runner: sessions.Fixed(runner),
 			Launch: sessionstest.NewLauncher().Launch, IdleTimeout: idle,
 			Gateway: func(ctx context.Context, env GatewayEnv) (Gateway, error) {
-				gotEnv <- env
+				select { // the first start only: a failed one is tried again.
+				case gotEnv <- env:
+				default:
+				}
 				return gateway(ctx, env)
 			}})
 	}()
@@ -112,8 +115,40 @@ func TestGatewayStartFailureKeepsTheDaemon(t *testing.T) {
 	}
 	defer func() { ignore(client.Close()) }()
 	status, err := client.Status(t.Context())
-	if err != nil || status.Gateway != "off: port 7821 in use" {
+	if err != nil || status.Gateway != "off: port 7821 in use (retrying every 15s)" {
 		t.Fatalf("status = %+v, %v", status, err)
+	}
+}
+
+// After an upgrade, the port may be held by the former daemon until it sees it was replaced.
+func TestGatewayIsRetriedUntilItStarts(t *testing.T) {
+	retry := gatewayRetryEvery
+	gatewayRetryEvery = 20 * time.Millisecond
+	t.Cleanup(func() { gatewayRetryEvery = retry })
+	paths := testPaths(t)
+	var attempts atomic.Int32
+	gw := &fakeGateway{status: "on", closed: make(chan struct{})}
+	runDaemonWith(t, paths, time.Hour, func(context.Context, GatewayEnv) (Gateway, error) {
+		if attempts.Add(1) < 3 {
+			return nil, errors.New("port 7821 in use")
+		}
+		return gw, nil
+	})
+	client, err := Dial(t.Context(), paths.Socket, "v-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { ignore(client.Close()) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status, err := client.Status(t.Context())
+		if err == nil && status.Gateway == "on" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status = %+v, %v after %d attempts", status, err, attempts.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
