@@ -232,7 +232,7 @@ airlock uninstall --yes     # do not ask (required without a terminal)
 |---|---|---|
 | The airlock binary | ✅ | ✅ |
 | The installer's PATH entry: the block in your shell profile, or the Windows user PATH entry and folder | ✅ when the folder holds nothing else | ✅ |
-| `~/.config/airlock` (`%AppData%\airlock`): settings, the gateway token (`gateway-token`), direct databases, recent connections, MCP query logs, kubeconfigs | | ✅ |
+| `~/.config/airlock` (`%AppData%\airlock`): settings, the gateway token (`gateway-token`), direct databases, recent connections, MCP query logs, database exports, kubeconfigs | | ✅ |
 | Database passwords saved in the OS keychain | | ✅ |
 
 The MCP gateway entry in the user-level files of your AI clients (`~/.claude.json`…) is removed too.

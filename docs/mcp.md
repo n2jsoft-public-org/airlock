@@ -13,8 +13,23 @@ straight at the server for direct databases, or through the AWS API for DynamoDB
 | `list_tables` | List the tables of a database |
 | `describe_table` | Show the columns of a table |
 | `query` | Run a single read-only `SELECT` / `WITH` (on MySQL also `SHOW`, `DESCRIBE`, `EXPLAIN`; 200 rows by default, `max_rows` up to 1000; 30 s timeout) |
+| `export` | Run a single read-only `SELECT` / `WITH`, validated like `query`, and write **all** its rows to a local file, CSV (default, with a header row, `NULL` as an empty field) or JSONL (`format`). The reply gives the path, row count, size, columns and format, never the rows. See below. |
 | `query_plan` | Execution plan of a single read-only `SELECT` / `WITH`, summarized: operators with estimated and actual rows, costs, predicates and warnings; on SQL Server also seeks, missing indexes, parameter values and the `STATISTICS IO` and `TIME` output; on PostgreSQL timings, buffers and changed settings; on MySQL and MariaDB access types, keys, filtered rows and timings. See below. |
 | `execute` | Run a statement that modifies data. **Only with `--mcp-allow-writes`.** |
+
+`export` is for results too large for `query`, or meant as the input of something else (the ids of
+a migration, a list to check against another server): no row cap and no 4 KB text cut, a 5 min
+timeout (the server's statement timeout is raised to match), and it stops at 1 GiB with
+`truncated: true`. The data stays on your machine, in a directory per MCP server (mode 0700, files
+0600):
+
+```
+~/.config/airlock/exports/<server>/<YYYYMMDD-HHMMSS>-<database>-<random>.csv   # $XDG_CONFIG_HOME/airlock when set
+```
+
+Exports are kept when the session closes, since they are used after the query: delete them when
+done (`airlock uninstall --purge` removes them with the rest of `~/.config/airlock`). Loading a
+local file back into `query` is not supported yet.
 
 `query_plan` has two modes on every engine: `actual` (default) runs the statement in a transaction
 always rolled back, `estimated` only plans it.

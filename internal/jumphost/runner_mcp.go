@@ -96,6 +96,7 @@ func (r *Runner) startMCP(ctx context.Context, options *Options, targetName stri
 			LocalPort:          localPort,
 			AllowWrites:        allowWrites,
 			LogDir:             r.mcpLogDir,
+			ExportDir:          r.mcpExportDir,
 			ServerPrefix:       r.mcpServerPrefix,
 			ReadOnlySecretTag:  r.readOnlySecretTag,
 			SkipRegistration:   options.SkipMCPRegistration,

@@ -51,6 +51,18 @@ func TestRecordingQuerierRecordsQuery(t *testing.T) {
 	}
 }
 
+func TestRecordingQuerierRecordsExport(t *testing.T) {
+	q, events := recorded(&fakeQuerier{})
+
+	if _, err := q.Export(context.Background(), "archive", "SELECT id FROM users", "csv"); err != nil {
+		t.Fatal(err)
+	}
+	e := onlyEvent(t, *events)
+	if e.Tool != "export" || e.Database != "archive" || e.SQL != "SELECT id FROM users" || e.Rows == nil || *e.Rows != 2000 {
+		t.Fatalf("event = %+v", e)
+	}
+}
+
 func TestRecordingQuerierRecordsRejectedQuery(t *testing.T) {
 	guardErr := CheckReadOnly(EnginePostgres, "DELETE FROM users")
 	if guardErr == nil {

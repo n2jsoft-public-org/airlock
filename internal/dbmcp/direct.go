@@ -23,9 +23,11 @@ type DirectConfig struct {
 	User     string
 	Password string
 	// LogDir receives the audit log of the MCP tool calls; empty disables it.
-	LogDir  string
-	Engine  Engine
-	Address Address
+	LogDir string
+	// ExportDir receives the files of the export tool (see SessionConfig.ExportDir).
+	ExportDir string
+	Engine    Engine
+	Address   Address
 	// SkipRegistration serves without writing the AI client files (see mcpserve.ServeConfig).
 	SkipRegistration bool
 	AllowWrites      bool
@@ -47,7 +49,7 @@ func StartDirect(host *mcpserve.Host, cfg *DirectConfig) (*Handle, error) {
 			Via:    "reached directly at " + cfg.Address.String() + ".",
 			Engine: cfg.Engine, AllowWrites: cfg.AllowWrites,
 		},
-		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, skipRegistration: cfg.SkipRegistration,
+		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, exportDir: cfg.ExportDir, skipRegistration: cfg.SkipRegistration,
 		onDatabases: cfg.OnDatabases,
 	})
 	if err != nil {

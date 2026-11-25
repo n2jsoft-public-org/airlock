@@ -3,6 +3,7 @@ package dbmcp
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -41,6 +42,8 @@ type SessionConfig struct {
 	ServerPrefix string
 	// LogDir receives the audit log of the MCP tool calls; empty disables it.
 	LogDir string
+	// ExportDir receives the files of the export tool, in a directory per server; empty disables it.
+	ExportDir string
 	// DBUser signs in with RDS IAM tokens (PostgreSQL), or with DBPassword when it is set.
 	DBUser string
 	// DBPassword is the password entered by the user instead of AWS IAM sign-in; empty when unused.
@@ -96,7 +99,7 @@ func Start(host *mcpserve.Host, cfg *SessionConfig) (*Handle, error) {
 			Name: name, Target: cfg.Target, Profile: cfg.Profile, Region: cfg.Region,
 			Engine: engine, AllowWrites: cfg.AllowWrites,
 		},
-		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, skipRegistration: cfg.SkipRegistration,
+		projectDir: cfg.ProjectDir, logDir: cfg.LogDir, exportDir: cfg.ExportDir, skipRegistration: cfg.SkipRegistration,
 		onDatabases: cfg.OnDatabases,
 	})
 	if err != nil {
@@ -113,6 +116,7 @@ type served struct {
 	onDatabases      func([]string, map[string][]string)
 	projectDir       string
 	logDir           string
+	exportDir        string
 	server           ServerConfig
 	addr             Address
 	skipRegistration bool
@@ -127,6 +131,10 @@ func serveDatabase(host *mcpserve.Host, s *served) (*Handle, error) {
 	}
 	recorder := mcpserve.NewRecorder(s.logDir)
 	inner := newQuerier(s.server.Engine, s.creds, s.addr)
+	if s.exportDir != "" {
+		// Exports stay after the session closes: they are made to be used once the query is done.
+		inner.exportDir = filepath.Join(s.exportDir, s.server.Name)
+	}
 	querier := &recordingQuerier{inner: inner, record: recorder.Record, onDatabases: s.onDatabases, base: mcpserve.ToolEvent{
 		Server: s.server.Name, Profile: s.server.Profile, Region: s.server.Region,
 		Target: s.server.Target, Engine: string(s.server.Engine), Access: access,

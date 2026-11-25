@@ -45,6 +45,12 @@ type queryInput struct {
 	MaxRows  int    `json:"max_rows,omitempty" jsonschema:"maximum number of rows to return (default 200, max 1000)"`
 }
 
+type exportInput struct {
+	SQL      string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement (on MySQL also SHOW, DESCRIBE or EXPLAIN)"`
+	Database string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
+	Format   string `json:"format,omitempty" jsonschema:"csv (default: a header row, NULL as an empty field) or jsonl (one JSON object per row)"`
+}
+
 type queryPlanInput struct {
 	SQL         string `json:"sql" jsonschema:"a single read-only SELECT or WITH statement, which may use parameters: $1, $2… on PostgreSQL, ? on MySQL, the declared ones on SQL Server"`
 	Database    string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
@@ -124,6 +130,19 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name: "export",
+		Description: "Run a single read-only SELECT or WITH statement and write all its rows to a local file, " +
+			"without returning them: the reply only gives the file path, row count, size and columns. For results " +
+			"too large for query or used as input elsewhere (e.g. ids for a migration): no row cap, no text cut, " +
+			"5 min timeout, stops at 1 GiB (truncated). The file (mode 0600) is kept after the session closes: " +
+			"delete it when done.",
+		Annotations: readOnly,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in exportInput) (*mcp.CallToolResult, any, error) {
+		result, err := q.Export(ctx, in.Database, in.SQL, in.Format)
+		return mcpserve.ToolResult(result, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name: "query_plan",
 		Description: "Get the execution plan of a single read-only SELECT or WITH statement: operators with estimated " +
 			"and actual rows, costs, predicates and warnings; on SQL Server also seeks, missing indexes, parameters, " +
@@ -164,7 +183,8 @@ func instructions(cfg *ServerConfig) string {
 	return fmt.Sprintf(
 		"Database %s (%s dialect), %s %s "+
 			"Explore with list_databases, list_tables and describe_table before writing queries. "+
-			"The query tool runs one SELECT/WITH statement and returns at most %d rows.%s",
+			"The query tool runs one SELECT/WITH statement and returns at most %d rows; export writes all of them "+
+			"to a local file instead, without returning them.%s",
 		cfg.Target, cfg.Engine.Dialect(), via, access, maxRowsLimit, planInstructions(cfg.Engine),
 	)
 }
