@@ -72,7 +72,7 @@ jobs:
       - name: Tag the release
         uses: cycjimmy/semantic-release-action@ad51787758d9654d5a75150a89a6fa9b3ccef95e # v8.1.4
         with:
-          semantic_version: 25.0.9
+          semantic_version: 26.0.1
           # The preset's 10.x needs conventional-changelog-writer 9; release-notes-generator 14 ships 8.
           extra_plugins: |
             conventional-changelog-conventionalcommits@9.3.1
