@@ -83,7 +83,8 @@ so the read-only guard reads statements as the server does. An IAM sign-in needs
 `run_script` takes `file_path`, the absolute path of a local `.sql` file (UTF-8, up to 16 MiB), or
 the script itself in `sql`. A large generated script then never goes through the assistant. The
 whole script runs in a transaction always rolled back, within `timeout_seconds` (60 s by default,
-600 s at most). A statement that fails does not stop the next ones: the reply gives its error and
+600 s at most). It also stops when the AI client gives up waiting (its own request timeout may be
+shorter), and when the session closes. A statement that fails does not stop the next ones: the reply gives its error and
 line, beside the result sets of the others (with at most `max_rows` rows in all). Every statement is
 checked before the first one runs.
 
