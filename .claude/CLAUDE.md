@@ -43,6 +43,8 @@ MCP servers for assistants. SSM port forwarding through a jumphost is one of the
 
 - Every push to `main` releases a semantic version `vX.Y.Z`, computed by semantic-release
   (`.releaserc.yaml`, run by `.github/workflows/release.yml`). Never create release tags by hand.
+  A push that changes only the website (`site/`, `.github/workflows/site.yml`) releases nothing:
+  `release.yml` ignores those paths.
 - Pull requests are squashed, so the PR title decides the version: it must be a conventional
   commit. Breaking change (`feat!:` or `BREAKING CHANGE:` in the body) → major, `feat` → minor,
   any other type (`fix`, `docs`, `chore`…) → patch. A non-conventional title releases nothing.
