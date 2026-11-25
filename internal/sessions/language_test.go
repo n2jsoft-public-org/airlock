@@ -18,10 +18,10 @@ func TestSessionsErrorsLocalize(t *testing.T) {
 	i18n.SetLanguage("fr")
 	t.Cleanup(func() { i18n.SetLanguage("en") })
 	_, err = m.Credentials(t.Context(), id)
-	if err == nil || err.Error() != "this session does not read its password from Secrets Manager" {
+	if err == nil || err.Error() != "this session has no password to show" {
 		t.Fatalf("Error() = %v, want English", err)
 	}
-	if got := i18n.Localize(err); got != "cette session ne lit pas son mot de passe dans Secrets Manager" {
+	if got := i18n.Localize(err); got != "cette session n'a pas de mot de passe à afficher" {
 		t.Fatalf("Localize = %q, want French", got)
 	}
 }

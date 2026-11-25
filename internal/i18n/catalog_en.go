@@ -851,7 +851,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"ui.hint.default_database":                 "default database",
 	"ui.hint.done":                             "done",
 	// internal/ui/ssm_password.go
-	"ui.ssm_password.this_session_does_not": "This session does not read its password from Secrets Manager",
+	"ui.ssm_password.this_session_does_not": "This session has no password to show",
 	"ui.ssm_password.no_credentials_found":  "No credentials found",
 	"ui.ssm_password.copy":                  "Copy",
 	"ui.ssm_password.hide":                  "Hide",
@@ -981,6 +981,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"ui.session.restart_failed":        "Could not restart: %v",
 	"ui.password.label_of":             "%s of %s",
 	"ui.password.reading_secrets":      " Reading the secrets...",
+	"ui.password.generating_token":     " Generating an AWS IAM token...",
+	"ui.password.token_validity":       "AWS IAM token valid 15 minutes: press p twice for a new one",
 	"ui.signin.docker_again":           "Enter the password again from `airlock docker %s`.",
 	"ui.signin.db_rejected":            "The database rejected the password of %s: enter it again.",
 	"ui.signin.cache_rejected":         "The cache rejected the password of %s: enter it again.",
@@ -1056,7 +1058,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	"config.organization.managed_neither":      "the managed config sets neither organizationConfig nor an inline organization config",
 	"config.organization.key_locked":           "%s is locked by the organization (%s): change it there",
 	// internal/sessions/manager.go
-	"sessions.manager.this_session_does_not": "this session does not read its password from Secrets Manager",
+	"sessions.manager.this_session_does_not": "this session has no password to show",
 	// internal/sessions/signin.go
 	"sessions.signin.no_database_credentials_found": "no database credentials found",
 	"sessions.standalone.not_ready":                 "%s is not ready after %s: the tunnel or the sign-in took too long",

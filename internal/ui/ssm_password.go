@@ -144,9 +144,15 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 	if m.password.hideFocused {
 		copyButton, hideButton = m.styles.Button, m.styles.ButtonFocus
 	}
+	// A session with an IAM token command signs in with AWS IAM: its password is a generated token.
+	iam := s.Details.TokenCommand != ""
 	switch {
 	case m.password.loading:
-		rows = append(rows, m.styles.Warning.Render(m.spinner()+i18n.T("ui.password.reading_secrets")))
+		loading := i18n.T("ui.password.reading_secrets")
+		if iam {
+			loading = i18n.T("ui.password.generating_token")
+		}
+		rows = append(rows, m.styles.Warning.Render(m.spinner()+loading))
 		copyButton = m.styles.Button
 	case m.password.err != nil:
 		rows = append(rows, lipgloss.NewStyle().Width(inner).Render(m.styles.Danger.Render("✗ "+i18n.Localize(m.password.err))))
@@ -163,6 +169,9 @@ func (m ssmModel) renderPasswordDialog(width int) string {
 			rows = append(rows, marker+m.styles.Faint.Render(strconv.Itoa(idx+1))+"  "+name+m.styles.Muted.Render(" · "+c.User))
 			rows = append(rows, m.passwordLines(c.Password, "     ", inner)...)
 		}
+	}
+	if iam && len(creds) > 0 {
+		rows = append(rows, "", lipgloss.NewStyle().Width(inner).Render(m.styles.Muted.Render(i18n.T("ui.password.token_validity"))))
 	}
 	rows = append(rows, "", copyButton.Render(i18n.T("ui.ssm_password.copy"))+"  "+hideButton.Render(i18n.T("ui.ssm_password.hide")))
 	return m.styles.ModalPanel.Width(dialogWidth).Render(strings.Join(rows, "\n"))

@@ -148,7 +148,7 @@ func (r *Runner) rememberSecretARN(ctx context.Context, options *Options, arn st
 	}
 }
 
-// DBCredentials is a database sign-in read from Secrets Manager.
+// DBCredentials is a database sign-in read from Secrets Manager, or a generated AWS IAM token.
 type DBCredentials struct {
 	// Database is the database the credentials are for; empty when the secret names none.
 	Database string
@@ -169,8 +169,9 @@ func (c DBCredentials) Label() string {
 
 // secretCredentialsReader returns a function reading the credentials target signs in with from
 // Secrets Manager: its picked secret, else, when it signs in with neither AWS IAM nor a typed
-// password, the read-only secrets of each database. It reads them again on each call, so rotated
-// secrets show their current value, and never keeps them. It returns nil when neither applies.
+// password, the read-only secrets of each database. A session signing in with AWS IAM gets a
+// fresh token as its password, for clients without IAM support. It reads them again on each call,
+// so rotated secrets show their current value, and never keeps them. It returns nil when none applies.
 func (r *Runner) secretCredentialsReader(cfg *aws.Config, instance string, target *ideTarget) func(ctx context.Context) ([]DBCredentials, error) {
 	switch secretID, user := target.DBSecretARN, target.DBUser; {
 	case secretID != "":
@@ -180,6 +181,15 @@ func (r *Runner) secretCredentialsReader(cfg *aws.Config, instance string, targe
 				return nil, i18n.NewError("jumphost.secrets.failed_to_read_secret", SecretDisplayName(secretID), err)
 			}
 			return []DBCredentials{{User: user, Password: secret.Password}}, nil
+		}
+	case target.IAMAuth && target.RDSHost != "":
+		host, port := target.RDSHost, target.RDSPort
+		return func(ctx context.Context) ([]DBCredentials, error) {
+			creds, err := dbmcp.IAMTokenCredentials(cfg, host, port, user, "").Credentials(ctx, "")
+			if err != nil {
+				return nil, err
+			}
+			return []DBCredentials{{User: user, Password: creds.Password}}, nil
 		}
 	case !target.IAMAuth && target.DBPassword == "" && target.InstanceARN != "" && !r.readOnlySecretTag.IsZero():
 		instanceARN, tag := target.InstanceARN, r.readOnlySecretTag

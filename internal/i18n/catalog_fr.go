@@ -851,7 +851,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"ui.hint.default_database":                 "base par défaut",
 	"ui.hint.done":                             "terminé",
 	// internal/ui/ssm_password.go
-	"ui.ssm_password.this_session_does_not": "Cette session ne lit pas son mot de passe dans Secrets Manager",
+	"ui.ssm_password.this_session_does_not": "Cette session n'a pas de mot de passe à afficher",
 	"ui.ssm_password.no_credentials_found":  "Aucun identifiant trouvé",
 	"ui.ssm_password.copy":                  "Copier",
 	"ui.ssm_password.hide":                  "Masquer",
@@ -981,6 +981,8 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"ui.session.restart_failed":        "Impossible de relancer : %v",
 	"ui.password.label_of":             "%s de %s",
 	"ui.password.reading_secrets":      " Lecture des secrets...",
+	"ui.password.generating_token":     " Génération d'un jeton AWS IAM...",
+	"ui.password.token_validity":       "Jeton AWS IAM valable 15 minutes : appuyez deux fois sur p pour en obtenir un nouveau",
 	"ui.signin.docker_again":           "Saisissez à nouveau le mot de passe depuis `airlock docker %s`.",
 	"ui.signin.db_rejected":            "La base a refusé le mot de passe de %s : saisissez-le à nouveau.",
 	"ui.signin.cache_rejected":         "Le cache a refusé le mot de passe de %s : saisissez-le à nouveau.",
@@ -1056,7 +1058,7 @@ Utilisez "{{.CommandPath}} [commande] --help" pour plus d'informations sur une c
 	"config.organization.managed_neither":      "la configuration gérée ne définit ni organizationConfig ni configuration d'organisation en ligne",
 	"config.organization.key_locked":           "%s est verrouillé par l'organisation (%s) : modifiez-le là-bas",
 	// internal/sessions/manager.go
-	"sessions.manager.this_session_does_not": "cette session ne lit pas son mot de passe dans Secrets Manager",
+	"sessions.manager.this_session_does_not": "cette session n'a pas de mot de passe à afficher",
 	// internal/sessions/signin.go
 	"sessions.signin.no_database_credentials_found": "aucun identifiant de base trouvé",
 	"sessions.standalone.not_ready":                 "%s n'est pas prête après %s : le tunnel ou la connexion a pris trop de temps",
