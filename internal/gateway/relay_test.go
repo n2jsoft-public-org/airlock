@@ -45,7 +45,7 @@ func TestRelayedToolsMirrorTheSessionTools(t *testing.T) {
 	for _, tool := range res.Tools {
 		tools[tool.Name] = tool
 	}
-	for _, name := range []string{"db_list_databases", "db_list_tables", "db_describe_table", "db_query", "db_export", "db_query_plan", "db_execute",
+	for _, name := range []string{"db_list_databases", "db_list_tables", "db_describe_table", "db_query", "db_export", "db_query_plan", "db_run_script", "db_execute",
 		"k8s_list_namespaces", "k8s_list_resource_types", "k8s_list_resources", "k8s_get_resource", "k8s_pod_logs", "k8s_list_events",
 		"cache_info", "cache_scan_keys", "cache_get_key", "cache_command", "cache_execute"} {
 		tool, ok := tools[name]
@@ -64,6 +64,9 @@ func TestRelayedToolsMirrorTheSessionTools(t *testing.T) {
 	}
 	if desc := tools["db_query_plan"].Description; !strings.Contains(desc, "SQL Server") || !strings.Contains(desc, "PostgreSQL") {
 		t.Fatalf("db_query_plan must serve both engines: %q", desc)
+	}
+	if desc := tools["db_run_script"].Description; !strings.Contains(desc, "SQL Server") || !strings.Contains(desc, "PostgreSQL") || !tools["db_run_script"].Annotations.ReadOnlyHint {
+		t.Fatalf("db_run_script must serve every engine, read-only: %q", desc)
 	}
 	if hint := tools["db_execute"].Annotations.DestructiveHint; hint == nil || !*hint {
 		t.Fatal("db_execute must keep its destructive hint")

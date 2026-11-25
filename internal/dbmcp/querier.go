@@ -79,6 +79,7 @@ type Querier interface {
 	Export(ctx context.Context, database, query, format string) (ExportResult, error)
 	Exec(ctx context.Context, database, statement string) (int64, error)
 	Plan(ctx context.Context, req *PlanRequest) (PlanResult, error)
+	Script(ctx context.Context, req *ScriptRequest) (ScriptResult, error)
 	Close() error
 }
 

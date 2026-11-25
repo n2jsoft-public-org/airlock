@@ -28,6 +28,9 @@ type ToolEvent struct {
 	Schema   string `json:"schema,omitempty"`
 	Table    string `json:"table,omitempty"`
 	SQL      string `json:"sql,omitempty"`
+	// File and SHA256 identify the script file a database script ran, in place of its SQL.
+	File   string `json:"file,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
 	// Namespace, Resource and Name describe Kubernetes tool calls.
 	Namespace string `json:"namespace,omitempty"`
 	Resource  string `json:"resource,omitempty"`
@@ -53,6 +56,8 @@ func (e *ToolEvent) Detail() string {
 	switch {
 	case e.SQL != "":
 		return e.SQL
+	case e.File != "":
+		return "script " + e.File
 	case e.Command != "":
 		return e.Command
 	case e.Resource == "":
