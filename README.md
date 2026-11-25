@@ -15,6 +15,7 @@ reached through an SSM jumphost, directly, in Docker or through the AWS API. You
 ![MCP](https://img.shields.io/badge/MCP-ready-7C3AED)
 ![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
+[Website](https://n2jsoft-public-org.github.io/airlock/) ·
 [Features](#-features) ·
 [Quick start](#-quick-start) ·
 [How it works](#-how-it-works) ·
@@ -184,6 +185,8 @@ airlock doctor                       # check the installation, the config and th
 `airlock --help` and `airlock <command> --help` list every command and flag.
 
 ## 📚 Documentation
+
+The same pages, with search, are on the [airlock website](https://n2jsoft-public-org.github.io/airlock/).
 
 | Page | What it covers |
 |---|---|
