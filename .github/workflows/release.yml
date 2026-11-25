@@ -6,6 +6,10 @@ on:
   push:
     branches:
       - main
+    # The website (site.yml) publishes itself: a push that changes only it releases nothing.
+    paths-ignore:
+      - site/**
+      - .github/workflows/site.yml
   workflow_dispatch:
 
 permissions:

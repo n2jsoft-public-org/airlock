@@ -90,6 +90,10 @@ the version**, whatever your branch's commits are called. It must be a
 | any other type: `fix: …`, `docs: …`, `chore: …`, `test: …`… | patch |
 | not a conventional commit | nothing |
 
+A pull request that changes only the website (`site/`, `.github/workflows/site.yml`) releases
+nothing, whatever its title: the release workflow ignores those paths and the site publishes
+itself.
+
 A pull request needs the `pr-ruleset` check to pass and a maintainer's approval before it is
 merged. Do not create version tags by hand: the release workflow does it. Dependency updates come from
 Renovate (`chore(deps): …`), configured in [`renovate.json`](renovate.json).
