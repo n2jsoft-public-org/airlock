@@ -31,7 +31,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-sql/sqlexp v0.1.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
