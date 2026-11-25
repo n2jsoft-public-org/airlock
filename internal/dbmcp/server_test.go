@@ -14,6 +14,7 @@ import (
 // fakeQuerier records tool calls and returns canned values.
 type fakeQuerier struct {
 	queryErr    error
+	lastScript  *ScriptRequest
 	lastSQL     string
 	lastDB      string
 	rows        [][]any
@@ -59,6 +60,14 @@ func (f *fakeQuerier) Exec(_ context.Context, _, statement string) (int64, error
 func (f *fakeQuerier) Plan(_ context.Context, req *PlanRequest) (PlanResult, error) {
 	f.lastDB, f.lastSQL = req.Database, req.SQL
 	return PlanResult{Mode: req.Mode, Statements: []StatementPlan{{Statement: req.SQL, Operators: []string{"Index Seek"}}}}, nil
+}
+
+func (f *fakeQuerier) Script(_ context.Context, req *ScriptRequest) (ScriptResult, error) {
+	f.lastScript = req
+	return ScriptResult{
+		ResultSets: []ScriptResultSet{{Result: Result{Columns: []string{"n"}, Rows: [][]any{{1}}, RowCount: 1}, Statement: 2}},
+		Errors:     []ScriptError{{Statement: 1, Line: 1, Error: "Invalid column name 'x'."}}, Statements: 2,
+	}, nil
 }
 
 func (*fakeQuerier) Close() error { return nil }
@@ -124,7 +133,7 @@ func TestServerReadOnlyTools(t *testing.T) {
 	session := connect(t, testServerConfig(false), &fakeQuerier{})
 
 	got := strings.Join(toolNames(t, session), ",")
-	if got != "describe_table,export,list_databases,list_tables,query,query_plan" {
+	if got != "describe_table,export,list_databases,list_tables,query,query_plan,run_script" {
 		t.Fatalf("tools = %s", got)
 	}
 	if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "read-only") || !strings.Contains(instructions, "profile dev") {
@@ -231,7 +240,8 @@ func TestInstructionsKeepTheTunnelText(t *testing.T) {
 	want := "Database app (PostgreSQL dialect), reached through an airlock SSM tunnel. AWS profile dev, region eu-west-3. " +
 		"Access is read-only. Explore with list_databases, list_tables and describe_table before writing queries. " +
 		"The query tool runs one SELECT/WITH statement and returns at most 1000 rows; export writes all of them " +
-		"to a local file instead, without returning them. " +
+		"to a local file instead, without returning them; run_script runs a read-only script, such as a " +
+		"local .sql file too large to pass inline. " +
 		"To analyze a slow query, get its plan with query_plan (EXPLAIN ANALYZE, rolled back), passing the values of $1, $2… " +
 		"the application sends; pg_stat_statements tells which queries cost the most, when installed."
 	if got := instructions(testServerConfig(false)); got != want {
@@ -256,7 +266,7 @@ func TestServerOffersQueryPlanToBothEngines(t *testing.T) {
 		testServerConfig(false),
 	} {
 		session := connect(t, cfg, &fakeQuerier{})
-		if got := strings.Join(toolNames(t, session), ","); got != "describe_table,export,list_databases,list_tables,query,query_plan" {
+		if got := strings.Join(toolNames(t, session), ","); got != "describe_table,export,list_databases,list_tables,query,query_plan,run_script" {
 			t.Fatalf("%s tools = %s", cfg.Engine, got)
 		}
 		if instructions := session.InitializeResult().Instructions; !strings.Contains(instructions, "query_plan") {

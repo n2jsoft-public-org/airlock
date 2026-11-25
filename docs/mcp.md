@@ -15,6 +15,7 @@ straight at the server for direct databases, or through the AWS API for DynamoDB
 | `query` | Run a single read-only `SELECT` / `WITH` (on MySQL also `SHOW`, `DESCRIBE`, `EXPLAIN`; 200 rows by default, `max_rows` up to 1000; 30 s timeout) |
 | `export` | Run a single read-only `SELECT` / `WITH`, validated like `query`, and write **all** its rows to a local file, CSV (default, with a header row, `NULL` as an empty field) or JSONL (`format`). The reply gives the path, row count, size, columns and format, never the rows. See below. |
 | `query_plan` | Execution plan of a single read-only `SELECT` / `WITH`, summarized: operators with estimated and actual rows, costs, predicates and warnings; on SQL Server also seeks, missing indexes, parameter values and the `STATISTICS IO` and `TIME` output; on PostgreSQL timings, buffers and changed settings; on MySQL and MariaDB access types, keys, filtered rows and timings. See below. |
+| `run_script` | Run a read-only script, from a local `.sql` file or inline, and return its result sets and the errors of the statements that failed. See below. |
 | `execute` | Run a statement that modifies data. **Only with `--mcp-allow-writes`.** |
 
 `export` is for results too large for `query`, or meant as the input of something else (the ids of
@@ -76,6 +77,29 @@ and `list_tables` lists every readable database when the session has none. Reads
 string ends (`ANSI_QUOTES`, `NO_BACKSLASH_ESCAPES` and the modes that include them, such as `ANSI`),
 so the read-only guard reads statements as the server does. An IAM sign-in needs a user created with
 `IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`.
+
+### Scripts
+
+`run_script` takes `file_path`, the absolute path of a local `.sql` file (UTF-8, up to 16 MiB), or
+the script itself in `sql`. A large generated script then never goes through the assistant. The
+whole script runs in a transaction always rolled back, within `timeout_seconds` (60 s by default,
+600 s at most). A statement that fails does not stop the next ones: the reply gives its error and
+line, beside the result sets of the others (with at most `max_rows` rows in all). Every statement is
+checked before the first one runs.
+
+- On **PostgreSQL**, **MySQL** and **MariaDB**, statements are separated by `;` and each must be a
+  read `query` accepts. The transaction is `READ ONLY`; on PostgreSQL each statement runs after a
+  savepoint, so that an error does not abort the next statements.
+- On **SQL Server**, `GO` lines separate batches. SQL Server has no read-only transaction, so each
+  batch is checked: besides `SELECT` and `WITH`, it may `DECLARE` and `SET` variables (and display
+  options such as `NOCOUNT`, `ANSI_NULLS` or `QUOTED_IDENTIFIER`), use `IF`,
+  `WHILE`, `BEGIN … END` and `TRY … CATCH`, and create, fill and drop temporary tables (`#name`)
+  and table variables (`@name`). Other writes, `EXEC`, transaction statements and global temporary
+  tables (`##name`) are refused, and a batch may not start with a procedure name. When an error
+  ends the transaction, the script stops. As for `query`, the check is a guardrail: the rolled-back
+  transaction and the login's grants remain the boundary.
+
+The audit log keeps the SQL of an inline script, and the path and SHA-256 of a script file.
 
 ## Kubernetes tools (EKS, always read-only)
 

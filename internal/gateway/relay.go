@@ -66,6 +66,9 @@ func kindOf(resourceType string) kind {
 var neutralDescriptions = map[string]string{
 	"db_query":   "Run a single read-only SELECT or WITH statement, in the session's SQL dialect (see about in list_sessions), and return its rows.",
 	"db_execute": "Run a single statement that may modify data or schema, in the session's SQL dialect. Only for sessions opened with writes. Confirm with the user first.",
+	"db_run_script": "Run a read-only script, from a local .sql file or inline, in a transaction always rolled back, and return its result sets with the errors of the statements that failed, which do not stop the next ones. " +
+		"On PostgreSQL and MySQL: read statements separated by ';', in a read-only transaction. " +
+		"On SQL Server: batches separated by GO lines, which may also DECLARE and SET @variables, use IF, WHILE and TRY … CATCH, and create, fill and drop temporary tables (#name) and table variables (@name); EXEC and transaction statements are refused.",
 }
 
 // prototype builds the server of k with writes on and nothing to reach: its tools are those the
@@ -138,6 +141,7 @@ func (r *relay) recordRefusal(tool string, id sessions.ID, args map[string]any, 
 	if strings.HasPrefix(tool, string(kindDB)+"_") {
 		e.SQL, _ = args["sql"].(string)           //nolint:errcheck // absent or not text: none.
 		e.Database, _ = args["database"].(string) //nolint:errcheck // absent or not text: none.
+		e.File, _ = args["file_path"].(string)    //nolint:errcheck // absent or not text: none.
 	}
 	r.record(e)
 }

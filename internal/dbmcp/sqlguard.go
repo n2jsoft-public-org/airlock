@@ -93,11 +93,21 @@ func readStatements(engine Engine) string {
 }
 
 // stripLiterals replaces comments, string literals and quoted identifiers with spaces,
-// so that keywords and semicolons inside them are ignored.
+// so that keywords and semicolons inside them are ignored. The result has the runes and lines of
+// query at the same positions, so that splitScript can cut query where it cuts the result.
 func stripLiterals(engine Engine, query string) (string, error) {
 	mysqlFamily := engine.mysqlFamily()
 	var out strings.Builder
 	runes := []rune(query)
+	blank := func(from, to int) {
+		for _, r := range runes[from:to] {
+			if r == '\n' {
+				out.WriteRune(r)
+			} else {
+				out.WriteRune(' ')
+			}
+		}
+	}
 	for i := 0; i < len(runes); {
 		c := runes[i]
 		next := rune(0)
@@ -106,10 +116,11 @@ func stripLiterals(engine Engine, query string) (string, error) {
 		}
 		switch {
 		case (c == '-' && next == '-' && (!mysqlFamily || mysqlDashComment(runes, i))) || (c == '#' && mysqlFamily):
+			start := i
 			for i < len(runes) && runes[i] != '\n' {
 				i++
 			}
-			out.WriteRune(' ')
+			blank(start, i)
 		case c == '/' && next == '*' && mysqlFamily:
 			// MySQL runs the content of /*! */ (and MariaDB of /*M! */) comments, and does not nest them.
 			if i+2 < len(runes) && (runes[i+2] == '!' || (runes[i+2] == 'M' && i+3 < len(runes) && runes[i+3] == '!')) {
@@ -119,9 +130,10 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			if end < 0 {
 				return "", errors.New("unterminated comment")
 			}
+			blank(i, end+2)
 			i = end + 2
-			out.WriteRune(' ')
 		case c == '/' && next == '*':
+			start := i
 			depth := 0
 			for i < len(runes) {
 				if runes[i] == '/' && i+1 < len(runes) && runes[i+1] == '*' {
@@ -142,7 +154,7 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			if depth != 0 {
 				return "", errors.New("unterminated comment")
 			}
-			out.WriteRune(' ')
+			blank(start, i)
 		case c == '"' && engine == EnginePostgres && i >= 2 && runes[i-1] == '&' && (runes[i-2] == 'U' || runes[i-2] == 'u'):
 			return "", errors.New(`identifiers with Unicode escapes (U&"...") are not allowed`)
 		case c == '\'' || c == '"' || (c == '[' && engine == EngineSQLServer) || (c == '`' && mysqlFamily):
@@ -164,10 +176,11 @@ func stripLiterals(engine Engine, query string) (string, error) {
 				return "", errors.New("unterminated quoted text")
 			}
 			identifier := c == '[' || c == '`' || (c == '"' && !mysqlFamily)
+			// The names of sideEffectFunctions are ASCII: " NAME " has the length of the quoted name.
 			if name := strings.ToUpper(string(runes[i+1 : end])); identifier && sideEffectFunctions[name] {
 				out.WriteString(" " + name + " ")
 			} else {
-				out.WriteRune(' ')
+				blank(i, end+1)
 			}
 			i = end + 1
 		case c == '$' && engine == EnginePostgres:
@@ -188,8 +201,8 @@ func stripLiterals(engine Engine, query string) (string, error) {
 			if end < 0 {
 				return "", errors.New("unterminated dollar-quoted text")
 			}
+			blank(i, end+len(tag))
 			i = end + len(tag)
-			out.WriteRune(' ')
 		default:
 			out.WriteRune(c)
 			i++
@@ -274,6 +287,12 @@ func indexRunes(runes []rune, from int, needle []rune) int {
 // 1DELETE as 1 then DELETE, MySQL 1e0INTO as 1e0 then INTO. Engines differ on how much of a number
 // they read (1E, 1.E5, 0x1F), so the word after each possible end of a number is returned.
 func keywords(code string) []string {
+	return tokens(code, false)
+}
+
+// tokens is keywords, and with names also returns T-SQL #temp tables and @variables as one word
+// (#T, @@ROWCOUNT) and the punctuation that tells where a name ends: commas, periods and parentheses.
+func tokens(code string, names bool) []string {
 	runes := []rune(strings.ToUpper(code))
 	var words []string
 	word := func(from int) int {
@@ -296,6 +315,18 @@ func keywords(code string) []string {
 			i = ends[len(ends)-1]
 		case isWordRune(runes[i]):
 			i = word(i)
+		case names && (runes[i] == '#' || runes[i] == '@'):
+			start := i
+			for i < len(runes) && (runes[i] == '#' || runes[i] == '@') {
+				i++
+			}
+			for i < len(runes) && isWordRune(runes[i]) {
+				i++
+			}
+			words = append(words, string(runes[start:i]))
+		case names && strings.ContainsRune(",.()", runes[i]):
+			words = append(words, string(runes[i]))
+			i++
 		default:
 			i++
 		}

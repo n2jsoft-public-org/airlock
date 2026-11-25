@@ -3,6 +3,7 @@ package dbmcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
@@ -13,6 +14,9 @@ const (
 	serverVersion  = "1.0.0"
 	defaultMaxRows = 200
 	maxRowsLimit   = 1000
+	// defaultScriptTimeout and maxScriptTimeout bound a run_script call, in seconds.
+	defaultScriptTimeout = 60
+	maxScriptTimeout     = 600
 )
 
 // ServerConfig describes the session an MCP server gives access to.
@@ -59,6 +63,14 @@ type queryPlanInput struct {
 	Values      []any  `json:"values,omitempty" jsonschema:"one value per parameter, in order: string, number, boolean or null"`
 	IncludeXML  bool   `json:"include_xml,omitempty" jsonschema:"SQL Server only: also return the raw showplan XML, to save as a .sqlplan file for SSMS"`
 	IncludeJSON bool   `json:"include_json,omitempty" jsonschema:"PostgreSQL and MySQL: also return the raw EXPLAIN JSON output, for plan visualizers (MySQL's actual plans only from 8.3: before, they are a text tree)"`
+}
+
+type runScriptInput struct {
+	FilePath       string `json:"file_path,omitempty" jsonschema:"absolute path of a local .sql file (UTF-8) holding the script; or give sql"`
+	SQL            string `json:"sql,omitempty" jsonschema:"the script itself, when it is not in a file"`
+	Database       string `json:"database,omitempty" jsonschema:"database name; defaults to the session's default database"`
+	MaxRows        int    `json:"max_rows,omitempty" jsonschema:"maximum number of rows to return, over every result set (default 200, max 1000)"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"time the whole script may take, in seconds (default 60, max 600)"`
 }
 
 type executeInput struct {
@@ -157,6 +169,23 @@ func NewServer(cfg *ServerConfig, q Querier) *mcp.Server {
 		return mcpserve.ToolResult(result, err)
 	})
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "run_script",
+		Description: scriptDescription(cfg.Engine),
+		Annotations: readOnly,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runScriptInput) (*mcp.CallToolResult, any, error) {
+		script, file, err := readScript(in.FilePath, in.SQL)
+		if err != nil {
+			return mcpserve.ToolResult(nil, err)
+		}
+		result, err := q.Script(ctx, &ScriptRequest{
+			Database: in.Database, SQL: script, File: file,
+			MaxRows: mcpserve.Limit(in.MaxRows, defaultMaxRows, maxRowsLimit),
+			Timeout: time.Duration(mcpserve.Limit(in.TimeoutSeconds, defaultScriptTimeout, maxScriptTimeout)) * time.Second,
+		})
+		return mcpserve.ToolResult(result, err)
+	})
+
 	if cfg.AllowWrites {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "execute",
@@ -184,9 +213,22 @@ func instructions(cfg *ServerConfig) string {
 		"Database %s (%s dialect), %s %s "+
 			"Explore with list_databases, list_tables and describe_table before writing queries. "+
 			"The query tool runs one SELECT/WITH statement and returns at most %d rows; export writes all of them "+
-			"to a local file instead, without returning them.%s",
+			"to a local file instead, without returning them; run_script runs a read-only script, such as a "+
+			"local .sql file too large to pass inline.%s",
 		cfg.Target, cfg.Engine.Dialect(), via, access, maxRowsLimit, planInstructions(cfg.Engine),
 	)
+}
+
+// scriptDescription describes run_script on engine.
+func scriptDescription(engine Engine) string {
+	const source = "from a local .sql file or inline, in a transaction always rolled back, and return its result sets with the errors of the statements that failed, which do not stop the next ones."
+	if engine == EngineSQLServer {
+		return "Run a read-only T-SQL script, " + source + " GO lines separate its batches. Besides SELECT and WITH, " +
+			"a batch may DECLARE and SET @variables, use IF, WHILE, BEGIN … END and TRY … CATCH, and create, fill " +
+			"and drop temporary tables (#name) and table variables (@name); EXEC and transaction statements are refused."
+	}
+	return fmt.Sprintf("Run a read-only %s script of %s statements separated by ';', %s The transaction is read-only.",
+		engine.Dialect(), readStatements(engine), source)
 }
 
 func planInstructions(engine Engine) string {

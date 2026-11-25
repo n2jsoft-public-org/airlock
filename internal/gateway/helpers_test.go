@@ -102,6 +102,12 @@ func (q *fakeQuerier) Plan(_ context.Context, req *dbmcp.PlanRequest) (dbmcp.Pla
 	q.queries = append(q.queries, req.SQL)
 	return dbmcp.PlanResult{Mode: req.Mode, Statements: []dbmcp.StatementPlan{}}, nil
 }
+func (q *fakeQuerier) Script(_ context.Context, req *dbmcp.ScriptRequest) (dbmcp.ScriptResult, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.queries = append(q.queries, req.SQL)
+	return dbmcp.ScriptResult{ResultSets: []dbmcp.ScriptResultSet{}, Errors: []dbmcp.ScriptError{}, Statements: 1}, nil
+}
 func (q *fakeQuerier) Close() error { return nil }
 
 func (q *fakeQuerier) ran() []string {

@@ -2,6 +2,9 @@ package dbmcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 
 	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
 )
@@ -98,6 +101,32 @@ func (q *recordingQuerier) Plan(ctx context.Context, req *PlanRequest) (PlanResu
 		rows = *result.RowCount
 	}
 	done(rows, err)
+	return result, err
+}
+
+// Script records the SQL of an inline script, and the path and SHA-256 of a script file, which
+// can be large.
+func (q *recordingQuerier) Script(ctx context.Context, req *ScriptRequest) (ScriptResult, error) {
+	e, done := q.start("run_script")
+	e.Database, e.MaxRows = req.Database, req.MaxRows
+	if req.File == "" {
+		e.SQL = req.SQL
+	} else {
+		sum := sha256.Sum256([]byte(req.SQL))
+		e.File, e.SHA256 = req.File, hex.EncodeToString(sum[:])
+	}
+	result, err := q.inner.Script(ctx, req)
+	var rows int
+	if err == nil {
+		for idx := range result.ResultSets {
+			rows += result.ResultSets[idx].RowCount
+		}
+		e.Truncated = result.Truncated
+		if len(result.Errors) > 0 {
+			e.Error = fmt.Sprintf("%d of %d statements failed", len(result.Errors), result.Statements)
+		}
+	}
+	done(int64(rows), err)
 	return result, err
 }
 
