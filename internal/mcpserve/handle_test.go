@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -118,5 +119,42 @@ func TestServeWithoutRegistrationWritesNoFile(t *testing.T) {
 	}
 	if !strings.Contains(handle.Display(), "MCP gateway") {
 		t.Fatalf("display = %q", handle.Display())
+	}
+}
+
+// Closing an MCP session waits for its running calls: Close cancels them, or stopping a session
+// (under the sessions' lock, in the daemon) waits for its longest query.
+func TestCloseCancelsRunningCalls(t *testing.T) {
+	useIsolatedLocks(t)
+	useFakeHome(t, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1"}, nil)
+	started := make(chan struct{})
+	mcp.AddTool(server, &mcp.Tool{Name: "slow"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, struct{}, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, struct{}{}, ctx.Err()
+	})
+	handle, err := Serve(NewHostFor(mustParse(t, "claude:user")), &ServeConfig{Server: server, Recorder: NewRecorder(""), Name: "airlock-dev-db", SkipRegistration: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Connected in-process, like the gateway's relay.
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	if _, err = server.Connect(context.Background(), serverTransport, nil); err != nil {
+		t.Fatal(err)
+	}
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "1"}, nil).Connect(context.Background(), clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()                                                           //nolint:errcheck // the server is gone.
+	go func() { _, _ = client.CallTool(context.Background(), &mcp.CallToolParams{Name: "slow"}) }() //nolint:errcheck // canceled by Close.
+	<-started
+	closed := make(chan struct{})
+	go func() { handle.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close waited for the running call")
 	}
 }

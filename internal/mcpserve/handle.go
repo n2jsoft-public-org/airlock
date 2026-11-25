@@ -1,6 +1,7 @@
 package mcpserve
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -58,8 +59,13 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 		return nil, err
 	}
 	slug := cfg.Name + "-" + suffix
+	// Closing the MCP sessions waits for their running calls: the release cancels them first, or
+	// stopping a session waits for its longest query.
+	closing, cancelCalls := context.WithCancel(context.Background())
+	cfg.Server.AddReceivingMiddleware(CancelWith(func(context.Context) context.Context { return closing }))
 	endpoint, err := host.Mount(slug, cfg.Server)
 	if err != nil {
+		cancelCalls()
 		if cfg.Cleanup != nil {
 			err = errors.Join(err, cfg.Cleanup())
 		}
@@ -94,6 +100,7 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 		display:     display,
 		allowWrites: cfg.AllowWrites,
 		release: func() string {
+			cancelCalls()
 			var removed []string
 			var unregisterErr error
 			if !cfg.SkipRegistration {
@@ -112,6 +119,23 @@ func Serve(host *Host, cfg *ServeConfig) (*Handle, error) {
 			return fmt.Sprintf("MCP server %q stopped and removed from %s", cfg.Name, RelativeTo(cfg.ProjectDir, removed))
 		},
 	}, nil
+}
+
+// CancelWith is a middleware canceling each request once the context of returns for it ends; of
+// may return nil to leave a request alone.
+func CancelWith(of func(ctx context.Context) context.Context) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			done := of(ctx)
+			if done == nil {
+				return next(ctx, method, req)
+			}
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			defer context.AfterFunc(done, cancel)()
+			return next(ctx, method, req)
+		}
+	}
 }
 
 // ServerProvider is a session MCP server the gateway relays to, in-process.

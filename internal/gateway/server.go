@@ -107,6 +107,7 @@ func Start(ctx context.Context, cfg *Config) (*Gateway, error) {
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: cfg.Name, Version: serverVersion}, &mcp.ServerOptions{Instructions: instructions})
 	g.tools.add(server)
+	server.AddReceivingMiddleware(mcpserve.CancelWith(httpRequestContext))
 	if err = g.relay.add(ctx, server); err != nil {
 		cancel()
 		return nil, errors.Join(err, listener.Close())
@@ -140,8 +141,18 @@ func (g *Gateway) authorize(next http.Handler) http.Handler {
 		if g.cfg.Activity != nil {
 			g.cfg.Activity()
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), httpRequestKey{}, r.Context())))
 	})
+}
+
+// httpRequestKey holds the context of the HTTP request carrying an MCP request: in stateless mode
+// the SDK does not cancel the handler when the client gives up (its request timeout), so a long
+// query would keep running, and holding its session, for nobody.
+type httpRequestKey struct{}
+
+func httpRequestContext(ctx context.Context) context.Context {
+	r, _ := ctx.Value(httpRequestKey{}).(context.Context) //nolint:errcheck // absent: not served over HTTP.
+	return r
 }
 
 // URL is where the gateway answers.
