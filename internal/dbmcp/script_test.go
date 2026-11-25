@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/n2jsoft-public-org/airlock/internal/mcpserve"
@@ -121,7 +122,7 @@ func TestCheckScriptBatchRefusesWrites(t *testing.T) {
 
 func TestScriptRunsSQLServerBatchesAndGoesOnAfterAnError(t *testing.T) {
 	q, db, _ := newTestQuerier(&sqlServerDialect, staticCreds{fallback: "app"})
-	db.answers["SELECT bad"] = fakeAnswer{err: errors.New("Invalid column name 'bad'.")}
+	db.answers["SELECT bad"] = fakeAnswer{err: mssql.Error{Number: 207, Message: "Invalid column name 'bad'."}}
 	db.answer("SELECT XACT_STATE()", []string{""}, []driver.Value{int64(1)})
 	db.answer("SELECT * FROM #r", []string{"id"}, []driver.Value{int64(1)}, []driver.Value{int64(2)})
 
@@ -135,7 +136,7 @@ func TestScriptRunsSQLServerBatchesAndGoesOnAfterAnError(t *testing.T) {
 		!reflect.DeepEqual(result.ResultSets[0].Rows, [][]any{{int64(1)}}) {
 		t.Fatalf("result = %+v", result)
 	}
-	if !reflect.DeepEqual(result.Errors, []ScriptError{{Statement: 2, Line: 3, Error: "Invalid column name 'bad'."}}) {
+	if !reflect.DeepEqual(result.Errors, []ScriptError{{Statement: 2, Line: 3, Error: "mssql: Invalid column name 'bad'. (207)"}}) {
 		t.Fatalf("errors = %+v", result.Errors)
 	}
 	want := []string{"BEGIN", "SET LOCK_TIMEOUT 5000", "CREATE TABLE #r (id int)", "SELECT bad FROM dbo.t", "SELECT XACT_STATE()", "SELECT * FROM #r", "ROLLBACK"}
