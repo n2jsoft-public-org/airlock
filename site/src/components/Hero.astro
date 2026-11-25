@@ -1,0 +1,98 @@
+---
+// Replaces Starlight's hero; only the landing page sets `hero`.
+import CopyCommand from './CopyCommand.astro';
+import TerminalDemo from './TerminalDemo.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<section class="hero">
+	<div class="pitch">
+		<h1>One access point to your private resources</h1>
+		<p class="lede">For you and your AI assistants.</p>
+		<p>
+			Databases, EKS clusters, caches, DynamoDB, S3 and CloudWatch Logs on AWS, without a VPN or SSH
+			bastion. Run <code>airlock</code>, pick a target, and your tools get it on <code>localhost</code>.
+			Your assistant gets guarded MCP tools, read-only unless you allow writes.
+		</p>
+		<CopyCommand command="curl -fsSL https://raw.githubusercontent.com/n2jsoft-public-org/airlock/main/install.sh | sh" />
+		<div class="actions">
+			<a class="primary" href={`${base}/install/`}>Read the docs</a>
+			<a class="secondary" href="https://github.com/n2jsoft-public-org/airlock">View on GitHub</a>
+		</div>
+	</div>
+	<TerminalDemo />
+</section>
+
+<style>
+	.hero {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+		gap: clamp(2rem, 5vw, 4rem);
+		align-items: center;
+		padding-block: clamp(1.5rem, 5vw, 4rem) 2rem;
+	}
+	.pitch {
+		display: flex;
+		flex-direction: column;
+		gap: 1.1rem;
+		min-width: 0;
+	}
+	h1 {
+		font: 600 clamp(2.2rem, 4.6vw, 3.5rem) / 1.05 var(--al-display);
+		letter-spacing: -0.01em;
+		color: var(--sl-color-white);
+		margin: 0;
+		text-wrap: balance;
+	}
+	.lede {
+		font: 600 clamp(1.15rem, 2vw, 1.4rem) / 1.3 var(--al-display);
+		color: var(--sl-color-accent-high);
+		margin: 0;
+	}
+	p {
+		margin: 0;
+		color: var(--sl-color-gray-2);
+		max-width: 34rem;
+		line-height: 1.6;
+	}
+	p code {
+		font-size: 0.9em;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+	.actions a {
+		font-weight: 600;
+		text-decoration: none;
+		padding: 0.65rem 1.1rem;
+		border-radius: 0.5rem;
+	}
+	.primary {
+		background: var(--sl-color-accent);
+		color: var(--sl-color-black);
+	}
+	.primary:hover {
+		background: var(--sl-color-accent-high);
+		color: var(--sl-color-black);
+	}
+	.secondary {
+		color: var(--sl-color-white);
+		border: 1px solid var(--sl-color-gray-5);
+	}
+	.secondary:hover {
+		border-color: var(--sl-color-accent);
+		color: var(--sl-color-white);
+	}
+	.actions a:focus-visible {
+		outline: 2px solid var(--sl-color-accent);
+		outline-offset: 2px;
+	}
+	@media (max-width: 60rem) {
+		.hero {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+</style>
